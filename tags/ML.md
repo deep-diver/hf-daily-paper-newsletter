@@ -1,1 +1,2 @@
 - [Does GPT-4 Pass the Turing Test?](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/2/2023-10-31+Does+GPT-4+Pass+the+Turing+Test%3F.yaml) / 2023-10-31 00:00
+- [Battle of the Backbones: A Large-Scale Comparison of Pretrained Models across Computer Vision Tasks](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/5/2023-10-30+Battle+of+the+Backbones%3A+A+Large-Scale+Comparison+of+Pretrained+Models+across+Computer+Vision+Tasks.yaml) / 2023-10-30 00:00
