@@ -1,0 +1,104 @@
+name: Setup
+on: push
+
+jobs:
+  setup:
+    if: (github.event.commits[0].message == 'Initial commit') && (github.run_number == 1)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v1
+        with:
+          python-version: 3.11
+
+      - name: Set up GO
+        uses: actions/setup-go@v2
+        with:
+          go-version: "1.16"
+
+      - name: Copy Repository Contents
+        uses: actions/checkout@v2
+
+      - name: remove old files
+        run: |
+          cd src
+          rm go.mod go.sum
+          
+      - name: remove unnecessary files
+        run: |
+          rm .github/workflows/ci.yml
+          rm .github/workflows/setup.yml
+          rm src/internal/*_test.go
+
+      - name: modify files
+        run: |
+          import re, os
+          from pathlib import Path
+          from configparser import ConfigParser
+          nwo = os.getenv('GITHUB_REPOSITORY')
+          username, repo_name = nwo.split('/')
+
+          config_path = Path('configs.yaml')
+          current_go_path = Path('src/cmd/current.go')
+          main_go_path = Path('src/main.go')
+          readme_path = Path('README.md')
+          main_go_template_path = Path('templates/main_contents.gohtml')
+
+          config = config_path.read_text().replace('codingpot/newsletter_awesome_articles', username + '/' + repo_name)
+          current_go = current_go_path.read_text().replace('codingpot/newsletter_awesome_articles', username + '/' + repo_name)
+          main_go = main_go_path.read_text().replace('codingpot/newsletter_awesome_articles', username + '/' + repo_name)
+          readme = readme_path.read_text().replace('codingpot/newsletter_awesome_articles', username + '/' + repo_name)
+          main_go_template = main_go_template_path.read_text().replace('codingpot/newsletter_awesome_articles', username + '/' + repo_name)
+
+          config_path.write_text(config)
+          current_go_path.write_text(current_go)
+          main_go_path.write_text(main_go)
+          readme_path.write_text(readme)
+          main_go_template_path.write_text(main_go_template)
+        shell: python
+
+      - name: get unsername and reponame
+        env:
+          ACTIONS_ALLOW_UNSECURE_COMMANDS: "true"
+        run: |
+          export username="$(cut -d'/' -f1 <<<$GITHUB_REPOSITORY)"
+          export repo_name="$(cut -d'/' -f2 <<<$GITHUB_REPOSITORY)"
+          echo "::set-env name=username::$username"
+          echo "::set-env name=repo_name::$repo_name"
+      - name: go mod && tidy
+        env:
+          ACTIONS_ALLOW_UNSECURE_COMMANDS: "true"
+        run: |
+          cd src
+          echo github.com/$username/$repo_name
+          go mod init github.com/$username/$repo_name
+          go mod tidy
+
+      - name: commit changes
+        run: |
+          git config --global user.email "${GH_EMAIL}"
+          git config --global user.name "${GH_USERNAME}"
+          git checkout -B automated-setup
+          git rm .github/workflows/setup.yml
+          git add .
+          git commit -m'setup repo'
+          git push -f --set-upstream origin automated-setup
+        env:
+          GH_EMAIL: ${{ github.event.commits[0].author.email }}
+          GH_USERNAME: ${{ github.event.commits[0].author.username }}
+
+      - name: Open a PR
+        uses: actions/github-script@0.5.0
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            var fs = require('fs');
+            var contents = 'your initial PR';
+            github.pulls.create({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          title: 'Initial Setup',
+                          head: 'automated-setup',
+                          base: 'main',
+                          body: `${contents}`
+                          });
