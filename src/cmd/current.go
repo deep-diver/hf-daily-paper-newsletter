@@ -14,6 +14,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var SubTitle string
+
 // currentCmd represents the current command
 var currentCmd = &cobra.Command{
 	Use:   "current",
@@ -26,7 +28,7 @@ This application is a tool to generate the needed files
 to quickly create a Cobra application.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		// - how to get argument
-		// topk, _ := cmd.Flags().GetInt("topk")
+		subtitle, _ := cmd.Flags().GetString("subtitle")
 
 		config := internal.GetConfigs("../configs.yaml")
 		general_config := config.General
@@ -74,7 +76,7 @@ to quickly create a Cobra application.`,
 		// 4. send email
 		sender_addr := os.Getenv("EMAIL")
 		sender_pass := os.Getenv("PASSWORD")
-		subject := email_config.Title
+		subject := email_config.Title + "(" + subtitle + ")"
 		receiver := "deep.diver.csp@gmail.com"
 		r := internal.NewRequest(sender_addr, sender_pass, []string{receiver}, subject)
 		r.Send("../templates", email)
@@ -92,4 +94,5 @@ to quickly create a Cobra application.`,
 
 func init() {
 	publishCmd.AddCommand(currentCmd)
+	currentCmd.Flags().StringVarP(&SubTitle, "subtitle", "s", "", "subtitle to be concatenated to the main title defined in configs.yaml")
 }
