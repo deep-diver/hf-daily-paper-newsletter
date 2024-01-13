@@ -1,0 +1,1 @@
+- [Does GPT-4 Pass the Turing Test?](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/2/2023-10-31+Does+GPT-4+Pass+the+Turing+Test%3F.yaml) / 2023-10-31 00:00
