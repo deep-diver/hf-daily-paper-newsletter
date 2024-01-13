@@ -1,11 +1,11 @@
-[![ci](https://github.com/codingpot/newsletter_awesome_articles/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/codingpot/newsletter_awesome_articles/actions/workflows/ci.yml) [![send_newsletter](https://github.com/codingpot/newsletter_awesome_articles/actions/workflows/newsletter.yml/badge.svg)](https://github.com/codingpot/newsletter_awesome_articles/actions/workflows/newsletter.yml)
+[![ci](https://github.com/deep-diver/hf-daily-paper-newsletter/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/deep-diver/hf-daily-paper-newsletter/actions/workflows/ci.yml) [![send_newsletter](https://github.com/deep-diver/hf-daily-paper-newsletter/actions/workflows/newsletter.yml/badge.svg)](https://github.com/deep-diver/hf-daily-paper-newsletter/actions/workflows/newsletter.yml)
 
 # Publish Newsletter Curated by a Group of People
 
 Even though the name says **Group of People**, it can be just you. The aim of this project is to publish and archive newsletters to a target email address.
 
 1. Write a content to be included in newsletter in YAML format under `current` directory.
-   - Examples can be found in [test](https://github.com/codingpot/newsletter_awesome_articles/tree/main/test) directory.
+   - Examples can be found in [test](https://github.com/deep-diver/hf-daily-paper-newsletter/tree/main/test) directory.
 2. Create a PR for the write-up and merge it.
 3. If merged PRs exceeds the number of **N**, a newsletter contains those contents will be published.
 4. Published newsletters will be archived under `archive` directory by assigning the issue number.
