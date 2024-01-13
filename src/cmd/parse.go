@@ -92,7 +92,7 @@ var parseCmd = &cobra.Command{
 				Title: title,
 				Thumbnail: paper.MediaUrl,
 				Link: "https://huggingface.co/papers/" + paper.Paper.Id,
-				Summary: summary[:500],
+				Summary: summary[:500] + "...",
 				Opinion: "placeholder",
 				Tags: []string {"ML"},
 			}
