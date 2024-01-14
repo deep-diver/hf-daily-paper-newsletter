@@ -6,6 +6,7 @@ package cmd
 
 import (
 	"fmt"
+	"context"
 	"strings"
     "encoding/json"
     "io/ioutil"
@@ -13,10 +14,14 @@ import (
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
+
+	"github.com/google/generative-ai-go/genai"
+	"google.golang.org/api/option"
 )
 
 var Filename string
 var OutputDir string
+var GeminiAPIKey string
 
 type Author struct {
 	Id string `json:"_id"`
@@ -61,6 +66,7 @@ var parseCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		filename, _ := cmd.Flags().GetString("filename")
 		outputdir, _ := cmd.Flags().GetString("outputdir")
+		geminiapikey, _ := cmd.Flags().GetString("geminiapikey")
 
 		file, err := os.Open(filename)
 		if err != nil {
@@ -85,6 +91,7 @@ var parseCmd = &cobra.Command{
 		for _, paper := range daily_papers {
 			title := strings.Replace(paper.Title, "\n", " ", -1)
 			summary := strings.Replace(paper.Paper.Summary, "\n", " ", -1)
+			tags := SuggestCategories(geminiapikey, title, summary)
 
 			paper_post := PaperPost {
 				Date: paper.PublishedAt[:10] + " 00:00",
@@ -94,7 +101,7 @@ var parseCmd = &cobra.Command{
 				Link: "https://huggingface.co/papers/" + paper.Paper.Id,
 				Summary: summary[:500] + "...",
 				Opinion: "placeholder",
-				Tags: []string {"ML"},
+				Tags: tags,
 			}
 
 			data, err := yaml.Marshal(&paper_post)
@@ -104,7 +111,6 @@ var parseCmd = &cobra.Command{
 			}
 		
 			out_filepath := outputdir + "/" + paper.PublishedAt[:10] + " " + title + ".yaml"
-			fmt.Println(out_filepath)
 			err = os.WriteFile(out_filepath, data, 0644)
 			if err != nil {
 				fmt.Printf("Error writing YAML file: %v", err)
@@ -114,8 +120,69 @@ var parseCmd = &cobra.Command{
 	},
 }
 
+func SuggestCategories(geminiapikey, string, title string, abstract string) []string {
+	prompt := `Based on the following information of an academic research paper, suggest the categories of the paper among "Supervised Learning", "Unsupervised Learning", "Reinforcement Learning", "Deep Learning", "Bayesian Learning", "Optimization and Learning Algorithms", "Explainable AI and Interpretability", "Fairness, Bias, and Ethics", "Natural Language Processing", "Computer Vision", "Speech Recognition and Synthesis", "Time Series Analysis and Forecasting", "Recommender Systems", "Network Analysis and Graph Mining", "Bioinformatics and Computational Biology", "Robotics and Control", "Security and Privacy", "Optimization and Decision Making", "Human-Computer Interaction (HCI) and User Interfaces", and "Emerging Applications of Machine Learning".
+
+	Title: %s
+	Abstract: %s
+	
+	Your response should be formatted in a valid JSON as {"categories": list}
+	`
+	prompt = fmt.Sprintf(prompt, title, abstract)
+
+	ctx := context.Background()
+	// Access your API key as an environment variable (see "Set up your API key" above)
+	client, err := genai.NewClient(ctx, option.WithAPIKey(geminiapikey))
+	if err != nil {
+		fmt.Println(err)
+		return []string{"ML"}
+	}
+	defer client.Close()
+	
+	model := client.GenerativeModel("gemini-pro")
+
+	resp, err := model.GenerateContent(ctx, genai.Text(prompt))
+	if err != nil {
+		return []string{"ML"}
+	}
+
+	resp_text := fmt.Sprintf("%s", resp.Candidates[0].Content.Parts[0])
+	tags := parseResponse(resp_text)
+	return tags.Categories
+}
+
+type Tags struct {
+    Categories []string `json:"categories"`
+}
+
+func parseResponse(str string) Tags {
+    startIndex := strings.Index(str, "{")
+    endIndex := strings.LastIndex(str, "}")
+
+    // Check if both "{" and "}" are found
+    if startIndex == -1 || endIndex == -1 {
+        return Tags {Categories: []string{"ML"}}
+    }
+
+    // Extract and return the substring
+    // Add 1 to endIndex to include the "}" in the result
+    trimmedResp := str[startIndex : endIndex+1]
+
+    // Variable to hold the unmarshalled data
+    var tags Tags
+
+    // Unmarshal the JSON into the struct
+    err := json.Unmarshal([]byte(trimmedResp), &tags)
+    if err != nil {
+        return Tags {Categories: []string{"ML"}}
+    }
+
+	return tags
+}
+
 func init() {
 	rootCmd.AddCommand(parseCmd)
 	parseCmd.Flags().StringVarP(&Filename, "filename", "f", "", "filename")
 	parseCmd.Flags().StringVarP(&OutputDir, "outputdir", "o", "", "outputdir")
+	parseCmd.Flags().StringVarP(&GeminiAPIKey, "geminiapikey", "g", "", "geminiapikey")
 }
