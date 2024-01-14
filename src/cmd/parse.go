@@ -94,7 +94,7 @@ var parseCmd = &cobra.Command{
 			tags := SuggestCategories(geminiapikey, title, summary)
 
 			paper_post := PaperPost {
-				Date: paper.PublishedAt[:10] + " 00:00",
+				Date: paper.PublishedAt[:10],
 				Author: paper.Paper.Authors[0].Name,
 				Title: title,
 				Thumbnail: paper.MediaUrl,
