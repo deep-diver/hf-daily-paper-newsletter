@@ -1,0 +1,1 @@
+- [PIXART-δ: Fast and Controllable Image Generation with Latent Consistency Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/1/2024-01-11+PIXART-%CE%B4%3A+Fast+and+Controllable+Image+Generation+with+Latent+Consistency+Models.yaml) / 2024-01-11 00:00

@@ -1,0 +1,1 @@
+- [Score Distillation Sampling with Learned Manifold Corrective](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/1/2024-01-11+Score+Distillation+Sampling+with+Learned+Manifold+Corrective.yaml) / 2024-01-11 00:00

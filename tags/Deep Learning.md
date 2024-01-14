@@ -1,0 +1,4 @@
+- [PIXART-δ: Fast and Controllable Image Generation with Latent Consistency Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/1/2024-01-11+PIXART-%CE%B4%3A+Fast+and+Controllable+Image+Generation+with+Latent+Consistency+Models.yaml) / 2024-01-11 00:00
+- [Score Distillation Sampling with Learned Manifold Corrective](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/1/2024-01-11+Score+Distillation+Sampling+with+Learned+Manifold+Corrective.yaml) / 2024-01-11 00:00
+- [The Impact of Reasoning Step Length on Large Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/1/2024-01-11+The+Impact+of+Reasoning+Step+Length+on+Large+Language+Models.yaml) / 2024-01-11 00:00
+- [URHand: Universal Relightable Hands](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/1/2024-01-11+URHand%3A+Universal+Relightable+Hands.yaml) / 2024-01-11 00:00

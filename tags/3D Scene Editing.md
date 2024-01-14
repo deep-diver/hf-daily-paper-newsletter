@@ -1,0 +1,1 @@
+- [InseRF: Text-Driven Generative Object Insertion in Neural 3D Scenes](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/1/2024-01-11+InseRF%3A+Text-Driven+Generative+Object+Insertion+in+Neural+3D+Scenes.yaml) / 2024-01-11 00:00
