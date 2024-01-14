@@ -2,6 +2,8 @@
 
 # Daily Newsletter for 🤗 Daily Papers 
 
+[![Click to - Subscribe](https://img.shields.io/badge/Click_to-Subscribe-2ea44f?style=for-the-badge)](https://groups.google.com/g/hf-daily-paper-newsletter)
+
 This repository sends out a newsletter at `0 20 * * *` collected from [🤗 Daily Papers](https://huggingface.co/papers) to the subscribers. If you want to subscribe, please join the [newsletter group](https://groups.google.com/u/2/g/hf-daily-paper-newsletter
 ).
 
