@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"encoding/json"
-	
+
 	openai "github.com/sashabaranov/go-openai"
 )
 
@@ -41,7 +41,7 @@ Abstract: "%s"
 		return abstract[:500]
 	}
 
-	summary := parseResponse(resp.Choices[0].Message.Content)
+	summary := parseResponse(resp.Choices[0].Message.Content, abstract)
 	return summary[:500]
 }
 
