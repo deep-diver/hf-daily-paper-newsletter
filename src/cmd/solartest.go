@@ -5,9 +5,7 @@ Copyright © 2022 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
-	"fmt"
 	"github.com/spf13/cobra"
-	"github.com/deep-diver/hf-daily-paper-newsletter/internal"
 )
 
 // var SolarAPIKey string
