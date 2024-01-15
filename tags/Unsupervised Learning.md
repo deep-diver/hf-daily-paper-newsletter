@@ -1,1 +1,2 @@
 - [Sleeper Agents: Training Deceptive LLMs that Persist Through Safety Training](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/2/2024-01-12+Sleeper+Agents%3A+Training+Deceptive+LLMs+that+Persist+Through+Safety+Training.yaml) / 2024-01-12
+- [TOFU: A Task of Fictitious Unlearning for LLMs](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/3/2024-01-12+TOFU%3A+A+Task+of+Fictitious+Unlearning+for+LLMs.yaml) / 2024-01-12
