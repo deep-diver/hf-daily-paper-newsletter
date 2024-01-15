@@ -38,7 +38,11 @@ Abstract: "%s"
 
 	if err != nil {
 		fmt.Printf("ChatCompletion error: %v\n", err)
-		return abstract[:500]
+		if len(abstract) >= 500 {
+			return abstract[:500]	
+		} else {
+			return abstract
+		}
 	}
 
 	summary := parseResponse(resp.Choices[0].Message.Content, abstract)
@@ -55,7 +59,11 @@ func parseResponse(str string, abstract string) string {
 
     // Check if both "{" and "}" are found
     if startIndex == -1 || endIndex == -1 {
-        return abstract[:500]
+		if len(abstract) >= 500 {
+			return abstract[:500]	
+		} else {
+			return abstract
+		}
     }
 
     // Extract and return the substring
@@ -68,9 +76,16 @@ func parseResponse(str string, abstract string) string {
     // Unmarshal the JSON into the struct
     err := json.Unmarshal([]byte(trimmedResp), &summary)
     if err != nil {
-        return abstract[:500]
+		if len(abstract) >= 500 {
+			return abstract[:500]	
+		} else {
+			return abstract
+		}
     }
 
-	fmt.Println(summary.Text)
-	return summary.Text[:500]
+	if len(summary.Text) >= 500 {
+		return summary.Text[:500]
+	} else {
+		return summary.Text
+	}
 }
