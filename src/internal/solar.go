@@ -46,7 +46,7 @@ Abstract: "%s"
 	}
 
 	summary := parseResponse(resp.Choices[0].Message.Content, abstract)
-	return summary[:500]
+	return summary
 }
 
 type Summary struct {
