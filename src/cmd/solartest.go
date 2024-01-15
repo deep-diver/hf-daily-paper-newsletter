@@ -61,5 +61,5 @@ var solarCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(solarCmd)
-	parseCmd.Flags().StringVarP(&SolarAPIKey, "solarapikey", "s", "", "solarapikey")
+	solarCmd.Flags().StringVarP(&SolarAPIKey, "solarapikey", "s", "", "solarapikey")
 }
