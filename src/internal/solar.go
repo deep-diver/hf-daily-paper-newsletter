@@ -46,7 +46,7 @@ Abstract: "%s"
 }
 
 type Summary struct {
-    Text string `json:"summary"`
+    content string `json:"summary"`
 }
 
 func parseResponse(str string, abstract string) string {
@@ -71,5 +71,5 @@ func parseResponse(str string, abstract string) string {
         return abstract[:500]
     }
 
-	return Summary.Text[:500]
+	return Summary.content[:500]
 }
