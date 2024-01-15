@@ -90,7 +90,8 @@ var parseCmd = &cobra.Command{
 
 		for _, paper := range daily_papers {
 			title := strings.Replace(paper.Title, "\n", " ", -1)
-			summary := strings.Replace(paper.Paper.Summary, "\n", " ", -1)
+			abstract := strings.Replace(paper.Paper.Summary, "\n", " ", -1)
+			summary := internal.SummarizeAbstract(solarapikey, title, abstract)
 			tags := SuggestCategories(geminiapikey, title, summary)
 
 			paper_post := PaperPost {
@@ -99,7 +100,7 @@ var parseCmd = &cobra.Command{
 				Title: title,
 				Thumbnail: paper.MediaUrl,
 				Link: "https://huggingface.co/papers/" + paper.Paper.Id,
-				Summary: summary[:500] + "...",
+				Summary: summary + "...",
 				Opinion: "placeholder",
 				Tags: tags,
 			}
