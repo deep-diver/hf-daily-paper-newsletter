@@ -46,7 +46,7 @@ Abstract: "%s"
 }
 
 type Summary struct {
-    content string `json:"summary"`
+    Text string `json:"summary"`
 }
 
 func parseResponse(str string, abstract string) string {
@@ -61,8 +61,7 @@ func parseResponse(str string, abstract string) string {
     // Extract and return the substring
     // Add 1 to endIndex to include the "}" in the result
     trimmedResp := str[startIndex : endIndex+1]
-	fmt.Println(trimmedResp)
-
+	
     // Variable to hold the unmarshalled data
     var summary Summary
 
@@ -72,5 +71,6 @@ func parseResponse(str string, abstract string) string {
         return abstract[:500]
     }
 
-	return summary.content[:500]
+	fmt.Println(summary.Text)
+	return summary.Text[:500]
 }
