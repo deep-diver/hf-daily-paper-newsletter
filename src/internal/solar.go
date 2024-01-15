@@ -71,5 +71,5 @@ func parseResponse(str string, abstract string) string {
         return abstract[:500]
     }
 
-	return Summary.content[:500]
+	return summary.content[:500]
 }
