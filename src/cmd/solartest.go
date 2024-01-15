@@ -33,7 +33,7 @@ var solarCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		solarapikey, _ := cmd.Flags().GetString("solarapikey")
 
-		client := openai.NewClient("solarapikey")
+		client := openai.NewClient(solarapikey)
 		client.BaseURL = "https://api.upstage.ai/v1/solar"
 		resp, err := client.CreateChatCompletion(
 			context.Background(),
