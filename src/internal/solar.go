@@ -3,6 +3,9 @@ package internal
 import (
 	"context"
 	"fmt"
+	"strings"
+	"encoding/json"
+	
 	openai "github.com/sashabaranov/go-openai"
 )
 
