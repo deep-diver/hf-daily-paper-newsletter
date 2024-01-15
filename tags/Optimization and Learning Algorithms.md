@@ -1,1 +1,5 @@
 - [Score Distillation Sampling with Learned Manifold Corrective](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/1/2024-01-11+Score+Distillation+Sampling+with+Learned+Manifold+Corrective.yaml) / 2024-01-11 00:00
+- [Distilling Vision-Language Models on Millions of Videos](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/2/2024-01-12+Distilling+Vision-Language+Models+on+Millions+of+Videos.yaml) / 2024-01-12
+- [Efficient LLM inference solution on Intel GPU](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/2/2024-01-12+Efficient+LLM+inference+solution+on+Intel+GPU.yaml) / 2024-01-12
+- [Sleeper Agents: Training Deceptive LLMs that Persist Through Safety Training](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/2/2024-01-12+Sleeper+Agents%3A+Training+Deceptive+LLMs+that+Persist+Through+Safety+Training.yaml) / 2024-01-12
+- [Transformers are Multi-State RNNs](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/2/2024-01-12+Transformers+are+Multi-State+RNNs.yaml) / 2024-01-12
