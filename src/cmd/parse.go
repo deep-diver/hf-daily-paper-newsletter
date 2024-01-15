@@ -123,8 +123,8 @@ var parseCmd = &cobra.Command{
 func SuggestCategories(geminiapikey string, title string, abstract string) []string {
 	prompt := `Based on the following information of an academic research paper, suggest the categories of the paper among "Supervised Learning", "Unsupervised Learning", "Reinforcement Learning", "Deep Learning", "Bayesian Learning", "Optimization and Learning Algorithms", "Explainable AI and Interpretability", "Fairness, Bias, and Ethics", "Natural Language Processing", "Computer Vision", "Speech Recognition and Synthesis", "Time Series Analysis and Forecasting", "Recommender Systems", "Network Analysis and Graph Mining", "Bioinformatics and Computational Biology", "Robotics and Control", "Security and Privacy", "Optimization and Decision Making", "Human-Computer Interaction (HCI) and User Interfaces", and "Emerging Applications of Machine Learning".
 
-	Title: %s
-	Abstract: %s
+	Title: "%s"
+	Abstract: "%s"
 	
 	Your response should be formatted in a valid JSON as {"categories": list}
 	`
