@@ -3,7 +3,6 @@ package internal
 import (
 	"context"
 	"fmt"
-	"github.com/spf13/cobra"
 	openai "github.com/sashabaranov/go-openai"
 )
 
