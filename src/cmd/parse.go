@@ -17,11 +17,14 @@ import (
 
 	"github.com/google/generative-ai-go/genai"
 	"google.golang.org/api/option"
+
+	"github.com/deep-diver/hf-daily-paper-newsletter/internal"
 )
 
 var Filename string
 var OutputDir string
 var GeminiAPIKey string
+var SolarAPIKey string
 
 type Author struct {
 	Id string `json:"_id"`
@@ -67,6 +70,7 @@ var parseCmd = &cobra.Command{
 		filename, _ := cmd.Flags().GetString("filename")
 		outputdir, _ := cmd.Flags().GetString("outputdir")
 		geminiapikey, _ := cmd.Flags().GetString("geminiapikey")
+		solarapikey, _ := cmd.Flags().GetString("solarapikey")
 
 		file, err := os.Open(filename)
 		if err != nil {
@@ -186,4 +190,5 @@ func init() {
 	parseCmd.Flags().StringVarP(&Filename, "filename", "f", "", "filename")
 	parseCmd.Flags().StringVarP(&OutputDir, "outputdir", "o", "", "outputdir")
 	parseCmd.Flags().StringVarP(&GeminiAPIKey, "geminiapikey", "g", "", "geminiapikey")
+	parseCmd.Flags().StringVarP(&SolarAPIKey, "solarapikey", "s", "", "solarapikey")
 }
