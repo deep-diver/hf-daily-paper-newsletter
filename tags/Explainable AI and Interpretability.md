@@ -5,3 +5,6 @@
 - [Towards Conversational Diagnostic AI](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/2/2024-01-12+Towards+Conversational+Diagnostic+AI.yaml) / 2024-01-12
 - [Patchscope: A Unifying Framework for Inspecting Hidden Representations of Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/3/2024-01-12+Patchscope%3A+A+Unifying+Framework+for+Inspecting+Hidden+Representations+of+Language+Models.yaml) / 2024-01-12
 - [Towards Conversational Diagnostic AI](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/3/2024-01-12+Towards+Conversational+Diagnostic+AI.yaml) / 2024-01-12
+- [Patchscope: A Unifying Framework for Inspecting Hidden Representations of Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/4/2024-01-12+Patchscope%3A+A+Unifying+Framework+for+Inspecting+Hidden+Representations+of+Language+Models.yaml) / 2024-01-12
+- [Transformers are Multi-State RNNs](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/4/2024-01-12+Transformers+are+Multi-State+RNNs.yaml) / 2024-01-12
+- [TrustLLM: Trustworthiness in Large Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/4/2024-01-12+TrustLLM%3A+Trustworthiness+in+Large+Language+Models.yaml) / 2024-01-12

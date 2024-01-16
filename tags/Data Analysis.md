@@ -1,0 +1,1 @@
+- [A Shocking Amount of the Web is Machine Translated: Insights from Multi-Way Parallelism](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/4/2024-01-12+A+Shocking+Amount+of+the+Web+is+Machine+Translated%3A+Insights+from+Multi-Way+Parallelism.yaml) / 2024-01-12
