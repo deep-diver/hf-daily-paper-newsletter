@@ -4,3 +4,6 @@
 - [Towards Conversational Diagnostic AI](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/3/2024-01-12+Towards+Conversational+Diagnostic+AI.yaml) / 2024-01-12
 - [TOFU: A Task of Fictitious Unlearning for LLMs](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/4/2024-01-12+TOFU%3A+A+Task+of+Fictitious+Unlearning+for+LLMs.yaml) / 2024-01-12
 - [TrustLLM: Trustworthiness in Large Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/4/2024-01-12+TrustLLM%3A+Trustworthiness+in+Large+Language+Models.yaml) / 2024-01-12
+- [A Shocking Amount of the Web is Machine Translated: Insights from Multi-Way Parallelism](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/5/2024-01-12+A+Shocking+Amount+of+the+Web+is+Machine+Translated%3A+Insights+from+Multi-Way+Parallelism.yaml) / 2024-01-12
+- [Towards Conversational Diagnostic AI](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/5/2024-01-12+Towards+Conversational+Diagnostic+AI.yaml) / 2024-01-12
+- [TrustLLM: Trustworthiness in Large Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/5/2024-01-12+TrustLLM%3A+Trustworthiness+in+Large+Language+Models.yaml) / 2024-01-12

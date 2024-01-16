@@ -1,1 +1,2 @@
 - [TRIPS: Trilinear Point Splatting for Real-Time Radiance Field Rendering](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/3/2024-01-12+TRIPS%3A+Trilinear+Point+Splatting+for+Real-Time+Radiance+Field+Rendering.yaml) / 2024-01-12
+- [TRIPS: Trilinear Point Splatting for Real-Time Radiance Field Rendering](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/5/2024-01-12+TRIPS%3A+Trilinear+Point+Splatting+for+Real-Time+Radiance+Field+Rendering.yaml) / 2024-01-12

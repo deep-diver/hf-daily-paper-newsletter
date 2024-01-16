@@ -9,3 +9,4 @@
 - [Object-Centric Diffusion for Efficient Video Editing](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/4/2024-01-12+Object-Centric+Diffusion+for+Efficient+Video+Editing.yaml) / 2024-01-12
 - [Transformers are Multi-State RNNs](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/4/2024-01-12+Transformers+are+Multi-State+RNNs.yaml) / 2024-01-12
 - [TrustLLM: Trustworthiness in Large Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/4/2024-01-12+TrustLLM%3A+Trustworthiness+in+Large+Language+Models.yaml) / 2024-01-12
+- [Transformers are Multi-State RNNs](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/5/2024-01-12+Transformers+are+Multi-State+RNNs.yaml) / 2024-01-12
