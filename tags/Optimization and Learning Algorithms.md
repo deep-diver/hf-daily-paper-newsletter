@@ -10,3 +10,8 @@
 - [Transformers are Multi-State RNNs](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/4/2024-01-12+Transformers+are+Multi-State+RNNs.yaml) / 2024-01-12
 - [TrustLLM: Trustworthiness in Large Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/4/2024-01-12+TrustLLM%3A+Trustworthiness+in+Large+Language+Models.yaml) / 2024-01-12
 - [Transformers are Multi-State RNNs](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/5/2024-01-12+Transformers+are+Multi-State+RNNs.yaml) / 2024-01-12
+- [Efficient LLM inference solution on Intel GPU](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/6/2024-01-12+Efficient+LLM+inference+solution+on+Intel+GPU.yaml) / 2024-01-12
+- [Object-Centric Diffusion for Efficient Video Editing](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/6/2024-01-12+Object-Centric+Diffusion+for+Efficient+Video+Editing.yaml) / 2024-01-12
+- [Parrot: Pareto-optimal Multi-Reward Reinforcement Learning Framework for Text-to-Image Generation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/6/2024-01-12+Parrot%3A+Pareto-optimal+Multi-Reward+Reinforcement+Learning+Framework+for+Text-to-Image+Generation.yaml) / 2024-01-12
+- [Secrets of RLHF in Large Language Models Part II: Reward Modeling](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/6/2024-01-12+Secrets+of+RLHF+in+Large+Language+Models+Part+II%3A+Reward+Modeling.yaml) / 2024-01-12
+- [Transformers are Multi-State RNNs](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/6/2024-01-12+Transformers+are+Multi-State+RNNs.yaml) / 2024-01-12

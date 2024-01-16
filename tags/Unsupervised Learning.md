@@ -3,3 +3,4 @@
 - [Distilling Vision-Language Models on Millions of Videos](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/4/2024-01-12+Distilling+Vision-Language+Models+on+Millions+of+Videos.yaml) / 2024-01-12
 - [TOFU: A Task of Fictitious Unlearning for LLMs](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/4/2024-01-12+TOFU%3A+A+Task+of+Fictitious+Unlearning+for+LLMs.yaml) / 2024-01-12
 - [TOFU: A Task of Fictitious Unlearning for LLMs](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/5/2024-01-12+TOFU%3A+A+Task+of+Fictitious+Unlearning+for+LLMs.yaml) / 2024-01-12
+- [TOFU: A Task of Fictitious Unlearning for LLMs](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/6/2024-01-12+TOFU%3A+A+Task+of+Fictitious+Unlearning+for+LLMs.yaml) / 2024-01-12

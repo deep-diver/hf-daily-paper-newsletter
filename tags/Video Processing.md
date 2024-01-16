@@ -1,0 +1,1 @@
+- [Object-Centric Diffusion for Efficient Video Editing](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/6/2024-01-12+Object-Centric+Diffusion+for+Efficient+Video+Editing.yaml) / 2024-01-12
