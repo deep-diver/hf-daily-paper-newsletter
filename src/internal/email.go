@@ -63,7 +63,7 @@ func (r *Request) parseTemplate(templatePath string, data interface{}) error {
 	tmpl, _ := template.ParseFiles(templateFilenames...)
 
 	buffer := new(bytes.Buffer)
-	if err := tmpl.ExecuteTemplate(buffer, "template.gohtml", data); err != nil {
+	if err := tmpl.ExecuteTemplate(buffer, "hf_newsletter_template.gohtml", data); err != nil {
 		return err
 	}
 	r.body = buffer.String()
