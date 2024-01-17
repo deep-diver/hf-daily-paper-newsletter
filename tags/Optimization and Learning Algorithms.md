@@ -5,3 +5,4 @@
 - [Transformers are Multi-State RNNs](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/2/2024-01-12+Transformers+are+Multi-State+RNNs.yaml) / 2024-01-12
 - [Efficient LLM inference solution on Intel GPU](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/3/2024-01-12+Efficient+LLM+inference+solution+on+Intel+GPU.yaml) / 2024-01-12
 - [Object-Centric Diffusion for Efficient Video Editing](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/3/2024-01-12+Object-Centric+Diffusion+for+Efficient+Video+Editing.yaml) / 2024-01-12
+- [Towards A Better Metric for Text-to-Video Generation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/4/2024-01-17+Towards+A+Better+Metric+for+Text-to-Video+Generation.yaml) / 2024-01-17

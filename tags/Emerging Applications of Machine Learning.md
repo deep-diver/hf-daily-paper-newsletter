@@ -6,3 +6,4 @@
 - [Distilling Vision-Language Models on Millions of Videos](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/3/2024-01-12+Distilling+Vision-Language+Models+on+Millions+of+Videos.yaml) / 2024-01-12
 - [LEGO:Language Enhanced Multi-modal Grounding Model](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/3/2024-01-12+LEGO%3ALanguage+Enhanced+Multi-modal+Grounding+Model.yaml) / 2024-01-12
 - [Towards Conversational Diagnostic AI](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/3/2024-01-12+Towards+Conversational+Diagnostic+AI.yaml) / 2024-01-12
+- [Quantum Denoising Diffusion Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/4/2024-01-17+Quantum+Denoising+Diffusion+Models.yaml) / 2024-01-17
