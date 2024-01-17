@@ -85,4 +85,4 @@ if __name__ == "__main__":
   parser.add_argument('--target-archive-dir', type=str, default="translated-papers")
   args = parser.parse_args()
   print(args)
-  # main(args)
+  main(args)
