@@ -34,7 +34,7 @@ def main(args):
           f'for arxiv_id in {arxiv_ids_str}; do mkdir -p papers/$arxiv_id; done',
   
           f'echo "Downloading paper (IDs: {args.arxiv_ids})"...',
-          f'for arxiv_id in {arxiv_ids_str}; do paper $arxiv_id -p -d papers/$arxiv_id/; done'
+          f'for arxiv_id in {arxiv_ids_str}; do paper $arxiv_id -p -d papers/$arxiv_id/; done',
 
           'echo "OCR processing with nougat-ocr..."',
           f'for arxiv_id in {arxiv_ids_str}; do PDF_FN=$(ls -1 papers/$arxiv_id/*.pdf | head -n 1); nougat $PDF_FN -o papers/$arxiv_id; done',
