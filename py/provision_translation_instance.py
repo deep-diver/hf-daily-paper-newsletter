@@ -40,7 +40,7 @@ def main(args):
           f'for arxiv_id in {arxiv_ids_str}; do PDF_FN=$(ls -1 papers/$arxiv_id/*.pdf | head -n 1); nougat $PDF_FN -o papers/$arxiv_id; done',
   
           'echo "Translation processing"...',
-          f'for arxiv_id in {arxiv_ids_str}; do PDF_FN=$(ls -1 papers/$arxiv_id/*.pdf | head -n 1); MMD_FN=$(echo $PDF_FN | sed "s/pdf/mmd/g"; python arxiv-translator/translate_mmd.py $MMD_FN; python arxiv-translator/ready_templates.py $MMD_FN arxiv-translator/assets/html_template.html papers/$arxiv_id; done'
+          f'for arxiv_id in {arxiv_ids_str}; do PDF_FN=$(ls -1 papers/$arxiv_id/*.pdf | head -n 1); MMD_FN=$(echo $PDF_FN | sed "s/pdf/mmd/g"; python arxiv-translator/translate_mmd.py $MMD_FN; python arxiv-translator/ready_templates.py $MMD_FN arxiv-translator/assets/html_template.html papers/$arxiv_id; done',
   
           'echo "Git commit & push"...',
           f'cd {args.target_archive_github_repo}',
