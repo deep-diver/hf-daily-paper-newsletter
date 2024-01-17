@@ -15,3 +15,5 @@
 - [Parrot: Pareto-optimal Multi-Reward Reinforcement Learning Framework for Text-to-Image Generation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/6/2024-01-12+Parrot%3A+Pareto-optimal+Multi-Reward+Reinforcement+Learning+Framework+for+Text-to-Image+Generation.yaml) / 2024-01-12
 - [Secrets of RLHF in Large Language Models Part II: Reward Modeling](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/6/2024-01-12+Secrets+of+RLHF+in+Large+Language+Models+Part+II%3A+Reward+Modeling.yaml) / 2024-01-12
 - [Transformers are Multi-State RNNs](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/6/2024-01-12+Transformers+are+Multi-State+RNNs.yaml) / 2024-01-12
+- [Quantum Denoising Diffusion Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/7/2024-01-17+Quantum+Denoising+Diffusion+Models.yaml) / 2024-01-17
+- [Tuning Language Models by Proxy](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/7/2024-01-17+Tuning+Language+Models+by+Proxy.yaml) / 2024-01-17

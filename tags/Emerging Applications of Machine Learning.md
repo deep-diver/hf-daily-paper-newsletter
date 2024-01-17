@@ -13,3 +13,4 @@
 - [Transformers are Multi-State RNNs](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/5/2024-01-12+Transformers+are+Multi-State+RNNs.yaml) / 2024-01-12
 - [A Shocking Amount of the Web is Machine Translated: Insights from Multi-Way Parallelism](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/6/2024-01-12+A+Shocking+Amount+of+the+Web+is+Machine+Translated%3A+Insights+from+Multi-Way+Parallelism.yaml) / 2024-01-12
 - [Tuning LLMs with Contrastive Alignment Instructions for Machine Translation in Unseen, Low-resource Languages](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/6/2024-01-12+Tuning+LLMs+with+Contrastive+Alignment+Instructions+for+Machine+Translation+in+Unseen%2C+Low-resource+Languages.yaml) / 2024-01-12
+- [Quantum Denoising Diffusion Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/7/2024-01-17+Quantum+Denoising+Diffusion+Models.yaml) / 2024-01-17
