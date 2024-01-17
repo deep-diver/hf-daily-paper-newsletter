@@ -1,3 +1,4 @@
+import os
 import sys
 import argparse
 
@@ -43,7 +44,7 @@ def main(args):
           f'for arxiv_id in {arxiv_ids_str}; do PDF_FN=$(ls -1 papers/$arxiv_id/*.pdf | head -n 1); MMD_FN=$(echo $PDF_FN | sed "s/pdf/mmd/g"); python arxiv-translator/translate_mmd.py $MMD_FN; python arxiv-translator/ready_templates.py $MMD_FN arxiv-translator/assets/html_template.html papers/$arxiv_id; done',
   
           'echo "Git commit & push"...',
-          f'cd {args.target_archive_github_repo}',
+          f'cd {os.path.normpath(args.target_archive_github_repo).split(os.sep)[0]}',
           f'for arxiv_id in {arxiv_ids_str}; do mkdir -p {args.target_archive_dir}/$arxiv_id; cp ../papers/$arxiv_id/paper.ko.html ./{args.target_archive_dir}/$arxiv_id; done',
           f'git config --global user.name "{args.github_realname}"',
           f'git config --global user.email "{args.github_email}"',
