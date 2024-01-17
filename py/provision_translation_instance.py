@@ -70,19 +70,19 @@ def main(args):
 
 if __name__ == "__main__":
   parser = argparse.ArgumentParser()
-  parser.add_argument('--dstack-token', type=str, required=True)
+  parser.add_argument('--dstack-token', type=str, default="")
   parser.add_argument('--dstack-project', type=str, default="deep-diver-main")
   parser.add_argument('--dstack-run-name', type=str, default="paper-ko-translation-run")
   parser.add_argument('--dstack-python-version', type=str, default="3.10")
   
-  parser.add_argument('--github-token', type=str, required=True)
+  parser.add_argument('--github-token', type=str, default="")
   parser.add_argument('--github-username', type=str, default="deep-diver")
   parser.add_argument('--github-realname', type=str, default="Chansung Park")
   parser.add_argument('--github-email', type=str, default="deep.diver.csp@gmail.com")
 
-  parser.add_argument('--arxiv-ids', nargs='+', required=True, help='List of paper ids')
+  parser.add_argument('--arxiv-ids', nargs='+', help='List of paper ids')
   parser.add_argument('--target-archive-github-repo', type=str, default="deep-diver/hf-daily-paper-newsletter")
   parser.add_argument('--target-archive-dir', type=str, default="translated-papers")
   args = parser.parse_args()
-  
-  main(args)
+  print(args)
+  # main(args)
