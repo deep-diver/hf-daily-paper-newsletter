@@ -1,0 +1,100 @@
+name: translation
+
+on:
+  workflow_run:
+    workflows: ["collect_papers"]
+    types:
+      - completed
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Check how many
+        id: number_check
+        run: |
+          echo "::set-output name=number::$(ls ./current/*.yaml | wc -l)"
+
+      - name: Set up Python
+        if: steps.number_check.outputs.number > 0
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Set up dependencies
+        if: steps.number_check.outputs.number > 0
+        working-directory: py
+        run : |
+          pip install -r requirements.txt
+
+      - name: Set SSH file permissions for monitoring dstack instances
+        if: steps.number_check.outputs.number > 0
+        working-directory: py
+        run: |
+          mkdir -p ~/.ssh
+          touch ~/.ssh/config
+          chmod 700 ~/.ssh
+          chmod 600 ~/.ssh/config
+
+      - name: Set parameters
+        id: parameters
+        if: steps.number_check.outputs.number > 0
+        run: |
+          echo "::set-output name=yaml_dir::'../current'"
+          echo "::set-output name=output_filename::arxiv_ids.txt"
+          echo "::set-output name=translated_output_dir::'../translated_papers'"
+          echo "::set-output name=translated_filename::'paper.ko.html'"
+
+      - name: Run arxiv ids extractions from yamls
+        if: steps.number_check.outputs.number > 0
+        working-directory: py
+        run : |
+          python arxiv_ids_extractor.py \
+            --yaml-dir ${{ steps.parameters.outputs.yaml_dir }}
+            --output-file ${{ steps.parameters.outputs.output_filename }}
+
+      - name: Check File Existence
+        if: steps.number_check.outputs.number > 0
+        id: check_file
+        working-directory: py
+        run: |
+          if [ -f ${{ steps.parameters.outputs.output_filename }} ]; then
+            echo "::set-output name=arxiv_ids_file_exist::true"
+          else
+            echo "::set-output name=arxiv_ids_file_exist::false"
+          fi
+
+      - name: Run translation jobs
+        if: steps.number_check.outputs.number > 0 && steps.check_file.outputs.arxiv_ids_file_exist == 'true'
+        working-directory: py
+        run: |
+          python provision_translation_instance.py \
+            --dstack-token="${{ secrets.DSTACK_TOKEN }}" \
+            --github-token="${{ secrets.GH_TOKEN }}" \
+            --target-archive-github-repo="codingpot/hf-daily-paper-newsletter-tester" \
+            --arxiv-ids "$(cat ${{ steps.parameters.outputs.output_filename }})"
+
+      - name: Run translation jobs
+        if: steps.number_check.outputs.number > 0 && steps.check_file.outputs.arxiv_ids_file_exist == 'true'
+        working-directory: py
+        run: |
+          python update_yaml.py \
+            --yaml-dir ${{ steps.parameters.outputs.yaml_dir }}
+            --translated-output-dir ${{ steps.parameters.outputs.translated_output_dir }}
+            --translated-filename ${{ steps.parameters.outputs.translated_filename }}
+          
+
+
+
+
+
+
+
+
+
+
+
+
