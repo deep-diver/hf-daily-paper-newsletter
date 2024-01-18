@@ -6,3 +6,5 @@
 - [Efficient LLM inference solution on Intel GPU](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/3/2024-01-12+Efficient+LLM+inference+solution+on+Intel+GPU.yaml) / 2024-01-12
 - [Object-Centric Diffusion for Efficient Video Editing](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/3/2024-01-12+Object-Centric+Diffusion+for+Efficient+Video+Editing.yaml) / 2024-01-12
 - [Towards A Better Metric for Text-to-Video Generation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/4/2024-01-17+Towards+A+Better+Metric+for+Text-to-Video+Generation.yaml) / 2024-01-17
+- [Asynchronous Local-SGD Training for Language Modeling](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/5/2024-01-18+Asynchronous+Local-SGD+Training+for+Language+Modeling.yaml) / 2024-01-18
+- [ICON: Incremental CONfidence for Joint Pose and Radiance Field Optimization](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/5/2024-01-18+ICON%3A+Incremental+CONfidence+for+Joint+Pose+and+Radiance+Field+Optimization.yaml) / 2024-01-18
