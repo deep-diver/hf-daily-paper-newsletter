@@ -1,2 +1,3 @@
 - [URHand: Universal Relightable Hands](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/1/2024-01-11+URHand%3A+Universal+Relightable+Hands.yaml) / 2024-01-11 00:00
 - [Towards Conversational Diagnostic AI](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/6/2024-01-12+Towards+Conversational+Diagnostic+AI.yaml) / 2024-01-12
+- [SceneVerse: Scaling 3D Vision-Language Learning for Grounded Scene Understanding](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/8/2024-01-18+SceneVerse%3A+Scaling+3D+Vision-Language+Learning+for+Grounded+Scene+Understanding.yaml) / 2024-01-18

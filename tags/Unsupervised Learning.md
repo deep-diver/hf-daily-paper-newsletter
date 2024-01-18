@@ -4,3 +4,4 @@
 - [TOFU: A Task of Fictitious Unlearning for LLMs](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/4/2024-01-12+TOFU%3A+A+Task+of+Fictitious+Unlearning+for+LLMs.yaml) / 2024-01-12
 - [TOFU: A Task of Fictitious Unlearning for LLMs](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/5/2024-01-12+TOFU%3A+A+Task+of+Fictitious+Unlearning+for+LLMs.yaml) / 2024-01-12
 - [TOFU: A Task of Fictitious Unlearning for LLMs](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/6/2024-01-12+TOFU%3A+A+Task+of+Fictitious+Unlearning+for+LLMs.yaml) / 2024-01-12
+- [ReFT: Reasoning with Reinforced Fine-Tuning](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/8/2024-01-18+ReFT%3A+Reasoning+with+Reinforced+Fine-Tuning.yaml) / 2024-01-18
