@@ -6,3 +6,4 @@
 - [TOFU: A Task of Fictitious Unlearning for LLMs](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/6/2024-01-12+TOFU%3A+A+Task+of+Fictitious+Unlearning+for+LLMs.yaml) / 2024-01-12
 - [ReFT: Reasoning with Reinforced Fine-Tuning](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/8/2024-01-18+ReFT%3A+Reasoning+with+Reinforced+Fine-Tuning.yaml) / 2024-01-18
 - [ICON: Incremental CONfidence for Joint Pose and Radiance Field Optimization](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/10/2024-01-18+ICON%3A+Incremental+CONfidence+for+Joint+Pose+and+Radiance+Field+Optimization.yaml) / 2024-01-18
+- [SiT: Exploring Flow and Diffusion-based Generative Models with Scalable Interpolant Transformers](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/11/2024-01-18+SiT%3A+Exploring+Flow+and+Diffusion-based+Generative+Models+with+Scalable+Interpolant+Transformers.yaml) / 2024-01-18
