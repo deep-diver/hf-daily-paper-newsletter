@@ -17,3 +17,4 @@
 - [Transformers are Multi-State RNNs](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/6/2024-01-12+Transformers+are+Multi-State+RNNs.yaml) / 2024-01-12
 - [Quantum Denoising Diffusion Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/7/2024-01-17+Quantum+Denoising+Diffusion+Models.yaml) / 2024-01-17
 - [Tuning Language Models by Proxy](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/7/2024-01-17+Tuning+Language+Models+by+Proxy.yaml) / 2024-01-17
+- [Asynchronous Local-SGD Training for Language Modeling](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/9/2024-01-18+Asynchronous+Local-SGD+Training+for+Language+Modeling.yaml) / 2024-01-18
