@@ -1,1 +1,2 @@
 - [Object-Centric Diffusion for Efficient Video Editing](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/6/2024-01-12+Object-Centric+Diffusion+for+Efficient+Video+Editing.yaml) / 2024-01-12
+- [VideoCrafter2: Overcoming Data Limitations for High-Quality Video Diffusion Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/12/2024-01-18+VideoCrafter2%3A+Overcoming+Data+Limitations+for+High-Quality+Video+Diffusion+Models.yaml) / 2024-01-18
