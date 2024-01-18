@@ -1,0 +1,2 @@
+- [Asynchronous Local-SGD Training for Language Modeling](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/10/2024-01-18+Asynchronous+Local-SGD+Training+for+Language+Modeling.yaml) / 2024-01-18
+- [Compose and Conquer: Diffusion-Based 3D Depth Aware Composable Image Synthesis](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/10/2024-01-18+Compose+and+Conquer%3A+Diffusion-Based+3D+Depth+Aware+Composable+Image+Synthesis.yaml) / 2024-01-18

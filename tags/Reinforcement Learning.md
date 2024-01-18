@@ -14,3 +14,4 @@
 - [Towards Conversational Diagnostic AI](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/6/2024-01-12+Towards+Conversational+Diagnostic+AI.yaml) / 2024-01-12
 - [ReFT: Reasoning with Reinforced Fine-Tuning](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/8/2024-01-18+ReFT%3A+Reasoning+with+Reinforced+Fine-Tuning.yaml) / 2024-01-18
 - [ReFT: Reasoning with Reinforced Fine-Tuning](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/9/2024-01-18+ReFT%3A+Reasoning+with+Reinforced+Fine-Tuning.yaml) / 2024-01-18
+- [ReFT: Reasoning with Reinforced Fine-Tuning](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/10/2024-01-18+ReFT%3A+Reasoning+with+Reinforced+Fine-Tuning.yaml) / 2024-01-18

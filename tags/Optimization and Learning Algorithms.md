@@ -18,3 +18,5 @@
 - [Quantum Denoising Diffusion Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/7/2024-01-17+Quantum+Denoising+Diffusion+Models.yaml) / 2024-01-17
 - [Tuning Language Models by Proxy](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/7/2024-01-17+Tuning+Language+Models+by+Proxy.yaml) / 2024-01-17
 - [Asynchronous Local-SGD Training for Language Modeling](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/9/2024-01-18+Asynchronous+Local-SGD+Training+for+Language+Modeling.yaml) / 2024-01-18
+- [DeepSpeed-FastGen: High-throughput Text Generation for LLMs via MII and DeepSpeed-Inference](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/10/2024-01-18+DeepSpeed-FastGen%3A+High-throughput+Text+Generation+for+LLMs+via+MII+and+DeepSpeed-Inference.yaml) / 2024-01-18
+- [ICON: Incremental CONfidence for Joint Pose and Radiance Field Optimization](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/10/2024-01-18+ICON%3A+Incremental+CONfidence+for+Joint+Pose+and+Radiance+Field+Optimization.yaml) / 2024-01-18
