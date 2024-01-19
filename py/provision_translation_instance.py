@@ -75,9 +75,9 @@ def main(args):
   
   num_jobs = len(args.arxiv_ids)
   
-  clients = [client for _ in num_jobs]
+  clients = [client for _ in range(num_jobs)]
   arxiv_ids = [arxiv_id for arxiv_id in args.arxiv_ids]
-  args_list = [args for _ in num_jobs]
+  args_list = [args for _ in range(num_jobs)]
   
   with concurrent.futures.ThreadPoolExecutor(max_workers=num_jobs) as executor:
     futures = [
