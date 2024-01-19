@@ -1,4 +1,5 @@
 import os
+import sys
 import argparse
 import concurrent.futures
 
@@ -66,6 +67,7 @@ def parallel_job(i, client, arxiv_id, args):
   run.attach()
   for log in run.logs():
     print(log)
+    sys.stdout.flush()
   run.detach()
 
   return f'{args.dstack_run_name}({arxiv_id}) is completed'
