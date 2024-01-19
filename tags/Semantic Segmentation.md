@@ -1,0 +1,1 @@
+- [Vision Mamba: Efficient Visual Representation Learning with Bidirectional State Space Model](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/17/2024-01-18+Vision+Mamba%3A+Efficient+Visual+Representation+Learning+with+Bidirectional+State+Space+Model.yaml) / 2024-01-18

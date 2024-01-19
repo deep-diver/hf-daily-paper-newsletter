@@ -53,3 +53,6 @@
 - [DiffusionGPT: LLM-Driven Text-to-Image Generation System](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/16/2024-01-19+DiffusionGPT%3A+LLM-Driven+Text-to-Image+Generation+System.yaml) / 2024-01-19
 - [Rethinking FID: Towards a Better Evaluation Metric for Image Generation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/16/2024-01-19+Rethinking+FID%3A+Towards+a+Better+Evaluation+Metric+for+Image+Generation.yaml) / 2024-01-19
 - [Self-Rewarding Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/16/2024-01-19+Self-Rewarding+Language+Models.yaml) / 2024-01-19
+- [Asynchronous Local-SGD Training for Language Modeling](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/17/2024-01-18+Asynchronous+Local-SGD+Training+for+Language+Modeling.yaml) / 2024-01-18
+- [ReFT: Reasoning with Reinforced Fine-Tuning](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/17/2024-01-18+ReFT%3A+Reasoning+with+Reinforced+Fine-Tuning.yaml) / 2024-01-18
+- [Vision Mamba: Efficient Visual Representation Learning with Bidirectional State Space Model](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/17/2024-01-18+Vision+Mamba%3A+Efficient+Visual+Representation+Learning+with+Bidirectional+State+Space+Model.yaml) / 2024-01-18
