@@ -5,3 +5,4 @@
 - [Secrets of RLHF in Large Language Models Part II: Reward Modeling](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/3/2024-01-12+Secrets+of+RLHF+in+Large+Language+Models+Part+II%3A+Reward+Modeling.yaml) / 2024-01-12
 - [Towards Conversational Diagnostic AI](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/3/2024-01-12+Towards+Conversational+Diagnostic+AI.yaml) / 2024-01-12
 - [ReFT: Reasoning with Reinforced Fine-Tuning](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/5/2024-01-18+ReFT%3A+Reasoning+with+Reinforced+Fine-Tuning.yaml) / 2024-01-18
+- [Self-Rewarding Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/6/2024-01-19+Self-Rewarding+Language+Models.yaml) / 2024-01-19

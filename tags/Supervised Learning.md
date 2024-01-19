@@ -15,3 +15,4 @@
 - [Contrastive Preference Optimization: Pushing the Boundaries of LLM Performance in Machine Translation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/4/2024-01-17+Contrastive+Preference+Optimization%3A+Pushing+the+Boundaries+of+LLM+Performance+in+Machine+Translation.yaml) / 2024-01-17
 - [Tuning Language Models by Proxy](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/4/2024-01-17+Tuning+Language+Models+by+Proxy.yaml) / 2024-01-17
 - [ReFT: Reasoning with Reinforced Fine-Tuning](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/5/2024-01-18+ReFT%3A+Reasoning+with+Reinforced+Fine-Tuning.yaml) / 2024-01-18
+- [Self-Rewarding Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/6/2024-01-19+Self-Rewarding+Language+Models.yaml) / 2024-01-19

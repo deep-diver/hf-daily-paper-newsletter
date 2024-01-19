@@ -1,1 +1,2 @@
 - [ANIM-400K: A Large-Scale Dataset for Automated End-To-End Dubbing of Video](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/1/2024-01-11+ANIM-400K%3A+A+Large-Scale+Dataset+for+Automated+End-To-End+Dubbing+of+Video.yaml) / 2024-01-11 00:00
+- [FreGrad: Lightweight and Fast Frequency-aware Diffusion Vocoder](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/6/2024-01-19+FreGrad%3A+Lightweight+and+Fast+Frequency-aware+Diffusion+Vocoder.yaml) / 2024-01-19
