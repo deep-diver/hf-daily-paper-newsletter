@@ -4,7 +4,9 @@ import concurrent.futures
 
 from dstack.api import Client, Task, GPU, Client, Resources
 
-def parallel_job(client, arxiv_id, args):
+def parallel_job(i, client, arxiv_id, args):
+  port = 6006 + i
+  
   task = Task(
       python=args.dstack_python_version,
       commands=[
@@ -49,11 +51,11 @@ def parallel_job(client, arxiv_id, args):
           f'git commit -m "automatically added {arxiv_id}-ko paper"',
           'git push origin main',
       ],
-      ports=["6006"],
+      ports=[str(port)],
   )
   
   run = client.runs.submit(
-      run_name=f'{args.dstack_run_name} | {arxiv_id}',
+      run_name=f'{args.dstack_run_name}({arxiv_id})',
       configuration=task,
       resources=Resources(
           gpu=GPU(memory="16GB")
@@ -81,7 +83,7 @@ def main(args):
   
   with concurrent.futures.ThreadPoolExecutor(max_workers=num_jobs) as executor:
     futures = [
-      executor.submit(parallel_job, clients[i], arxiv_ids[i], args_list[i]) for i in range(num_jobs)
+      executor.submit(parallel_job, i, clients[i], arxiv_ids[i], args_list[i]) for i in range(num_jobs)
     ]
     
     concurrent.futures.wait(futures)
