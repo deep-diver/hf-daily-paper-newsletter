@@ -1,18 +1,10 @@
 import os
-import sys
 import argparse
+import concurrent.futures
 
 from dstack.api import Client, Task, GPU, Client, Resources
 
-def main(args):
-  client = Client.from_config(
-      project_name=args.dstack_project,
-      server_url="https://cloud.dstack.ai",
-      user_token=args.dstack_token
-  )
-
-  arxiv_ids_str = ' '.join(args.arxiv_ids)
-  
+def parallel_job(client, arxiv_id, args):
   task = Task(
       python=args.dstack_python_version,
       commands=[
@@ -32,25 +24,29 @@ def main(args):
           'pip install nougat-ocr arxiv-dl kss',
   
           'echo "Creating temporary directory for holding the paper..."',
-          f'for arxiv_id in {arxiv_ids_str}; do mkdir -p papers/$arxiv_id; done',
+          f'mkdir -p papers/{arxiv_id}',
   
-          f'echo "Downloading paper (IDs: {args.arxiv_ids})"...',
-          f'for arxiv_id in {arxiv_ids_str}; do paper $arxiv_id -p -d papers/$arxiv_id/; done',
+          f'echo "Downloading paper (ID: {arxiv_id})"...',
+          f'paper {arxiv_id} -p -d papers/{arxiv_id}/',
+          f'PDF_FN=$(ls -1 papers/{arxiv_id}/*.pdf | head -n 1)'
 
           'echo "OCR processing with nougat-ocr..."',
-          f'for arxiv_id in {arxiv_ids_str}; do PDF_FN=$(ls -1 papers/$arxiv_id/*.pdf | head -n 1); nougat $PDF_FN -o papers/$arxiv_id; done',
+          f'nougat $PDF_FN -o papers/{arxiv_id}',
+          'MMD_FN=$(echo $PDF_FN | sed "s/pdf/mmd/g")'
   
           'echo "Translation processing"...',
-          f'for arxiv_id in {arxiv_ids_str}; do PDF_FN=$(ls -1 papers/$arxiv_id/*.pdf | head -n 1); MMD_FN=$(echo $PDF_FN | sed "s/pdf/mmd/g"); python arxiv-translator/translate_mmd.py $MMD_FN; python arxiv-translator/ready_templates.py $MMD_FN arxiv-translator/assets/html_template.html papers/$arxiv_id; done',
+          'python arxiv-translator/translate_mmd.py $MMD_FN'
+          f'python arxiv-translator/ready_templates.py $MMD_FN arxiv-translator/assets/html_template.html papers/{arxiv_id}',
   
           'echo "Git commit & push"...',
           f'cd {os.path.normpath(args.target_archive_github_repo).split(os.sep)[1]}',
           f'git pull',
-          f'for arxiv_id in {arxiv_ids_str}; do mkdir -p {args.target_archive_dir}/$arxiv_id; cp ../papers/$arxiv_id/paper.ko.html ./{args.target_archive_dir}/$arxiv_id; done',
+          f'mkdir -p {args.target_archive_dir}/{arxiv_id}'
+          f'cp ../papers/{arxiv_id}/paper.ko.html ./{args.target_archive_dir}/{arxiv_id}',
           f'git config --global user.name "{args.github_realname}"',
           f'git config --global user.email "{args.github_email}"',
           'git add . ',
-          f'git commit -m "automatically added [{arxiv_ids_str}]-ko paper"',
+          f'git commit -m "automatically added {arxiv_id}-ko paper"',
           'git push origin main',
       ],
       ports=["6006"],
@@ -68,7 +64,27 @@ def main(args):
   run.attach()
   for log in run.logs():
     print(log)
-  run.detach()
+  run.detach()  
+
+def main(args):
+  client = Client.from_config(
+      project_name=args.dstack_project,
+      server_url="https://cloud.dstack.ai",
+      user_token=args.dstack_token
+  )
+  
+  num_jobs = len(args.arxiv_ids)
+  
+  clients = [client for _ in num_jobs]
+  arxiv_ids = [arxiv_id for arxiv_id in args.arxiv_ids]
+  args_list = [args for _ in num_jobs]
+  
+  with concurrent.futures.ThreadPoolExecutor(max_workers=num_jobs) as executor:
+    futures = [
+      executor.submit(parallel_job, clients[i], arxiv_ids[i], args_list[i]) for i in range(num_jobs)
+    ]
+    
+    concurrent.futures.wait(futures)
 
 if __name__ == "__main__":
   parser = argparse.ArgumentParser()
