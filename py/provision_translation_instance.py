@@ -30,20 +30,20 @@ def parallel_job(i, client, arxiv_id, args):
   
           f'echo "Downloading paper (ID: {arxiv_id})"...',
           f'paper {arxiv_id} -p -d papers/{arxiv_id}/',
-          f'PDF_FN=$(ls -1 papers/{arxiv_id}/*.pdf | head -n 1)'
+          f'PDF_FN=$(ls -1 papers/{arxiv_id}/*.pdf | head -n 1)',
 
           'echo "OCR processing with nougat-ocr..."',
           f'nougat $PDF_FN -o papers/{arxiv_id}',
-          'MMD_FN=$(echo $PDF_FN | sed "s/pdf/mmd/g")'
+          'MMD_FN=$(echo $PDF_FN | sed "s/pdf/mmd/g")',
   
           'echo "Translation processing"...',
-          'python arxiv-translator/translate_mmd.py $MMD_FN'
+          'python arxiv-translator/translate_mmd.py $MMD_FN',
           f'python arxiv-translator/ready_templates.py $MMD_FN arxiv-translator/assets/html_template.html papers/{arxiv_id}',
   
           'echo "Git commit & push"...',
           f'cd {os.path.normpath(args.target_archive_github_repo).split(os.sep)[1]}',
           f'git pull',
-          f'mkdir -p {args.target_archive_dir}/{arxiv_id}'
+          f'mkdir -p {args.target_archive_dir}/{arxiv_id}',
           f'cp ../papers/{arxiv_id}/paper.ko.html ./{args.target_archive_dir}/{arxiv_id}',
           f'git config --global user.name "{args.github_realname}"',
           f'git config --global user.email "{args.github_email}"',
@@ -66,7 +66,9 @@ def parallel_job(i, client, arxiv_id, args):
   run.attach()
   for log in run.logs():
     print(log)
-  run.detach()  
+  run.detach()
+
+  return f'{args.dstack_run_name}({arxiv_id}) is completed'
 
 def main(args):
   client = Client.from_config(
