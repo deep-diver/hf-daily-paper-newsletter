@@ -49,3 +49,7 @@
 - [Asynchronous Local-SGD Training for Language Modeling](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/14/2024-01-18+Asynchronous+Local-SGD+Training+for+Language+Modeling.yaml) / 2024-01-18
 - [ReFT: Reasoning with Reinforced Fine-Tuning](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/14/2024-01-18+ReFT%3A+Reasoning+with+Reinforced+Fine-Tuning.yaml) / 2024-01-18
 - [ReFT: Reasoning with Reinforced Fine-Tuning](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/15/2024-01-18+ReFT%3A+Reasoning+with+Reinforced+Fine-Tuning.yaml) / 2024-01-18
+- [ChatQA: Building GPT-4 Level Conversational QA Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/16/2024-01-19+ChatQA%3A+Building+GPT-4+Level+Conversational+QA+Models.yaml) / 2024-01-19
+- [DiffusionGPT: LLM-Driven Text-to-Image Generation System](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/16/2024-01-19+DiffusionGPT%3A+LLM-Driven+Text-to-Image+Generation+System.yaml) / 2024-01-19
+- [Rethinking FID: Towards a Better Evaluation Metric for Image Generation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/16/2024-01-19+Rethinking+FID%3A+Towards+a+Better+Evaluation+Metric+for+Image+Generation.yaml) / 2024-01-19
+- [Self-Rewarding Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/16/2024-01-19+Self-Rewarding+Language+Models.yaml) / 2024-01-19
