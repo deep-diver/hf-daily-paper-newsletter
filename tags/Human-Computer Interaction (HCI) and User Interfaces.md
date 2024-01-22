@@ -1,1 +1,2 @@
 - [Towards Conversational Diagnostic AI](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/3/2024-01-12+Towards+Conversational+Diagnostic+AI.yaml) / 2024-01-12
+- [Rambler: Supporting Writing With Speech via LLM-Assisted Gist Manipulation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/7/2024-01-22+Rambler%3A+Supporting+Writing+With+Speech+via+LLM-Assisted+Gist+Manipulation.yaml) / 2024-01-22

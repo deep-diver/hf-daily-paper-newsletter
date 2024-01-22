@@ -16,3 +16,5 @@
 - [Tuning Language Models by Proxy](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/4/2024-01-17+Tuning+Language+Models+by+Proxy.yaml) / 2024-01-17
 - [ReFT: Reasoning with Reinforced Fine-Tuning](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/5/2024-01-18+ReFT%3A+Reasoning+with+Reinforced+Fine-Tuning.yaml) / 2024-01-18
 - [Self-Rewarding Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/6/2024-01-19+Self-Rewarding+Language+Models.yaml) / 2024-01-19
+- [Depth Anything: Unleashing the Power of Large-Scale Unlabeled Data](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/7/2024-01-22+Depth+Anything%3A+Unleashing+the+Power+of+Large-Scale+Unlabeled+Data.yaml) / 2024-01-22
+- [Inflation with Diffusion: Efficient Temporal Adaptation for Text-to-Video Super-Resolution](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/7/2024-01-22+Inflation+with+Diffusion%3A+Efficient+Temporal+Adaptation+for+Text-to-Video+Super-Resolution.yaml) / 2024-01-22

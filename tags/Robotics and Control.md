@@ -1,1 +1,2 @@
 - [URHand: Universal Relightable Hands](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/1/2024-01-11+URHand%3A+Universal+Relightable+Hands.yaml) / 2024-01-11 00:00
+- [Synthesizing Moving People with 3D Control](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/7/2024-01-22+Synthesizing+Moving+People+with+3D+Control.yaml) / 2024-01-22

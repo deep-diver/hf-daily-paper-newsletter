@@ -7,3 +7,5 @@
 - [Towards Conversational Diagnostic AI](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/3/2024-01-12+Towards+Conversational+Diagnostic+AI.yaml) / 2024-01-12
 - [Towards A Better Metric for Text-to-Video Generation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/4/2024-01-17+Towards+A+Better+Metric+for+Text-to-Video+Generation.yaml) / 2024-01-17
 - [SceneVerse: Scaling 3D Vision-Language Learning for Grounded Scene Understanding](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/5/2024-01-18+SceneVerse%3A+Scaling+3D+Vision-Language+Learning+for+Grounded+Scene+Understanding.yaml) / 2024-01-18
+- [Synthesizing Moving People with 3D Control](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/7/2024-01-22+Synthesizing+Moving+People+with+3D+Control.yaml) / 2024-01-22
+- [Understanding Video Transformers via Universal Concept Discovery](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/7/2024-01-22+Understanding+Video+Transformers+via+Universal+Concept+Discovery.yaml) / 2024-01-22
