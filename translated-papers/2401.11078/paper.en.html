@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# UltrAvatar: A Realistic Animatable 3D Avatar Diffusion Model with Authenticity Guided Textures\n' +
+      '\n' +
+      'Mingyuan Zhou\\({}^{*}\\)1, Rakib Hyder\\({}^{*}\\)1, Ziwei Xuan 1, Guojun Qi 1,2\n' +
+      '\n' +
+      '1OPPO US Research Center, InnoPeak Technology, Inc., USA, 2Westlake University, China\n' +
+      '\n' +
+      '{mingyuan.zhou,rakib.hyder,ziwei.xuan}@innopeaktech.com, guojjunq@gmail.com\n' +
+      '\n' +
+      'Equal contribution.\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      'Recent advances in 3D avatar generation have gained significant attentions. These breakthroughs aim to produce more realistic animatable avatars, narrowing the gap between virtual and real-world experiences. Most of existing works employ Score Distillation Sampling (SDS) loss, combined with a differentiable renderer and text condition, to guide a diffusion model in generating 3D avatars. However, SDS often generates oversmoothed results with few facial details, thereby lacking the diversity compared with ancestral sampling. On the other hand, other works generate 3D avatar from a single image, where the challenges of unwanted lighting effects, perspective views, and inferior image quality make them difficult to reliably reconstruct the 3D face meshes with the aligned complete textures. In this paper, we propose a novel 3D avatar generation approach termed UltrAvatar with enhanced fidelity of geometry, and superior quality of physically based rendering (PBR) textures without unwanted lighting. To this end, the proposed approach presents a diffuse color extraction model and an authenticity guided texture diffusion model. The former removes the unwanted lighting effects to reveal true diffuse colors so that the generated avatars can be rendered under various lighting conditions. The latter follows two gradient-based guidances for generating PBR textures to render diverse face-identity features and details better aligning with 3D mesh geometry. We demonstrate the effectiveness and robustness of the proposed method, outperforming the state-of-the-art methods by a large margin in the experiments.\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      'Generating 3D facial avatars is of significant interest in the communities of both computer vision and computer graphics. Recent advancements in deep learning have greatly enhanced the realism of AI-generated avatars. Although multi-view 3D reconstruction methods, such as Multi-View Stereo (MVS) [66] and Structure from Motion (SfM) [65], have facilitated avatar generation from multiple images captured at various angles, generating realistic 3D avatars from few images, like a single view taken by user or particularly generated from text prompts, proves significantly challeng\n' +
+      '\n' +
+      'Figure 1: **UtrAvatar**. Our method takes a text prompt or a single image as input to generate realistic animatable 3D Avatars with PBR textures, which are compatible with various rendering engines, our generation results in a wide diversity, high quality, and excellent fidelity.\n' +
+      '\n' +
+      'ing due to the limited visibility, unwanted lighting effects and inferior image quality.\n' +
+      '\n' +
+      'Previous works have attempted to overcome these challenges by leveraging available information contained in the single view image. For example, [24, 46, 79] focused on estimating parameters of the 3D Morphable Model (3DMM) model by minimizing landmark loss and photometric loss, and other approaches train a self-supervised network to predict 3DMM parameters [20, 25, 64, 80]. These methods are sensitive to occlusions and lighting conditions, leading to susceptible 3DMM parameters or generation of poor quality textures. Moreover, many existing works [20, 25, 79, 80] rely on prefixed texture basis [31] to generate facial textures. Although these textures are often reconstructed jointly with lighting parameters, the true face colors and skin details are missing in the underlying texture basis and thus are unable to be recovered. Alternatively, other works [8, 10, 37, 73] employ neural radiance rendering field (NeRF) to generate 3D Avatar, but they are computationally demanding and not amenable to mesh-based animation of 3D avatars. They also may lack photo-realism when being rendered from previously unobserved perspectives.\n' +
+      '\n' +
+      'Generative models [29, 30, 43, 53, 61, 75] designed for 3D avatars have shown promising to generate consistent 3D meshes and textures. However, these models do not account for unwanted lighting effects that prevent access to true face colors and could result in deteriorated diffuse textures. On the other hand, some works use the SDS loss [56, 75, 76] to train a 3D avatar by aligning the rendered view with the textures generated by a diffusion model. The SDS may lead to the oversmoothed results that lack the diversity in skin and facial details compared with the original 2D images sampled from the underlying diffusion model.\n' +
+      '\n' +
+      'To address these challenges, we propose a novel approach to create 3D animatable avatars that are more realistic in diffuse colors and skin details. First, our approach can take either a text prompt or a single face image as input. The text prompt is fed into a generic diffusion model to create a face image, or the a single face image can also be input into our framework. It is well known that separating lighting from the captured colors in a single image is intrinsically challenging. To obtain high quality textures that are not contaminated by the unwanted lighting, our key observation is that the self-attention block in the diffusion model indeed captures the lighting effects, this enables us to reveal the true diffuse colors by proposing a diffuse color extraction (DCE) model to robustly eliminate the lighting from the texture of the input image.\n' +
+      '\n' +
+      'In addition, we propose to train an authenticity guided texture diffusion model (AGT-DM) that are able to generate high-quality complete facial textures that align with the 3D face meshes. Two gradient guidances are presented to enhance the resultant 3D avatars - a photometric guidance and an edge guidance that are added to classifier-free diffusion sampling process. This can improve the diversity of the generated 3D avatars with more subtle high-frequency details in their facial textures across observed and unobserved views.\n' +
+      '\n' +
+      'The key contributions of our work are summarized below.\n' +
+      '\n' +
+      '* We reveal the relationship between the self-attention features and the lighting effects, enabling us to propose a novel model for extracting diffuse colors by removing lighting effects in a single image. Our experiments demonstrate this is a robust and effective approach, suitable for tasks such as removing specular spotlights and shadows.\n' +
+      '* We introduce an authenticity guided diffusion model to generate PBR textures. It can provide high-quality complete textures that well align with 3D meshes without susceptible lighting effects. The sampling process follows two gradient-based guidances to retain facial details unique to each identity, which contributes to the improved generation diversity.\n' +
+      '* We build a novel 3D avatar generative framework UltrAvatar upon the proposed DCE model and the AGT-DM. Our experiments demonstrate high quality diverse 3D avatars with true colors and sharp details (see Fig. 1).\n' +
+      '\n' +
+      '## 2 Related Work\n' +
+      '\n' +
+      '**Image-to-Avatar Generation:** Initially, avatar generation was predominantly reliant on complex and costly scanning setups, limiting its scalability [7, 13, 33, 48]. This challenge has shifted towards utilizing common image inputs like a single photo [20, 25, 80] or video [16, 28, 32, 79]. Additionally, the representation of 3D head has diversified, ranging from the mesh-based parametric models [46, 79] to the fluid neural implicit functions like NeRFs [8, 37, 73]. The introduction of advanced neural networks, especially Generative Adversarial Networks (GANs) [40] have led to the embedding of 3D attributes directly into these generative models [17, 21, 52] and the use of generative model as a prior to generate 3D avatars [29, 30, 43, 44] etc. Some techniques [10, 23] also can create the riggable avatars from a single image. Nevertheless, these existing methods rely on the provided images for mesh and texture generation, often encounter errors in mesh creation and issues with diffuse texture generation due to the lighting like specular highlights and shadows on the images. Our proposed method adeptly addresses and mitigates these challenges, ensuring more consistent and accurate results.\n' +
+      '\n' +
+      '**Text-to-3D Generation:** Text-to-3D generation is a popular research topic that builds on the success of text-to-image models [51, 58, 59, 60]. DreamFusion [56],Magic3D [47], Latent-NeRF [49], AvatarCLIP [36], ClipFace [9], Rodin [70], DreamFace [76] etc., uses the text prompt to guide the 3D generation. Most of these approaches use SDS loss to maintain consistency between the images generated by the diffusion model and 3D object. However, SDS loss significantly limits the diversity of generation. Our approach upholds the powerful image generation capabilities from diffusion models trained on large scale data, facilitating diversity. Simultaneously, it ensures a high degree of fidelity between the textual prompts and the resulting avatars without depending on SDS loss.\n' +
+      '\n' +
+      'Guided Diffusion Model:A salient feature of diffusion models lies in their adaptability post-training, achieved by guiding the sampling process to tailor outputs. The concept of guided diffusion has been extensively explored in a range of applications, encompassing tasks like image super-resolution [18, 27, 63], colorization [19, 62], deblurring [18, 71], and style-transfer [26, 41, 42]. Recent studies have revealed that the diffusion U-Net\'s intermediate features are rich in information about the structure and content of generated images [12, 34, 42, 57, 69]. We discover that the attention features can represent lighting in the image and propose a method to extract the diffuse colors from a given image. Additionally, we incorporated two guidances to ensure the authenticity and realism of the generated avatars.\n' +
+      '\n' +
+      '## 3 The Method\n' +
+      '\n' +
+      'An overview of our framework is illustrated in Fig. 2. We take a face image as input or use the text prompt to generate a view \\(I\\) of the avatar with a diffusion model. Then, we introduce a DCE model to recover diffuse colors by eliminating unwanted lighting from the generated image. This process is key to generating high quality textures without being deteriorated by lighting effects such as specularity and shadows. This also ensures the generated avatars can be properly rendered under new lighting conditions. We apply a 3D face model (e.g., a 3DMM model) to generate the mesh aligned with the resultant diffuse face image. Finally, we train an AGT-DM with several decoders to generate PBR textures, including diffuse colors, normal, specular, and roughness textures. This complete set of PBR textures can well align with the 3D mesh, as well as preserve the face details unique to individual identity.\n' +
+      '\n' +
+      '### Preliminaries\n' +
+      '\n' +
+      'Diffusion models learn to adeptly transform random noise with condition \\(y\\) into a clear image by progressively removing the noise. These models are based on two essential processes. The forward process initiates with a clear image \\(x_{0}\\) and incrementally introduces noise, culminating in a noisy image \\(x_{T}\\), and the backward process works to gradually remove the noise from \\(x_{T}\\), restoring the clear image \\(x_{0}\\). The stable diffusion (SD) model [55, 60] operates within the latent space \\(z=E(x)\\) by encoding the image \\(x\\) to a latent representation. The final denoised RGB image is obtained by decoding the latent image through \\(x_{0}=D(z_{0})\\). To carry out the sequential denoising, the network \\(\\epsilon_{\\theta}\\) is rigorously trained to predict noise at each time step \\(t\\) by following the objective function:\n' +
+      '\n' +
+      'Figure 2: **The Overview of UltraAvatar.** First, we feed a text prompt into a generic diffusion model (SDXL [55]) to produce a face image. Alternatively, the face image can also be directly input into our framework. Second, our DCE model takes the face image to extract its diffuse colors \\(I_{d}\\) by eliminating lighting. The \\(I_{d}\\) is then passed to the mesh generator and the edge detector to generate the 3D mesh, camera parameters and the edge image. With these predicted parameters, the initial texture and the corresponding visibility mask can be created by texture mapping. Lastly, we input the masked initial texture into our AGT-DM to generate the PBR textures. A relighting result using the generated mesh and PBR textures is shown here.\n' +
+      '\n' +
+      '\\[\\min_{\\theta}\\ \\mathbb{E}_{z\\sim E(x),t,\\epsilon\\sim\\mathcal{N}(0,1)}||\\epsilon- \\epsilon_{\\theta}(z_{t},t,\\tau(y))||_{2}^{2}. \\tag{1}\\]\n' +
+      '\n' +
+      'where the \\(\\tau(\\cdot)\\) is the conditioning encoder for an input condition \\(y\\), such as a text embedding, \\(z_{t}\\) represents the noisy latent sample at the time step \\(t\\). The noise prediction model in SD is based on the U-Net architecture, where each layer consists of a residual block, a self-attention block, and a cross-attention block, as depicted in Fig. 4. At a denoising step \\(t\\), the features \\(\\phi_{t}^{l-1}\\) from the previous \\((l-1)\\)-th layer are relayed to the residual block to produce the res-features \\(f_{t}^{l}\\). Within the self-attention block, the combined features \\((\\phi_{t}^{l-1}+f_{t}^{l})\\) through the residual connection are projected to the query features \\(q_{t}^{l}\\), key features \\(k_{t}^{l}\\) and value features \\(v_{t}^{l}\\). The above res-features \\(f_{t}^{l}\\) contributes to the content of the generated image and the attention features hold substantial information that contributes to the overall structure layout, which are normally used in image editing [34, 42, 57, 69].\n' +
+      '\n' +
+      'Diffusion models possess the pivotal feature of employing guidance to influence the reverse process for generating conditional samples. Typically, classifier guidance can be applied to the score-based models by utilizing a distinct classifier. Ho _et al._[35] introduce the classifier-free guidance technique, blending both conditioned noise prediction \\(\\epsilon_{\\theta}(z_{t},t,\\tau(y))\\) and unconditioned noise prediction \\(\\epsilon_{\\theta}(z_{t},t,\\varnothing)\\), to extrapolate one from another,\n' +
+      '\n' +
+      '\\[\\bar{\\epsilon}_{\\theta}(z_{t},t,\\tau(y))=\\omega\\epsilon_{\\theta}(z_{t},t, \\tau(y))+(1-\\omega)\\epsilon_{\\theta}(z_{t},t,\\varnothing). \\tag{2}\\]\n' +
+      '\n' +
+      'where \\(\\varnothing\\) is the embedding of a null text and \\(\\omega\\) is the guidance scale.\n' +
+      '\n' +
+      '### Diffuse Color Extraction via Diffusion Features\n' +
+      '\n' +
+      'Our approach creates a 3D avatar from a face image \\(I\\) that is either provided by a user or generated by a diffusion model [55, 60] from a text prompt. To unify the treatment of those two cases, the DDIM inversion [22, 68] with non-textual condition is applied to the image that results in a latent noise \\(z_{T}^{l}\\) at time step \\(T\\) from which the original image \\(I\\) is then reconstructed through the backward process. This gives rise to a set of features from the diffusion model.\n' +
+      '\n' +
+      'The given image \\(I\\), no matter user-provided or SD-generated, typically contains shadows, specular highlights, and lighting effects that are hard to eliminate. To render a relightable and animatable 3D avatar, it usually requires a diffuse texture map with these lighting effects removed from the image, which is a challenging task. For this, we make a key observation that reveals the relation between the self-attention features and the lighting effects in the image, and introduce a DCE model to eliminate the lighting.\n' +
+      '\n' +
+      'First, we note that the features \\(f_{t}^{l}\\) in each layer contain the RGB details as discussed in [67, 69]. The self-attention features \\(q_{t}^{l}\\) and \\(k_{t}^{l}\\) reflect the image layout, with similar regions exhibiting similar values. Beyond this, our finding is that the variations in these self-attention features \\(q_{t}^{l}\\) and \\(k_{t}^{l}\\) indeed reflect the variations caused by the lighting effects such as shading, shadows, and specular highlights within a semantic region. This is illustrated in Fig. 3. This is not hard to understand. Consider a pixel on the face image, its query features ought to align with the key features from the same facial part so that its color can be retrieved from the relevant pixels. With the lighting added to the image, the query features must vary in the same way as the variation caused by the lighting effects. In this way, the lighted colors could be correctly retrieved corresponding to the lighting pattern - shadows contribute to the colors of nearby shadowed pixels, while highlights contribute to the colors of nearby highlighted ones.\n' +
+      '\n' +
+      'To eliminate lighting effects, one just needs to remove the variation in the self-attention (query and key) features\n' +
+      '\n' +
+      'Figure 3: **Features Visualization.** We render a high-quality data with PBR textures under a complex lighting condition to image \\(I\\), and also render its corresponding ground truth diffuse color image. We input the \\(I\\) to our DCE model to produce result \\(I_{d}\\). The \\(S\\) is the semantic mask. We apply DDIM inversion and sampling on these images and extract the features. To visualize the features, we apply PCA on the extracted features to check the first three principal components. The attention features and res-features shown here are all from the \\(8\\)-th layer at upsampling layers in the U-Net at time step \\(101\\). From the extracted query and key features of \\(I\\), we can clearly visualize the lighting. The colors and extracted query and key features of the result \\(I_{d}\\) closely match those from the ground truth image, which demonstrates our method effectively removes the lighting. All res-features do not present too much lighting. We also show the color distributions of these three images, illustrating that the result \\(I_{d}\\) can eliminate shadows and specular points, making its distribution similar to the ground truth.\n' +
+      '\n' +
+      'while still keeping these features aligned with the semantic structure. Fig. 4 summarizes the idea. Specifically, first we choose a face parsing model to generate a semantic mask \\(S\\) for the image \\(I\\). The semantic mask meets the above two requirements since it perfectly aligns with the semantic structure by design and has no variation within a semantic region. Then we apply the DDIM inversion to \\(S\\) resulting in a latent noise \\(z_{T}^{S}\\) at time step \\(T\\), and obtain the self-attention features of \\(S\\) via the backward process starting from \\(z_{T}^{S}\\) for further replacing \\(q_{t}^{l}\\) and \\(k_{t}^{l}\\) of the original \\(I\\). Since the semantic mask has uniform values within a semantic region, the resultant self-attention features are hypothesized to contain no lighting effects (see Fig. 3), while the face details are still kept in the features \\(f_{t}^{l}\\) of the original image \\(I\\). Thus, by replacing the query and key features \\(q_{t}^{l}\\) and \\(k_{t}^{l}\\) with those from the semantic mask in the self-attention block, we are able to eliminate the lighting effects from \\(I\\) and keep its diffuse colors through the backward process starting from the latent noise \\(z_{T}^{I}\\) used for generating \\(I\\).\n' +
+      '\n' +
+      'This approach can be applied to eliminate lighting effects from more generic images other than face images, and we show more results in the Appendix.\n' +
+      '\n' +
+      '### 3D Avatar Mesh Generation\n' +
+      '\n' +
+      'We employ the FLAME [46] model as our geometry representation of 3D avatars. FLAME is a 3D head template model, which is trained from over \\(33,000\\) scans. It is characterized by the parameters for identity shape \\(\\beta\\), facial expression \\(\\psi\\) and pose parameters \\(\\theta\\). With these parameters. FLAME generates a mesh \\(M(\\beta,\\psi,\\theta)\\) consisting 5023 vertices and 9976 faces, including head, neck, and eyeballs meshes. We adopt MICA [80] for estimating shape code \\(\\beta^{*}\\) of the FLAME model from the diffuse image \\(I_{d}\\), which excels in accurately estimating the neutral face shape and is robust to expression, illumination, and camera changes. We additionally apply EMOCA [20] to obtain the expression code \\(\\psi^{*}\\), pose parameters \\(\\theta^{*}\\) and camera parameters \\(c^{*}\\), which is employed for subsequent 3D animation/driving applications. Note that we do not use the color texture generated by the EMOCA combining the FLAME texture basis. It cannot accurately present the true face color, lacks skin details and contains no PBR details, such as diffuse colors, normal maps, specularity, and roughness textures, which can be derived below with our AGT-DM.\n' +
+      '\n' +
+      '### Authenticity Guided Texture Diffusion Model\n' +
+      '\n' +
+      'Given the current estimated mesh \\(M(\\beta^{*},\\psi^{*},\\theta^{*})\\), camera parameters \\(c^{*}\\) and the lighting-free face image \\(I_{d}\\), one can do the texture mapping of the latter onto the mesh, and then project the obtained mesh texture to an initial texture UV map \\(I_{m}\\). Since \\(I_{d}\\) is only a single view of the face, the resultant \\(I_{m}\\) is an incomplete UV texture map of diffuse colors, and we use \\(V\\) to denote its visible mask in the UV coordinates. The UV texture map may also not perfectly align with the mesh due to the errors in the estimated face pose, expression and camera pose by EMOCA.\n' +
+      '\n' +
+      'To address the above challenges, we train an AGT-DM that can 1) inpaint the partially observed texture UV map \\(I_{m}\\) to the full UV coordinates, and 2) improve the alignment between the texture map and the UV coordinates. Moreover, the model can output more PBR details beyond the diffuse color textures, including normal, specular and roughness maps from the given \\(I_{m}\\) and \\(V\\). We will enhance the output PBR results with two guidance signals based on the photometric and edge details, so that the identity and more facial features, such as subtle wrinkles and pores, can be recovered from the AGT-DM.\n' +
+      '\n' +
+      'To this end, we use the online 3DScan dataset [1] that consists of 3D face scans alongside multiple types of PBR texture maps (in 4K and 8K) including diffuse colors, normal maps, specularity and roughness textures on the entire high-quality meshes of 3D scans. We process this dataset (details in the Appendix) into a training dataset and train an inpainting SD model with them, the U-net of the original SD is finetuned over the groundtruth diffuse UV maps from the dataset. To generate PBR textures, the SD encoder is frozen and the SD decoder is copied and finetuned over the dataset for each type of PBR texture, except that the PBR decoder \\(D_{d}\\) for diffuse texture directly inherits\n' +
+      '\n' +
+      'Figure 4: **DCE Model.** The input image \\(I\\) is fed to the face parsing model to create the semantic mask \\(S\\). We apply DDIM inversion on the \\(I\\) and \\(S\\) to get initial noise \\(z_{T}^{I}\\) and \\(z_{T}^{S}\\), then we progressively denoise the \\(z_{T}^{I}\\) and \\(z_{T}^{S}\\) to extract and preserve the res-features and attention features separately. Lastly, we progressively denoise the \\(z_{T}^{I}\\) one more time, copying the res-features and attention features from storage at certain layers (as discussed in Sec. 4) during sampling to produce \\(\\hat{z}_{0}^{l}\\), the final result \\(I_{d}\\) will be generated from de-coding the \\(\\hat{z}_{0}^{l}\\).\n' +
+      '\n' +
+      'from the original SD decoder. Then we can use the finetuned SD model to inpaint the masked diffuse color map \\(V\\odot I_{m}\\) alongside the other PBR textures. Because the training dataset have ideally aligned meshes and texture details, the resultant inpainting diffusion model can improve the alignment between the output PBR textures and meshes, as well as facial details. Denoising the noisy masked texture latent \\(Z_{N}\\) following latent inpainting, more accurate alignment can be generated between textures and meshes since the denoising could corrupt the misalignments in \\(I_{m}\\) and allow the inpainting diffusion model to correct them through diffusion sampling.\n' +
+      '\n' +
+      'To further enhance the PBR textures with more facial details, we employ two energy functions to guide the sampling process of the inpainting diffusion model. The first is the photometric guidance \\(G_{P}\\) with the following energy function,\n' +
+      '\n' +
+      '\\[\\begin{split} G_{P}=\\omega_{photo}||V_{d}\\odot(R(M(\\beta^{*}, \\psi^{*},\\theta^{*}),D_{d}(z_{t}),c^{*})-I_{d})||_{2}^{2}\\\\ +\\omega_{lpips}L_{lpips}(V_{d}\\odot(R(M(\\beta^{*},\\psi^{*}, \\theta^{*}),D_{d}(z_{t}),c^{*})),V_{d}\\odot I_{d}))\\end{split} \\tag{3}\\]\n' +
+      '\n' +
+      'where \\(V_{d}\\) is the mask over the visible part of rendered face, as shown in Fig. 6, and the \\(R(\\cdot)\\) is a differential renderer of the avatar face based on the current estimate of the mesh \\(M\\), the diffuse color texture map \\(D_{d}(z_{t})\\) at a diffusion time step \\(t\\), the \\(L_{lpips}(.)\\) is the perceptual loss function (LPIPS [77]). The minimization of this photometric energy will align the rendered image with the original image.\n' +
+      '\n' +
+      'The second is the edge guidance with the following edge energy function,\n' +
+      '\n' +
+      '\\[\\begin{split} G_{E}=||V_{d}\\odot(C(R(M(\\beta^{*},\\psi^{*}, \\theta^{*}),D(z_{t}),c^{*}))-C(I_{d}))||_{2}^{2}\\end{split} \\tag{4}\\]\n' +
+      '\n' +
+      'where \\(C(\\cdot)\\) is the canny edge detection function [15]. While the edges contain high-frequency details, as shown in Fig. 2, this guidance will help retain the facial details such as wrinkles, freckles, pores, moles and scars in the image \\(I_{d}\\), making the generated avatars look more realistic with high fidelity.\n' +
+      '\n' +
+      'We integrate the two guidances through the gradients of their energy functions into the sampling of classifier-free guidance below,\n' +
+      '\n' +
+      '\\[\\tilde{\\epsilon}_{\\theta}(z_{t},t,\\tau(y))=\\omega\\epsilon_{\\theta }(z_{t},t,\\tau(y))+(1-\\omega)\\epsilon_{\\theta}(z_{t},t,\\varnothing)\\\\ +\\omega_{p}\\nabla_{z_{t}}G_{P}+\\omega_{e}\\nabla_{z_{t}}G_{E}. \\tag{5}\\]\n' +
+      '\n' +
+      'We demonstrate the effectiveness in Fig 6.\n' +
+      '\n' +
+      '## 4 Experiments\n' +
+      '\n' +
+      '### Setup and Baselines\n' +
+      '\n' +
+      'Experimental Setup.We used SDXL[55] as our text-to-image generation model. We used pretrained BiSeNet [4, 74] for generating face parsing mask, \\(S\\). In our DCE module, we use the standard SD-2.1 base model and apply the DDIM sampling with 20 time steps. We preserve the res-features from \\(4^{th}\\) to \\(11^{th}\\) upsampling layers in the U-net extracted from the \\(I\\), and inject into the DDIM sampling of \\(I\\) the query and key features from the \\(4^{th}\\) to \\(9^{th}\\) upsampling layers extracted from \\(S\\). We choose not to inject query and key features from all layers because we find injecting them to the last few layers sometimes slightly would change the identity.\n' +
+      '\n' +
+      'For our AGT-DM, we finetune the U-Net from SD-2.1-base model on our annotated 3DScan store dataset to generate diffuse color texture map. We attach "A UV map of" to the text prompt during finetuning to generate FLAME UV maps. We train three decoders to output normal, specular and roughness maps. More training details are presented in the Appendix.\n' +
+      '\n' +
+      'In the AGT-DM, we use \\(T=200\\), \\(N=90\\), \\(\\omega=7.5\\), \\(\\omega_{p}=0.1\\), \\(\\omega_{photo}=0.4\\), \\(\\omega_{lpips}=0.6\\) and \\(\\omega_{e}=0.05\\). In the initial \\(T-N\\) denoising steps, our approach adopts a latent space inpainting technique akin to the method described in [11], utilizing a visibility mask. During the final \\(N\\) steps, we apply the proposed photometric and edge guidances to rectify any misalignments and ensure a coherent integration between the observed and unobserved regions of the face. After the inference, we pass the resultant latent code to normal, specular and roughness decoders to obtain the corresponding PBR texture maps. We then pass the texture to a pretrained Stable Diffusion super-resoltuion network [60] to get 2K resolution texture.\n' +
+      '\n' +
+      'Baselines.We show comparisons against different state-of-the-art approaches for text-to-avatar generation (Latent3d [14], CLIPMatrix [38], Text2Mesh[50], CLIPFace[9], DreamFace[76]) and image-to-avatar generation (FlameTex[24], PanoHead [8]). Details about the comparisons are included in the Appendix.\n' +
+      '\n' +
+      '### Results and Discussion\n' +
+      '\n' +
+      'We demonstrate our text/image generated realistic avatars in Fig. 1 and 5. Note that, we do not have those images in the training data for our AGT-DM. Generated results demonstrate rich textures maintaining fidelity with the given text prompt/image. Furthermore, due to our DCE model and AGT-DM\'s capabilities to extract diffuse color texture and PBR details, we can correctly render relighted avatars from any lighting condition. Since, AGT-DM enforces consistency across the observed and unobserved region, our rendered avatars look equally realistic from different angles without any visible artifacts.\n' +
+      '\n' +
+      'Performance Analysis.For comparison, we randomly select 40 text prompts, ensuring a comprehensive representation across various age groups, ethnicities and genders, as well as including a range of celebrities. For DreamFace and UltrAvatar, we render the generated meshes from 50 different angles under 5 different lighting conditions. For PanoHead, we provide 200 images generated by SDXL using the same 40 text prompts. UltrAvatar can generate high-quality facial asset from text prompt within 2 minutes (compared to 5 minutes for DreamFace) on a single Nvidia A6000 GPU.\n' +
+      '\n' +
+      'We evaluate the perceptual quality of the rendered images using standard generative model metrics FID and KID. Similar to CLIPFace, we evaluate both of these metrics with respect to masked FFHQ images [39] (without background, eyes and mouth interior) as ground truth. For text-to-avatar generation, we additionally calculate CLIP score to measure similarity between text prompts and rendered images. We report the average score from two different CLIP variants, \'ViT-B/16\' and \'ViT-L/14\'.\n' +
+      '\n' +
+      'Among the text-to-avatar generation approaches in Table 1, DreamFace performs very well on maintaining similarity between text and generated avatars. However, the generated avatars by DreamFace lack realism and diversity. Our proposed UltrAvatar performs significantly better than DreamFace in terms of perceptual quality (more results are shown in the Appendix). Furthermore, in Fig. 7, we demonstrate that DreamFace fails to generate avatars from challenging prompts (e.g. big nose, uncommon celebrities). It is important to note that the results from DreamFace represent its best outputs from multiple runs. Our UltrAvatar also outperforms other text-to-avatar approaches in terms of perceptual quality and CLIP score, as reported in Table 1. In the task of image-to-avatar generation, PanoHead achieves impressive performance in rendering front views. However, the effectiveness of PanoHead is heavily dependent on the accuracy of their pre-processing steps, which occasionally\n' +
+      '\n' +
+      'Figure 5: **Results of generating random identities and celebrities.** We input the text prompts into the generic SDXL to create 2D face images. Our results showcase the reconstructed high-quality PBR textures which are also well-aligned with the meshes, exhibit high fidelity, and maintain the identity and facial details. To illustrate the quality of our generation, we relight each 3D avatar under various environment maps.\n' +
+      '\n' +
+      'Figure 6: **Analysis of the guidances in the AGT-DM.** Three PBR textures generation scenarios from image \\(I_{d}\\) by our AGT-DM are shown: one without \\(G_{P}\\) and \\(G_{E}\\), one only with \\(G_{P}\\), and another with both \\(G_{P}\\) and \\(G_{E}\\). It clearly demonstrates that the identity and facial details are effectively maintained through these two guidances.\n' +
+      '\n' +
+      'fail to provide precise estimation. Furthermore, the NeRF-based PanoHead approach is limited in relighting. Considering the multi-view rendering capabilities, UltrAvatar outperforms PanoHead in image-to-avatar task as shown in Table 1.\n' +
+      '\n' +
+      'In addition, we automate text-to-avatar performance assessment utilizing GPT-4V(ision) [5, 6]. GPT-4V is recognized for its human-like evaluation capabilities in vision-language tasks [72, 78]. We evaluate models on a 5-point Likert scale. The criteria for assessment include photo-realism, artifact minimization, skin texture quality, textual prompt alignment, and the overall focus and sharpness of the image. As illustrated in Fig. 8, UltrAvatar demonstrates superior capabilities in generating lifelike human faces. It not only significantly reduces artifacts and enhances sharpness and focus compared to DreamFace and PanoHead but also maintains a high level of photo-realism and fidelity in text-prompt alignment.\n' +
+      '\n' +
+      '### Ablation Studies.\n' +
+      '\n' +
+      'In Fig. 6, we illustrate the impact of different guidances on the AGT-DM performance. The photometric guidance enforces the similarity between the generated texture and the source image. Additionally, the edge guidance enhances the details in the generated color texture.\n' +
+      '\n' +
+      'Out-of-domain Generation.UltrAvatar can generate avatars from the image/prompt of animation characters, comic characters and other non-human characters. We have shown some results in Fig. 9.\n' +
+      '\n' +
+      'Animation and EditingSince our generated avatars are mesh-based models, we can animate our generated avatars by changing the expressions and poses. We can also perform some texture editing using the text prompt in the AGT-DM. We have included the animation and editing results in the Appendix.\n' +
+      '\n' +
+      '## 5 Conclusion\n' +
+      '\n' +
+      'We introduced a novel approach to 3D avatar generation from either a text prompt or a single image. At the core of our method is the DCE Model designed to eliminate unwanted lighting effects from a source image, as well as a texture generation model guided by photometric and edge signals to retain the avatar\'s PBR details. Compared with the other SOTA approaches, we demonstrate our method can generate 3D avatars that display heightened realistic, higher quality, superior fidelity and more extensive diversity.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{|l|c|c|c|} \\hline Method & FID \\(\\downarrow\\) & KID \\(\\downarrow\\) & CLIP Score \\(\\uparrow\\) \\\\ \\hline DreamFace [76] & 76.70 & 0.061 & 0.291 \\(\\pm\\) 0.020 \\\\ ClipFace\\({}^{*}\\)[9] & 80.34 & 0.032 & 0.251 \\(\\pm\\) 0.059 \\\\ Latent3d\\({}^{*}\\)[14] & 205.27 & 0.260 & 0.227 \\(\\pm\\) 0.041 \\\\ ClipMatrix\\({}^{*}\\)[38] & 198.34 & 0.180 & 0.243 \\(\\pm\\) 0.049 \\\\ Text2Mesh\\({}^{*}\\)[50] & 219.59 & 0.185 & 0.264 \\(\\pm\\) 0.044 \\\\ \\hline FlameTex\\({}^{*}\\)[24] & 88.95 & 0.053 & - \\\\ PanoHead [8] & 48.64 & 0.039 & - \\\\ \\hline UltraAvatar (Ours) & **45.50** & **0.029** & **0.301 \\(\\pm\\) 0.023** \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 1: Comparison of methods based on FID, KID, and CLIP Score metrics, \\({}^{*}\\) results are from CLIPFace.\n' +
+      '\n' +
+      'Figure 8: **Qualitative evaluation by GPT-4V.** Our framework has overall better performance.\n' +
+      '\n' +
+      'Figure 7: **Comparison to DreamFace.** Our results achieve better alignment with the text prompt than DreamFace, especially for extreme prompts.\n' +
+      '\n' +
+      'Figure 9: **Results of out-of-domain avatar generation.** Our framework has capability to generate out-of-distribution animation characters or non-human avatars.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* [1] 3Dscan store. Note: [https://www.3dscanstore.com/](https://www.3dscanstore.com/).\n' +
+      '* [2] Wrap4d. Note: [https://www.russian3dscanner.com/wrap4d/](https://www.russian3dscanner.com/wrap4d/) Cited by: SS1.\n' +
+      '* [3] Hyperhuman. Note: [https://hyperhuman.deemos.com/](https://hyperhuman.deemos.com/) Cited by: SS1.\n' +
+      '* [4] Using modified BiSeNet for face parsing in PyTorch. Note: [https://github.com/zlrunning/face-parsing.PyTorch](https://github.com/zlrunning/face-parsing.PyTorch) Cited by: SS1.\n' +
+      '* [5] ChatGPT can now see, hear, and speak. Note: [https://openai.com/blog/chatgpt-can-now-see-heear-and-speak](https://openai.com/blog/chatgpt-can-now-see-heear-and-speak) Cited by: SS1.\n' +
+      '* [6] GPT-4V(sion) system card. Note: [https://cdn.openai.com/papers/GPTV_System_Card.pdf](https://cdn.openai.com/papers/GPTV_System_Card.pdf) Cited by: SS1.\n' +
+      '* [7] Oleg Alexander, Mike Rogers, William Lambeth, Jen-Yuan Chiang, Wan-Chun Ma, Chuan-Chang Wang, and Paul Debevec. The Digital Emily Project: Achieving a Photorealistic Digital Actor. IEEE Computer Graphics and Applications30 (4), pp. 20-31. Cited by: SS1.\n' +
+      '* [8] Sizhe An, Hongyi Xu, Yichun Shi, Guoxian Song, Umit Y Ogras, and Linjie Luo. PanoHead: Geometry-Aware 3D Full-Head Synthesis in 360\\({}^{\\circ}\\). In CVPR, pp. 20950-20959. Cited by: SS1.\n' +
+      '* [9] Shivangi Aneja, Justus Thies, Angela Dai, and Matthias Niessner. ClipFace: Text-guided Editing of Textured 3D Morphable Models. In ACM SIGGRAPH 2023 Conference Proceedings, pp. 1-11. Cited by: SS1.\n' +
+      '* [10] ShahRukh Athar, Zexiang Xu, Kalyan Sunkavalli, Eli Shechtman, and Zhixin Shu. RigNeRF: Fully Controllable Neural 3D Portraits. In CVPR, pp. 20364-20373. Cited by: SS1.\n' +
+      '* [11] Omri Avrahami, Ohad Fried, and Dani Lischinski. Blended Latent Diffusion. ACM TOG42 (4), pp. 1-11. Cited by: SS1.\n' +
+      '* [12] Omri Avrahami, Thomas Hayes, Oran Gafni, Sonal Gupta, Yaniv Taigman, Devi Parikh, Dani Lischinski, Ohad Fried, and Xi Yin. SpaText: Spatio-Textual Representation for Controllable Image Generation. In CVPR, pp. 18370-18380. Cited by: SS1.\n' +
+      '* [13] George Borshukov and John P Lewis. Realistic Human Face Rendering for "The Matrix Reloaded". In ACM Siggraph 2005 Courses, pp. 13-es. Cited by: SS1.\n' +
+      '* [14] Zehranaz Canfes, M Furkan Atasoy, Alara Dirik, and Pinar Yanardag. Text and Image Guided 3D Avatar Generation and Manipulation. In CVPR, pp. 4421-4431. Cited by: SS1.\n' +
+      '* [15] John Canny. A Computational Approach to Edge Detection. IEEE TPAMI (6), pp. 679-698. Cited by: SS1.\n' +
+      '* [16] Chen Cao, Tomas Simon, Jin Kyu Kim, Gabe Schwartz, Michael Zollhoefer, Shun-Suke Saito, Stephen Lombardi, Shih-En Wei, Danielle Belko, Shoou-I Yu, et al. Authentic volumetric avatars from a phone scan. ACM TOG41 (4), pp. 1-19. Cited by: SS1.\n' +
+      '* [17] Eric R Chan, Connor Z Lin, Matthew A Chan, Koki Nagano, Boxiao Pan, Shalini De Mello, Orazio Gallo, Leonidas J Guibas, Jonathan Tremblay, Sameh Khamis, et al. Efficient Geometry-aware 3D Generative Adversarial Networks. In CVPR, pp. 16123-16133. Cited by: SS1.\n' +
+      '* [18] Hyungjin Chung, Jeongsol Kim, Michael Thompson McCann, Marc Louis Klasky, and Jong Chul Ye. Diffusion Posterior Sampling for General Noisy Inverse Problems. In ICLR, Cited by: SS1.\n' +
+      '* [19] Hyungjin Chung, Byeongsu Sim, Dohoon Ryu, and Jong Chul Ye. Improving Diffusion Models for Inverse Problems using Manifold Constraints. NeurIPS35, pp. 25683-25696. Cited by: SS1.\n' +
+      '* [20] Radek Danceek, Michael J Black, and Timo Bolkart. EMOCA: Emotion Driven Monocular Face Capture and Animation. In CVPR, pp. 20311-20322. Cited by: SS1.\n' +
+      '* [21] Yu Deng, Jiaolong Yang, Jianfeng Xiang, and Xin Tong. GRAN: Generative Radiance Manifolds for 3D-Aware Image Generation. In CVPR, pp. 10673-10683. Cited by: SS1.\n' +
+      '* [22] Prafulla Dhariwal and Alexander Nichol. Diffusion Models Beat GANs on Image Synthesis. NeurIPS34, pp. 8780-8794. Cited by: SS1.\n' +
+      '* [23] Zheng Ding, Xuaner Zhang, Zhihao Xia, Lars Jebe, Zhuowen Tu, and Xiuming Zhang. DiffusionRig: Learning Personalized Priors for Facial Appearance Editing. In CVPR, pp. 12736-12746. Cited by: SS1.\n' +
+      '* [24] Haven Feng. Photometric FLAME fitting. Note: [https://github.com/HavenFeng/photometric_optimization](https://github.com/HavenFeng/photometric_optimization) Cited by: SS1.\n' +
+      '* [25] Yao Feng, Haiwen Feng, Michael J Black, and Timo Bolkart. Learning an Animatable Detailed 3D Face Model from InThe-Wild Images. ACM TOG40 (4), pp. 1-13. Cited by: SS1.\n' +
+      '* [26] Rinon Gal, Yuval Alaluf, Yuval Atzmon, Or Patashnik, Amit Haim Bermano, Gal Chechik, and Daniel Cohen-or. An Image is Worth One Word: Personalizing Text-to-Image Generation using Textual Inversion. In ICLR, Cited by: SS1.\n' +
+      '* [27] Sicheng Gao, Xuhui Liu, Bohan Zeng, Sheng Xu, Yanjing Li, Xiaoyan Luo, Jianzhuang Liu, Xiantong Zhen, and Baochang Zhang. Implicit Diffusion Models for Continuous Super-Resolution. In CVPR, pp. 10021-10030. Cited by: SS1.\n' +
+      '* [28] Xuan Gao, Chenglai Zhong, Jun Xiang, Yang Hong, Yudong Guo, and Juyong Zhang. Reconstructing Personalized Semantic Facial NeRF Models from Monocular Video. ACM TOG41 (6), pp. 1-12. Cited by: SS1.\n' +
+      '* [29] Baris Gecer, Stylianos Ploumpis, Irene Kotsia, and Stefanos Zafeiriou. GANFIT: Generative Adversarial Network Fitting for High Fidelity 3D Face Reconstruction. In CVPR, pp. 1155-1164. Cited by: SS1.\n' +
+      '* [30] Baris Gecer, Alexandros Lattas, Stylianos Ploumpis, Jiankang Deng, Athanasios Papaioannou, Stylianos Moschoglou, and Stefanos Zafeiriou. Synthesizing Coupled 3D Face Modalities by Trunk-Branch Generative Adversarial Networks. In ECCV, pp. 415-433. Cited by: SS1.\n' +
+      '* An Open Framework. In 2018 13th IEEE International Conference on Automatic Face & Gesture Recognition (FG 2018), pp. 75-82. Cited by: SS1.\n' +
+      '* [32] Philip-William Grassal, Malte Pinzler, Titus Leistner, Carsten Rother, Matthias Niessner, and Justus Thies. Neural Head Avatars from Monocular RGB Videos. In CVPR, pp. 18653-18664. Cited by: SS1.\n' +
+      '* [33]* [33] Kaiwen Guo, Peter Lincoln, Philip Davidson, Jay Busch, Xueming Yu, Matt Whalen, Geoff Harvey, Sergio Orts-Escolano, Rohit Pandey, Jason Dourgarian, et al. The re-lightables: Volumetric performance capture of humans with realistic relighting. _ACM TOG_, 38(6):1-19, 2019.\n' +
+      '* [34] Amir Hertz, Ron Mokady, Jay Tenenbaum, Kfir Aherman, Yael Pritch, and Daniel Cohen-Or. Prompt-to-Prompt Image Editing with Cross-Attention Control. In _ICLR_, 2022.\n' +
+      '* [35] Jonathan Ho and Tim Salimans. Classifier-Free Diffusion Guidance. In _NeurIPS 2021 Workshop on Deep Generative Models and Downstream Applications_, 2021.\n' +
+      '* [36] Fangzhou Hong, Mingyuan Zhang, Liang Pan, Zhongang Cai, Lei Yang, and Ziwei Liu. AvatarCLIP: Zero-Shot Text-Driven Generation and Animation of 3D Avatars. _ACM TOG_, 41(4):1-19, 2022.\n' +
+      '* [37] Yang Hong, Bo Peng, Haiyao Xiao, Ligang Liu, and Juyong Zhang. HeadNeRF: A Real-time NeRF-based Parametric Head Model. In _CVPR_, pages 20374-20384, 2022.\n' +
+      '* [38] Nikolay Jetchev. ClipMatrix: Text-controlled Creation of 3D Textured Meshes. _arXiv preprint arXiv:2109.12922_, 2021.\n' +
+      '* [39] Tero Karras, Samuli Laine, and Timo Aila. A Style-Based Generator Architecture for Generative Adversarial Networks. In _CVPR_, pages 4401-4410, 2019.\n' +
+      '* [40] Tero Karras, Samuli Laine, Miika Aittala, Janne Hellsten, Jaakko Lehtinen, and Timo Aila. Analyzing and Improving the Image Quality of StyleGAN. In _CVPR_, pages 8110-8119, 2020.\n' +
+      '* [41] Nupur Kumari, Bingliang Zhang, Richard Zhang, Eli Shechtman, and Jun-Yan Zhu. Multi-concept customization of text-to-image diffusion. In _CVPR_, pages 1931-1941, 2023.\n' +
+      '* [42] Ghiyun Kwon and Jong Chul Ye. Diffusion-based Image Translation using Disentangled Style and Content Representation. In _ICLR_, 2022.\n' +
+      '* [43] Alexandros Lattas, Stylianos Moschoglou, Baris Gecer, Stylianos Ploumpis, Vasileios Triantafyllou, Abhijeet Ghosh, and Stefanos Zafeiriou. AvatarMe: Realistically Renderable 3D Facial Reconstruction "in-the-wild". In _CVPR_, pages 760-769, 2020.\n' +
+      '* [44] Alexandros Lattas, Stylianos Moschoglou, Stylianos Ploumpis, Baris Gecer, Jiankang Deng, and Stefanos Zafeiriou. FitMe: Deep Photorealistic 3D Morphable Model Avatars. In _CVPR_, pages 8629-8640, 2023.\n' +
+      '* [45] Junnan Li, Dongxu Li, Silvio Savarese, and Steven Hoi. BLIP-2: Bootstrapping Language-Image Pre-training with Frozen Image Encoders and Large Language Models. 2023.\n' +
+      '* [46] Tianye Li, Timo Bolkart, Michael J Black, Hao Li, and Javier Romero. Learning a model of facial shape and expression from 4D scans. _ACM TOG_, 36(6), 2017.\n' +
+      '* [47] Chen-Hsuan Lin, Jun Gao, Luming Tang, Towaki Takikawa, Xiaohui Zeng, Xun Huang, Karsten Kreis, Sanja Fidler, Ming-Yu Liu, and Tsung-Yi Lin. Magic3D: High-Resolution Text-to-3D Content Creation. In _CVPR_, pages 300-309, 2023.\n' +
+      '* [48] Stephen Lombardi, Jason Saragih, Tomas Simon, and Yaser Sheikh. Deep Appearance Models for Face Rendering. _ACM TOG_, 37(4):1-13, 2018.\n' +
+      '* [49] Gal Metzer, Elad Richardson, Or Patashnik, Raja Giryes, and Daniel Cohen-Or. Latent-NeRF for Shape-Guided Generation of 3D Shapes and Textures. In _CVPR_, pages 12663-12673, 2023.\n' +
+      '* [50] Oscar Michel, Roi Bar-On, Richard Liu, Sagei Benaim, and Rana Hanocka. Text2Mesh: Text-Driven Neural Stylization for Meshes. In _CVPR_, pages 13492-13502, 2022.\n' +
+      '* [51] Alexander Quinn Nichol, Prafulla Dhariwal, Aditya Ramesh, Pranav Shyam, Pamela Mishkin, Bob Mcgrew, Ilya Sutskever, and Mark Chen. GLIDE: Towards Photorealistic Image Generation and Editing with Text-Guided Diffusion Models. In _Int. Conf. Machine Learn._, pages 16784-16804. PMLR, 2022.\n' +
+      '* [52] Roy Or-El, Xuan Luo, Mengyi Shan, Eli Shechtman, Jeong Joon Park, and Ira Kemelmacher-Shlizerman. StyleSDF: High-Resolution 3D-Consistent Image and Geometry Generation. In _CVPR_, pages 13503-13513, 2022.\n' +
+      '* [53] Foivos Paraperas Papantoniou, Alexandros Lattas, Stylianos Moschoglou, and Stefanos Zafeiriou. Relightfly: Reslighable 3d faces from a single image via diffusion models. _arXiv preprint arXiv:2305.06077_, 2023.\n' +
+      '* [54] Pascal Paysan, Reinhard Knothe, Brian Amberg, Sami Romdhani, and Thomas Vetter. A 3d face model for pose and illumination invariant face recognition. In _2009 sixth IEEE international conference on advanced video and signal based surveillance_, pages 296-301. Ieee, 2009.\n' +
+      '* [55] Dustin Podell, Zion English, Kyle Lacey, Andreas Blattmann, Tim Dockhorn, Jonas Muller, Joe Penna, and Robin Rombach. SDXL: Improving Latent Diffusion Models for High-Resolution Image Synthesis. _arXiv preprint arXiv:2307.01952_, 2023.\n' +
+      '* [56] Ben Poole, Ajay Jain, Jonathan T Barron, and Ben Mildenhall. DreamFusion: Text-to-3D using 2D Diffusion. In _ICLR_, 2022.\n' +
+      '* [57] Konpat Preechakul, Nattanat Chathee, Suttisak Wizadwongsa, and Supasorn Suwajanakorn. Diffusion Autoencoders: Toward a Meaningful and Decodable Representation. In _CVPR_, pages 10619-10629, 2022.\n' +
+      '* [58] Aditya Ramesh, Mikhail Pavlov, Gabriel Goh, Scott Gray, Chelsea Voss, Alec Radford, Mark Chen, and Ilya Sutskever. Zero-Shot Text-to-Image Generation. In _Int. Conf. Machine Learn._, pages 8821-8831. PMLR, 2021.\n' +
+      '* [59] Aditya Ramesh, Prafulla Dhariwal, Alex Nichol, Casey Chu, and Mark Chen. Hierarchical Text-Conditional Image Generation with CLIP Latents. _arXiv preprint arXiv:2204.06125_, 1(2):3, 2022.\n' +
+      '* [60] Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Bjorn Ommer. High-Resolution Image Synthesis with Latent Diffusion Models. In _CVPR_, pages 10684-10695, 2022.\n' +
+      '* [61] Will Rowan, Patrik Huber, Nick Pears, and Andrew Keeling. Text2Face: A Multi-Modal 3D Face Model. _arXiv preprint arXiv:2303.02688_, 2023.\n' +
+      '* [62]* [62] Chitwan Saharia, William Chan, Huiwen Chang, Chris Lee, Jonathan Ho, Tim Salimans, David Fleet, and Mohammad Norouzi. Palette: Image-to-Image Diffusion Models. In _ACM SIGGRAPH 2022 Conference Proceedings_, pages 1-10, 2022.\n' +
+      '* [63] Chitwan Saharia, Jonathan Ho, William Chan, Tim Salimans, David J Fleet, and Mohammad Norouzi. Image Super-Resolution via Iterative Refinement. _IEEE TPAMI_, 45(4):4713-4726, 2022.\n' +
+      '* [64] Soubhik Sanyal, Timo Bolkart, Haiwen Feng, and Michael J Black. Learning to Regress 3D Face Shape and Expression from an Image without 3D Supervision. In _CVPR_, pages 7763-7772, 2019.\n' +
+      '* [65] Johannes L Schonberger and Jan-Michael Frahm. Structure-from-Motion Revisited. In _CVPR_, pages 4104-4113, 2016.\n' +
+      '* [66] Steven M Seitz, Brian Curless, James Diebel, Daniel Scharstein, and Richard Szeliski. A Comparison and Evaluation of Multi-View Stereo Reconstruction Algorithms. In _CVPR_, pages 519-528. IEEE, 2006.\n' +
+      '* [67] Chenyang Si, Ziqi Huang, Yuming Jiang, and Ziwei Liu. FreeU: Free Lunch in Diffusion U-Net. _arXiv preprint arXiv:2309.11497_, 2023.\n' +
+      '* [68] Jiaming Song, Chenlin Meng, and Stefano Ermon. Denoising diffusion implicit models. In _ICLR_, 2021.\n' +
+      '* [69] Narek Tumanyan, Michal Geyer, Shai Bagon, and Tali Dekel. Plug-and-Play Diffusion Features for Text-Driven Image-to-Image Translation. In _CVPR_, pages 1921-1930, 2023.\n' +
+      '* [70] Tengfei Wang, Bo Zhang, Ting Zhang, Shuyang Gu, Jianmin Bao, Tadas Baltrusaitis, Jingjing Shen, Dong Chen, Fang Wen, Qifeng Chen, et al. Rodin: A Generative Model for Sculpting 3D Digital Avatars Using Diffusion. In _CVPR_, pages 4563-4573, 2023.\n' +
+      '* [71] Jay Whang, Mauricio Delbracio, Hossein Talebi, Chitwan Saharia, Alexandros G Dimakis, and Peyman Milanfar. Delburring via Stochastic Refinement. In _CVPR_, pages 16293-16303, 2022.\n' +
+      '* [72] Zhengyuan Yang, Linjie Li, Kevin Lin, Jianfeng Wang, Chung-Ching Lin, Zicheng Liu, and Lijuan Wang. The Dawn of LMMs: Preliminary Explorations with GPT-4V(ision), 2023.\n' +
+      '* [73] Yu Yin, Kamran Ghasedi, HsiangTao Wu, Jiaolong Yang, Xin Tong, and Yun Fu. NeRFInvertor: High Fidelity NeRF-GAN Inversion for Single-shot Real Image Animation. In _CVPR_, pages 8539-8548, 2023.\n' +
+      '* [74] Changqian Yu, Jingbo Wang, Chao Peng, Changxin Gao, Gang Yu, and Nong Sang. BiSeNet: Bilateral Segmentation Network for Real-time Semantic Segmentation. In _ECCV_, pages 325-341, 2018.\n' +
+      '* [75] Hao Zhang, Yao Feng, Peter Kults, Yandong Wen, Justus Thies, and Michael J Black. Text-Guided Generation and Editing of Compositional 3D Avatars. _arXiv preprint arXiv:2309.07125_, 2023.\n' +
+      '* [76] Longwen Zhang, Qiwei Qiu, Hongyang Lin, Qixuan Zhang, Cheng Shi, Wei Yang, Ye Shi, Sibei Yang, Lan Xu, and Jingyi Yu. DreamFace: Progressive Generation of Animatable 3D Faces under Text Guidance. _ACM TOG_, 42(4), 2023.\n' +
+      '* [77] Richard Zhang, Phillip Isola, Alexei A Efros, Eli Shechtman, and Oliver Wang. The Unreasonable Effectiveness of Deep Features as a Perceptual Metric. In _Proceedings of the IEEE conference on computer vision and pattern recognition_, pages 586-595, 2018.\n' +
+      '* [78] Xinlu Zhang, Yujie Lu, Weizhi Wang, An Yan, Jun Yan, Lianke Qin, Heng Wang, Xifeng Yan, William Yang Wang, and Linda Ruth Petzold. GPT-4V(ision) as a Generalist Evaluator for Vision-Language Tasks, 2023.\n' +
+      '* [79] Yufeng Zheng, Victoria Fernandez Abrevaya, Marcel C Buhler, Xu Chen, Michael J Black, and Otmar Hilliges. I M Avatar: Implicit Morphable Head Avatars from Videos. In _CVPR_, pages 13545-13555, 2022.\n' +
+      '* [80] Wojciech Zielonka, Timo Bolkart, and Justus Thies. Towards Metrical Reconstruction of Human Faces. In _ECCV_, pages 250-269. Springer, 2022.\n' +
+      '\n' +
+      '## Appendix A Experimental Setup\n' +
+      '\n' +
+      '### Dataset\n' +
+      '\n' +
+      'We use the 3DScan dataset comprising 188 super-high quality commercial data samples from the [1], encompassing a diverse array of skin colors, skin tones, genders, ages, and ethnicities. For each identity, the data includes high-quality 3D head and eyeball meshes, along with diffuse, normal, roughness, and specular textures in high resolution (4K and 8K). Notably, the textures provided are identical to ground truth and the diffuse map doesn\'t contain any lighting effects. We register all 3D meshes from the dataset to the FLAME mesh format and align all of the texture maps with FLAME UV mapping through commercial Wrap4D [2]. We annotate the dataset based on individual identity attributes: skin color, gender, ethnicity, and age.\n' +
+      '\n' +
+      '### PBR Texture Decoders Training\n' +
+      '\n' +
+      'We use the dataset to train separate decoders for normal, specular and roughness textures estimation. We directly apply variational autoencoder (VAE) from SD-2.1-base model for diffuse texture, we freeze the encoder, take the diffuse texture as input and finetune 3 separate decoders to generate other maps over the dataset. We optimize the decoders by minimizing the loss function \\(L_{D}=||D_{\\{n,s,r\\}}(E(I_{m}))-I_{\\{n,s,r\\}}||_{2}^{2}+\\lambda L_{lpips}(D_{\\{n,s,r\\}}(E(I_{m}))),I_{\\{n,s,r\\}}))\\), where \\(D_{n}\\), \\(D_{s}\\) and \\(D_{r}\\) are normal, specular and roughness decoders, \\(E(.)\\) is the SD-2.1-base encoder, \\(I_{n}\\), \\(I_{s}\\), \\(I_{r}\\) and \\(I_{m}\\) correspond to normal, specular, roughness and diffuse texture maps respectively.\n' +
+      '\n' +
+      '### Inpainting\n' +
+      '\n' +
+      'We perform latent inpainting in the first \\((T-N)\\) steps of the diffusion denoising process. We downsample the visibility mask \\(V\\) to the latent visibility mask \\(V^{*}\\) and encode \\(I_{m}\\) into the latent code \\(z^{m}=E(I_{m})\\). Similar to [11], at each denoising step, we apply inpainting by updating \\(z_{t}^{*}=V^{*}\\odot(z^{m}+\\epsilon_{t})+(1-V^{*})\\odot z_{t}\\), where \\(z_{t}\\) is the denoised latent and \\(\\epsilon_{t}\\) is the scheduled noise for time-step \\(t\\).\n' +
+      '\n' +
+      'When the image is used as the input, we use BLIP-2 [45] to generate caption which would eventually be fed to our AGT-DM. For neutral face mesh generation, we set expression and pose parameters to zero.\n' +
+      '\n' +
+      '## Appendix B Evaluation Details\n' +
+      '\n' +
+      '### Baselines\n' +
+      '\n' +
+      '**Latent3d**[14] uses text or image-based prompts to change the shape and texture of a 3D model. It combines CLIP and a 3D GAN with a differentiable renderer to adjust the input latent codes for specific attribute manipulation while keeping the other attributes unchanged.\n' +
+      '\n' +
+      '**CLIPMatrix**[38] leverages CLIP text embeddings to create high-resolution, articulated 3D meshes controlled by text prompts.\n' +
+      '\n' +
+      '**Text2Mesh**[50] stylizes 3D meshes based on text prompts, using a neural style field network and CLIP model for style editing. It does not rely on pre-trained models or specialized datasets.\n' +
+      '\n' +
+      '**CLIPFace**[9] uses text to control 3D faces\' expressions and appearance. It combines 3D models and a generative model to make expressive, textured, and articulated faces with adversarial training and differentiable rendering.\n' +
+      '\n' +
+      '**DreamFace**[76] is a progressive text-guided method designed to generate personalized, animatable 3D face assets compatible with CG pipelines, enabling users to customize faces with specific shapes, textures, and detailed animations. Since DreamFace does not have any implementation publicly available, we used their website UI [3] to generate and download meshes with all PBR textures.\n' +
+      '\n' +
+      '**FlameTex**[24] is a PCA-based texturing model tailored for the FLAME model, developed using 1500 randomly selected images from the FFHQ dataset and the base texture is from the Basel Face Model [54].\n' +
+      '\n' +
+      '**PanoHead**[8] makes view-consistent 360\\({}^{\\circ}\\) images of full human heads from unstructured images. It uses novel 3D GAN training and feature entanglement resolution techniques to create avatars from single images.\n' +
+      '\n' +
+      '### Qualitative Comparison\n' +
+      '\n' +
+      'We present eights samples respectively generated from our UltrAvatar, DreamFace and PanoHead under one lighting condition in our quantitative comparison experiment for qualitative visualization, in Fig. 10. There are corresponding eight prompts which are from our 40 prompts used in comparison experiment. We use Unreal Engine for rendering. We display results from three viewpoints (frontal view, left view at -45 degree angle, right view at 45 degree angle) for each method. Additionally, the middle images from PanoHead results, generated from the input prompts, are their and our inputs. In the comparison, UltrAvatar delivers higher quality results and achieves more accurate alignment between the input texts and the generated avatars. PanoHead provides satisfactory results but in a low resolution, there are many artifacts along the edges and boundaries when zoomed, moreover, it is incapable of producing animatable avatars.\n' +
+      '\n' +
+      '### Evaluation from the GPT4-V\n' +
+      '\n' +
+      'The recently released GPT-4V(sion) [5, 6] is recognized as an effective evaluation tool with outstanding human-alignment for images [72, 78]. We leverage GPT-4V to qualitatively rate the rendered images of generated avatars. We request that GPT-4V conduct assessments based on the five criteria: photo-realism, artifact minimization, skin texFigure 10: **Qualitative Comparison.** We show some results from our quantitative comparison experiment involving DreamFace and PanoHead. UltraAvatar produces higher quality, greater diversity, better fidelity results, clearly outperforms the state-of-the-art methods.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:14]\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:15]\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
