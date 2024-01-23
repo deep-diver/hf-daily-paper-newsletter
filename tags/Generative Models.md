@@ -1,1 +1,2 @@
 - [SiT: Exploring Flow and Diffusion-based Generative Models with Scalable Interpolant Transformers](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/5/2024-01-18+SiT%3A+Exploring+Flow+and+Diffusion-based+Generative+Models+with+Scalable+Interpolant+Transformers.yaml) / 2024-01-18
+- [Make-A-Shape: a Ten-Million-scale 3D Shape Model](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/8/2024-01-23+Make-A-Shape%3A+a+Ten-Million-scale+3D+Shape+Model.yaml) / 2024-01-23

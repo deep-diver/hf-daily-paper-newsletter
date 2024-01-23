@@ -7,3 +7,5 @@
 - [LEGO:Language Enhanced Multi-modal Grounding Model](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/3/2024-01-12+LEGO%3ALanguage+Enhanced+Multi-modal+Grounding+Model.yaml) / 2024-01-12
 - [Towards Conversational Diagnostic AI](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/3/2024-01-12+Towards+Conversational+Diagnostic+AI.yaml) / 2024-01-12
 - [Quantum Denoising Diffusion Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/4/2024-01-17+Quantum+Denoising+Diffusion+Models.yaml) / 2024-01-17
+- [CMMMU: A Chinese Massive Multi-discipline Multimodal Understanding Benchmark](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/8/2024-01-23+CMMMU%3A+A+Chinese+Massive+Multi-discipline+Multimodal+Understanding+Benchmark.yaml) / 2024-01-23
+- [Mastering Text-to-Image Diffusion: Recaptioning, Planning, and Generating with Multimodal LLMs](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/8/2024-01-23+Mastering+Text-to-Image+Diffusion%3A+Recaptioning%2C+Planning%2C+and+Generating+with+Multimodal+LLMs.yaml) / 2024-01-23

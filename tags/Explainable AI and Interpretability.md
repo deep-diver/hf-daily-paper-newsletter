@@ -9,3 +9,4 @@
 - [SceneVerse: Scaling 3D Vision-Language Learning for Grounded Scene Understanding](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/5/2024-01-18+SceneVerse%3A+Scaling+3D+Vision-Language+Learning+for+Grounded+Scene+Understanding.yaml) / 2024-01-18
 - [Synthesizing Moving People with 3D Control](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/7/2024-01-22+Synthesizing+Moving+People+with+3D+Control.yaml) / 2024-01-22
 - [Understanding Video Transformers via Universal Concept Discovery](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/7/2024-01-22+Understanding+Video+Transformers+via+Universal+Concept+Discovery.yaml) / 2024-01-22
+- [CheXagent: Towards a Foundation Model for Chest X-Ray Interpretation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/8/2024-01-23+CheXagent%3A+Towards+a+Foundation+Model+for+Chest+X-Ray+Interpretation.yaml) / 2024-01-23

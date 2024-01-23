@@ -1,0 +1,1 @@
+- [DITTO: Diffusion Inference-Time T-Optimization for Music Generation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/8/2024-01-23+DITTO%3A+Diffusion+Inference-Time+T-Optimization+for+Music+Generation.yaml) / 2024-01-23

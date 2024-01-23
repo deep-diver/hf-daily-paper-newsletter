@@ -1,0 +1,1 @@
+- [UltrAvatar: A Realistic Animatable 3D Avatar Diffusion Model with Authenticity Guided Textures](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/8/2024-01-23+UltrAvatar%3A+A+Realistic+Animatable+3D+Avatar+Diffusion+Model+with+Authenticity+Guided+Textures.yaml) / 2024-01-23
