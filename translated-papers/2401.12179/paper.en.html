@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# DITTO: Diffusion Inference-Time \\(T\\)-Optimization for Music Generation\n' +
+      '\n' +
+      'Zachary Novack\n' +
+      '\n' +
+      'Julian McAuley\n' +
+      '\n' +
+      'Taylor Berg-Kirkpatrick\n' +
+      '\n' +
+      'Nicholas J. Bryan\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      'We propose **D**iffusion **I**nference-**T**ime \\(\\mathbf{T}\\)-**O**ptimization (**DITTO**), a general-purpose framework for controlling pre-trained text-to-music diffusion models at inference-time via optimizing initial noise latents. Our method can be used to optimize through any differentiable feature matching loss to achieve a target (stylized) output and leverages gradient checkpointing for memory efficiency. We demonstrate a surprisingly wide-range of applications for music generation including inpainting, outpainting, and looping as well as intensity, melody, and musical structure control - all without ever fine-tuning the underlying model. When we compare our approach against related training, guidance, and optimization-based methods, we find DITTO achieves state-of-the-art performance on nearly all tasks, including outperforming comparable approaches on controllability, audio quality, and computational efficiency, thus opening the door for high-quality, flexible, training-free control of diffusion models. Sound examples can be found at [https://DITTO-Music.github.io/web/](https://DITTO-Music.github.io/web/).\n' +
+      '\n' +
+      'Machine Learning, ICML\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      'Large-scale diffusion models (Ho et al., 2020) have emerged as a leading paradigm for generative media, with strong results in diverse modalities such as text-to-image (TTI) generation (Rombach et al., 2022; Karras et al., 2022; Chen, 2023), video generation (Ho et al., 2022; Gupta et al., 2023), and 3D object generation (Watson et al., 2022; Poole et al., 2022). Recently, there has been growing work in applying image-domain methods to audio by treating the frequency-domain spectrograms of audio as images, producing promising results in general text-to-audio (TTA) generation (Liu et al., 2023a,b; Huang et al., 2023b) and text-to-music (TTM) generation (Hawthorne et al., 2022; Forsgren and Martiros, 2022; Chen et al., 2023; Huang et al., 2023a; Schneider et al., 2023). These methods operate via pixel or latent diffusion (Rombach et al., 2022) over spectrograms with genre, mood, and/or keywords control articulated via text prompts.\n' +
+      '\n' +
+      'Such approaches, however, typically only offer high-level control, motivating further work. Current attempts to add more precise control for TTM diffusion models are promising yet present their own tradeoffs. Finetuning-based methods like ControlNet (Wu et al., 2023a; Saharia et al., 2022a; Zhang et al., 2023) require expensive large-scale training with paired examples and fix the control signal at training time, while inference-time methods that guide the diffusion sampling process struggle on fine-grained expressivity due to relying on approximations of the model outputs during sampling (Levy et al., 2023; Yu et al., 2023).\n' +
+      '\n' +
+      'With the goal of a general-purpose and training-free control paradigm for TTM diffusion models, we propose **DITTO**: **D**iffusion **I**nference-**T**ime \\(\\mathbf{T}\\)-**O**ptimization. DITTO optimizes the initial noise latents \\(\\mathbf{x}_{T}\\) with respect to an _arbitrary_ feature matching loss across any differentiable diffusion sampling process to achieve a desired (stylized) output, and ensures efficient memory use via gradient checkpointing (Chen et al., 2016). Despite generally being considered as an afterthought and to encode little information (Song et al., 2020; Preechakul et al., 2022), we show the power and precision initial noise latents have to control the diffusion process for a wide-variety of applications in music creation, enabling musically-salient feature control and high-quality audio editing. Compared to previous optimization-based works from outside the audio domain (Wallace et al., 2023a), DITTO achieves SOTA control while also being 2x as time and memory efficient.\n' +
+      '\n' +
+      'Overall, our contributions are:\n' +
+      '\n' +
+      '* A general-purpose, training-free framework for controlling pre-trained diffusion models to achieve a desired (stylized) output that leverages gradient checkpointing for memory efficiency.\n' +
+      '* Application of our framework to a large number of fine-grained time-dependent tasks, including audio-domain music inpainting, outpainting, melody control, intensity control, and the newly proposed looping and musical structure control.\n' +
+      '\n' +
+      '* Evaluation showing our approach outperforms Multi-Diffusion (Bar-Tal et al., 2023), FreeDoM (Yu et al., 2023), Guidance Gradients (Levy et al., 2023), Music ControlNet (Wu et al., 2023), and the comparable inference-time optimization method DOODL (Wallace et al., 2023), while being over 2x faster than DOODL and using half the memory.\n' +
+      '\n' +
+      '## 2 Related Work\n' +
+      '\n' +
+      '### Music Generation Overview\n' +
+      '\n' +
+      'Generative music has been a longstanding goal of computer music researchers (Mathews et al., 1969). Early works focused on _symbolic_ generation (Dong et al., 2018; Chen et al., 2020; Dai et al., 2021). Recently, _audio_-domain music generation has become popular due to advances in language models (LMs) like MusicLM (Agostinelli et al., 2023) and diffusion models like AudioLDM (Liu et al., 2023;b).\n' +
+      '\n' +
+      'LM-based approaches typically operate over discrete compressed audio tokens (Zeghidour et al., 2021; Defossez et al., 2022; Kumar et al., 2023), generating audio in an auto-regressive manner, either over time (Borsos et al., 2023; Donahue et al., 2023; Agostinelli et al., 2023; Copet et al., 2023) or sample-iteration (Garcia et al., 2023; Borsos et al., 2023), and convert generated tokens back to audio directly. Diffusion-based approaches, on the other hand, typically operate by generating 2D frequency-domain representations of audio or _spectrograms_ that are decoded into audio via an image-to-audio converter or a vocoder (Forsgren and Martiros, 2022; Liu et al., 2023;b Schneider et al., 2023).\n' +
+      '\n' +
+      '### Diffusion Models with Text Control\n' +
+      '\n' +
+      'Text is currently the most popular control medium for diffusion models. In this case, text captions are encoded into embeddings and injected into a generative model during training via cross attention, additive modulation, or similar as found in models like Stable Diffusion (Rombach et al., 2022) or Imagen (Saharia et al., 2022). Despite its popularity, global caption-based text conditioning lacks fine-grained control (Zhang et al., 2023), motivating alternatives.\n' +
+      '\n' +
+      '### Alternative Train-time Control Methods\n' +
+      '\n' +
+      'When adding advanced control to diffusion models, it is common to fine-tune existing text-controllable models with additional inputs. ControlNet (Zhang et al., 2023) and Unit-ControlNet (Zhao et al., 2023) use large sets of paired data to fine-tune text-to-image diffusion models by adding additional control adapters for specific predefined controls such as edge detection or pose estimation. To reduce training demands further, a number of works fine-tune pre-trained models on a small number of examples (Ruiz et al., 2023; Choi et al., 2023; Gal et al., 2022; Kawar et al., 2023). Others have explored using external reward models for fine-tuning, through direct fine-tuning (Clark et al., 2023; Prabhudesai et al., 2023) or reinforcement learning-like objectives (Black et al., 2023). Such approaches, however, still require an expensive training process and the control mechanism cannot be modified after training. For music, only a ControlNet-style approach has been taken (Wu et al., 2023).\n' +
+      '\n' +
+      '### Inference-time Guidance-based Control\n' +
+      '\n' +
+      'To avoid having to perform large-scale model fine-tuning, inference-time control methods of diffusion models have become increasingly popular. Early approaches within this category include prompt-to-prompt image editing (Hertz et al., 2022) and MultiDiffusion (Bar-Tal et al., 2023), which enable localized object replacement, inpainting, outpainting, and spatial-guidance control by fusing multiple masked diffusion paths together. Such methods rely on control targets that can be localized to specific pixel regions of an image and are less applicable for audio spectrograms which have indirect pixel correspondences across frequency and multiple overlapping sources at once.\n' +
+      '\n' +
+      'Figure 1: We propose **DITTO**, or **D**iffusion **I**nference-**T**-**O**timization, a general-purpose framework to control pre-trained diffusion models at inference-time. 1) We sample an initial noise latent \\(\\mathbf{x}_{T}\\); 2) run diffusion sampling to generate a music spectrogram \\(\\mathbf{x}_{0}\\); 3) extract features from the generated content; 4) input a target (stylized) output; and 5) optimize the initial noise latent to fit any differentiable loss.\n' +
+      '\n' +
+      'We also note the class of guidance-based methods (Dharibwal and Nichol, 2021; Chung et al., 2023; Levy et al., 2023; Yu et al., 2023), which introduce updates at each sampling step to steer the generation process via the gradient of a pre-trained classifier \\(\\nabla_{x_{t}}\\mathcal{L}_{\\phi}(x_{t})\\). These approaches require either an approximation of model outputs during sampling, which limits fine-grained expressivity, or pre-trained classifiers per noise level, thus defeating the purpose of inference-time efficiency. For music, guidance-based methods have only been explored in Levy et al. (2023).\n' +
+      '\n' +
+      '### Inference-time Optimization-based Control\n' +
+      '\n' +
+      'Recent work has shown optimization through diffusion sampling is possible if GPU memory is managed appropriately. Direct optimization of diffusion latents (DOODL) (Wallace et al., 2023a) leverages the recently proposed EDICT sampling algorithm (Wallace et al., 2023b), which uses affine coupling layers (ACLs) (Dinh et al., 2014, 2016) to form a fully invertible sampling process, and backpropagates through EDICT to optimize initial diffusion noise latents for improving CLIP guidance, vocabulary expansion, and aesthetic improvement. DOODL, however, struggles on fine-grained control signals (Wallace et al., 2023a) and has multiple downsides due to its reliance on EDICT including 1) it is restricted to only invertible diffusion sampling algorithms; 2) it requires double the model evaluations for both forward and reverse sampling that increase latency and memory use; and 3) it can suffer from stability issues and reward hacking due to divergence between the ACL diffusion chains.\n' +
+      '\n' +
+      'The diffusion noise optimization (DNO) (Karunratanakul et al., 2023) method proposed backpropagating through the sampling process for human motion generation, operating over short sequences of limited joint positions. This work leverages numerous domain-specific modifications to reduce memory usage, such as using a small (i.e. \\(<18\\)M parameters) transformer encoder-only architecture, very few sampling steps, long optimization time, and purely unconditional generation. Thus, this approach is not applicable to more standard generative tasks with higher memory demands like text-to-image, text-to-audio, and text-to-music.\n' +
+      '\n' +
+      '## 3 Diffusion Inference-Time \\(T\\)-Optimization\n' +
+      '\n' +
+      '### Diffusion Background\n' +
+      '\n' +
+      'Denoising diffusion probabilistic models (DDPMs) (Sohl-Dickstein et al., 2015; Ho et al., 2020) or diffusion models are defined by a forward and reverse random Markov process. The forward process takes clean data and iteratively corrupts it with noise to train a neural network \\(\\mathbf{\\epsilon}_{\\theta}\\). The network \\(\\mathbf{\\epsilon}_{\\theta}\\) typically inputs (noisy) data \\(\\mathbf{x}_{t}\\), the diffusion step \\(t\\), and (text) conditioning information \\(\\mathbf{c}_{\\text{text}}\\). The reverse process takes random noise \\(\\mathbf{x}_{T}\\sim\\mathcal{N}(0,I)\\) and iteratively refines it with the learned network to generate new data \\(\\mathbf{x}_{0}\\) over \\(T\\) time steps (e.g., \\(1000\\)) via the sampling process,\n' +
+      '\n' +
+      '\\[\\mathbf{x}_{t-1}=\\frac{1}{\\sqrt{\\alpha_{t}}}\\Big{(}\\mathbf{x}_{t}-\\frac{1-\\alpha_{t} }{\\sqrt{1-\\bar{\\alpha}_{t}}}\\mathbf{\\epsilon}_{\\theta}(\\mathbf{x}_{t},t,\\mathbf{c}_{\\text {text}})\\Big{)}+\\sigma_{t}\\mathbf{\\epsilon}, \\tag{1}\\]\n' +
+      '\n' +
+      'where \\(\\mathbf{\\epsilon}\\sim\\mathcal{N}(0,I)\\), \\(\\alpha_{0}:=1\\), \\(\\alpha_{t}\\) and \\(\\bar{\\alpha}_{t}\\) define the noise schedule, \\(\\sigma_{t}\\) is the sampling standard deviation. To reduce sampling time, Denoising Diffusion Implicit Model (DDIM) sampling (Song et al., 2020) uses an alternative optimization objective that yields a faster sampling process (e.g., \\(20-50\\) steps) that can be deterministic.\n' +
+      '\n' +
+      'To improve text conditioning, classifier-free guidance (CFG) can be used to blend conditional and unconditional generation outputs (Ho and Salimans, 2021). When training with CFG, conditioning is randomly set to a null value a fraction of the time. During inference, the diffusion model output \\(\\mathbf{\\epsilon}_{\\theta}(\\mathbf{x}_{t},t,\\mathbf{c}_{\\text{text}})\\) is linearly combined with \\(\\mathbf{\\epsilon}_{\\theta}(\\mathbf{x}_{t},t,\\mathbf{c}_{0})\\) using the CFG scale \\(w\\), where \\(\\mathbf{c}_{0}\\) are null embeddings. Note, CFG during inference doubles the forward passes of \\(\\mathbf{\\epsilon}_{\\theta}\\). For a diffusion model review, see Appendix A. Though \\(\\mathbf{x}_{T}\\)\'s role in the final output is normally only thought as a random seed, we show in the next section how \\(\\mathbf{x}_{T}\\) can in fact be leveraged for fine-grained control over the generative process.\n' +
+      '\n' +
+      '### Problem Formulation\n' +
+      '\n' +
+      'We formulate the task of controlling pre-trained diffusion models as an optimization problem where we fit the initial state, or latents, of the diffusion sampling process to generate a desired output given a control signal. Formally,\n' +
+      '\n' +
+      '\\[\\mathbf{x}_{T}^{*} =\\arg\\min_{\\mathbf{x}_{T}}\\mathcal{L}\\left(f(\\mathbf{x}_{0}),\\mathbf{y}\\right) \\tag{2}\\] \\[\\mathbf{x}_{t-1} =\\texttt{Sampler}(\\mathbf{\\epsilon}_{\\theta},\\mathbf{x}_{t},t,\\mathbf{c}),t=T, T-1,\\ldots,1 \\tag{3}\\]\n' +
+      '\n' +
+      'where \\(\\mathbf{\\epsilon}_{\\theta}\\) is a pre-trained diffusion model that inputs conditioning information \\(\\mathbf{c}\\), Sampler is any differentiable diffusion sampling algorithm (e.g. DDIM), \\(\\mathbf{x}_{T}\\) is a sample of a Gaussian random vector \\(\\sim\\ \\mathcal{N}(0,I)\\) otherwise known as initial noise latents, \\(\\mathbf{x}_{0}\\) is the final generated output of the sampler (e.g. an image or image representation of audio), \\(f(\\cdot)\\) as any differentiable feature extraction function, \\(\\mathcal{L}\\) is any differentiable loss function, and \\(\\mathbf{y}\\) are target features or the desired outputs. By framing the control task an as arbitrary feature-matching optimization problem on the initial noise latents, we are able to incorporate a diverse range of control tasks.\n' +
+      '\n' +
+      'Solving (2) using backpropagation, however, is typically intractable due to extreme memory requirements. Namely, the diffusion sampling process is recursive by design and standard automatic differentiation packages customarily require storing all intermediate results for each of \\(T\\) recurrent calls to \\(\\mathbf{\\epsilon}_{\\theta}\\) within the sampler (\\(2T\\) sets of activations per step when CFG is used). Thus, even 2-3 sampling steps can cause memory errors with standard U-Net diffusion architectures.\n' +
+      '\n' +
+      '### Diffusion with Gradient Checkpointing\n' +
+      '\n' +
+      'To circumvent large memory use during optimization, we use gradient rematerialization or checkpointing (Chen et al., 2016). Gradient checkpointing was introduced to save memory when training very deep or recursive neural networks by trading memory cost for compute time. The core idea is to discard intermediate activation values stored during the forward pass of backpropagation that inflict high memory use and/or are low cost to recompute and recalculate them during the backward pass when needed from cached inputs.\n' +
+      '\n' +
+      'We use gradient checkpointing on each diffusion model call during sampling, as the memory required to store the intermediate noisy diffusion tensors and conditioning information is minute compared to the intermediate activations of a typical diffusion model (e.g., cross-attention activation maps within a large UNet). Our memory cost to optimize (2) with sampler-step checkpointing is 1) the memory needed to run backpropagation on one diffusion model call \\(\\mathbf{\\epsilon}_{\\theta}\\) plus 2) the cost to store the \\(T\\) intermediate noisy diffusion tensors \\(\\mathbf{x}_{t}\\forall t=0,...,T\\) and conditioning \\(\\mathbf{c}\\). Our memory reduction is paid for by an additional forward pass of the sampling process or \\(T\\) diffusion model calls as shown in Fig. 2.\n' +
+      '\n' +
+      'In contrast to our approach, DOODL also leverages gradient checkpointing via the MemCNN library (Leemput et al., 2019). DOODL, however, requires the use of the EDICT sampling algorithm that splits the sampling process into two non-parallelizable update equations per sampling step. As a result, DOODL requires more than double the memory _and_ runtime cost, and additionally suffers from overall instability during the sampling process (particularly at low sampling steps) due to EDICT\'s "mixing" layers to align the correlated updates (see Section 6.3). We show memory diagrams for DOODL, as well as an alternative memory procedure for DOODL that is slightly more memory efficient but is 6x as slow as standard backprop in Appendix B.\n' +
+      '\n' +
+      '### Complete Algorithm\n' +
+      '\n' +
+      'Psuedo-code for our DITTO algorithm is shown in Algorithm 1. We define Checkpoint to be a gradient checkpointing function that 1) inputs and stores a callable differentiable network (i.e., the sampler) and any input arguments to the network, 2) overrides the default activation caching behavior of the network to turn off activation caching during the forward pass of backpropagation and 3) recomputes activations when needed in the backward pass. Note that in practice, we typically use a small subsequence of sampling steps (e.g. 20) spanning from \\(\\mathbf{x}_{T}\\) to \\(\\mathbf{x}_{0}\\).\n' +
+      '\n' +
+      '## 4 Applications\n' +
+      '\n' +
+      'We apply our flexible framework to a range of applications1 including outpainting, inpainting, looping, intensity control, melody control, and musical structure control, where both musical structure and looping have been unexplored for TTM diffusion models. These constitute both reference\n' +
+      '\n' +
+      'Figure 2: Different memory setups for backpropagation through sampling. Normally, all intermediate activations are stored in memory, which is intractable for modern diffusion models. In DITTO, gradient checkpointing allows us to achieve efficient memory usage with only 2x the number of model calls to preserve fast runtime.\n' +
+      '\n' +
+      'based (i.e. using existing audio) and reference-free (generation from scratch) control operations as shown Fig. 3. Our goal here is to display the expressive controllability that initial noise latents have over the diffusion process.\n' +
+      '\n' +
+      '**Outpainting** - Outpainting is the task of extending the length of real or previously generated content and is critical for image and audio editing as well as generating long-duration music content using diffusion models. Past outpainting methods include MultiDiffusion Bar-Tal et al. (2023) and Guidance Gradients Levy et al. (2023) which struggle to maintain long-form coherence and local smoothing. We perform outpainting by 1) taking an existing reference audio signal \\(\\mathbf{x}_{\\text{ref}}\\); 2) defining an overlap region \\(o\\) in seconds at the end of the reference; 3) using DITTO to create new content that matches the overlap region but then extends it; and 4) stitching the reference and newly generated content together. More formally, we define \\(\\mathbf{M}_{\\text{ref}}\\) and \\(\\mathbf{M}_{\\text{gen}}\\) as binary masks that specify the location of the overlap region in the reference and generated content respectively, \\(f(\\mathbf{x}_{0})\\coloneqq\\mathbf{M}_{\\text{gen}}\\odot\\mathbf{x}_{0}\\), \\(\\mathbf{y}=\\mathbf{M}_{\\text{ref}}\\odot\\mathbf{x}_{\\text{ref}}\\), and \\(\\mathcal{L}\\propto||f(\\mathbf{x}_{0})-\\mathbf{y}||_{2}^{2}\\).\n' +
+      '\n' +
+      '**Inpainting** - Inpainting is the task of replacing an interior region of real or previously generated content and is essential for audio editing and music remixing. Past work on inpainting has been explored in the image- and audio-domain to variable success Chung et al. (2023); Levy et al. (2023). We use DITTO to perform inpainting similar to outpainting, with the only modification being \\(\\mathbf{M}_{\\text{ref}}=\\mathbf{M}_{\\text{gen}}\\) denote _two_ overlap regions (on each side of the spectrogram) to use as context for inpainting the gap in between.\n' +
+      '\n' +
+      '**Looping** - Looping is the task of generating content that repeats in a circular pattern, creating repeatable music fragments to form the basis of a larger composition. For looping, we use DITTO similar to outpainting, but when we define \\(\\mathbf{M}_{\\text{ref}}\\) and \\(\\mathbf{M}_{\\text{gen}}\\), we specify two overlapping edge regions of the output (similar to inpainting) but corresponding to _opposite_ sides of the outputs (similar to outpainting), such that the extended region seamlessly transitions back to the beginning of the reference clip. To our knowledge, we are the first to imbue TTM diffusion models with looping control.\n' +
+      '\n' +
+      '**Intensity Control** - Musical intensity control is the task of adjusting the dynamic contrast of generated music across time. We follow the intensity control protocol from Music ControlNet (see Wu et al. (2023) for more details), which employs a training-time method to generate music that follows a smoothed, decibel (dB) volume curve. In our case, we use DITTO in a similar fashion, albeit without the need for large-scale fine-tuning, by setting \\(f(\\mathbf{x}_{0})\\coloneqq\\mathbf{w}*20\\log_{10}(\\mathsf{RMS}(\\mathbf{V}(\\mathbf{x}_{0})))\\), where \\(\\mathbf{w}\\) are the smoothing coefficients used in Music ControlNet, \\(*\\) is a convolution operator, \\(\\mathsf{RMS}\\) is the Root Mean Squared energy of the audio, \\(\\mathbf{y}\\) is a given dB-scale target curve, \\(\\mathcal{L}\\propto||f(\\mathbf{x}_{0})-\\mathbf{y}||_{2}^{2}\\), and \\(\\mathbf{V}\\) is our vocoder Lee et al. (2022) that translates spectrograms to the audio domain. Note here, we backpropagate through our vocoder as well.\n' +
+      '\n' +
+      '**Melody Control** - Musical melody control is the task of controlling prominent musical tones over time and allows creators to generate accompaniment music to existing melodies. Following recent work Copet et al. (2023); Wu et al. (2023), the approx. melody of a recording can be extracted by computing the smoothed energy level of the 12-pitch classes over time via a highpass chromagram function \\(\\mathbf{C}(\\cdot)\\)Muller (2015). Given this, we use DITTO with \\(f(\\mathbf{x}_{0})=\\log(\\mathbf{C}(\\mathbf{V}(\\mathbf{x}_{0})))\\), a target melody \\(\\mathbf{y}\\in\\{1,\\dots,12\\}^{N\\times 1}\\), the spectrogram length \\(N\\), and \\(\\mathcal{L}=\\text{NLLLoss}(f(\\mathbf{x}_{0}),\\mathbf{y})\\) or the negative log likelihood loss. See Wu et al. (2023) for further implementation details.\n' +
+      '\n' +
+      '**Musical Structure Control** - We define musical structure control as the task of controlling the high-level musical form of generated music over time. To model musical form, we follow musical structure analysis work McFee and Ellis (2014) that, in the simplest case, measures structure via computing a self-similarity (SS) matrix of local timbre features where timbre is "everything about a sound which is neither loudness nor pitch" Erickson (1975). Thus, we use DITTO for musical structure control by setting \\(\\mathbf{y}\\) to be a known, target SS matrix, \\(f(\\mathbf{x}_{0})=\\mathbf{T}(\\mathbf{x}_{0})\\mathbf{T}(\\mathbf{x}_{0})^{\\top}\\), \\(\\mathbf{T}(\\cdot)\\) to\n' +
+      '\n' +
+      'Figure 3: Examples of DITTO’s use for creative control, including intensity (left), melody (middle), and structure (right), with target controls and final features displayed below each spectrogram.\n' +
+      '\n' +
+      'be a timbre extraction function, and \\(\\mathcal{L}\\propto||f(\\mathbf{x}_{0})-\\mathbf{y}||_{2}^{2}\\). Specifically, we use the Mel-Frequency Cepstrum Coefficients (MFCCs) (McFee et al., 2010), omitting the first coefficient and normalized across the time axis, as the timbre extraction function, and then smooth the SS matrix via a 2D Savitzky-Golay filter in order to not penalize slight variations in intra-phrase similarity. Such target SS matrices can take the form of an "ABBA" pattern (as shown in Fig. 3) for instance. To our knowledge, we are the first to imbue TTM diffusion models with structure control.\n' +
+      '\n' +
+      '**Other Applications** - Besides the applications described above, DITTO can be used for numerous new extensions previously unexplored in TTM generation which we describe in the Appendix, such as correlation-based intensity control (C), real-audio inversion (D), reference-free looping (E), musical structure transfer (F), other sampling methods (G), multi-feature optimization (H), and reusing optimized latents for fast inference (I).\n' +
+      '\n' +
+      '## 5 Experimental Design\n' +
+      '\n' +
+      '### DITTO Setup\n' +
+      '\n' +
+      'We use Adam (Kingma and Ba, 2014) as our optimizer for DITTO, with a learning rate of \\(5\\times 10^{-3}\\) (as higher leads to stability issues). We use DDIM (Song et al., 2020) sampling with \\(20\\) steps and dynamic thresholding (Saharia et al., 2022b) for all experiments. No optimizer hyperparameters were changed across application besides the max number of optimization steps, which were doubled from 70 to 150 for the melody and structure tasks.\n' +
+      '\n' +
+      '### Datasets\n' +
+      '\n' +
+      'We train our models on a dataset of \\(\\approx\\)\\(1800\\) hours of licensed instrumental music with genre, mood, and tempo tags. Our dataset does not have free-form text description, so we use class-conditional text control of global musical style, as done in JukeBox (Dariwal et al., 2020). For melody control references, we synthesize recordings from a 380-sample public-domain subset of the **Nikifonia Lead-Sheet Dataset**(Simonetta et al., 2018). Like in Wu et al. (2023a), we construct a small set of handcrafted intensity curves and musical structure matrices (e.g. a smooth crescendo and "ABA" form) for intensity and structure control (see Appendix H for more examples). For evaluation only, we also use the **MusicCaps Dataset**(Agostinelli et al., 2023) with around 5K 10-second clips with text descriptions.\n' +
+      '\n' +
+      '### Evaluation Metrics\n' +
+      '\n' +
+      'We use Frechet Audio Distance (FAD) with the VGGish (Hershey et al., 2017) backbone, which measures the distance between the distribution of embeddings from a set of baseline recordings and that from generated recordings (Kilgour et al., 2018). FAD metrics are calculated using MusicCaps as the reference distribution against 2.5K model generations for all experiments. For reference-free targets, we also use the CLAP score (Wu et al., 2023b), which measures the overall alignment between the text caption and the output audio; note that as our model is only _tag_-conditioned, we convert each tag set into a caption using the template _"\\(A\\) [genre] [mood] song at [BPM] beats per minute"_. Additionally, for the intensity and musical structure control, we report the average loss \\(\\mathcal{L}\\) across the generated outputs (i.e. the final feature matching distance), and report overall accuracy for melody control, since it is framed as a classification task.\n' +
+      '\n' +
+      '### Baselines\n' +
+      '\n' +
+      'We benchmark against a wide-range of methods including:\n' +
+      '\n' +
+      '* Naive Masking: Here, after a DDIM-step we apply the update \\(\\mathbf{x}_{t-1}=\\mathbf{M}_{\\text{ref}}\\odot\\mathcal{N}(\\sqrt{\\alpha_{t}}\\mathbf{x} _{\\text{ref}},(1-\\bar{\\alpha}_{t})\\mathbf{I})+\\mathbf{M}_{\\text{gen}}\\odot\\mathbf{x} _{t-1}\\) (i.e. setting the overlap region directly to the reference image at the appropriate noise level).\n' +
+      '* MultiDiffusion (Bar-Tal et al., 2023): This case is similar to the naive approach, but instead _averages_ the noisy outputs in the overlapping region instead of using a hard mask. We can additionally stop this averaging operation at certain points of the sampling process (such as half way through) and let the model sample without guiding the process; we denote the former approach as MD and the latter as MD-50 for brevity.\n' +
+      '* FreeDoM (Yu et al., 2023): FreeDoM is a guidance-based method, where we perform an additional update during sampling \\(\\mathbf{x}_{t}=\\mathbf{x}_{t}-\\eta_{t}\\nabla_{\\mathbf{x}_{t}}\\mathcal{L}(f(\\hat{\\mathbf{x}}_ {0}(\\mathbf{x}_{t})),\\mathbf{y})\\), where \\(\\hat{\\mathbf{x}}_{0}(\\mathbf{x}_{t})\\) denotes the first term in Eq. 12. \\(\\eta_{t}\\) is a time-dependent learning rate that is a function of the overall gradient norm.\n' +
+      '* Guidance Gradients (GG) (Levy et al., 2023): GG takes the update equation from FreeDoM and makes two small modifications. Namely, \\(\\eta_{t}\\) is fixed throughout sampling, and GG includes an additional data consistency step when the feature extractor \\(f(\\cdot)\\) is fully linear.\n' +
+      '* Music ControlNet (Wu et al., 2023a): Music ControlNet is a training-based approach that shares the same underlying base model as our work but additionally finetunes adaptor modules during large scale training to the control signal \\(\\mathbf{y}\\) as conditioning.\n' +
+      '* DOODL (Wallace et al., 2023a): DOODL2 is an optimization-based approach that uses the EDICT (Wallace et al., 2023b) sampler and multiple ad-hocchanges to the optimization process such as injecting noise and renormalizing \\(\\mathbf{x}_{T}\\). We use the same learning rate as DITTO due to similar stability issues.\n' +
+      '\n' +
+      'We compare with Naive Masking, MultiDiffusion, and Guidance Gradients for inpainting, outpainting, and looping experiments since they all have linear feature matching objective, Music ControlNet for the melody and intensity experiments, and FreeDoM and DOODL for all experiments.\n' +
+      '\n' +
+      '## 6 Results\n' +
+      '\n' +
+      '### Outpainting, Inpainting, and Looping Results\n' +
+      '\n' +
+      'We show objective evaluation results for outpainting and looping in Table 1 and inpainting results in Table 2. Here we report FAD, as low loss over the overlap regions does not necessitate that the _overall_ audio is cohesive. We find DITTO achieves the lowest FAD against all baselines across overlap sizes of 1 to 3 seconds and inpainting gaps of 2 to 4 seconds. DOODL performs next behind DITTO, and the inference-time guidance methods particularly struggle.\n' +
+      '\n' +
+      'Qualitatively, we discover that all baselines (besides DOODL) tend to produce audible "seams" in the output music outside the overlap region as shown in Fig. 4, wherein the final outputs tend to purely match the overlap region (i.e. over optimizing for the feature matching target) and ignore the overall consistency between the overlap generation and the rest of the generation. By optimizing \\(\\mathbf{x}_{T}\\) for reconstruction over the overlap regions, DITTO effectively avoids such issues, as this process implicitly encourages the non-overlap generation sections to preserve semantic content seamlessly.\n' +
+      '\n' +
+      '### Intensity, Melody, and Structure Results\n' +
+      '\n' +
+      'In Table 3, we show objective metrics for intensity, melody, and structure control. We seek to understand 1) how different methods impose the target control on the generative model via MSE or Accuracy 2) overall audio quality via FAD and 3) how such control effects the baseline text conditioning via CLAP. We find DITTO achieves SOTA intensity and melody control, beating that of Music ControlNet with _zero_ supervised training. We further explore Music ControlNet\'s poor intensity control more in-depth in Appendix C. Additionally, we note FreeDoM slightly beats DITTO in structure control, but exhibits poor performance for intensity and especially melody control, showing the limits of guidance-based methods for complicated feature extractors.\n' +
+      '\n' +
+      'A notable concern with optimization-based control is the chance of reward hacking (Skalse et al., 2022; Prabhudesai et al., 2023), where the control target is over-optimized leading to degradation in model quality and base behavior. We find that DOODL exhibits this reward hacking behavior consistently in addition to generally being worse at control than DITTO, sacrificing overall quality and significant text relevance in favor of matching the control target. DITTO, on the other hand, is able to balance the target control without over-optimizing and maintain quality and text relevance.\n' +
+      '\n' +
+      'In Fig. 3, we show qualitative intensity, melody, and struc\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c c} \\hline \\hline FAD (\\(\\downarrow\\)) & \\(o=1\\) & \\(o=2\\) & \\(o=3\\) & Looping \\\\ \\hline DOODL & 9.4525 & 9.0397 & 9.0210 & 8.9239 \\\\ Naïve & 9.5281 & 9.4074 & 9.4053 & 9.4954 \\\\ MD & 9.8201 & 9.4784 & 9.3108 & 9.5815 \\\\ MD-50 & 9.4387 & 9.2521 & 9.1156 & 9.4053 \\\\ GG & 10.3076 & 9.8281 & 9.3881 & 9.5524 \\\\ FreeDoM & 9.7073 & 9.7708 & 9.6027 & 9.4535 \\\\ DITTO (ours) & **9.1859** & **8.9178** & **8.6897** & **8.8431** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 1: Outpainting and looping results for DITTO against baseline pixel, guidance, and optimization-based methods.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c} \\hline \\hline FAD (\\(\\downarrow\\)) & gap = 2 & gap = 3 & gap = 4 \\\\ \\hline DOODL & 8.8018 & 9.0050 & 9.5049 \\\\ Naïve & 9.4871 & 9.5524 & 9.6067 \\\\ MD & 9.3279 & 9.7251 & 10.0740 \\\\ MD-50 & 9.0677 & 9.4161 & 9.8342 \\\\ GG & 9.7049 & 10.1605 & 10.9959 \\\\ FreeDoM & 9.4770 & 9.5516 & 10.3422 \\\\ DITTO (ours) & **8.3470** & **8.3229** & **8.5733** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 2: Inpainting results for DITTO against baseline pixel, guidance, and optimization-based methods.\n' +
+      '\n' +
+      'Figure 4: Failure cases of baseline outpainting methods. Baseline methods tend to create audible “seams” in the audio between overlap and non-overlap regions of the generated output, leading to unnatural jumps in semantic content. DITTO avoids this issue and provides seamless outpainting throughout the full generation.\n' +
+      '\n' +
+      'ture control results. On the left, we show a generated spectrogram with a rising then falling intensity curve. In the middle, we show a generated spectrogram with an input target and generated melody visualization (chromagram). On the right, we show a generated spectrogram with target and generated self-similarity matrices with an ABBA structure pattern.\n' +
+      '\n' +
+      '### Efficiency Comparison\n' +
+      '\n' +
+      'Besides comparing DITTO with DOODL in terms of their generation quality and control, we seek to understand how they differ in terms of both practical efficiency and convergence speed, as slow per-iteration runtime could be offset by fast convergence, and how such behaviors change as the number of sampling steps increases. We focus on intensity control since it represents a middle ground between the simple linear painting methods and the more complex melody control. Besides MSE, FAD, and CLAP, we also report the mean steps to convergence (MS2C), i.e. the average number of optimization steps needed to reach an MSE below some threshold \\(\\tau\\), the mean optimization speed (MOS), i.e. the average number of seconds per optimization step, and the mean allocated memory (MAM), measuring the average GPU memory (in GB) used during optimization by the diffusion model. We run the test on a single 40GB A100 with \\(K=70\\) maximum optimization steps and \\(\\tau=2\\) dB. For DOODL, we use a mixing coefficient of \\(p=0.93\\) at 50 steps following Wallace et al. (2023) and \\(p=0.83\\) at 20 steps due to severe divergence with higher \\(p\\) at 20 steps.\n' +
+      '\n' +
+      'In Table 4, we empirically confirm that DOODL is \\(\\approx 2\\)x slower than DITTO and takes up \\(\\approx 2\\)x more GPU memory, as DOODL uses the EDICT sampler which doubles the number of model calls during both the forward and checkpointed backwards pass and stores both chains of inputs in memory. Most saliently, we discover that DOODL displays practically identical convergence speed to DITTO, showing that DOODL\'s added complexity provides no benefit in speeding up optimization. We note that increasing the number of sampling steps tends to degrade control adherence, likely since the longer sampling chain makes backpropagation more difficult. Interestingly, as sampling time increases the overall FAD improves significantly for DOODL, giving evidence that EDICT particularly struggles with few sampling steps, and thus DOODL cannot be sped up by using fewer steps without noticeable reward hacking.\n' +
+      '\n' +
+      '### The Expressive Power of the Diffusion Latent Space\n' +
+      '\n' +
+      'Typically, the initial latent \\(\\mathbf{x}_{T}\\) is ignored in diffusion models, as the diffusion latent space has previously been thought to encode little semantic meaning compared to GAN latent spaces (Song et al., 2020; Preechakul et al., 2022). DITTO\'s strong performance, however, presents the surprising fact that a wide-array of semantically meaningful fine-grained features can be manipulated purely through exploring the diffusion latent space without ever editing the pre-trained diffusion base model. We explore this idea further, and how our findings are theoretically tied to the encoding of low-frequency structure noted by Si et al. (2023) in Appendix J.\n' +
+      '\n' +
+      '## 7 Conclusion\n' +
+      '\n' +
+      'We propose DITTO: **D**iffusion **I**nference-**T**ime \\(\\mathbf{T}\\)-**O**ptimization, a unified training-free framework for controlling pre-trained diffusion models to enable a wide-range of creative editing and control tasks for music generation. DITTO achieves SOTA editing ability and matches the controllability of fully training-based methods, outperforms the leading optimization-based approach while being 2x as time and memory efficient, and imposes no restrictions on the modeling architecture or sampling process. In future work, we hope to accelerate the optimization procedure to achieve real-time interaction and more expressive control.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c|c c} \\hline \\hline Method & DITTO & DOODL & DITTO & DOODL \\\\ Sampling Steps & 20 & 20 & 50 & 50 \\\\ \\hline MSE (\\(\\downarrow\\)) & **4.7576** & 4.7847 & **7.6404** & 8.8939 \\\\ FAD (\\(\\downarrow\\)) & **10.5294** & 12.3362 & 10.3652 & **9.9090** \\\\ CLAP (\\(\\uparrow\\)) & **0.4326** & 0.3418 & **0.3977** & 0.3114 \\\\ MS2C (\\(\\downarrow\\)) & **44.4661** & 49.2031 & **46.8550** & 47.8341 \\\\ MOS(\\(\\downarrow\\)) & **1.8594** & 4.1773 & **4.4720** & 10.0362 \\\\ MAM (\\(\\downarrow\\)) & **5.0020** & 8.2740 & **5.0941** & 8.3112 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 4: Performance between DITTO and DOODL on intensity control. DITTO and DOODL reach convergence in a similar number of steps yet DOODL is \\(\\approx\\)2x less efficient than DITTO.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c|c c c|c c c} \\hline \\hline Control & \\multicolumn{3}{c|}{**Intensity**} & \\multicolumn{3}{c|}{**Melody**} & \\multicolumn{3}{c}{**Structure**} \\\\ Metric & MSE (\\(\\downarrow\\)) & FAD (\\(\\downarrow\\)) & CLAP (\\(\\uparrow\\)) & Acc (\\(\\uparrow\\)) & FAD (\\(\\downarrow\\)) & CLAP (\\(\\uparrow\\)) & MSE (\\(\\downarrow\\)) & FAD (\\(\\downarrow\\)) & CLAP (\\(\\uparrow\\)) \\\\ \\hline Default TTM & 40.8430 & **8.6958** & 0.3732 & 0.10527 & 8.6958 & 0.3732 & 0.3091 & 8.6958 & 0.3732 \\\\ ControlNet & 38.4108 & 11.1315 & 0.3084 & 0.8135 & **7.8574** & **0.4784** & – & – & – \\\\ FreeDoM & 23.2920 & 9.5056 & **0.4823** & 0.3154 & 9.2858 & 0.4766 & **0.0177** & **6.6774** & 0.4152 \\\\ DOODL & 4.7847 & 12.3362 & 0.3418 & 0.8159 & 9.5114 & 0.3361 & 0.0742 & 9.3642 & 0.3856 \\\\ DITTO (ours) & **4.7576** & 10.5294 & 0.4326 & **0.8262** & 8.2431 & 0.4321 & 0.0237 & 7.0904 & **0.4181** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 3: Intensity, melody, and structure control results. DITTO achieves SOTA intensity and melody control. Music ControlNet struggles on intensity control MSE. FreeDoM performs well on structure but struggles on more complex melody and intensity control.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:9]\n' +
+      '\n' +
+      '* Dong et al. (2018) Dong, H.-W., Hsiao, W.-Y., Yang, L.-C., and Yang, Y.-H. MuseGAN: Multi-track sequential generative adversarial networks for symbolic music generation and accompaniment. In _AAAI Conference on Artificial Intelligence_, number 1, 2018.\n' +
+      '* Defossez et al. (2022) Defossez, A., Copet, J., Synnaeve, G., and Adi, Y. High fidelity neural audio compression. _arXiv preprint arXiv:2210.13438_, 2022.\n' +
+      '* Erickson (1975) Erickson, R. _Sound structure in music_. Univ of California Press, 1975.\n' +
+      '* Forsgren & Martiros (2022) Forsgren, S. and Martiros, H. Riffusion: Stable diffusion for real-time music generation, 2022. URL [https://riffusion.com/about](https://riffusion.com/about).\n' +
+      '* Gal et al. (2022) Gal, R., Alaluf, Y., Atzmon, Y., Patashnik, O., Bermano, A. H., Chechik, G., and Cohen-Or, D. An image is worth one word: Personalizing text-to-image generation using textual inversion, 2022.\n' +
+      '* Garcia et al. (2023) Garcia, H. F., Seetharaman, P., Kumar, R., and Pardo, B. VampNet: Music generation via masked acoustic token modeling. In _International Society for Music Information Retrieval (ISMIR)_, 2023.\n' +
+      '* Gupta et al. (2023) Gupta, A., Yu, L., Sohn, K., Gu, X., Hahn, M., Li, F.-F., Essa, I., Jiang, L., and Lezama, J. Photorealistic video generation with diffusion models. 2023.\n' +
+      '* Hawthorne et al. (2022) Hawthorne, C., Simon, I., Roberts, A., Zeghidour, N., Gardner, J., Manilow, E., and Engel, J. Multi-instrument music synthesis with spectrogram diffusion. In _International Society for Music Information Retrieval (ISMIR)_, 2022.\n' +
+      '* He et al. (2016) He, K., Zhang, X., Ren, S., and Sun, J. Deep residual learning for image recognition. In _IEEE Conference on Computer Vision and Pattern Recognition (CVPR)_, 2016.\n' +
+      '* Hershey et al. (2017) Hershey, S., Chaudhuri, S., Ellis, D. P., Gemmeke, J. F., Jansen, A., Moore, R. C., Plakal, M., Platt, D., Saurous, R. A., Seybold, B., et al. CNN architectures for large-scale audio classification. In _IEEE International Conference on Audio, Speech and Signal Processing (ICASSP)_, 2017.\n' +
+      '* Hertz et al. (2022) Hertz, A., Mokady, R., Tenenbaum, J., Aberman, K., Pritch, Y., and Cohen-Or, D. Prompt-to-prompt image editing with cross attention control. _arXiv preprint arXiv:2208.01626_, 2022.\n' +
+      '* Ho & Salimans (2021) Ho, J. and Salimans, T. Classifier-free diffusion guidance. In _NeurIPS Workshop on Deep Gen. Models and Downstream Applications_, 2021.\n' +
+      '* Ho et al. (2020) Ho, J., Jain, A., and Abbeel, P. Denoising diffusion probabilistic models. _Neural Information Processing Systems (NeurIPS)_, 33, 2020.\n' +
+      '* Ho et al. (2022) Ho, J., Salimans, T., Gritsenko, A., Chan, W., Norouzi, M., and Fleet, D. J. Video diffusion models. _arXiv:2204.03458_, 2022.\n' +
+      '* Huang et al. (2023a) Huang, Q., Park, D. S., Wang, T., Denk, T. I., Ly, A., Chen, N., Zhang, Z., Zhang, Z., Yu, J., Frank, C., et al. Noise2Music: Text-conditioned music generation with diffusion models. _arXiv:2302.03917_, 2023a.\n' +
+      '* Huang et al. (2023b) Huang, R., Huang, J., Yang, D., Ren, Y., Liu, L., Li, M., Ye, Z., Liu, J., Yin, X., and Zhao, Z. Make-an-audio: Text-to-audio generation with prompt-enhanced diffusion models. _arXiv preprint arXiv:2301.12661_, 2023b.\n' +
+      '* Karras et al. (2022) Karras, T., Aittala, M., Aila, T., and Laine, S. Elucidating the design space of diffusion-based generative models. In _NeurIPS_, 2022.\n' +
+      '* Karunratanakul et al. (2023) Karunratanakul, K., Preechakul, K., Aksan, E., Beeler, T., Suwajanakorn, S., and Tang, S. Optimizing diffusion noise can serve as universal motion priors. _arXiv preprint arXiv:2312.11994_, 2023.\n' +
+      '* Kawar et al. (2023) Kawar, B., Zada, S., Lang, O., Tov, O., Chang, H., Dekel, T., Mosseri, I., and Irani, M. Imagic: Text-based real image editing with diffusion models. In _IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_, 2023.\n' +
+      '* Kilgour et al. (2018) Kilgour, K., Zuluaga, M., Roblek, D., and Sharifi, M. Frechet audio distance: A metric for evaluating music enhancement algorithms. _arXiv:1812.08466_, 2018.\n' +
+      '* Kingma & Ba (2014) Kingma, D. P. and Ba, J. Adam: A method for stochastic optimization. _arXiv preprint arXiv:1412.6980_, 2014.\n' +
+      '* Kingma & Welling (2013) Kingma, D. P. and Welling, M. Auto-encoding variational bayes. In _International Conference on Learning Representations (ICLR)_, 2013.\n' +
+      '* Kumar et al. (2023) Kumar, R., Seetharaman, P., Luebs, A., Kumar, I., and Kumar, K. High-fidelity audio compression with improved RVQGAN. In _Neural Information Processing Systems (NeurIPS)_, 2023.\n' +
+      '* Lee et al. (2022) Lee, S.-g., Ping, W., Ginsburg, B., Catanzaro, B., and Yoon, S. Bigvgan: A universal neural vocoder with large-scale training. _arXiv preprint arXiv:2206.04658_, 2022.\n' +
+      '* Leemput et al. (2019) Leemput, S. C. v., Teuwen, J., Ginneken, B. v., and Manniesing, R. Memcnn: A python/pytorch package for creating memory-efficient invertible neural networks. _Journal of Open Source Software_, 2019. ISSN 2475-9066. doi: 10.21105/joss.01576.\n' +
+      '* Levy et al. (2023) Levy, M., Giorgi, B. D., Weers, F., Katharopoulos, A., and Nickson, T. Controllable music production with diffusion models and guidance gradients. _ArXiv_, abs/2311.00613, 2023.\n' +
+      '\n' +
+      '* Liu et al. (2023a) Liu, H., Chen, Z., Yuan, Y., Mei, X., Liu, X., Mandic, D., Wang, W., and Plumbley, M. D. AudioLDM: Text-to-audio generation with latent diffusion models. In _International Conference on Machine Learning (ICML)_, 2023a.\n' +
+      '* Liu et al. (2023b) Liu, H., Tian, Q., Yuan, Y., Liu, X., Mei, X., Kong, Q., Wang, Y., Wang, W., Wang, Y., and Plumbley, M. D. AudioLDM 2: Learning holistic audio generation with self-supervised pretraining. _arXiv preprint arXiv:2308.05734_, 2023b.\n' +
+      '* Lu et al. (2022) Lu, C., Zhou, Y., Bao, F., Chen, J., Li, C., and Zhu, J. Dpmsolver++: Fast solver for guided sampling of diffusion probabilistic models. _ArXiv_, abs/2211.01095, 2022.\n' +
+      '* Mathews et al. (1969) Mathews, M. V., Miller, J. E., Moore, F. R., Pierce, J. R., and Risset, J.-C. _The technology of computer music_. 1969.\n' +
+      '* McFee & Ellis (2014) McFee, B. and Ellis, D. Analyzing song structure with spectral clustering. In _International Society for Music Information Retrieval (ISMIR)_. Citeseer, 2014.\n' +
+      '* McFee et al. (2010) McFee, B., Barrington, L., and Lanckriet, G. R. Learning similarity from collaborative filters. In _International Society for Music Information Retrieval (ISMIR)_, 2010.\n' +
+      '* Mokady et al. (2023) Mokady, R., Hertz, A., Aberman, K., Pritch, Y., and Cohen-Or, D. Null-text inversion for editing real images using guided diffusion models. In _IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_, 2023.\n' +
+      '* Muller (2015) Muller, M. _Fundamentals of music processing: Audio, analysis, algorithms, applications_. Springer, 2015.\n' +
+      '* Pan et al. (2023) Pan, Z., Gherardi, R., Xie, X., and Huang, S. Effective real image editing with accelerated iterative diffusion inversion. In _IEEE/CVF International Conference on Computer Vision (CVPR)_, 2023.\n' +
+      '* Poole et al. (2022) Poole, B., Jain, A., Barron, J. T., and Mildenhall, B. Dreamfusion: Text-to-3d using 2d diffusion. _arXiv_, 2022.\n' +
+      '* Prabhudesai et al. (2023) Prabhudesai, M., Goyal, A., Pathak, D., and Fragkiadaki, K. Aligning text-to-image diffusion models with reward backpropagation. _ArXiv_, abs/2310.03739, 2023.\n' +
+      '* Preechakul et al. (2022) Preechakul, K., Chatthee, N., Wizadwongsa, S., and Suwajanakorn, S. Diffusion autoencoders: Toward a meaningful and decodable representation. In _IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_, 2022.\n' +
+      '* Rombach et al. (2022) Rombach, R., Blattmann, A., Lorenz, D., Esser, P., and Ommer, B. High-resolution image synthesis with latent diffusion models. In _IEEE Conference on Computer Vision and Pattern Recognition (CVPR)_, 2022.\n' +
+      '* Ronneberger et al. (2015) Ronneberger, O., Fischer, P., and Brox, T. U-Net: Convolutional networks for biomedical image segmentation. In _Medical Image Computing and Computer Assisted Interventions (MICCAI)_, 2015.\n' +
+      '* Ruiz et al. (2023) Ruiz, N., Li, Y., Jampani, V., Pritch, Y., Rubinstein, M., and Aberman, K. Dreambooth: Fine tuning text-to-image diffusion models for subject-driven generation. In _IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_, 2023.\n' +
+      '* Saharia et al. (2022a) Saharia, C., Chan, W., Chang, H., Lee, C., Ho, J., Salimans, T., Fleet, D., and Norouzi, M. Palette: Image-to-image diffusion models. In _ACM SIGGRAPH Conference Proceedings_, 2022a.\n' +
+      '* Saharia et al. (2022b) Saharia, C., Chan, W., Saxena, S., Li, L., Whang, J., Denton, E. L., Ghasemipour, K., Gontijo Lopes, R., Karagol Ayan, B., Salimans, T., et al. Photorealistic text-to-image diffusion models with deep language understanding. _Neural Information Processing Systems (NeurIPS)_, 35, 2022b.\n' +
+      '* Schneider et al. (2023) Schneider, F., Jin, Z., and Scholkopf, B. Mo\\(\\backslash\\)\' usai: Text-to-music generation with long-context latent diffusion. _arXiv preprint arXiv:2301.11757_, 2023.\n' +
+      '* Si et al. (2023) Si, C., Huang, Z., Jiang, Y., and Liu, Z. Freeu: Free lunch in diffusion u-net. _ArXiv_, abs/2309.11497, 2023.\n' +
+      '* Simonetta et al. (2018) Simonetta, F., Carnovalini, F., Orio, N., and Roda, A. Symbolic music similarity through a graph-based representation. In _Audio Mostly 2018 on Sound in Immersion and Emotion_. 2018.\n' +
+      '* Skalse et al. (2022) Skalse, J., Howe, N., Krasheninnikov, D., and Krueger, D. Defining and characterizing reward gaming. _Neural Information Processing Systems (NeuralPS)_, 35, 2022.\n' +
+      '* Sohl-Dickstein et al. (2015) Sohl-Dickstein, J., Weiss, E., Maheswaranathan, N., and Ganguli, S. Deep unsupervised learning using nonequilibrium thermodynamics. In _International Conference on Machine Learning (ICML)_, 2015.\n' +
+      '* Song et al. (2020) Song, J., Meng, C., and Ermon, S. Denoising diffusion implicit models. In _International Conference on Learning Representations (ICLR)_, 2020.\n' +
+      '* Stevens et al. (1937) Stevens, S. S., Volkmann, J., and Newman, E. B. A scale for the measurement of the psychological magnitude pitch. _Journal of the Acoustical Society of America (JASA)_, 1937.\n' +
+      '* Wallace et al. (2023a) Wallace, B., Gokul, A., Ermon, S., and Naik, N. V. End-to-end diffusion latent optimization improves classifier guidance. _IEEE/CVF International Conference on Computer Vision (ICCV)_, abs/2303.13703, 2023a.\n' +
+      '\n' +
+      '* Wallace et al. (2023b) Wallace, B., Gokul, A., and Naik, N. EDICT: Exact diffusion inversion via coupled transformations. In _IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_, 2023b.\n' +
+      '* Watson et al. (2022) Watson, D., Chan, W., Martin-Brualla, R., Ho, J., Tagliascchi, A., and Norouzi, M. Novel view synthesis with diffusion models. _ArXiv_, abs/2210.04628, 2022.\n' +
+      '* Wu et al. (2023a) Wu, S.-L., Donahue, C., Watanabe, S., and Bryan, N. J. Music controlnet: Multiple time-varying controls for music generation. _ArXiv_, abs/2311.07069, 2023a.\n' +
+      '* Wu et al. (2023b) Wu, Y., Chen, K., Zhang, T., Hui, Y., Berg-Kirkpatrick, T., and Dubnov, S. Large-scale contrastive language-audio pretraining with feature fusion and keyword-to-caption augmentation. In _IEEE International Conference on Audio, Speech and Signal Processing (ICASSP)_, 2023b.\n' +
+      '* Xia et al. (2021) Xia, W., Zhang, Y., Yang, Y., Xue, J.-H., Zhou, B., and Yang, M.-H. Gan inversion: A survey. _IEEE Transactions on Pattern Analysis and Machine Intelligence_, 45, 2021.\n' +
+      '* Yu et al. (2023) Yu, J., Wang, Y., Zhao, C., Ghanem, B., and Zhang, J. Freedom: Training-free energy-guided conditional diffusion model. _IEEE/CVF International Conference on Computer Vision (ICCV)_, 2023.\n' +
+      '* Zeghidour et al. (2021) Zeghidour, N., Luebs, A., Omran, A., Skoglund, J., and Tagliascachi, M. Soundstream: An end-to-end neural audio codec. _IEEE/ACM Transactions on Audio, Speech, and Language Processing (TASLP)_, 30, 2021.\n' +
+      '* Zhang et al. (2023) Zhang, L., Rao, A., and Agrawala, M. Adding conditional control to text-to-image diffusion models. In _IEEE/CVF International Conference on Computer Vision (ICCV)_, 2023.\n' +
+      '* Zhao et al. (2023) Zhao, S., Chen, D., Chen, Y.-C., Bao, J., Hao, S., Yuan, L., and Wong, K.-Y. K. Uni-ControlNet: All-in-one control to text-to-image diffusion models. _arXiv:2305.16322_, 2023.\n' +
+      '\n' +
+      '## Appendix A Diffusion Review\n' +
+      '\n' +
+      'Denoising diffusion probabilistic models (DDPMs) (Sohl-Dickstein et al., 2015; Ho et al., 2020) or diffusion models are a class of generative latent variable model. They are defined by a forward and reverse random Markov process. Intuitively, the forward process takes clean data and iteratively corrupts it with noise to train a (denoising) neural network and the reverse process takes random noise and iteratively refines it with the learned network to generate new data.\n' +
+      '\n' +
+      'The forward process is defined as a Markov chain:\n' +
+      '\n' +
+      '\\[q(\\mathbf{x}_{0},...,\\mathbf{x}_{T}) :=q(\\mathbf{x}_{0})\\prod_{t=1}^{T}q(\\mathbf{x}_{t}|\\mathbf{x}_{t-1}) \\tag{4}\\] \\[q(\\mathbf{x}_{t}|\\mathbf{x}_{t-1}) :=\\mathcal{N}(\\sqrt{1-\\beta_{t}}\\mathbf{x}_{t-1},\\beta_{t}\\mathbf{I}) \\tag{5}\\]\n' +
+      '\n' +
+      'where \\(q(\\mathbf{x}_{0})\\) is the true data distribution, \\(q(\\mathbf{x}_{T})\\) is a standard normal Gaussian distribution, \\(0<\\ \\beta_{1}<\\beta_{2}<\\cdots<\\beta_{T}\\) are noise schedule parameters, and \\(T\\) is the total number of noise steps. To improve the efficiency of the fixed forward data corruption process, (5) can be simplified to\n' +
+      '\n' +
+      '\\[q(\\mathbf{x}_{t}|\\mathbf{x}_{0}) :=\\mathcal{N}(\\sqrt{\\alpha_{t}}\\mathbf{x}_{0},(1-\\alpha_{t})\\mathbf{I}) \\tag{6}\\] \\[\\mathbf{x}_{t} :=\\sqrt{\\tilde{\\alpha}_{t}}\\mathbf{x}_{0}+\\sqrt{1-\\tilde{\\alpha}_{t }}\\mathbf{\\epsilon}\\,, \\tag{7}\\]\n' +
+      '\n' +
+      'where \\(\\alpha_{t}=1-\\beta_{t}\\), \\(\\tilde{\\alpha}_{t}=\\prod_{i=1}^{t}\\alpha_{t}\\), and \\(\\mathbf{\\epsilon}\\) is standard normal Gaussian noise, enabling forward sampling for any step \\(t\\) given clean data \\(\\mathbf{x}_{0}\\).\n' +
+      '\n' +
+      'Given the forward process, we can specify a model distribution \\(p_{\\theta}(\\mathbf{x}_{0})\\) that approximates \\(q_{\\theta}(\\mathbf{x}_{0})\\). To make \\(p_{\\theta}(\\mathbf{x}_{0})\\) easy to sample from, we specify the data generation process to be a\n' +
+      '\n' +
+      '\\[p_{\\theta}(\\mathbf{x}_{0}) =\\int p_{\\theta}(\\mathbf{x}_{0},...,\\mathbf{x}_{T})d\\mathbf{x}_{1,...,T} \\tag{8}\\] \\[p_{\\theta}(\\mathbf{x}_{0},...,\\mathbf{x}_{T}) :=p_{\\theta}(\\mathbf{x}_{T})\\prod_{t=1}^{T}p_{\\theta}^{(t)}(\\mathbf{x}_{ t-1}|\\mathbf{x}) \\tag{9}\\]\n' +
+      '\n' +
+      'where \\(\\mathbf{x}_{0},...,\\mathbf{x}_{T}\\) are latent variables all in same data space.\n' +
+      '\n' +
+      'Given the true data generation process (4) and model (9), we can train a neural network to recover the intermediate noisy data \\(\\mathbf{x}_{t-1}\\) given \\(\\mathbf{x}_{t}\\). More specifically, Ho et al. (Ho et al., 2020) showed that if we optimize the variational lower bound (Kingma and Welling, 2013) of our data likelihood and we reparametrize our problem to predict the noise \\(\\mathbf{\\epsilon}\\), we can learn a suitable neural network \\(\\mathbf{\\epsilon}_{\\theta}(\\mathbf{x}_{t},t)\\) with parameters \\(\\theta\\) via minimizing the mean squared error via:\n' +
+      '\n' +
+      '\\[\\mathbb{E}_{\\mathbf{x}_{0},\\mathbf{\\epsilon},t}\\Big{[}\\|\\mathbf{\\epsilon}-\\mathbf{\\epsilon}_{ \\theta}(\\mathbf{x}_{t},t)\\|_{2}^{2}\\Big{]}\\,, \\tag{10}\\]\n' +
+      '\n' +
+      'where \\(t\\) is the diffusion time-step.\n' +
+      '\n' +
+      'Given a learned \\(\\mathbf{\\epsilon}_{\\theta}(\\mathbf{x}_{t},t)\\), we can generate new data via the reverse diffusion process, a.k.a. sampling. To do so, we sample random Gaussian noise \\(\\mathbf{x}_{T}\\sim\\mathcal{N}(0,I)\\) and then iteratively refine it via\n' +
+      '\n' +
+      '\\[\\mathbf{x}_{t-1}=\\frac{1}{\\sqrt{\\alpha_{t}}}\\Big{(}\\mathbf{x}_{t}-\\frac{1-\\alpha_{t}} {\\sqrt{1-\\tilde{\\alpha}_{t}}}\\mathbf{\\epsilon}_{\\theta}(\\mathbf{x}_{t},t)\\Big{)}+\\sigma _{t}\\mathbf{\\epsilon}, \\tag{11}\\]\n' +
+      '\n' +
+      'until \\(t=0\\) to create our generated data \\(\\mathbf{x}_{0}\\) after \\(T\\) denoising iterations. To obtain high-quality generations, \\(T\\) is typically large (e.g., \\(1000\\)), which results in a slow generation process.\n' +
+      '\n' +
+      'To reduce the computational cost of sampling (inference), Song et al. (2020) proposed denoising diffusion implicit models (DDIM). DDIM uses an alternative variation optimization objective that itself yields an alternative sampling formulation\n' +
+      '\n' +
+      '\\[\\begin{split}\\mathbf{x}_{t-1}&=\\sqrt{\\alpha_{t-1}} \\Bigg{(}\\frac{\\mathbf{x}_{t}-\\sqrt{1-\\alpha_{t}}\\mathbf{\\epsilon}_{\\theta}(\\mathbf{x}_{t}, t)}{\\sqrt{\\alpha_{t}}}\\Bigg{)}\\\\ &\\quad\\quad+\\sqrt{1-\\alpha_{t-1}-\\sigma_{t}^{2}}\\mathbf{\\epsilon}_{ \\theta}(\\mathbf{x}_{t},t)+\\sigma_{t}\\mathbf{\\epsilon},\\end{split} \\tag{12}\\]where \\(\\mathbf{\\epsilon}\\sim\\mathcal{N}(0,I)\\), \\(\\alpha_{0}:=1\\), and \\(\\sigma_{t}\\) and different random noise scales. This formulation minimizes the number of sampling steps needed during inference (e.g., \\(50\\sim 100\\)) with minimal impact on generation quality. Furthermore, special cases of DDIM are then two fold 1) when \\(\\sigma_{t}=\\sqrt{(1-\\alpha_{t-1})/(1-\\alpha_{t})}\\sqrt{1-\\alpha_{t}/\\alpha_{t-1}}\\), DDIM sampling refers back to basic DDPM sampling and 2) when \\(\\sigma_{t}=0\\) the sampling process becomes fully deterministic.\n' +
+      '\n' +
+      'To improve text conditioning, classifier-free guidance (CFG) can be used to blend conditional and unconditional generation outputs and trade-off conditioning strength, mode coverage, and sample quality (Ho and Salimans, 2021). When training a model with CFG, conditioning is randomly set to a null value a fraction of the time. During inference, the diffusion model output \\(\\mathbf{\\epsilon}_{\\theta}(\\mathbf{x}_{t},t,\\mathbf{c}_{\\text{text}})\\) is replaced with\n' +
+      '\n' +
+      '\\[\\hat{\\mathbf{\\epsilon}}_{CFG}=w\\cdot\\mathbf{\\epsilon}_{\\theta}(\\mathbf{x}_{t},t,\\mathbf{c}_{ \\text{text}})+(1-w)\\cdot\\mathbf{\\epsilon}_{\\theta}(\\mathbf{x}_{t},t,\\mathbf{c}_{\\emptyset }), \\tag{13}\\]\n' +
+      '\n' +
+      'where \\(\\mathbf{c}_{\\text{text}}\\) are text embeddings, \\(w\\) is the CFG scaling factor, and \\(\\mathbf{c}_{\\emptyset}\\) are null embeddings.\n' +
+      '\n' +
+      '## Appendix B EDICT and DOODL with invertible layers\n' +
+      '\n' +
+      'Exact Diffusion Inversion via Coupled Transformations, or EDICT, is a sampling method introduced in Wallace et al. (2023b) to enable _exact_ diffusion inversion. EDICT accomplishes this by denoising two correlated diffusion chains, \\(\\mathbf{x}^{\\prime}_{t}\\) and \\(\\mathbf{x}^{\\prime\\prime}_{t}\\), at once, with the following updates:\n' +
+      '\n' +
+      '\\[\\mathbf{x}^{\\prime\\text{inter}}_{t} =\\sqrt{\\frac{\\alpha_{t-1}}{\\alpha_{t}}}\\mathbf{x}^{\\prime}_{t}+\\left( \\sqrt{1-\\alpha_{t-1}}-\\sqrt{\\frac{\\alpha_{t-1}(1-\\alpha_{t})}{\\alpha_{t}}} \\right)\\mathbf{\\epsilon}_{\\theta}(\\mathbf{x}^{\\prime\\prime}_{t},t)\\] \\[\\mathbf{x}^{\\prime\\text{inter}}_{t} =\\sqrt{\\frac{\\alpha_{t-1}}{\\alpha_{t}}}\\mathbf{x}^{\\prime\\prime}_{t}+ \\left(\\sqrt{1-\\alpha_{t-1}}-\\sqrt{\\frac{\\alpha_{t-1}(1-\\alpha_{t})}{\\alpha_{t} }}\\right)\\mathbf{\\epsilon}_{\\theta}(\\mathbf{x}^{\\prime\\text{inter}}_{t},t)\\] \\[\\mathbf{x}^{\\prime}_{t-1} =p\\mathbf{x}^{\\prime\\text{inter}}_{t}+(1-p)\\mathbf{x}^{\\prime\\text{inter}}_ {t-1},\\]\n' +
+      '\n' +
+      'where the first two lines denote affine coupling layers and the last two lines are mixing layers with a fixed mixing coefficient \\(p\\). This sampling procedure has the benefit of being exactly invertible:\n' +
+      '\n' +
+      '\\[\\mathbf{x}^{\\prime\\text{inter}}_{t+1} =\\frac{\\mathbf{x}^{\\prime\\prime}_{t}-(1-p)\\mathbf{x}^{\\prime}_{t}}{p}\\] \\[\\mathbf{x}^{\\prime\\text{inter}}_{t+1} =\\frac{\\mathbf{x}^{\\prime}_{t}-(1-p)\\mathbf{x}^{\\prime\\text{inter}}_{t+1}}{p}\\] \\[\\mathbf{x}^{\\prime\\prime}_{t+1} =\\sqrt{\\frac{\\alpha_{t+1}}{\\alpha_{t}}}\\left(\\mathbf{x}^{\\prime\\text{ inter}}_{t+1}-\\left(\\sqrt{1-\\alpha_{t}}-\\sqrt{\\frac{\\alpha_{t}(1-\\alpha_{t+1})}{ \\alpha_{t+1}}}\\right)\\mathbf{\\epsilon}_{\\theta}(\\mathbf{x}^{\\prime\\prime}_{t+1},t+1)\\right)\\] \\[\\mathbf{x}^{\\prime}_{t+1} =\\sqrt{\\frac{\\alpha_{t+1}}{\\alpha_{t}}}\\left(\\mathbf{x}^{\\prime\\text {inter}}_{t+1}-\\left(\\sqrt{1-\\alpha_{t}}-\\sqrt{\\frac{\\alpha_{t}(1-\\alpha_{t+1}) }{\\alpha_{t+1}}}\\right)\\mathbf{\\epsilon}_{\\theta}(\\mathbf{x}^{\\prime\\prime}_{t+1},t+1)\\right)\\]\n' +
+      '\n' +
+      'One consequence of the dual-chain sampling approach is the inherent tradeoff in setting the \\(p\\) mixing parameter, as \\(p\\) needs to be sufficiently low to prevent the two chains from diverging (especially at low sampling steps), and sufficiently high to prevent numerical precision errors when inverting the chains.\n' +
+      '\n' +
+      'In the official implementation for DOODL, EDICT\'s invertibility is not used, and instead normal checkpointing is used on the EDICT sampler, thus using 4x the number of model calls as standard backpropagation. However, given the invertible nature of EDICT, DOODL can alternatively be formulated to directly use the inverse operation rather than storing _all_ function inputs in memory. In this setup, only the final \\(\\mathbf{x}_{0}\\) is stored in GPU memory, and then the inverse sampling operation is used to recalculate the function inputs, which are then passed back through the model to recalculate the intermediate activations for gradient calculation. This procedure is more memory efficient than the official implementation of DOODL and DITTO, yet _sextuples_ the number of model calls and runtime, thus being the slowest procedure for inference-time latent optimization. Figure 5 describes both setups more in detail.\n' +
+      '\n' +
+      '## Appendix C Correlation-Based Intensity Control\n' +
+      '\n' +
+      'Given the surprising poor control performance of Music ControlNet (Wu et al., 2023) on the intensity control task despite being fully trained on such inputs, we investigated alternative metrics for understanding control adherence. Notably, we find that Music ControlNet implicitly models the intensity _correlation_, paying more attention to the overall shape of the intensity curve across time than the absolute dB values of the curve itself. We believe this makes sense, given the UNet backbone convolution (correlation) layers are both scale and location invariant. Given this result, we can alternatively parameterize intensity control to directly optimize for correlation by setting \\(\\mathcal{L}\\propto-\\rho(f(\\mathbf{x}_{0}),\\mathbf{y})\\), or by maximizing the correlation between the target and output intensity curves.\n' +
+      '\n' +
+      'In Table 5, we show both the absolute MSE and correlation \\(\\rho\\) values for Music ControlNet, DITTO, and DITTO with the correlation based loss function. Music ControlNet has exceptional performance for intensity correlation, while baseline DITTO unsurprisingly prioritizes absolute intensity over correlation given its optimization objective. By switching to the correlation objective, DITTO can nearly match the correlation performance of Music ControlNet, all the while maintaining some of the absolute intensity DITTO\'s performance in audio quality and text relevance. This experiment shows how a single target feature can be parameterized in DITTO\'s flexible setup in multiple ways to change the intended behavior for rapid experimentation.\n' +
+      '\n' +
+      '## Appendix D D DITTO for Real-Audio Inversion\n' +
+      '\n' +
+      'Inversion, or the task of encoding real reference media \\(\\mathbf{x}_{\\text{ref}}\\) into a generative model\'s latent space, is crucial for image and audio editing tasks (Song et al., 2020; Dhariwal and Nichol, 2021; Xia et al., 2021; Mokady et al., 2023). Past audio-domain inversion work is very limited while past image-domain methods include naively adding noise to inputs (Song et al., 2020), reversing the DDIM sampling process (Dhariwal and Nichol, 2021), and learning additional _null-text_ parameters to improve inversion accuracy (Mokady et al., 2023). We use DITTO for the task of inversion by setting \\(f(\\mathbf{x}_{0})=\\mathbf{x}_{0}\\), \\(\\mathbf{y}=\\mathbf{x}_{\\text{ref}}\\), and the loss to be the MSE or \\(\\mathcal{L}\\propto||f(\\mathbf{x}_{0})-\\mathbf{y}||_{2}^{2}\\). Then, we can solve (2) to find an \\(\\mathbf{x}_{T}\\) such that (3) will produce \\(\\mathbf{x}_{0}\\) that reconstructs the target reference media \\(\\mathbf{x}_{\\text{ref}}\\). While high-quality reconstruction is trivially possible with the fully\n' +
+      '\n' +
+      'Figure 5: Forward and Backward pass for DOODL, both in its official implementation and alternatively by using the EDICT invertible layers. The standard DOODL backprop doubles the number of model calls due to the EDICT sampling, yet uses checkpointing to store function inputs for each timestep. When utilizing EDICT’s invertibility, only the final outputs are stored in memory, yet the inversion process requires two _more_ model passes per timestep during the backwards pass.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c c} \\hline \\hline Method & MSE (\\(\\downarrow\\)) & \\(\\rho\\) (\\(\\uparrow\\)) & FAD (\\(\\downarrow\\)) & CLAP (\\(\\uparrow\\)) \\\\ \\hline Music ControlNet & 38.4108 & **0.9413** & 11.1315 & 0.3084 \\\\ DITTO (\\(\\mathcal{L}\\propto||f(\\mathbf{x}_{0})-\\mathbf{y}||_{2}^{2}\\)) & **4.7576** & 0.6166 & **10.5294** & **0.4326** \\\\ DITTO (\\(\\mathcal{L}\\propto-\\rho(f(\\mathbf{x}_{0}),\\mathbf{y})\\)) & 60.8952 & 0.9040 & 11.0858 & 0.3503 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 5: Intensity correlation results for Music ControlNet and DITTO with both the standard and correlation-based loss function. By optimizing for correlation instead of absolute intensity, we can match the correlation of Music ControlNet while improving audio quality and text relevance.\n' +
+      '\n' +
+      'invertible EDICT sampler (Wallace et al., 2023b), further editing with inverted content is complicated by its dual chain fully-deterministic sampling (Pan et al., 2023).\n' +
+      '\n' +
+      'For generative text-conditioned models, a key factor of the inversion equation is the scale of the _classifier-free guidance_ parameter, which helps improve controllability through text (Ho and Salimans, 2021), but noticeably makes the inversion process more difficult, as using classifier-free guidance results in diverging from the simple DDIM-based inversion (Mokady et al., 2023). Against DITTO, we compare with the Naive inversion method of simply adding Gaussian noise to the reference spectrogram, the DDIM-based inversion which runs the DDIM sampling process in reverse through the model, and the recent Null-Text Inversion (Mokady et al., 2023) method, which starts with the DDIM inversion and then learns a time-dependent unconditional text embedding \\(\\mathbf{c}_{\\mathbf{0},t}\\) to improve inversion results in the presence of high guidance scales. Like in null-text, we use the DDIM inversion as an initial guess for DITTO.\n' +
+      '\n' +
+      'As the goal is direct recreation of the reference audio, we report MSE reconstruction across the entire 5K-sample MusicCaps dataset. We run this evaluation across four different guidance scales (ranging from 0, which is purely unconditional, to 7.5), and additionally run this on both our baseline 6 second model as well as a _24_ second music generation model, which maintains all the same training hyperparameters and model size as our base model and only differs in that the output dimension is \\(2048\\times 160\\times 1\\). In Table 6, we show that DITTO beats all other inversion methods across all guidance scales and model sizes, with the exception of the highest guidance scale on the 6 second base model, for which it performs slightly worse than null-text inversion. Notably, DITTO\'s superior performance on the 24 second model shows that scaling the number of free parameters with the image size (as \\(\\mathbf{x}_{T}\\) is the same shape as the output spectrogram) helps maintain reconstruction quality in the presence of high guidance, while methods that do not scale with the image size (like null-text inversion) do not have this benefit.\n' +
+      '\n' +
+      'Qualitatively, we find that null-text inversion exhibits unique semantic artifacts in the reconstructed audio, such as replacing sung vocals with trumpets or tambourines with hi-hats, while DITTO avoids this failure case. As all the training data for the base model was on purely instrumental music, this shows that DITTO allows TTM diffusion models to interact with real audio outside the distribution of their training data. In further work, we hope to explore more complicated edits that require inverted inputs (which is common in the image domain) and thus compare against the EDICT-based approach.\n' +
+      '\n' +
+      '## Appendix E Reference-Free Looping\n' +
+      '\n' +
+      'While we generally focus on long-form reference-based loop generation, where we seamlessly take existing audio and blend it back into itself, we note that DITTO can also be used for short-form reference-_free_ loop generation, where we seek to generate a short musical loop unconditionally. This framework is similar to the reference-based looping, but instead defines the generated audio to loop back into _itself_, rather than into some fixed reference audio. More formally, we define \\(\\mathbf{M}_{\\text{gen},1}\\) and \\(\\mathbf{M}_{\\text{gen},2}\\) as two \\(o\\) sized masks over the generated spectrogram, and set \\(f(\\mathbf{x}_{0})=\\mathbf{M}_{\\text{gen},1}\\odot\\mathbf{x}_{0}\\), \\(\\mathbf{y}=\\mathbf{M}_{\\text{gen},2}\\odot\\mathbf{x}_{0}\\), and \\(\\mathcal{L}\\propto\\|f(\\mathbf{x}_{0})-\\mathbf{y}\\|_{2}^{2}\\), such that the model optimizes to match the overlap region of its own generation during DITTO. We note that by setting \\(\\mathbf{M}_{\\text{gen},2}\\) to occur earlier in the spectrogram (rather than one of the edges), we can generate loops of lengths that are less than or equal to the total context window (in our case, 6 seconds). In Figure 6, we show spectrograms of reference-free looping with an \\(o=0.5\\) second overlap and a total of two repetitions, with the loop boundary shown in red.\n' +
+      '\n' +
+      '## Appendix F Musical Structure Transfer\n' +
+      '\n' +
+      'While in the main paper, we focus our musical structure control task as controlling high-level musical form through simple musical phrase diagrams (like "ABA"), we can also directly _transfer_ the structure of an existing song to our generation with\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c c|c c c c} \\multirow{2}{*}{MSE \\((\\downarrow)\\)} & \\multicolumn{4}{c|}{6 seconds} & \\multicolumn{4}{c}{24 seconds} \\\\  & \\(w=0\\) & \\(w=1\\) & \\(w=4\\) & \\(w=7.5\\) & \\(w=0\\) & \\(w=1\\) & \\(w=4\\) & \\(w=7.5\\) \\\\ \\hline Naïve & 0.0678 & 0.0668 & 0.0714 & 0.0787 & 0.1044 & 0.1042 & 0.1071 & 0.1122 \\\\ DDIM & 0.0115 & 0.0072 & 0.0192 & 0.0334 & 0.0089 & 0.0072 & 0.0115 & 0.0179 \\\\ NT & 0.0043 & 0.0072 & 0.0055 & **0.0072** & 0.0057 & 0.0072 & 0.0057 & 0.0060 \\\\ DITTO (ours) & **0.0011** & **0.0010** & **0.0025** & 0.0075 & **0.0011** & **0.0011** & **0.0015** & **0.0023** \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 6: Inversion results across context size and guidance strength. DITTO performs SOTA reconstruction in most cases and noticeably scales with context size.\n' +
+      '\n' +
+      'DITTO through a similar process. Namely, instead of generating a target self-similarity matrix based on a given phrase diagram, we can instead set \\(\\mathbf{y}=\\mathbf{T}(y)\\mathbf{T}(y)^{\\top}\\), where \\(y\\) is the mel-spectrogram of a _real_ song and \\(\\mathbf{T}(\\cdot)\\) is our MFCC-based timbre-extraction function. In this way, using \\(\\mathcal{L}\\propto\\|f(\\mathbf{x}_{0})-\\mathbf{y}\\|_{2}^{2}\\) we can use DITTO to generate music that matches the fine-grained self-similarity matrix of an existing musical fragment. Note that here we omit the 2D Savitzky-Golay step over the output self-similarity matrix, as here we want to directly match the intra-phrase similarity structures (rather than trying to capture broad musical form). We show examples of spectrograms with the target and generated self-similarity matrices in Fig. 7, where target self-similarity matrices are extracted from songs from the Free Music Archive dataset (Defferrard et al., 2017).\n' +
+      '\n' +
+      '## Appendix G Alternative Sampling Methods\n' +
+      '\n' +
+      'Unlike previous works on diffusion latent optimization (Wallace et al., 2023a), DITTO imposes no restrictions on the sampling process used to perform the optimization procedure, thus freeing us to choose any performant diffusion model sampling algorithm. Namely, we explore using DPM-Solver++ (Lu et al., 2022), a SOTA diffusion sampler for improving sample quality in conditional diffusion settings. Using outpainting and intensity control as test cases, in Table 7 we show MSE and FAD results. We interestingly find that DDIM is _better_ than DPM++ for the intensity control task, yet DPM++ is slightly better for the outpainting task. We invite future work on discovering both theoretically and empirically how different diffusion sampling algorithms effect the noise latent optimization process.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c} \\hline \\hline Target & Sampler & MSE & FAD \\\\ \\hline Intensity & DDIM & 4.77 & 10.53 \\\\ Intensity & DPM++ & 6.30 & 11.04 \\\\ Outpainting & DDIM & – & 9.19 \\\\ Outpainting & DPM++ & – & 9.12 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 7: Comparison of different samplers for DITTO. DDIM works solidly better than DPM++ for the intensity task, and DPM++ preforms slightly better for outpainting.\n' +
+      '\n' +
+      'Figure 6: Reference-free loop generation with an overlap of \\(o=0.5\\) seconds. Loop boundary is shown in red.\n' +
+      '\n' +
+      '## Appendix H Multi-Objective DITTO\n' +
+      '\n' +
+      'Inspired by (Wu et al., 2023a), we can leverage the flexibility of DITTO to incorporate _multiple_ feature matching criteria for a multi-objective optimization setup:\n' +
+      '\n' +
+      '\\[\\mathbf{x}_{T}^{*}=\\arg\\min_{\\mathbf{x}_{T}}\\frac{1}{M}\\sum_{i=1}^{M}\\lambda_{i}\\mathcal{ L}_{i}\\left(f_{i}(\\mathbf{x}_{0}),\\mathbf{y}_{i}\\right), \\tag{14}\\]\n' +
+      '\n' +
+      'where we include additional \\(\\lambda_{i}\\) weights to balance the different scales of each loss function. Given DITTO\'s generality, this allows us to combine both editing _and_ control signals at the same time, effectively unlocking the ability to iteratively compose long-form music with fine-grained temporal control. Here, we experiment with both Intensity+Structure, showing the combination of multiple reference-free controls, and Intensity+Outpainting, showing how reference-free controls can be composed with reference-based editing methods. For both experiments, we set \\(\\lambda_{\\text{intensity}}=1/40\\) and all other \\(\\lambda_{i}=1\\), as intensity is calculated in the raw dB space. For the Intensity+Outpainting control, we use an overlap of \\(o=2\\) seconds and only optimize the intensity curve for the _nonoverlapping_ section, having a similar effect to the "don\'t care" regions in Wu et al. (2023a). In Figures 8 and 9, we show spectrograms and output features for both experiments.\n' +
+      '\n' +
+      '## Appendix I Reusing Optimized Latents\n' +
+      '\n' +
+      'A key bottleneck of inference-time optimization methods like DITTO is the apparent need for the optimization procedure to generate a single output that matches the given feature, thus limiting its scalability. In order to mitigate this effect and accelerate the creative workflow for users, we explore how we can _reuse_ optimized latents \\(\\mathbf{x}_{T}^{*}\\) to generate diverse outputs that follow the initial optimized feature signal.\n' +
+      '\n' +
+      'A natural idea to add reusability to optimized latents is to treat each \\(\\mathbf{x}_{T}^{*}\\) as the mean of some normal distribution \\(\\mathcal{N}(\\mathbf{x}_{T}^{*},\\sigma^{2})\\) within the model\'s latent space for some hyperparameter \\(\\sigma^{2}\\), and then sample an \\(\\mathbf{x}_{T}\\sim\\mathcal{N}(\\mathbf{x}_{T}^{*},\\sigma^{2})\\) at inference time without re-optimizing. We find that this process leads to considerable divergence from the optimized feature in practice, and leave\n' +
+      '\n' +
+      'Figure 7: Musical Structure Transfer using self-similarity MFCC matrices extracted from real musical audio as the target.\n' +
+      '\n' +
+      'Figure 8: Output spectrograms, intensity curves, and MFCC self-similarity matrices for multi-objective DITTO with intensity and structure set as the feature extractors.\n' +
+      '\n' +
+      'Figure 9: Output spectrograms and intensity curves for multi-objective DITTO with outpainting and intensity set as the feature extractors. The overlap is set to \\(o=2\\) seconds, and intensity control is only applied over the non-overlapping section.\n' +
+      '\n' +
+      'this to future work to explore further. Instead, we consider the case where we sample stochastic _trajectories_ starting from \\(\\mathbf{x}_{T}^{*}\\), which in practice is as simple as switching to a stochastic sampling algorithm at inference time such as DDPM in (12) (note that we still use _deterministic_ samplers during DITTO as stochastic samplers tend to make the optimization process considerably harder). Additionally, we also explore the case when the initial prompt \\(\\mathbf{c}_{\\text{text}}\\) used during DITTO is varied, adding another source of stochasticity.\n' +
+      '\n' +
+      'In this experiment, we compare two possible methods for reusing optimized latents for sampling stochastic trajectories: 1) after performing DITTO with DDIM, we sample using DDPM at inference time and 2) we use DDIM for optimization and DDPM for inference, but then additionally include the FreeDoM (Yu et al., 2023) guidance update in each DDPM step. To test reusability, after optimizing for each \\(\\mathbf{x}_{T}^{*}\\) given a target signal \\(\\mathbf{y}\\) and some text condition \\(\\mathbf{c}_{\\text{text}}\\), we generate \\(B\\) samples \\(\\mathbf{x}_{0}^{(i)}\\) using \\(\\mathbf{x}_{T}^{*}\\) as the starting latent and our stochastic sampling algorithm of choice, and measure \\(\\frac{1}{B}\\sum_{i=1}^{B}\\mathcal{L}(f(\\mathbf{x}_{0}^{(i)},\\mathbf{y}))\\), or the average loss over the stochastic samples, where _no_ optimization is occuring. We perform this experiment both where each \\(\\mathbf{x}_{0}^{(i)}\\) is generated with a random prompt \\(\\mathbf{c}_{i}\\), and when each prompt is fixed to the initial prompt \\(\\mathbf{c}_{i}=\\mathbf{c}_{\\text{text}}\\) to measure the effect of additional stochasticity from conditioning.\n' +
+      '\n' +
+      'In Table 8, we show results for intensity, melody, and musical structure control with a batch size \\(B=10\\). Notably, while switching to baseline DDPM during sampling predictably worsens the feature adherence, using FreeDoM with DDPM and starting at \\(\\mathbf{x}_{T}^{*}\\) yields significantly improved feature adherence to the optimized target. This presents a useful marriage of guidance-based and optimization-based approaches, as DITTO latents can act as reasonable feature priors by utilizing FreeDoM to guide the trajectory from the strong starting point.\n' +
+      '\n' +
+      '## Appendix J Diffusion Latents and Low-Frequency Content\n' +
+      '\n' +
+      'In Si et al. (2023), the authors discover that much of the low-frequency (in the 2D pixel domain) content of TTI model generations are determined exceedingly early on in the sampling process, where further sampling steps only produce high-frequency information and improve quality. This presents a compelling case for why DITTO has such strong expressivity: because many target controls for TTM generation like intensity, melody and musical structure are low-frequency features in the spectrogram domain (i.e. most high-frequency 2D content in spectrograms address audio quality factors), optimizing \\(\\mathbf{x}_{T}\\) to target these features is well within the diffusion model\'s latent space which already encodes low-frequency information in the first place. This is compounded by the fact that music tags and captions generally only address high-level stylistic information, leaving everything that is not captured by the text captions (such as time-varying intensity, melody, and structure) to be incorporated into the initialization.\n' +
+      '\n' +
+      'To validate this proposed justification, we generate 5K batches (\\(B=10\\)) of samples from our base diffusion model, where half of the batches (2.5K) have random initializations and random prompts while the other half have the same initialization \\(\\mathbf{x}_{T}\\) (and still random prompts). For each group, we measure variance within each batch of the intensity, melody, and musical structure features extracted from the batch outputs. Shown in Fig. 10, we find a statistically significant effect across all features that fixing the initialization significantly reduces the intra-batch feature variance. This serves as empirical justification that to a certain extent, the model output\'s salient musical features are already determined _at initialization_.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l l l|c c} \\hline \\hline Optimization & Inference & Feature & \\(\\mathcal{L}\\) & \\(\\mathcal{L}\\) \\\\ Sampler & Sampler & Feature & & (Fixed Prompt) \\\\ \\hline DDIM & DDPM & Intensity & 24.5120 & 13.8316 \\\\ DDIM & DDPM+FreeDoM & Intensity & 16.9780 & 11.2481 \\\\ DDIM & DDPM & Melody & 2.7973 & 2.7441 \\\\ DDIM & DDPM+FreeDoM & Melody & 1.8482 & 1.8710 \\\\ DDIM & DDPM & Musical Structure & 0.2952 & 0.2643 \\\\ DDIM & DDPM+FreeDoM & Musical Structure & 0.0251 & 0.0235 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 8: Loss on samples generated with stochastic sampling from \\(\\mathbf{x}_{T}^{*}\\). We observe that DITTO latents natively can act as generalized feature priors, using FreeDoM on optimized latents to significantly improve feature adherence, thus showing how optimization-based and guidance-based methods can be used in conjuction for high-quality and efficient control.\n' +
+      '\n' +
+      '## Appendix K Model Pre-training\n' +
+      '\n' +
+      'For our spectrogram generation model, we follow an identical training processed to default TTM as to Music ControlNet (Wu et al., 2023). We use a convolutional UNet (Ronneberger et al., 2015) with 5 2D-convolution ResNet (He et al., 2016) blocks with \\([64,64,128,128,256]\\) feature channels per block with a stride of 2 in between downsampling blocks. The UNet inputs Mel-scaled (Stevens et al., 1937) spectrograms clipped to a dynamic range of 160 dB and scaled to \\([-1,1]\\) computed from 22.05 kHz audio with a hop size of 256 (i.e., frame rate \\(\\mathrm{f_{k}}\\approx 86\\) Hz), a window size of 2048, and 160 Mel bins. For our genre, mood, and tempo global style control \\(\\mathbf{c}_{\\text{test}}\\), we use learnable class-conditional embeddings with dimension of 256 that are injected into the inner two ResNet blocks of the U-Net via cross-attention. We use a cosine noise schedule with 1000 diffusion steps that are injected via sinusoidal embeddings with a learnable linear transformation summed directly with U-Net features in each block. We set our output time dimension to 512 or \\(\\approx\\)6 seconds, yielding a 512\\(\\times\\)160\\(\\times\\)1 output dimension. We use an L1 training objective between predicted and actual added noise, an Adam optimizer with learning rate to \\(10^{-5}\\) with linear warm-up and cosine decay. Due to limited data and efficiency considerations, we instantiate a relatively small model of 41M parameters and pre-train with distributed data parallel for 5 days on 32 A100 GPUs with a batch size of 24 per GPU. Finally, we also use a use a BigVGAN vocoder (Lee et al., 2022) modified with a DAC discriminator (Kumar et al., 2023), trained with an AdamW optimizer with learning rate 0.0001, exponential learning rate decay on both our discriminator and generator optimizer, batch size of 48 per GPU, and 1536 channels for the initial upsampling layer that was trained on 8 A100 GPUs for 5 days.\n' +
+      '\n' +
+      'Figure 10: Intra-batch variance for model generations both with and without fixing the initial latent. We find a statistically significant effect that fixing the latent reduces feature variance, showing that \\(\\mathbf{x}_{T}\\) already encodes a great deal of feature information.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>

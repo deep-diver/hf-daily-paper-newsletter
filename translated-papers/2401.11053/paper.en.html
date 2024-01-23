@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# StreamVoice: Streamable Context-Aware Language Modeling for Real-time Zero-Shot Voice Conversion\n' +
+      '\n' +
+      ' Zhichao Wang\\({}^{1}\\)\n' +
+      '\n' +
+      'Yuanzhe Chen\\({}^{2}\\)\n' +
+      '\n' +
+      'Xinsheng Wang\\({}^{1}\\)\n' +
+      '\n' +
+      'Zhuo Chen\\({}^{2}\\)\n' +
+      '\n' +
+      'Lei Xie\\({}^{1}\\)1\n' +
+      '\n' +
+      'Yuping Wang\\({}^{2}\\)\n' +
+      '\n' +
+      'Yuxuan Wang\\({}^{2}\\)\n' +
+      '\n' +
+      '\\({}^{1}\\)Audio, Speech and Language Processing Group (ASLP@NPU)\n' +
+      '\n' +
+      'School of Computer Science, Northwestern Polytechnical University, Xi\'an, China\n' +
+      '\n' +
+      '\\({}^{2}\\)ByteDance Inc.\n' +
+      '\n' +
+      'Corresponding author\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      'Recent language model (LM) advancements have showcased impressive zero-shot voice conversion (VC) performance. However, existing LM-based VC models usually apply offline conversion from source semantics to acoustic features, demanding the complete source speech, and limiting their deployment to real-time applications. In this paper, we introduce StreamVoice, a novel streaming LM-based model for zero-shot VC, facilitating real-time conversion given arbitrary speaker prompts and source speech. Specifically, to enable streaming capability, StreamVoice employs a fully causal context-aware LM with a temporal-independent acoustic predictor, while alternately processing semantic and acoustic features at each time step of autoregression which eliminates the dependence on complete source speech. To address the potential performance degradation from the incomplete context in streaming processing, we enhance the context-awareness of the LM through two strategies: 1) teacher-guided context foresight, using a teacher model to summarize the present and future semantic context during training to guide the model\'s forecasting for missing context; 2) semantic masking strategy, promoting acoustic prediction from preceding corrupted semantic and acoustic input, enhancing context-learning ability. Notably, StreamVoice is the first LM-based streaming zero-shot VC model without any future look-ahead. Experimental results demonstrate StreamVoice\'s streaming conversion capability while maintaining zero-shot performance comparable to non-streaming VC systems.\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      'Voice conversion (VC) aims to transfer a speaker\'s voice to that of another speaker without changing the linguistic content. Such technique has been deployed in many real-world applications, e.g., movie dubbing, privacy protection, and pronunciation correction etc. With the help of neural semantic features, such as the bottleneck feature (BNF) from an automatic speech recognition (ASR) system, converting source speech from arbitrary speakers in the wild has been successfully achieved [21]. Meanwhile, converting to an arbitrary target speaker with only one utterance of this speaker, which is the so-called _zero-shot VC_, also has been researched recently [18, 23]. However, most existing zero-shot VC models are designed for offline systems, which are insufficient to meet the recent growing demands of streaming capability in real-time VC applications, such as live broadcasting and real-time communication (RTC). In this study, we focus on the _streaming zero-shot VC_ as illuminated in Fig. 1.\n' +
+      '\n' +
+      'Disentangling speech into different components, e.g., semantic content and speaker timbre, plays an important role in the zero-shot VC task [16, 24, 25]. Recently, benefiting from the powerful LM framework and the scaling up of training data, LM-based VC models [24, 25] with built-in in-context learning ability can sense the context relations between source and target speaker\'s utterances to capture fine-grained speaker timbre, achieving impressive zero-shot VC performance. However, demanding the complete source speech utterance limits these LM-based VC models in real-time sc\n' +
+      '\n' +
+      'Figure 1: The concept of the streaming zero-shot VC employing the widely used recognition-synthesis framework. StreamVoice is built on this popular paradigm.\n' +
+      '\n' +
+      'narios, and thus these models can only be used in offline applications. While several non-LM-based methods [14, 15] have been proposed for streaming zero-shot VC, the performance fails to generalize well to unseen speakers with high speaker similarity and speech naturalness, mainly due to the limited model capacity to scale up training data, and also the performance degradation caused by the missing future information in streaming scenario.\n' +
+      '\n' +
+      'Inspired by the success of LM-based models in zero-shot VC, we aim to explore the feasibility of LMs for the streaming VC scenario. An intuitive way is to follow the popular recognize-synthesis framework as shown in Fig. 1, in which, speech is represented in semantic BNF and acoustic features respectively extracted by a streaming ASR and an audio codec. Then the LM-based VC model undertakes the transformation of semantic information into acoustic features with the target speaker\'s timbre. However, the development of the LM-based model in streaming zero-shot VC is hampered by two primary challenges.\n' +
+      '\n' +
+      '* **Streamable architecture:** streaming models typically produce immediate output upon receiving current input without reliance on future time steps. Current LM-based VC models perform the conversion only when get a full-utterance of source speech, which fails to meet the demands of streaming applications. The widely adopted multi-stage language modeling for multi-layer codec prediction introduces complexity to system design, thereby posing a potential risk of cumulative errors. Additionally, the dependency models of the streaming pipeline also impact the design and performance of the VC model.\n' +
+      '* **Performance gap:** unlike non-streaming models, streaming models must process frame-wise or chunked input causally on the fly without future information, facing missing context and potential performance degradation. This missing hinders the streaming VC model from achieving high-quality conversion. In addition, as shown in Fig. 1, the VC model relies on the semantic feature BNF from ASR to achieve conversion, which makes semantic features very important. However, streaming ASR exhibits inferior performance compared to its non-streaming counterpart, leading to the extracted BNF carrying low-quality semantic information but more speaker information. In addition to the inherent unavailable future reception, this low-quality semantic input makes achieving high-quality conversion more difficult. The goal of zero-shot VC amplifies the challenges faced by our streaming VC model.\n' +
+      '\n' +
+      'In this work, we propose _StreamVoice_, a streaming LM-based model for high-quality zero-shot VC, in which teacher-guided semantic foresight and semantic masking are integrated to enhance the context awareness of the model for improving conversion quality. Specifically, StreamVoice creates a streamable architecture by integrating a single-stage language model that casually generates acoustic codecs with the collaboration of an acoustic predictor. Alternating input of semantic and acoustic features at each time step ensures seamless streaming behavior. To mitigate the performance gap caused by missing contextual information, two methods are introduced to enhance the context-awareness of the LM. 1) We incorporate a teacher-guided semantic foresight, where the VC model is taught by a teacher non-streaming ASR model to infer the present and future semantic information summarized by the teacher, which is then used to enhance the acoustic prediction. 2) To enhance the context learning from the input history, semantic masking is used to encourage acoustic prediction from the preceding acoustic and corrupted semantic input, which also implicitly creates an information bottleneck to reduce the source speaker\'s information.\n' +
+      '\n' +
+      'Experiments demonstrate StreamVoice\'s ability to convert speech in a streaming manner with high speaker similarity for both seen and unseen speakers while maintaining performance comparable to non-streaming VC systems. As the first LM-based zero-shot VC model without any future look-ahead, the total pipeline of StreamVoice only has 124 ms latency to perform the conversion, 2.4x faster than real-time on a single A100 GPU without engineering optimizations.\n' +
+      '\n' +
+      '## 2 Related Works\n' +
+      '\n' +
+      '### Zero-shot Voice Conversion\n' +
+      '\n' +
+      'Zero-shot VC imposes stringent demands on speech decoupling and capturing speaker timbre. Many studies specifically design many disentanglement approaches, incorporating intricate structures [17], loss functions [16], and training strategies [13], to achieve speech decoupling. Rather than embedding explicit disentanglement designs in VC training, some approaches [18] leverage a speaker verification (SV) model for speaker representation, while linguistic content is extracted using ASR or self-supervised learning (SSL) models [16, 15]. To enhance speaker timbre capturing, some fine-grained speaker modeling methods also have been explored [16, 17]. Recent successes of language models in generative tasks have prompted the exploration of LM-based models in zero-shot VC, yielding impressive results. Using the pre-trained model to decouple speech, the LM-based VC model [16, 17, 18] can capture fine-grained speaker timbre from the speaker prompt and then perform the conversion. However, current LM-based VC models are inapplicable to streaming scenarios, constraining their real-world utility. This paper addresses this gap by investigating the zero-shot capabilities of language models specifically tailored for streaming scenarios.\n' +
+      '\n' +
+      '### Streaming Voice Conversion\n' +
+      '\n' +
+      'Despite the high-quality conversion achieved by non-streaming VC models, their non-streamable structure and reliance on full-utterance input hamper them for real-time streaming applications. For streaming, causal processing and the structure of the streaming pipeline are crucial considerations. Streaming models are compelled to process frame-wise or chunked input on the fly, devoid of access to future information, leading to performance degradation compared to non-streaming counterparts. To address this, a com mon approach [11, 12, 13] involves the integration of a teacher model to guide the training of the streaming model or the distillation of knowledge from a non-streaming model. Chen et al. [14] focus on selecting BNF with minimal semantic information loss through layer-wise analysis, while Chen et al. [14] incorporate adversarial training to enhance the quality of semantic features. Beyond streaming VC, recently, there have also been some efforts towards streaming zero-shot VC. For instance, VQMIVC [13], which is designed for the non-streaming application, is modified to be streamable by Yang et al. [14]. ALO-VC [14] constructs a streaming system using an SV model, a streaming PPG extractor, and a pitch extractor. However, current streaming zero-shot VC, designed for low-resource devices, has limited model capacity with poor generalization to unseen speakers, leading to inferior similarity and naturalness. Motivated by LM\'s successes in zero-shot VC, we design a streamable LM in streaming scenarios. To tackle distinctive challenges in streaming VC, we introduce teacher-guided semantic foresight and semantic masking to enhance LM\'s context awareness and improve conversion quality.\n' +
+      '\n' +
+      '### Language Model-based Speech Generation\n' +
+      '\n' +
+      'In recent years, advancements in language models (LMs) within natural language processing have showcased potent generation capabilities, influencing the development of LMs in speech generation. By employing codec [15] or other SSL models [10], speech and audio can be efficiently tokenized into discrete units, facilitating low-bitrate audio representation and semantic information extraction. This progress allows speech generation to seamlessly utilize LM frameworks. Taking audio generation as a conditional language modeling task, AudioLM [14] and MusicLM [14] employ hierarchical language modeling for acoustic prediction from coarse to fine units. VALL-E [14] and SpearTTS [14] extend LMs for zero shott TTS, which can clone a human\'s voice with prompt tokens from a short recording. For zero-shot VC, LM-VC [14] employs task-oriented optimizations to this task. And some studies [13, 12] leverage multi-task objectives and datasets, achieving high-quality conversion. Despite this progress, existing LM-based VC models usually apply offline processing, demanding complete utterance from the source speech, which hinders their suitability for real-time streaming applications. In contrast to prior studies, we explore the zero-shot capability of the LM-based VC for streaming scenarios. With the enhancement of context awareness, the proposed LM-based VC model achieves results comparable to non-streaming LM-based VC.\n' +
+      '\n' +
+      '## 3 StreamVoice\n' +
+      '\n' +
+      '### Overview\n' +
+      '\n' +
+      'As shown in Fig. 2, the development of StreamVoice follows the recognition-synthesis framework. In this framework, speech is first represented as semantic features \\(\\mathbf{s}=\\{s_{1},s_{2},...s_{T_{s}}\\}\\) and acoustic features \\(\\mathbf{a}=\\{a_{1},a_{2},...,a_{T_{a}}\\}\\) by a pre-trained streaming ASR model and a speech codec model respectively. Here, \\(T_{s}\\) and \\(T_{a}\\) denote the sequence length. Before inputting to StreamVoice, \\(\\mathbf{s}\\) and \\(\\mathbf{a}\\) are aligned to the same length \\(T\\). StreamVoice incorporates a context-aware language model and an acoustic predictor to perform a single language modeling process. With the semantic and acoustic features \\(\\{\\mathbf{\\widehat{s}},\\mathbf{\\widehat{a}}\\}\\) of speech from the target speaker as speaker prompt, the LM leverages the semantic information \\(\\mathbf{a}_{1:t}\\) of source speech to autoregressively predict the hidden output \\({}^{c}\\mathbf{h}\\). In each autoregression time-step of the LM, the acoustic predictor transforms the hidden output \\({}^{c}\\mathbf{h}\\) to the codec feature \\(\\mathbf{\\widehat{a}}\\) of the converted speech. Finally, the decoder of the codec model reconstructs the waveform from the predicted codec feature. In the following sections, we will introduce how to build a streamable LM for VC and how to ensure the high-quality conversation of this streaming VC.\n' +
+      '\n' +
+      '### Streamable Architecture\n' +
+      '\n' +
+      'To perform streaming voice conversion, a streamable architecture is necessary. In StreamVoice, the LM is carefully designed to perform a fully causal processing in the VC task, and the acoustic predictor is designed to achieve frame-wise prediction without dependency on temporal information.\n' +
+      '\n' +
+      '#### Fully Casual Language Model\n' +
+      '\n' +
+      'As shown in Fig. 3, inspired by the success of the LM-based VC model, we intend to achieve streaming zero-shot VC by language models. In previous LM-based VC models [13], the demand of the complete semantic feature\n' +
+      '\n' +
+      'Figure 3: The architecture for context-aware language model.\n' +
+      '\n' +
+      'Figure 2: The overall architecture for StreamVoice.\n' +
+      '\n' +
+      'from source speech to achieve conversion hinders the deployment for real-time application, which can be formulated as \\(p(a_{t}|\\mathbf{s}_{1:T_{x}},\\mathbf{a}_{1:t-1})\\) for each time step. To achieve streaming, any components of the LM cannot rely on future information. As shown in Fig. 3, decoder-only LM with unidirectional attention can easily fit the requirement of casual generation. To eliminate the dependency of the complete semantic input, semantic and acoustic features \\(\\{\\mathbf{s},\\mathbf{a}\\}\\) are first aligned with each other to the same sequence length \\(T\\) and then they are alternatively inputted to the LM, forming a cross-embedding like \\(\\{s_{1},a_{1},s_{2},a_{2},...,s_{T},a_{T}\\}\\). With these modifications, the LM can achieve streaming processing, modeling \\(p(a_{t}|\\mathbf{s}_{1:t},\\mathbf{a}_{1:t-1})\\).\n' +
+      '\n' +
+      '#### 3.2.2 Acoustic Predictor\n' +
+      '\n' +
+      'As the preceding LM has essentially encoded content and speaker into its output \\({}^{c}\\mathbf{h}\\), the acoustic predictor can be designed in temporal irrelevant to transform \\({}^{c}\\mathbf{h}\\) into acoustic codec space, which means the predictor can be easily applied in the streaming scenario. Given that the speech can be represented in acoustic features by neural codec in either continuous or discrete forms, we investigate the incorporation of both features in StreamVoice, which are performed by continuous projection and discrete projection respectively.\n' +
+      '\n' +
+      '**Continuous Projection:** Following Shen et al. [20], the \\(D\\)-dimensional quantized latent vector \\(\\mathbf{a}\\in\\mathcal{R}^{T\\times D}\\) encoded by the codec model is used as the continuous acoustic representation. The prediction of the continuous representation involves employing a stack of linear layers, as shown in Fig. 4. The continuous projection loss is calculated as the L2 distance between the predicted acoustic feature \\(\\hat{\\mathbf{a}}\\) and the ground-truth acoustic feature \\(\\mathbf{a}\\), which is defined as:\n' +
+      '\n' +
+      '\\[\\mathcal{L}_{Cont}=||\\mathbf{a}-\\hat{\\mathbf{a}}||_{2}^{2}. \\tag{1}\\]\n' +
+      '\n' +
+      '**Discrete Projection:** In general, the codec is designed with multi-layer quantizers to compress original speech into \\(L\\)-layer discrete indices \\(\\mathbf{a}\\in\\mathcal{R}^{T\\times L}\\) at a low bitrate. Most LM-based work [13, 14] stacks multiple LMs to predict discrete features, making the pipeline complicated and unsuitable for the streaming scenario. In contrast, StreamVoice adopts a streamlined multi-layer codec prediction method inspired by MQTTS [3]. This method, free from temporal dependencies, can seamlessly integrate into the streaming process of the language model. To be specific, a single-layer transformer is used to model the heretical conditional distribution of codecs. As depicted in the right of Fig. 4, at time \\(t\\), the transformer employs the \\({}^{c}\\mathbf{h}\\) as the starting condition and sequentially generates \\(a_{t}^{l}\\) from layer 1 to L. Remarkably, this generation process is independent of the preceding or the future \\({}^{c}\\mathbf{h}\\), rendering it well-suited for the demands of a streaming scenario. Notably, in the proposed StreamVoice, we mainly incorporate the discrete projection to achieve acoustic prediction. The discrete projection loss can be described as:\n' +
+      '\n' +
+      '\\[\\mathcal{L}_{Disc}=-\\log\\prod_{t=0}^{T-1}p(a_{t}|\\mathbf{a}_{1:t-1},^{m} \\mathbf{s}_{1:t},t). \\tag{2}\\]\n' +
+      '\n' +
+      '### Context-aware Enhancement\n' +
+      '\n' +
+      'Due to the disadvantage of the causality in the streaming framework, streaming models face missing future reception and potential performance degradation compared to the non-streaming model, while the low-quality semantic input from the streaming ASR, as we mentioned in Section 1, makes the streaming VC for high-quality conversion more challenging. To make the proposed streamable LM-based VC model perform conversion with high quality, a context-aware enhancement method is proposed, which can alleviate incomplete contextual information arising from the semantic input and the absence of future information. Specifically, we introduce context-masked autoregressive prediction in the LM to enhance the capture of _historical_ context from the given semantic input, and meanwhile, a teacher-guided context foresight is proposed to ensure the model can imagine the _future_ context based on that of its historical context.\n' +
+      '\n' +
+      '#### 3.3.1 Context-masked Autoregressive Prediction\n' +
+      '\n' +
+      'As shown in the left of Fig. 3, the LM is achieved by the multi-layer LLaMA with unidirectional attention. To enhance contextual awareness from the given semantic input, semantic masking is introduced in the LM to encourage acoustic prediction from the corrupted semantic. Specifically, within a sequence of semantic tokens \\(\\mathbf{s}=\\{s_{1},s_{2},...s_{T}\\}\\), we randomly select several indices as start indices at a ratio \\(r\\), and spans of \\(l\\) steps are masked by _[M]_. After masking, LM takes the corrupted semantic feature \\({}^{m}\\mathbf{s}\\) as input and performs autoregression. With this method, an information bottleneck is also implicitly created in the semantic feature to reduce speaker information. Moreover, during training, we do not explicitly use a speech clip as the speaker prompt. Instead, LM leverages the previous sequence \\(\\{\\mathbf{s}_{1:t-1},\\mathbf{a}_{1:t-1},s_{t}\\}\\) as prompts to autoregressively generate hidden representation \\(h_{t}\\) for further acoustic prediction. Notably, during training, when the input of the current step is \\(a_{t}\\), the corresponding output is skipped and does not involve further steps.\n' +
+      '\n' +
+      '#### 3.3.2 Teacher-guided Context Foresight\n' +
+      '\n' +
+      'As previously discussed, the absence of future information resulting in the loss of contextual information leads to a decline in the conversion performance. Inspired by the effective representation learning exhibited by autoregressive predictive coding [19] (APC), we introduce teacher-guided context foresight guided by a non-streaming ASR to enhance the autoregression output, as presented in the right of Fig. 3. This\n' +
+      '\n' +
+      'Figure 4: The architecture for acoustic predictor. Our system can support continuous or discrete codec projection.\n' +
+      '\n' +
+      'allows the model to learn a context vector containing envisioned future information. Specifically, the context representation \\(\\mathbf{c}\\) is first derived by linear prediction from the hidden features \\(\\mathbf{h}\\), which is generated by the LM through historical context. Subsequently, this \\(c_{t}\\) is encouraged to discover more general future context information by minimizing the L2 distance not only with \\(k\\) semantic features from future time steps \\(\\overline{s}_{t+1},...,\\overline{s}_{t+k}\\) but also with the current semantic feature \\(\\overline{s_{t}}\\). This dual minimization approach contributes to precise content delivery and enhances the model\'s ability to forecast future context. The loss can be summarized as\n' +
+      '\n' +
+      '\\[\\mathcal{L}_{TF}=\\frac{1}{T-k}\\sum_{1}^{T-k}\\left\\|c_{t}-Concat(\\overline{s}_ {t},\\overline{s}_{t+1},...,\\overline{s}_{t+k})\\right\\|_{2}^{2} \\tag{3}\\]\n' +
+      '\n' +
+      'where \\(Concat(\\cdot)\\) denotes the concatenation of features along the dimensional axe. Unlike the original APC, which operates between the input and output of an autoregressive model, our approach employs a non-streaming ASR model as a teacher to provide semantic information \\(\\overline{s}\\) for guiding this foresight process. This is done to tackle the inherent challenge of obtaining high-quality semantic features from the streaming ASR. After dimensional transformations, the context representation \\(\\mathbf{c}\\) is then combined with \\(\\mathbf{h}\\) to form the context-enhanced \\(\\mathbf{c}\\)h, which is then fed into the acoustic predictor.\n' +
+      '\n' +
+      'Furthermore, since the semantic feature \\(\\{\\mathbf{s},\\overline{s}\\}\\) from ASR still may contain speaker-related information. To further ensure the speech decoupling, the bottleneck regulator [11], which squeezes out speaker information by reducing dimension size with a linear layer, is applied in \\(\\mathbf{s}\\) and \\(\\mathbf{c}\\).\n' +
+      '\n' +
+      '### Training & Inference Procedure\n' +
+      '\n' +
+      '#### 3.4.1 Training\n' +
+      '\n' +
+      'During the training of StreamVoice, the context-enhanced language model and acoustic predictor are trained together. Both the autoregressive processes in these two parts are performed with a teacher-forcing strategy. The total loss can be described as \\(\\mathcal{L}_{total}=\\mathcal{L}_{TF}+\\mathcal{L}_{Cont}\\) for using continuous codec feature or \\(\\mathcal{L}_{total}=\\mathcal{L}_{TF}+\\mathcal{L}_{Disc}\\) for discrete version.\n' +
+      '\n' +
+      '#### 3.4.2 Streaming Inference\n' +
+      '\n' +
+      'In inference, we use the semantic and acoustic features from a short speech clip of the target speaker as the speaker prompt. Since this clip is randomly selected, which may contain unfinished pronunciation at the end of the clip, we pad a silence clip after the speaker recording before the conversion process to prevent the unexpected continuation. With this prompt, StreamVoice can stream convert the source speech. In discrete projection, we use greedy decoding to choose the codec token with the highest probability. Besides, to ensure the real-time streaming inference of StreamVoice, we employ a commonly used key-value cache in LM to reduce redundant calculations. In our pipeline, since the beginning and end of the source speech can be determined by ASR or voice activity detection (VAD), we don\'t employ techniques, such as window attention or slide attention, to handle the input. It is noteworthy that these techniques can be easily integrated into our framework, providing flexibility for future extensions.\n' +
+      '\n' +
+      '## 4 Experiments\n' +
+      '\n' +
+      'We first present the experimental setup in our work. Next, we provide subjective and objective evaluations and the ablation study conducted on StreamVoice. A detailed analysis of dependency in the streaming pipeline is also provided.\n' +
+      '\n' +
+      '### Experimental Setup\n' +
+      '\n' +
+      '#### 4.1 Corpus\n' +
+      '\n' +
+      'A mixed dataset comprising 1,500 hours of Aishell3 [14] and an internal Chinese dataset are used to train StreamVoice and Audiode [20]. To extract semantic features, we incorporate a streaming ASR Fast-U2++ [13], which is implemented by WeNet and trained on WenetSpeech [13]. For zero-shot testing, a set of 400 testing pairs is selected from DIDISpeech [12] and EMIME [21], each with a source and target speaker utterance. For evaluation on seen speakers, eight speakers from Aishell3 are selected to form 160 conversion pairs.\n' +
+      '\n' +
+      '#### 4.2.1 Implement Details\n' +
+      '\n' +
+      'We use open-sourced code1 of Audiodec, which has 4 quantizer layers with a 1024 codebook size and 64 codebook dimension, representing a 24kHz waveform in 20ms frame length. The Fast-U2++ uses an 80ms chunk size to perform streaming inference and compresses a 16kHz waveform into a semantic feature with a 40ms frame length. For StreamVoice, we employ the LLaMA [21] architecture for context-enhanced LM, with 6 layers and 8 heads. The hidden and intermediate sizes are 1024 and 4096. We use the officially released code2 to implement the acoustic predictor, which uses a layer Transformer decoder with a hidden size 256, feed-forward hidden size 1024, and 4 heads. In semantic masking, mask ratio \\(r\\) ranges from \\(0.01\\) to \\(0.02\\), and span \\(l\\) is set to 10. The foresight step \\(k\\) is set to 4. The bottleneck regulator compresses feature dimensions by 6 times. During training, the max training length is set to 12s. StreamVoice is trained using 8 V100 GPUs with a batch size of 7 per GPU for 700k steps. We use the AdamW optimizer with a learning rate of \\(5\\times 10^{-4}\\). Exponential decay updates the learning rate after each epoch, using a decay ratio of 0.986.\n' +
+      '\n' +
+      'Footnote 1: [https://github.com/facebookresearch/AudioDec](https://github.com/facebookresearch/AudioDec)\n' +
+      '\n' +
+      '#### 4.2.2 Evaluation metrics\n' +
+      '\n' +
+      'The mean opinion score (MOS) subjectively measures speech naturalness (NMOS) and speaker similarity (SMOS), which are calculated with 95\\(\\%\\) confidence intervals. We randomly select 120 testing pairs for subjective evaluations, involving a group of 15 listeners. For objective evaluations, a neural network-based system with open-source implementation3 is used to measure speech quality (WV-MOS). Character error rate (CER) measured by an ASR model4 indicates the speech intelligibility. Speaker similarity (SSIM) is calculated by an SV model [13] to determine if the converted speech matches the target speaker.\n' +
+      '\n' +
+      'Footnote 2: [https://github.com/b04901014/MQTS](https://github.com/b04901014/MQTS)\n' +
+      '\n' +
+      'Footnote 3: [https://github.com/AndreevP/wvmos](https://github.com/AndreevP/wvmos)\n' +
+      '\n' +
+      'Footnote 4: [https://github.com/wenet-e2e/wenet/tree/main/examples/wenetspeech](https://github.com/wenet-e2e/wenet/tree/main/examples/wenetspeech)\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:6]\n' +
+      '\n' +
+      'shows that only using future information interferes with delivering current linguistic content.\n' +
+      '\n' +
+      'In _w/o_ semantic masking, the semantic masking does not apply to the semantic feature during the training of StreamVoice. We observe a performance decrease in all evaluation metrics when the masking is discarded. This indicates that StreamVoice, trained with semantic masking, effectively enhances contextual learning from the preceding input while improving speaker timbre capturing.\n' +
+      '\n' +
+      'We also evaluated the effect of the bottleneck regulator by dropping this usage, referred to as _w/o_ bottleneck regulator. The results show that the integration of the bottleneck regulator is effective in preventing the source speaker information contained in the semantic feature from leaking into the converted speech, with little effect on the speech quality.\n' +
+      '\n' +
+      '### Discussion: Dependency Analysis\n' +
+      '\n' +
+      'As shown in Fig. 2, in the streaming pipeline, additional ASR and codec are needed to extract semantic and acoustic information. In this section, we will explore the dependency relations between the selection of ASR and codec and the performance of StreamVoice.\n' +
+      '\n' +
+      '#### 4.4.1 ASR\n' +
+      '\n' +
+      'To investigate the impact of ASR on StreamVoice, three representative ASR systems, including non-streaming ASR [4], widely used CTC-based streaming ASR [19], and the recently proposed streaming Fast-U2++ [10], are selected to perform semantic extraction. As can be seen in Table 5, StreamVoice using semantic features of non-streaming ASR outperforms those using streaming ASR. This discrepancy may be attributed to the inherent performance gap between non-streaming and streaming ASR models, resulting in different semantic extraction abilities. Besides, without future look-ahead in StreamVoice, using semantic features from [19] cannot achieve reasonable conversion, while we introduce a 160ms future look-ahead in StreamVoice, i.e., modeling \\(p(a_{t}|\\mathbf{a}_{1:t-1},\\mathbf{s}_{1:t+m},t)\\) with \\(m\\) future look-ahead, yield good conversion results. This issue may arise from delayed CTC spike distributions and token emission latency existing in streaming ASR [10], leading to semantic information shifting. Benefiting from the low emission latency of Fast-U2++, StreamVoice can perform conversion without future look-ahead. With a longer chunk size employed in Fast-U2++, StreamVoice can obtain better results, while reaching a larger latency of 270ms. A trade-off still exists between performance and speed within the streaming pipeline.\n' +
+      '\n' +
+      '#### 4.4.2 Codec\n' +
+      '\n' +
+      'In StreamVoice, we employ a low-latency streaming codec Audiodec [20]. As presented in Table. 6, we validate the performance of StreamVoice using codecs with different bitrates, including 2kbps and 8kbps, where higher bitrate codecs achieve superior reconstruction quality to lower bitrate ones. The 2kbps Audiodec utilizes 4 layers of quantization and represents audio with a frame length of 20ms, while the 8kbps Audiodec employs 8 layers with a frame length of 10ms. Using the configuration of StreamVoice mentioned in Section 4.1, the results in different bitrates of codec models show no obvious differences. When increasing the number of transformer layers in the codec predictor, forming _Large w/ 8kbps Audiodec_, conversion performance using 8kbps codec improves noticeably, but resulting in slower inference. This result shows that the design of StreamVoice depends on the codec configuration, affecting both conversion quality and inference speed.\n' +
+      '\n' +
+      '### Conclusions\n' +
+      '\n' +
+      'In this paper, we introduce StreamVoice, a novel LM-based zero-shot VC system designed for streaming scenarios. Specifically, StreamVoice employs a streamlined, single-stage framework that encompasses a context-aware LM and an acoustic predictor. The casual design of the model\'s input and structure ensures compliance with streaming behavior. To address performance degradation caused by missing complete contextual information in streaming scenarios, context-aware LM adopts teacher-guided context foresight to make the model have the ability to forecast the current and future information given by a teacher. Besides, semantic masking is introduced in LM to enhance context learning from historical input and facilitate better disentanglement. Finally, an acoustic predictor collaborates with the LM to generate the target speech. Experiments demonstrate that StreamVoice achieves streaming zero-shot VC while maintaining performance comparable to non-streaming VC systems.\n' +
+      '\n' +
+      '**Limitations and future work.** We have to point out that StreamVoice still has limitations. In our configuration, StreamVoice needs a GPU, such as V100 and A100, to achieve real-time streaming inference. The design of streaming VC heavily relies on the ASR and codec as mentioned in Section 4.4. Besides, StreamVoice also faces the out-of-domain problem, which causes performance degradation for utterances with accents, strong emotions, or unseen recording environments. Our future work will first use more training data to explore the modeling ability of StreamVoice. Also, we will focus on optimizing our streaming pipeline, such as high fidelity codec with low bitrate and unified streaming model.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c} \\hline \\hline Type of Audiodec & WVMOS \\(\\uparrow\\) & CER \\(\\downarrow\\) & SSIM \\(\\uparrow\\) & RTF \\\\ \\hline w/ \\(2kbps\\) Audiodec & 3.63 & 9.43 & 0.740 & 0.42 \\\\ w/ \\(8kbps\\) Audiodec & 3.61 & 9.38 & 0.738 & 0.61 \\\\ Large w/ \\(8kbps\\) Audiodec & 3.68 & 9.12 & 0.751 & 0.90 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 6: Analysis of dependency on Audiodec with various bitrate.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c} \\hline \\hline Type of ASR & WVMOS \\(\\uparrow\\) & CER \\(\\downarrow\\) & SSIM \\(\\uparrow\\) \\\\ \\hline Non-streaming ASR & 3.68 & 8.51 & 0.755 \\\\ \\hline _Streaming ASR ([19])_ & & & \\\\ + 0ms Future Look-ahead & 3.19 & 91.7 & 0.674 \\\\ + 160ms Future Look-ahead & 3.48 & 10.6 & 0.727 \\\\ \\hline _Streaming ASR (Fast-U2++ [10])_ & & & \\\\ Chunk (80ms) & 3.63 & 9.43 & 0.740 \\\\ Chunk (160ms) & 3.69 & 9.16 & 0.744 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 5: Analysis of dependency on ASR. The results represent the performance of StreamVoice integrating different ASR.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:8]\n' +
+      '\n' +
+      '* [Ning _et al._2023] Ziqian Ning, Yuepeng Jiang, Pengcheng Zhu, Shuai Wang, Jixun Yao, Lei Xie, and Mengxiao Bi. Dualvc 2: Dynamic masked convolution for unified streaming and non-streaming voice conversion. _Arxiv_, 2023.\n' +
+      '* [Qian _et al._2019] Kaizhi Qian, Yang Zhang, Shiyu Chang, Xuesong Yang, and Mark Hasegawa-Johnson. Autovc: Zero-shot voice style transfer with only autoencoder loss. In _International Conference on Machine Learning_, pages 5210-5219, 2019.\n' +
+      '* [Ren _et al._2022] Yi Ren, Xu Tan, Tao Qin, Zhou Zhao, and Tie-Yan Liu. Revisiting over-smoothness in text to speech. In _Association for Computational Linguistics_, pages 8197-8213, 2022.\n' +
+      '* [Shen _et al._2023] Kai Shen, Zeqian Ju, Xu Tan, Yanqing Liu, Yichong Leng, Lei He, Tao Qin, Sheng Zhao, and Jiang Bian. Naturalspeech 2: Latent diffusion models are natural and zero-shot speech and singing synthesizers. _Arxiv_, 2023.\n' +
+      '* [Shi _et al._2020] Yao Shi, Hui Bu, Xin Xu, Shaoji Zhang, and Ming Li. Aishell-3: A multi-speaker mandarin tts corpus and the baselines. _Arxiv_, 2020.\n' +
+      '* [Sun _et al._2016] Lifa Sun, K. Li, Hao Wang, Shiyin Kang, and H. Meng. Phonetic posteriorgrams for many-to-one voice conversion without parallel data training. In _International Conference on Multimedia and Expo_, pages 1-6, 2016.\n' +
+      '* [Tian _et al._2020] Xiaohai Tian, Zhichao Wang, Shan Yang, Xinyong Zhou, Hongqiang Du, Yi Zhou, Mingyang Zhang, Kun Zhou, Berrak Sisman, Lei Xie, and Haizhou Li. The NUS & NWPU system for Voice Conversion Challenge 2020. In _Joint Workshop for the Blizzard Challenge and Voice Conversion Challenge 2020_, pages 170-174, 2020.\n' +
+      '* [Touvron _et al._2023] Hugo Touvron, Thibaut Lavril, Gautier Izacard, Xavier Martinet, Marie-Anne Lachaux, Timothee Lacroix, Baptiste Roziere, Naman Goyal, Eric Hambro, Faisal Azhar, et al. Llama: Open and efficient foundation language models. _Arxiv_, 2023.\n' +
+      '* [Wang _et al._2021] Disong Wang, Liqun Deng, Yu Ting Yeung, Xiao Chen, Xunying Liu, and Helen Meng. Vqmivc: Vector quantization and mutual information-based unsupervised speech representation disentanglement for one-shot voice conversion. In _International Speech Communication Association_, pages 1344-1348, 2021.\n' +
+      '* [Wang _et al._2023a] Bohan Wang, Damien Ronssin, and Milos Cernak. Alo-vc: Any-to-any low-latency one-shot voice conversion. In _International Speech Communication Association_, pages 2073-2077, 2023.\n' +
+      '* [Wang _et al._2023b] Chengyi Wang, Sanyuan Chen, Yu Wu, Ziqiang Zhang, Long Zhou, Shujie Liu, Zhuo Chen, Yanqing Liu, Huaming Wang, Jinyu Li, et al. Neural codec language models are zero-shot text to speech synthesizers. _Arxiv_, 2023.\n' +
+      '* [Wang _et al._2023c] Zhichao Wang, Yuanzhe Chen, Lei Xie, Qiao Tian, and Yuping Wang. Lm-vc: Zero-shot voice conversion via speech generation based on language models. _IEEE Signal Processing Letters_, pages 1157-1161, 2023.\n' +
+      '* [Wang _et al._2023d] Zhichao Wang, Liumeng Xue, Qiuqing Kong, Lei Xie, Yuanzhe Chen, Qiao Tian, and Yuping Wang. Multi-level temporal-channel speaker retrieval for robust zero-shot voice conversion. _Arxiv_, 2023.\n' +
+      '* [Wester2010] Mirjam Wester. The EMIIME bilingual database. Technical report, The University of Edinburgh, 2010.\n' +
+      '* [Wu _et al._2023] Yi-Chiao Wu, Israel D Gebru, Dejan Markovic, and Alexander Richard. Audiodec: An open-source streaming high-fidelity neural audio codec. In _International Conference on Acoustics, Speech and Signal Processing_, pages 1-5, 2023.\n' +
+      '* [Yang _et al._2022] Haoquan Yang, Liqun Deng, Yu Ting Yeung, Nianzu Zheng, and Yong Xu. Streamable speech representation disentanglement and multi-level prosody modeling for live one-shot voice conversion. In _International Speech Communication Association_, pages 2578-2582, 2022.\n' +
+      '* [Yang _et al._2023] Dongchao Yang, Jinchuan Tian, Xu Tan, Rongjie Huang, Songxiang Liu, Xuankai Chang, Jiatong Shi, Sheng Zhao, Jiang Bian, Xixin Wu, et al. Uniaudio: An audio foundation model toward universal audio generation. _Arxiv_, 2023.\n' +
+      '* [Yi _et al._2022] Jiangyan Yi, Ruibo Fu, Jianhua Tao, Shuai Nie, Haoxin Ma, Chenglong Wang, Tao Wang, Zhengkun Tian, Ye Bai, Cunhan Fan, Shan Liang, Shiming Wang, Shuai Zhang, Xinrui Yan, Le Xu, Zhengqi Wen, and Haizhou Li. Add 2022: the first audio deep synthesis detection challenge. In _International Conference on Acoustics, Speech and Signal Processing_. IEEE, 2022.\n' +
+      '* [Yin _et al._2021] Dacheng Yin, Xuanchi Ren, Chong Luo, Yuwang Wang, Zhiwei Xiong, and Wenjun Zeng. Retriever: Learning content-style representation as a token-level bipartite graph. In _International Conference on Learning Representations_, 2021.\n' +
+      '* [Zeghidour _et al._2021] Neil Zeghidour, Alejandro Luebs, Ahmed Omran, Jan Skoglund, and Marco Tagliasacchi. SoundStream: An end-to-end neural audio codec. _Transactions on Audio, Speech, and Language Processing_, 30:495-507, 2021.\n' +
+      '* [Zhang _et al._2022] Binbin Zhang, Hang Lv, Pengcheng Guo, Qijie Shao, Chao Yang, Lei Xie, Xin Xu, Hui Bu, Xiaoyu Chen, Chenchen Zeng, et al. Wenetspeech: A 10000+ hours multi-domain mandarin corpus for speech recognition. In _International Conference on Acoustics, Speech and Signal Processing_, pages 6182-6186, 2022.\n' +
+      '* [Zhu _et al._2023] Xinfa Zhu, Yuanjun Lv, Yi Lei, Tao Li, Wendi He, Hongbin Zhou, Heng Lu, and Lei Xie. Vec-tok speech: speech vectorization and tokenization for neural speech generation. 2023.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
