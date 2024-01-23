@@ -115,11 +115,10 @@ def main(args):
   arxiv_id_splits = distribute_parameters([arxiv_id for arxiv_id in args.arxiv_ids], work_splits)
 
   for i, arxiv_ids in enumerate(arxiv_id_splits):
-    run = parallel_job_split(i, client, arxiv_ids, args)
-    run.arxiv_ids = arxiv_ids
-    runs[i] = run
-
-  count = len(runs)
+    if arxiv_ids:
+      run = parallel_job_split(i, client, arxiv_ids, args)
+      run.arxiv_ids = arxiv_ids
+      runs[i] = run
 
   while True:
     to_be_removed = []
