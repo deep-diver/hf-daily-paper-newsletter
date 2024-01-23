@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# Single-View 3D Human Digitalization with Large Reconstruction Models\n' +
+      '\n' +
+      'Zhenzhen Weng\\({}^{1\\dagger}\\), Jingyuan Liu\\({}^{2}\\), Hao Tan\\({}^{2}\\), Zhan Xu\\({}^{2}\\), Yang Zhou\\({}^{2}\\)\n' +
+      '\n' +
+      'Serena Yeung-Levy\\({}^{1}\\), Jimei Yang\\({}^{2}\\)\n' +
+      '\n' +
+      '\\({}^{1}\\)Stanford University, \\({}^{2}\\)Adobe Research\n' +
+      '\n' +
+      '\\({}^{1}\\){zzweng, syyeung}@stanford.edu, \\({}^{2}\\){jingyliu, hatan,zhaxu,yazhou,jimyang}@adobe.com\n' +
+      '\n' +
+      'Work done as an intern at Adobe Research.\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      'In this paper, we introduce Human-LRM, a single-stage feed-forward Large Reconstruction Model designed to predict human Neural Radiance Fields (NeRF) from a single image. Our approach demonstrates remarkable adaptability in training using extensive datasets containing 3D scans and multi-view capture. Furthermore, to enhance the model\'s applicability for in-the-wild scenarios especially with occlusions, we propose a novel strategy that distills multi-view reconstruction into single-view via a conditional triplane diffusion model. This generative extension addresses the inherent variations in human body shapes when observed from a single view, and makes it possible to reconstruct the full body human from an occluded image. Through extensive experiments, we show that Human-LRM surpasses previous methods by a significant margin on several benchmarks.\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      'Reconstructing 3D human models from a single image is an important research topic in computer vision with an array of practical applications. These applications encompass areas such as AR/VR, asset creation, relighting, and many more. A plethora of techniques have been developed to address this challenging task, each with its own set of advantages and limitations. Parametric reconstruction methods, a.k.a. human mesh recovery (HMR) [10, 20, 46] regress pose and shape parameters of SMPL (Skinned Multi-Person Linear) human body mesh model [23], which does not includeclothing details. This limits their utility in applications requiring realistic and detailed human representations. Conversely, implicit volume reconstruction methods [31, 32] capture fine-grained clothing details with their pixel-aligned features but do not generalize across various poses. Recent hybrid approaches [40, 41, 49] combine the advantages of parametric and implicit reconstruction methods by using the predicted SMPL body mesh as conditioning to guide the full clothed reconstruction. However, these SMPL-conditioned methods face an inevitable limitation: SMPL prediction errors propagate to the subsequent full reconstruction stage, resulting in misalignment between the reconstructed mesh and the input image. These errors are often irreparable and cannot be fully fixed by post-hoc optimization [40, 41, 49]. Lastly, these implicit reconstruction methods are hampered by the scarcity of high quality 3D scans for training.\n' +
+      '\n' +
+      'Meanwhile, there have been various works that use NeRF [25] as a representation to learn geometry as well as texture of humans, but these work typically performs fine-tuning only on single images [1, 16], which is time consuming and not generalizable to new observations. Recently, feed-forward NeRF prediction models such as Large Reconstruction Model (LRM) [14] has been proposed, which is highly generalizable and produces high-quality 3D reconstructions as well as NeRF from arbitrary image inputs. However, directly applying pre-trained generic LRM to humans yields sub-optimal results even with fine-tuning (Figure 2). Primarily, the reconstructed surfaces tend to be coarse, not preserving enough details.\n' +
+      '\n' +
+      'In this work, we present Human-LRM, a single-stage feed-forward model that predicts the geometry and appearance of the human from a single image. Leveraging neural radiance fields as 3D representation, we are able to scale up our training to encompass multi-view human datasets. Consequently, we are able to achieve improved generalization compared to previous methods [31, 32, 40, 41] that rely on limit 3D scan supervision. Unlike SHERF [15], an existing generalizable human NeRF prediction model that uses the predicted SMPL mesh to transform image features to the canonical space, Human-LRM is completely template-free, allowing for effective generalization in complex situations where SMPL-conditioned methods are inadequate. In contrast to LRM, Human-LRM predicts SDF values and renders with VolSDF [42] instead of classical NeRF [25], which leads to enhanced surface fidelity for final reconstruction. We additionally supervise the human geometry through normal and depth maps. These improvements prove to be effective in enabling higher quality surface reconstruction. Lastly, to address the common occlusion scenarios in the wild, we propose a novel training paradigm that distills multi-view reconstruction into single-view through conditional triplane diffusion [13, 34]. This equips Human-LRM with generative capabilities to output full body humans from partial observations (last column of Figure 1). Our contributions are summarized below:\n' +
+      '\n' +
+      '* We introduce Human-LRM, a specialized LRM for humans with improved surface fidelity. Being trained on an extensive dataset (more than 10K shapes) with both multi-view RGB data and 3D scans, our model attains substantially enhanced generalizability and excels across a wider spectrum of scenarios and applications.\n' +
+      '* To enhance the applicability of Human-LRM for in-the-wild scenarios, we distills multi-view Human-LRM into single-view through a conditional diffusion model. The generative Human-LRM enables better handling of unseen body parts from both other views and occlusions.\n' +
+      '* Through extensive experiments, we show that Human-LRM outperforms previous methods significantly on a comprehensive evaluation set.\n' +
+      '\n' +
+      '## 2 Related Work\n' +
+      '\n' +
+      '**Parametric reconstruction.** Many 3D human reconstruction works [10, 20, 22, 46] are built on mesh-based parametric body models, e.g., SMPL [23]. Given an input image, these methods, referred as Human Mesh Recovery (HMR), employ neural networks to predict the SMPL shape and pose parameters from which the target human body mesh is constructed. This SMPL-conditioned approach greatly reduces the network output complexity and also can be adapted for weakly-supervised training with 2D pose estimates via differentiable mesh rasterization [20, 38]. As SMPL models minimally-clothed human bodies with a smooth mesh of fixed topology, it prevents these methods from reconstructing detailed geometry and texture. Nevertheless, the predicted SMPL mesh is a very good proxy for the fully clothed reconstruction as it captures the base body shape and depicts its pose structure. The promise of HMR motivates follow-up works to predict 3D offsets [2, 24, 27, 50] or build another layer of geometry on top of the base body mesh to accommodate clothed human shapes [5, 19]. However, this "body+offset" strategy lacks the flexibility to represent a wide-range of clothing types.\n' +
+      '\n' +
+      '**Implicit reconstruction.** Implicit-functions offer a topology-agnostic representation for modeling human\n' +
+      '\n' +
+      'Figure 2: Limitations of LRM [14]: depth ambiguities of off-the-shelf generic LRM (left), coarse geometry even finetuning LRM on humans (right).\n' +
+      '\n' +
+      'shapes. PiFU [31] uses pixel-aligned image features to predict 3D occupancy values and colors from sampled 3D points in a predefined grid. Building on this, PIFuHD [32] develops a high-resolution module to predict geometric and texture details with additional front-back normal maps as input. While producing expressive reconstruction results for simple inputs like standing humans against clean background, such models are not able to generalize well to in-the-wild scenarios and often yield broken and messy shapes on challenging poses and lightings due to their limited model capacity and lack of a holistic representation.\n' +
+      '\n' +
+      '**Hybrid reconstruction.** An emerging type of approach leverages parametric body models (e.g. SMPL [23]) to improve the generalizability of fully-supervised implicit reconstruction methods. Starting from a given image and an estimated SMPL mesh, Xiu et al. [40] regresses shapes from locally-queried features to generalize to unseen poses. Wang et al. [36] extends ICON with a GAN-based generative component. Xiu et al. [41] leverages variational normal integration and shape completion to preserve the details of loose clothing. Although the incorporation of SMPL does enhance generalizability to large poses, these methods are also constrained by the accuracy of SMPL predictions. Any errors in the estimated SMPL parameters have a cascading effect on the subsequent mesh reconstruction stage.\n' +
+      '\n' +
+      '**Human NeRFs.** Neural Radiance Fields (NeRF) [25] marks a pivotal milestone in 3D reconstruction. NeRF empowers the learning of a 3D representation of an object solely from 2D observations. While there exist several notable works that focus on reconstructing human NeRF, these efforts often center around the single video [37] or image [16, 39] fine-tuning setting at the cost of substantial computational time, ranging from tens of minutes to hours. In contrast, our focus lies on a feed-forward paradigm that radically reduces the time required for a model to predict a human NeRF from a single image, typically in mere seconds. A few recent works [11, 21] also employ a feed-forward paradigm for generalizability, utilizing SMPL as a geometric prior and aggregating features from sparse observations, yet they necessitate multiple views. A closer related work [15] considers feed-forward human NeRF prediction from a single image. Nonetheless, their method replies on ground truth SMPL body meshes that limit their model representation power. Our method is completely template-free, opening up a broader spectrum of real-world applications, making NeRF-based human reconstruction more accessible and practical for various scenarios.\n' +
+      '\n' +
+      '## 3 Method\n' +
+      '\n' +
+      'An overview of Human-LRM is presented in Figure 3. Our method is built on top of LRM [14] that consists of two major building blocks: transformer-based triplane decoder and triplane NeRF. In Section 3.1, we briefly introduce triplane prediction as our model backbone and then in Section 3.2, we introduce our improved triplane NeRF to enhance the surface reconstruction quality of humans. For more details about the architecture, we refer readers to [14]. Lastly, we introduce an generative extension of our model based on on conditional diffusion, designed to complete novel views and address occlusion (Section 3.3).\n' +
+      '\n' +
+      '### Single-view Triplane Decoder\n' +
+      '\n' +
+      'Given an RGB image as input, LRM first applies a pre-trained vision transformer (ViT), DINO [7] to encode the image to patch-wise feature tokens \\(\\{\\mathbf{h}_{i}\\}_{i=1}^{n}\\in\\mathbb{R}^{768}\\), where \\(i\\) denotes the \\(i\\)-th image patch, \\(n\\) is the total number of patches, and 768 is the latent dimension.\n' +
+      '\n' +
+      'It then uses a transformer module to decode the image tokens into a 3D triplane [8]. Specifically, the decoder updates learnable tokens to the final triplane features via camera modulation and cross-attention with the image tokens, similar to the design of PerceiverIO [17]. More specifically, each transformer layer contains a cross-attention, a self-attention, and a multi-layer perceptron (MLP) sub-layer, where the input tokens to each sub-layer are modulated [26] by the camera features \\(\\mathbf{c}\\). The cross-attention layer attends from the triplane features to the image tokens, which can help link image information to the triplane. Then, the self-attention layer further models the intra-modal relationships across the spatially-structured triplane entries.\n' +
+      '\n' +
+      'Triplane [8] is used as an efficient 3D representation. A triplane \\(\\mathbf{T}\\) contains three axis-aligned feature planes \\(\\mathbf{T}_{\\text{XY}}\\), \\(\\mathbf{T}_{\\text{YZ}}\\) and \\(\\mathbf{T}_{\\text{XZ}}\\). In our implementation, each plane is of dimension \\(h_{T}\\times w_{T}\\times d_{T}\\) where \\(h_{T}\\times w_{T}\\) is the spatial resolution, and \\(d_{T}\\) is the number of feature channels. For any 3D point in the NeRF object bounding box \\([-1,1]^{3}\\), we can project it onto each of the planes and query the corresponding point features \\(\\mathbf{T}_{xy}\\), \\(\\mathbf{T}_{yz}\\), \\(\\mathbf{T}_{xz}\\) via bilinear interpolation, which is then decoded for rendering (Section 3.2).\n' +
+      '\n' +
+      'In short, given an input image \\(\\mathcal{I}_{1}\\in\\mathbb{R}^{H\\times W\\times 3}\\), we train an encoder \\(\\mathcal{E}\\) and decoder \\(\\mathcal{D}\\) s.t. \\(\\{\\mathbf{h}_{i}\\}_{i=1}^{n}=\\mathcal{E}(\\mathcal{I}_{1})\\), and \\(\\mathbf{T}_{\\text{XY}},\\mathbf{T}_{\\text{YZ}},\\mathbf{T}_{\\text{XZ}}=\\mathcal{ D}(\\{\\mathbf{h}_{i}\\}_{i=1}^{n},\\mathbf{c})\\)\n' +
+      '\n' +
+      '### Triplane NeRF\n' +
+      '\n' +
+      'Traditional neural volume rendering methods (as used in LRM [14]) model geometry through a generalized density function. The extraction of this geometry is achieved using a random level set of the density function, which often results in reconstructions that are noisy and of low fidelity. Hence, to improve the fidelity of the reconstructions, we predict Signed Distance Functions (SDF) instead of density. Specifically, we use two MLPs (i.e. "SDF MLP" and "RGB MLP" in Figure 3) to predict SDF and RGB from the point features queried from the triplane representation \\(T\\). The SDF MLP takes the point features and output SDF and a latent vector \\(\\mathbf{h}_{p}\\). The RGB MLP takes the point features,latent vector and normals at sampled points \\(\\hat{\\mathbf{n}}_{p}\\) (computed from predicted SDF using finite differences) and output RGB values. That is, \\(\\mathbf{h}_{p},\\text{SDF}=\\text{MLP}_{\\text{SDF}}(\\mathbf{T}_{xy},\\mathbf{T}_{yz },\\mathbf{T}_{xz})\\), \\(\\text{RGB}=\\text{MLP}_{\\text{RGB}}(\\mathbf{T}_{xy},\\mathbf{T}_{yz},\\mathbf{T} _{xz},\\mathbf{h}_{p},\\hat{\\mathbf{n}}_{p})\\). For a ray \\(r\\) emanating from a camera position \\(\\mathbf{o}\\) in direction \\(\\mathbf{v}\\in\\mathbb{R}^{3}\\), \\(||\\mathbf{v}||=1\\), defined by \\(\\mathbf{r}(t)=\\mathbf{o}+t\\mathbf{v},t\\geq 0\\), the color of the corresponding pixel in the rendered image is computed via numerical integration\n' +
+      '\n' +
+      '\\[I(\\mathbf{r})=\\sum_{i=1}^{M}\\alpha_{i}\\Pi_{i>j}(1-\\alpha_{j})\\text{RGB}_{i}, \\alpha_{i}=1-\\text{e}^{\\sigma_{i}\\delta_{i}} \\tag{1}\\]\n' +
+      '\n' +
+      'where \\(\\sigma_{i}\\) is the density converted from SDF using [42], and \\(\\delta_{i}\\) is the distance between samples. Normals can be rendered using the same formula where we integrate over predicted normals at sampled points instead.\n' +
+      '\n' +
+      '**Training objective.** Our training data contains multiple views and their respective camera parameter per human. For each human, we randomly choose a few side views, and render a random \\(\\hat{\\mathbf{x}}\\in\\mathbb{R}^{h\\times w\\times 3}\\) patch on each view, similar to [37]. The ground truth RGB values for the patch is \\(\\mathbf{x}\\in\\mathbb{R}^{h\\times w\\times 3}\\). In addition, we render the predicted depths and normals of the patch \\(\\hat{\\mathbf{n}}\\in\\mathbb{R}^{h\\times w}\\) and \\(\\hat{\\mathbf{d}}\\in\\mathbb{R}^{h\\times w\\times 3}\\), and supervise with depths maps \\(\\mathbf{d}\\in\\mathbb{R}^{h\\times w}\\) and normal maps \\(\\mathbf{n}\\in\\mathbb{R}^{h\\times w\\times 3}\\). The supervising depth and normal maps can be either ground-truth renderings or off-the-shelf predictions. The training objective of our single-view reconstruction method is computed over losses from \\(V\\) rendered views, with the input view as well as \\((V-1)\\) side views. Overall, the training objective is to minimize \\(\\mathcal{L}\\),\n' +
+      '\n' +
+      '\\[\\mathcal{L}= \\frac{1}{V}\\sum_{v=1}^{V}(\\mathcal{L}_{\\text{MSE}}(\\hat{\\mathbf{x }}_{v},\\mathbf{x}_{v}) \\tag{2}\\] \\[+\\lambda_{\\text{pips}}\\mathcal{L}_{\\text{LPIPS}}(\\hat{\\mathbf{x }}_{v},\\mathbf{x}_{v})\\] (3) \\[+\\lambda_{n}\\mathcal{L}_{\\text{MSE}}(\\hat{\\mathbf{n}}_{v}, \\mathbf{n}_{v})+\\lambda_{d}\\mathcal{L}_{\\text{DSI}}(\\hat{\\mathbf{d}}_{v}, \\mathbf{d}_{v}))\\] (4) \\[+\\lambda_{eik}\\mathcal{L}_{\\text{Eikonal}} \\tag{5}\\]\n' +
+      '\n' +
+      'Subscript \\(v\\) means that the corresponding variable is for the \\(v_{th}\\) supervising view. \\(\\mathcal{L}_{\\text{MSE}}\\) is the normalized pixel-wise L2 loss, \\(\\mathcal{L}_{\\text{LPIPS}}\\) is the perceptual image patch similarity [47], and \\(\\mathcal{L}_{\\text{DSI}}\\) is the scale invariant depth loss [4]. \\(\\mathcal{L}_{\\text{Eikonal}}\\) is the Eikonal regularization [12] computed using SDF values of the sampled points along the rays. \\(\\lambda_{\\text{pips}}\\), \\(\\lambda_{n}\\), \\(\\lambda_{d}\\), and \\(\\lambda_{eik}\\) are weight coefficients.\n' +
+      '\n' +
+      '### Conditional Diffusion Model\n' +
+      '\n' +
+      'The above mentioned single-view deterministic model has two limitations: 1) collapsed reconstruction on the unseen parts and 2) incapability of handling occlusions. In this section, we propose a generative extension of Human-LRM with conditional diffusion. An overview of this model is illustrated in the right side of Figure 3. Specifically, we first train a multi-view reconstruction model. In contrast to the single-view model, the multi-view model incorporates camera conditioning within the ViT encoder. The triplane decoder in the multi-view model maintains the same architecture as the single-view model, with the exception that it does not take camera conditioning. With a sufficient number of views, we can conceptualize the learned triplane \\(\\mathbf{T}^{mv}\\) as a near-perfect representation of the human. We have chosen\n' +
+      '\n' +
+      'Figure 3: **Left**: Overview of single-view Human-LRM. Given a single image, we encode the image using ViT [7], and employ a transformer to decode a triplane representation [8], followed by SDF and RGB MLPs for volumetric rendering of RGB, normal and depths from novel viewpoints. **Right**: Overview of our generative Human-LRM. We first train a multi-view and a single-view Human-LRM with a shared NeRF decoder and then train a diffusion model that uses the single-view triplanes as conditioning to denoise the learned triplane from multi-view. During diffusion model training, the single view encoder takes an additional binary mask to simulate real-world occlusions.\n' +
+      '\n' +
+      'to train a 4-view model. This decision is based on the observation that utilizing four views tends to provide a definitive and comprehensive depiction of the human subject while not excessively increasing the model\'s capacity. We then freeze the weights of multi-view encoder and train a single-view encoder with an additional l2 loss between the single-view and multi-view triplane features. This l2 loss has annealing weight that starts from 0.1 to 10. For both single-view and multi-view models, we clamp the triplane features to \\([-1,1]\\) using a tanh layer. To simulate real-world occlusions as well as guiding the diffusion model on which part to hallucinate, we apply a random mask to the single-view input image, and pass the binary mask to the single-view encoder through an additional mask channel.\n' +
+      '\n' +
+      '\\[\\mathbf{T}^{mv} =\\mathcal{D}_{mv}(\\mathcal{E}_{mv}(\\{\\mathcal{I}_{i}\\}_{i=1}^{m} ),\\{\\mathbf{c}_{i}\\}_{i=1}^{m})) \\tag{6}\\] \\[\\mathbf{T}^{sv} =\\mathcal{D}_{sv}(\\mathcal{E}_{sv}(\\mathcal{I}_{1}\\odot\\mathcal{ M}_{1}),\\mathbf{c}_{1}) \\tag{7}\\]\n' +
+      '\n' +
+      'where \\(\\mathcal{M}_{1}\\in[0,1]^{H,W}\\) is the binary mask for the single-view input image, and \\(m\\) is the number of input views to the multi-view model.\n' +
+      '\n' +
+      'To train a conditional model, we first flatten the predicted triplanes from the single-view model and multi-view model, yielding \\(\\tilde{\\mathbf{T}}^{sv}\\) and \\(\\tilde{\\mathbf{T}}^{mv}\\), each of size \\((h_{T}\\times 3,w_{T},d_{T})\\). We then add \\(t\\) steps of Gaussian noise to the multi-view triplane \\((\\tilde{\\mathbf{T}}^{mv})^{t}\\) and train a conditional diffusion model to restore \\(\\tilde{\\mathbf{T}}^{mv}\\). Single-view triplane is used as conditioning, and is concatenated with the noised multi-view triplane to form the input to the diffusion model [13]. The objective of diffusion training is\n' +
+      '\n' +
+      '\\[\\mathcal{L}_{d}=\\mathbb{E}_{t\\sim[1,T]}[||\\tilde{\\mathbf{T}}^{mv}-U_{\\theta}( (\\tilde{\\mathbf{T}}^{mv})^{t}),\\tilde{\\mathbf{T}}^{sv},t)||^{2}] \\tag{8}\\]\n' +
+      '\n' +
+      'where \\(t\\) is the randomly sampled timestep, and \\(T=1000\\) is the maximum number of steps. \\(U_{\\theta}\\) is a UNet [30] (with weights \\(\\theta\\)) that predicts the denoised multi-view triplane conditioning on single-view triplane and timestep. Note that since we changed the input channels of single-view encoder, we finetune single-view encoder during diffusion training.\n' +
+      '\n' +
+      '## 4 Experiments\n' +
+      '\n' +
+      '**Training data.** Our complete training set consists of 1,426 high-quality scans (500 from THuman 2.0 [44] and 926 from Alloy++), as well as around 8,000 posed multi-view captures from HuMMan [6] v1.0. THuman 2.0 and HuMMan both contain adults with simple clothing. Thus, to further evaluate the generalization capability, we collect Alloy++ from Human Alloy [3] and our internal capture. Each scan from Human Alloy has around 40K polygons and our internal capture, 100K polygons. The quality of those scans are similar to that of RenderPeople [29] (100K polygons). Alloy++ contains humans with more challenging clothing, poses, as well as little kids.\n' +
+      '\n' +
+      '**Evaluation sets.** We evaluate on 20 humans from THuman 2.0 and 20 humans from Alloy++, each with renderings from 18 evenly spaced viewpoints. In addition, we create an evaluation set from X-Human [33]. We randomly sample 2 frames per sequence, which results in 460 frames from 20 human subjects, all with distinct poses. The X-Human test-set serves as an out-of-domain evaluation set as none of the models have seen images from this dataset during training.\n' +
+      '\n' +
+      '**Data preprocessing.** For each scan from THuman 2.0 and Alloy++, we center it by the origin and scale them so the longest side has length 1.8. We render each human scan from 32 randomly sampled viewpoints with the same camera pointing toward the origin. For HuMMan v1.0, there are 10 cameras per pose. In total, there are 16K, 14K, and 80K distinct input images from the training split of THuman 2.0, Alloy++ and HuMMan v1.0, respectively.\n' +
+      '\n' +
+      '**Inference time.** It takes about 0.7 second for the image encoder and triplane decoder to get the triplane representation from the input image(s), and 1.3 seconds to render a 256 by 256 image from the triplanes. For our single-view conditional diffusion model, DDIM sampling with 200 steps takes about 10 seconds on a single A100 GPU.\n' +
+      '\n' +
+      '### Geometry Comparisons\n' +
+      '\n' +
+      'We compare to existing single-view human reconstruction methods PiFU [31], PiFuHD [32], Pamir [49], ICON [40] and ECON [41]1. Since Pamir, ICON and ECON require SMPL parameters as input to their model, we use off-the-shelf SMPL predictors [10, 46] to produce them. All of these baselines require ground truth geometry as supervision and therefore their generalizability is limited by the availability of such datasets, whereas our method works with just multi-view capture, which is more accessible.\n' +
+      '\n' +
+      'Footnote 1: Wang et al. [36] is another related work but we couldn’t compare with it as there is no code release and their authors also informed us that their model checkpoints got lost.\n' +
+      '\n' +
+      'Following previous works, we report Chamfer distance, Point-to-Surface (P2S) and Normal Consistency (NC). First, we compare with their public pretrained models. As some of the baseline methods are trained on the commercially available RenderPeople, we opt for THuman 2.0, a publicly available dataset with a similar scale, to ensure a fair comparison. We train all approaches on the same dataset, to eliminate the influence of training data. While baselines use GT geometry to supervise the occupancy directly, we obtain normal and depth maps from GT geometry and use them to guide the surface prediction.\n' +
+      '\n' +
+      'We report the quantitative results in Table 1. "Ours - SV Det." is our single-view deterministic model as described in Section 3.1. As shown by Table 1, the geometry predicted by our method consistently outperforms previous works, including works that are prior-free (PiFU and PiFuHD) as well as works that require SMPL prior (Pamir, ICON and \n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:6]\n' +
+      '\n' +
+      '### Generative Human-LRM Evaluation\n' +
+      '\n' +
+      'We train a diffusion model using the single view triplane features as conditioning as described in Section 3.3. Our conditional diffusion model, enhanced with distilled information from multi-view model, is able to reconstruct credible poses from just a single viewpoint. This improves performance, particularly in scenarios where parts of the human are obscured (e.g. 1st row of Figure 5). We report quantitative performance on THuman 2.0 in Table 2a. Due to memory issues, we train the diffusion model with a smaller triplane size (128 by 128), causing the performance of the single-view model to degrade a little bit. However, we show that with the conditional diffusion, the performance of the model becomes even better than the single-view deterministic model with 256 by 256 triplanes.\n' +
+      '\n' +
+      'In addition, our diffusion model is able to reconstruct\n' +
+      '\n' +
+      'Figure 4: Comparison to previous volumetric reconstruction methods: PiFU [31], PiFUHD [32], Pamir [49], ICON [40], ECON [41], and LRM [14]. All models are trained on THuman 2.0. For each example we show the geometry (colored by mesh normals) from 4 views.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c|c c c|c c c|c c}  & \\multicolumn{3}{c}{THuman 2.0} & \\multicolumn{3}{c}{Alloy++} & \\multicolumn{3}{c}{X-Human} \\\\ Model & Training Data & Chamfer \\(\\downarrow\\) & P2S \\(\\downarrow\\) & NC \\(\\downarrow\\) & Chamfer \\(\\downarrow\\) & P2S \\(\\downarrow\\) & NC \\(\\downarrow\\) & Chamfer \\(\\downarrow\\) & P2S \\(\\downarrow\\) & NC \\(\\downarrow\\) \\\\ \\hline Est. d.n. & THuman 2.0, HuMMan v1.0 & 2.63 & 2.38 & 0.134 & 3.35 & 3.08 & 0.147 & 2.45 & 2.28 & 0.103 \\\\ No d.n. & THuman 2.0, HuMMan v1.0 & 2.63 & 2.40 & 0.132 & 3.68 & 3.20 & 0.163 & 2.75 & 2.43 & 0.117 \\\\ Predict \\(\\sigma\\) & THuman 2.0, HuMMan v1.0 & 2.49 & 2.32 & 0.124 & 3.48 & 3.44 & 0.156 & 2.67 & 2.59 & 0.116 \\\\ Full Model & THuman 2.0, HuMMan v1.0 & **2.41** & **2.21** & **0.115** & **3.16** & **2.92** & **0.145** & **2.37** & **2.21** & **0.103** \\\\ \\hline Small training set & THuman 2.0 & 2.62 & 2.60 & 0.124 & 3.22 & 2.99 & 0.145 & 2.43 & 2.25 & 0.106 \\\\ Medium training set & THuman 2.0, HuMMan v1.0 & 2.41 & 2.21 & 0.115 & 3.16 & 2.92 & 0.145 & 2.37 & 2.21 & 0.103 \\\\ Large training set & THuman 2.0, Alloy++, HuMMan v1.0 & **2.23** & **2.03** & **0.114** & **2.35** & **2.12** & **0.116** & **2.29** & **2.15** & **0.099** \\\\ \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 3: Ablations of our single-view deterministic model. Top: Effect of using depth and normal maps (“d.n.”) for supervision and predicting SDFs. Bottom: Effect of the scale of training data.\n' +
+      '\n' +
+      'complete humans from single-view images even when the humans are occluded. In Table 2, we randomly apply a mask to each input image to simulate real-world occlusion scenarios. Notice that all baselines fail to reconstruct the missing body part, even for SMPL-guided works like ICON and ECON that are conditioned on full-body SMPL prior. Our generative model, on the other hand, is able to hallucinate the occluded part (e.g. \\(3_{rd}\\) row of Figure 5). In addition, with different random seeds, our generative model is able to reconstruct different credible poses 8.\n' +
+      '\n' +
+      '## 5 Conclusion and Future Work\n' +
+      '\n' +
+      'In this work, we introduced an approach for reconstructing human NeRFs from a single image. What sets our approach apart from previous implicit volumetric human reconstruction methods is its remarkable scalability, making it highly adaptable for training on large and diverse multi-view RGB datasets. This adaptability, in turn, significantly bolsters its generalizability, enabling it to surpass established baseline\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c|c c c} Method & GT SMPL & PSNR \\(\\uparrow\\) & SSIM \\(\\uparrow\\) & LPIPS \\(\\downarrow\\) \\\\ \\hline NHP [21] & ✓ & 18.99 & 0.84 & 0.18 \\\\ MPS-NERF [11] & ✓ & 17.44 & 0.82 & 0.19 \\\\ SHERF [15] & ✓ & 20.83 & 0.89 & 0.12 \\\\ \\hline SHERF [15] & \\(\\times\\) & 14.46 & 0.79 & 0.20 \\\\ Ours & \\(\\times\\) & 17.13 & 0.87 & 0.12 \\\\ \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 4: Comparison to generalizable human NeRF methods on HuMMan v1.0 [6]. Top section: Feed-forward methods that use GT SMPL parameters during inference. Bottom section: methods that do not use GT SMPL during inference.\n' +
+      '\n' +
+      'Figure 5: Qualitative examples of on images with occlusions. For each example we show the input view as well as side view.\n' +
+      '\n' +
+      'Figure 8: Given an incomplete image, our generative model is able to generate different credible poses.\n' +
+      '\n' +
+      'Figure 6: Novel view renderings results on HuMMan v1.0.\n' +
+      '\n' +
+      'Figure 7: Ablations. We show the effect of using estimated vs. ground truth normal and depth as supervision as well as using a simple MLP as in LRM [14] to predict the density instead of SDF.\n' +
+      '\n' +
+      'models on various testsets. Additionally, our novel multi-view feature distillation approach handles inherent variations in human body capture, producing plausible and complete human geometries conditioning on a single view.\n' +
+      '\n' +
+      'Although Human-LRM excels in capturing global geometry, it still falls short in preserving finer facial details. Future directions include utilizing more powerful representation than triplanes or potential refinement techniques.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* [1] Badour AlBahar, Shunsuke Saito, Hung-Yu Tseng, Changil Kim, Johannes Kopf, and Jia-Bin Huang. Single-image 3d human digitization with shape-guided diffusion. In _SIGGRAPH Asia_, 2023.\n' +
+      '* [2] Thiemo Alldieck, Marcus Magnor, Bharat Lal Bhatnagar, Christian Theobalt, and Gerard Pons-Moll. Learning to reconstruct people in clothing from a single rgb camera. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 1175-1186, 2019.\n' +
+      '* [3] Human Alloy. Human alloy, 2023.\n' +
+      '* [4] Shariq Farooq Bhat, Reiner Birkl, Diana Wofk, Peter Wonka, and Matthias Muller. Zoedepth: Zero-shot transfer by combining relative and metric depth. _arXiv preprint arXiv:2302.12288_, 2023.\n' +
+      '* [5] Bharat Lal Bhatnagar, Garvita Tiwari, Christian Theobalt, and Gerard Pons-Moll. Multi-garment net: Learning to dress 3d people from images. In _Proceedings of the IEEE/CVF international conference on computer vision_, pages 5420-5430, 2019.\n' +
+      '* [6] Zhongang Cai, Davuan Ren, Ailing Zeng, Zhengyu Lin, Tao Yu, Wenjia Wang, Xiangyu Fan, Yang Gao, Yifan Yu, Liang Pan, et al. Human: Multi-modal 4d human dataset for versatile sensing and modeling. In _European Conference on Computer Vision_, pages 557-577. Springer, 2022.\n' +
+      '* [7] Mathilde Caron, Hugo Touvron, Ishan Misra, Herve Jegou, Julien Mairal, Piotr Bojanowski, and Armand Joulin. Emerging properties in self-supervised vision transformers. In _Proceedings of the IEEE/CVF international conference on computer vision_, pages 9650-9660, 2021.\n' +
+      '* [8] Eric R Chan, Connor Z Lin, Matthew A Chan, Koki Nagano, Boxiao Pan, Shalini De Mello, Orazio Gallo, Leonidas J Guibas, Jonathan Tremblay, Sameh Khamis, et al. Efficient geometry-aware 3d generative adversarial networks. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 16123-16133, 2022.\n' +
+      '* [9] Matt Deitke, Dustin Schwenk, Jordi Salvador, Luca Weihs, Oscar Michel, Eli VanderBilt, Ludwig Schmidt, Kiana Ehsani, Aniruddha Kembhavi, and Ali Farhadi. Obiayexre: A universe of annotated 3d objects. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 13142-13153, 2023.\n' +
+      '* [10] Yao Feng, Vasileios Choutas, Timo Bolkart, Dimitrios Tzionas, and Michael J Black. Collaborative regression of expressive bodies using moderation. In _2021 International Conference on 3D Vision (3DV)_, pages 792-804. IEEE, 2021.\n' +
+      '* [11] Xiangjun Gao, Jiaolong Yang, Jongyoo Kim, Sida Peng, Zicheng Liu, and Xin Tong. Mps-nerf: Generalizable 3d human rendering from multiview images. _IEEE Transactions on Pattern Analysis and Machine Intelligence_, 2022.\n' +
+      '* [12] Amos Gropp, Lior Yariv, Niv Haim, Matan Atzmon, and Yaron Lipman. Implicit geometric regularization for learning shapes. _arXiv preprint arXiv:2002.10099_, 2020.\n' +
+      '* [13] Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising diffusion probabilistic models. _Advances in neural information processing systems_, 33:6840-6851, 2020.\n' +
+      '* [14] Yicong Hong, Kai Zhang, Jiuxiang Gu, Sai Bi, Yang Zhou, Difan Liu, Feng Liu, Kalyan Sunkavalli, Trung Bui, and Hao Tan. Lrm: Large reconstruction model for single image to 3d. _arXiv preprint arXiv:2311.04400_, 2023.\n' +
+      '* [15] Shoukang Hu, Fangzhou Hong, Liang Pan, Haiyi Mei, Lei Yang, and Ziwei Liu. Sherf: Generalizable human nerf from a single image. _arXiv preprint arXiv:2303.12791_, 2023.\n' +
+      '* [16] Yangyi Huang, Hongwei Yi, Yuliang Xiu, Tingting Liao, Jiaxiang Tang, Deng Cai, and Justus Thies. Tech: Text-guided reconstruction of lifelike clothed humans. _arXiv preprint arXiv:2308.08545_, 2023.\n' +
+      '* [17] Andrew Jaegle, Sebastian Borgeaud, Jean-Baptiste Alayrac, Carl Doersch, Catalin Ionescu, David Ding, Skanda Koppula, Daniel Zoran, Andrew Brock, Evan Shelhamer, et al. Perceiver io: A general architecture for structured inputs & outputs. _arXiv preprint arXiv:2107.14795_, 2021.\n' +
+      '* [18] Yasamin Jafarian and Hyun Soo Park. Learning high fidelity depths of dressed humans by watching social media dance videos. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 12753-12762, 2021.\n' +
+      '* [19] Boyi Jiang, Juyong Zhang, Yang Hong, Jinhao Luo, Ligang Liu, and Hujun Bao. Bcnet: Learning body and cloth shape from a single image. In _Computer Vision-ECCV 2020: 16th European Conference, Glasgow, UK, August 23-28, 2020, Proceedings, Part XX 16_, pages 18-35. Springer, 2020.\n' +
+      '* [20] Angjoo Kanazawa, Michael J Black, David W Jacobs, and Jitendra Malik. End-to-end recovery of human shape and pose. In _Proceedings of the IEEE conference on computer vision and pattern recognition_, pages 7122-7131, 2018.\n' +
+      '* [21] Youngjoo Kwon, Dahun Kim, Duygu Ceylan, and Henry Fuchs. Neural human performer: Learning generalizable radiance fields for human performance rendering. _Advances in Neural Information Processing Systems_, 34:24741-24752, 2021.\n' +
+      '* [22] Zhihao Li, Jianzhuang Liu, Zhensong Zhang, Songcen Xu, and Youliang Yan. Cliff: Carrying location information in full frames into human pose and shape estimation. In _European Conference on Computer Vision_, pages 590-606. Springer, 2022.\n' +
+      '* [23] Matthew Loper, Naureen Mahmood, Javier Romero, Gerard Pons-Moll, and Michael J Black. Smpl: A skinned multi-person linear model. In _Seminal Graphics Papers: Pushing the Boundaries, Volume 2_, pages 851-866. 2023.\n' +
+      '* [24] Qianli Ma, Jinlong Yang, Anurag Ranjan, Sergi Pujades, Gerard Pons-Moll, Siyu Tang, and Michael J Black. Learning to dress 3d people in generative clothing. In _Proceedingsof the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 6469-6478, 2020.\n' +
+      '* [25] Ben Mildenhall, Pratul P Srinivasan, Matthew Tancik, Jonathan T Barron, Ravi Ramamoorthi, and Ren Ng. Nerf: Representing scenes as neural radiance fields for view synthesis. _Communications of the ACM_, 65(1):99-106, 2021.\n' +
+      '* [26] William Peebles and Saining Xie. Scalable diffusion models with transformers. In _Proceedings of the IEEE/CVF International Conference on Computer Vision_, pages 4195-4205, 2023.\n' +
+      '* [27] Gerard Pons-Moll, Sergi Pujades, Sonny Hu, and Michael J Black. Clothcap: Seamless 4d clothing capture and retargeting. _ACM Transactions on Graphics (ToG)_, 36(4):1-15, 2017.\n' +
+      '* [28] Rene Ranftl, Alexey Bochkovskiy, and Vladlen Koltun. Vision transformers for dense prediction. _CoRR_, abs/2103.13413, 2021.\n' +
+      '* [29] RenderPeople. Renderpeople, 2018.\n' +
+      '* [30] Olaf Ronneberger, Philipp Fischer, and Thomas Brox. U-net: Convolutional networks for biomedical image segmentation. In _Medical Image Computing and Computer-Assisted Intervention-MICCAI 2015: 18th International Conference, Munich, Germany, October 5-9, 2015, Proceedings, Part III 18_, pages 234-241. Springer, 2015.\n' +
+      '* [31] Shunsuke Saito, Zeng Huang, Ryota Natsume, Shigeo Morishima, Angjoo Kanazawa, and Hao Li. Pifu: Pixel-aligned implicit function for high-resolution clothed human digitization. In _Proceedings of the IEEE/CVF international conference on computer vision_, pages 2304-2314, 2019.\n' +
+      '* [32] Shunsuke Saito, Tomas Simon, Jason Saragih, and Hanbyul Joo. Pifuhd: Multi-level pixel-aligned implicit function for high-resolution 3d human digitization. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 84-93, 2020.\n' +
+      '* [33] Kaiyue Shen, Chen Guo, Manuel Kaufmann, Juan Zarate, Julien Valentin, Jie Song, and Otmar Hilliges. X-avatar: Expressive human avatars. _Computer Vision and Pattern Recognition (CVPR)_, 2023.\n' +
+      '* [34] Jiaming Song, Chenlin Meng, and Stefano Ermon. Denoising diffusion implicit models. _arXiv preprint arXiv:2010.02502_, 2020.\n' +
+      '* [35] Twindom. Twindom. 6\n' +
+      '* [36] Junying Wang, Jae Shin Yoon, Tuanfeng Y Wang, Krishna Kumar Singh, and Ulrich Neumann. Complete 3d human reconstruction from a single incomplete image. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 8748-8758, 2023.\n' +
+      '* [37] Chung-Yi Weng, Brian Curless, Pratul P Srinivasan, Jonathan T Barron, and Ira Kemelmacher-Shlizerman. Humannerf: Free-viewpoint rendering of moving people from monocular video. In _Proceedings of the IEEE/CVF conference on computer vision and pattern Recognition_, pages 16210-16220, 2022.\n' +
+      '* [38] Zhenzhen Weng, Kuan-Chieh Wang, Angjoo Kanazawa, and Serena Yeung. Domain adaptive 3d pose augmentation for in-the-wild human mesh recovery. In _2022 International Conference on 3D Vision (3DV)_, pages 261-270. IEEE, 2022.\n' +
+      '* [39] Zhenzhen Weng, Zeyu Wang, and Serena Yeung. Zeroavatar: Zero-shot 3d avatar generation from a single image. _arXiv preprint arXiv:2305.16411_, 2023.\n' +
+      '* [40] Yuliang Xiu, Jinlong Yang, Dimitrios Tzionas, and Michael J Black. Icon: Implicit clothed humans obtained from normals. In _2022 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_, pages 13286-13296. IEEE, 2022.\n' +
+      '* [41] Yuliang Xiu, Jinlong Yang, Xu Cao, Dimitrios Tzionas, and Michael J Black. Econ: Explicit clothed humans optimized via normal integration. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 512-523, 2023.\n' +
+      '* [42] Lior Yariv, Jiatao Gu, Yoni Kasten, and Yaron Lipman. Volume rendering of neural implicit surfaces. _Advances in Neural Information Processing Systems_, 34:4805-4815, 2021.\n' +
+      '* [43] Lior Yariv, Peter Hedman, Christian Reiser, Dor Verbin, Pratul P Srinivasan, Richard Szeliski, Jonathan T Barron, and Ben Mildenhall. Bakedsdf: Meshing neural sdfs for real-time view synthesis. _arXiv preprint arXiv:2302.14859_, 2023.\n' +
+      '* [44] Tao Yu, Zerong Zheng, Kaiwen Guo, Pengpeng Liu, Qionghai Dai, and Yebin Liu. Function4d: Real-time human volumetric capture from very sparse consumer rgbd sensors. In _IEEE Conference on Computer Vision and Pattern Recognition (CVPR2021)_, 2021.\n' +
+      '* [45] Xianggang Yu, Mutian Xu, Yidan Zhang, Haolin Liu, Chongjie Ye, Yushuang Wu, Zizheng Yan, Chenming Zhu, Zhangyang Xiong, Tianyou Liang, et al. Mvimgnet: A large-scale dataset of multi-view images. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 9150-9161, 2023.\n' +
+      '* [46] Hongwen Zhang, Yating Tian, Xinchi Zhou, Wanli Ouyang, Yebin Liu, Limin Wang, and Zhenan Sun. Pymaf: 3d human pose and shape regression with pyramidal mesh alignment feedback loop. In _Proceedings of the IEEE/CVF International Conference on Computer Vision_, pages 11446-11456, 2021.\n' +
+      '* [47] Richard Zhang, Phillip Isola, Alexei A Efros, Eli Shechtman, and Oliver Wang. The unreasonable effectiveness of deep features as a perceptual metric. In _Proceedings of the IEEE conference on computer vision and pattern recognition_, pages 586-595, 2018.\n' +
+      '* [48] Zerong Zheng, Tao Yu, Yixuan Wei, Qionghai Dai, and Yebin Liu. Deephuman: 3d human reconstruction from a single image. In _Proceedings of the IEEE/CVF International Conference on Computer Vision_, pages 7739-7749, 2019.\n' +
+      '* [49] Zerong Zheng, Tao Yu, Yebin Liu, and Qionghai Dai. Pamir: Parametric model-conditioned implicit representation for image-based human reconstruction. _IEEE transactions on pattern analysis and machine intelligence_, 44(6):3170-3184, 2021.\n' +
+      '* [50] Hao Zhu, Xinxin Zuo, Sen Wang, Xun Cao, and Ruigang Yang. Detailed human shape estimation from a single image by hierarchical mesh deformation. In _Proceedings of the IEEE/CVF conference on computer vision and pattern recognition_, pages 4491-4500, 2019.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:12]\n' +
+      '\n' +
+      '[MISSING_PAGE_EMPTY:13]\n' +
+      '\n' +
+      'Figure 11: Normal comparison to HDNet [18].\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
