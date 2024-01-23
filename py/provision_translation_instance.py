@@ -44,7 +44,7 @@ def parallel_job_split(i, client, arxiv_ids, args):
           'echo "Git commit & push"...',
           f'cd {os.path.normpath(args.target_archive_github_repo).split(os.sep)[1]}',
           f'git pull',
-          f'for arxiv_id in {arxiv_ids_str}; do mkdir -p {args.target_archive_dir}/$arxiv_id; cp ../papers/$arxiv_id/paper.ko.html ./{args.target_archive_dir}/$arxiv_id; done',
+          f'for arxiv_id in {arxiv_ids_str}; do mkdir -p {args.target_archive_dir}/$arxiv_id; cp ../papers/$arxiv_id/paper.ko.html ../papers/$arxiv_id/paper.en.html ./{args.target_archive_dir}/$arxiv_id; done',
           f'git config --global user.name "{args.github_realname}"',
           f'git config --global user.email "{args.github_email}"',
           'git add . ',
