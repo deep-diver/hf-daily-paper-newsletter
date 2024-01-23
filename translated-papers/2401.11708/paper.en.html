@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# Mastering Text-to-Image Diffusion:\n' +
+      '\n' +
+      'Recaptioning, Planning, and Generating with Multimodal LLMs\n' +
+      '\n' +
+      ' Ling Yang\n' +
+      '\n' +
+      'Equal contribution \\({}^{1}\\)Peking University, China \\({}^{2}\\)Stanford University, USA \\({}^{2}\\)Pika Labs, USA. Correspondence to: Ling Yang \\(<\\)yangling0818@163.com\\(>\\).\n' +
+      '\n' +
+      'Zhaochen Yu\n' +
+      '\n' +
+      'Equal contribution \\({}^{1}\\)Peking University, China \\({}^{2}\\)Stanford University, USA \\({}^{2}\\)Pika Labs, USA. Correspondence to: Ling Yang \\(<\\)yangling0818@163.com\\(>\\).\n' +
+      '\n' +
+      'Chenlin Meng\n' +
+      '\n' +
+      'Minkai Xu\n' +
+      '\n' +
+      'Stefano Ermon\n' +
+      '\n' +
+      'Bin Cui\n' +
+      '\n' +
+      '[https://github.com/YangLing0818/RPG-DiffusionMaster](https://github.com/YangLing0818/RPG-DiffusionMaster)\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      'Diffusion models have exhibit exceptional performance in text-to-image generation and editing. However, existing methods often face challenges when handling complex text prompts that involve multiple objects with multiple attributes and relationships. In this paper, we propose a brand new _training-free_ text-to-image generation/editing framework, namely _Recaption, Plan and Generate (RPG)_, harnessing the powerful chain-of-thought reasoning ability of multimodal LLMs to enhance the compositionality of text-to-image diffusion models. Our approach employs the MLLM as a global planner to decompose the process of generating complex images into multiple simpler generation tasks within subregions. We propose _complementary regional diffusion_ to enable region-wise compositional generation. Furthermore, we integrate text-guided image generation and editing within the proposed RPG in a closed-loop fashion, thereby enhancing generalization ability. Extensive experiments demonstrate our RPG outperforms state-of-the-art text-to-image diffusion models, including DALL-E 3 and SDXL, particularly in multi-category object composition and text-image semantic alignment. Notably, our RPG framework exhibits wide compatibility with various MLLM architectures (e.g., MiniGPT-4) and diffusion backbones (e.g., ControlNet). Our code is available at [https://github.com/YangLing0818/RPG-DiffusionMaster](https://github.com/YangLing0818/RPG-DiffusionMaster)\n' +
+      '\n' +
+      'Machine Learning, ICML\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      'Recent advancements in diffusion models (Sohl-Dickstein et al., 2015; Dhariwal and Nichol, 2021; Song et al., 2020; Yang et al., 2023c) have significantly improve the synthesis results of text-to-image models, such as Imagen (Sahara et al., 2022), DALL-E 2/3 (Ramesh et al., 2022; Betker et al., 2023) and SDXL (Podell et al., 2023). However, despite their remarkable capabilities in synthesizing realistic images consistent with text prompts, most diffusion models usually struggle to accurately follow some complex prompts (Feng et al., 2022; Lian et al., 2023; Liu et al., 2022; Bar-Tal et al., 2023), which require the model to compose objects with different attributes and relationships into a single image (Huang et al., 2023a).\n' +
+      '\n' +
+      'Some works begin to solve this problem by introducing additional layouts/boxes (Li et al., 2023b; Xie et al., 2023; Yang et al., 2023e; Qu et al., 2023; Chen et al., 2024; Wu et al., 2023b; Lian et al., 2023) as conditions or leveraging prompt-aware attention guidance (Feng et al., 2022; Chefer et al., 2023; Wang et al., 2023) to improve compositional text-to-image synthesis. For example, StructureDiffusion (Feng et al., 2022) incorporates linguistic structures into the guided generation process by manipulating cross-attention maps in diffusion models. GLIGEN (Li et al., 2023b) designs trainable gated self-attention layers to incorporate spatial inputs, such as bounding boxes, while freezing the weights of original diffusion model.\n' +
+      '\n' +
+      'Figure 1: Architecture comparison between (a) text-conditional diffusion models (Ramesh et al., 2022), (b) layout/attention-based diffusion models (Feng et al., 2022; Cao et al., 2023), (c) LLM-grounded diffusion models (Lian et al., 2023) and (d) our RPG.\n' +
+      '\n' +
+      'Figure 2: Compared to SDXL (Podell et al., 2023) and DALL-E 3 (Betker et al., 2023), our proposed RPG exhibits a superior ability to convey intricate and compositional text prompts within generated images (**colored text denotes critical part**).\n' +
+      '\n' +
+      'Figure 3: Our RPG framework can extend text-to-image generation with more conditions (e.g., pose, depth and canny edge) by utilizing ControlNet (Zhang et al., 2023). Compared to original ControlNet, RPG significantly improves its prompt understanding by decomposing “user input” into the combination of base prompt and subprompts, and further enhance its compositional semantic alignment of generated images by performing region-wise diffusion generation (in Section 2.2).\n' +
+      '\n' +
+      'Another potential solution is to leverage image understanding feedback (Huang et al., 2023; Xu et al., 2023; Sun et al., 2023; Fang et al., 2023) for refining diffusion generation. For instance, GORS (Huang et al., 2023) finetunes a pretrained text-to-image model with generated images that highly align with the compositional prompts, where the finetuning loss is weighted by the text-image alignment reward. Inspired by the reinforcement learning from human feedback (RLHF) (Ouyang et al., 2022; Stiennon et al., 2020) in natural language processing, ImageReward (Xu et al., 2023) builds a general-purpose reward model to improve text-to-image models in aligning with human preference.\n' +
+      '\n' +
+      'Despite some improvements achieved by these methods, there are still two main limitations in the context of compositional/complex image generation: (i) existing layout-based or attention-based methods can only provide rough and suboptimal spatial guidance, and struggle to deal with overlapped objects (Cao et al., 2023; Hertz et al., 2022; Lian et al., 2023) ; (ii) feedback-based methods require to collect high-quality feedback and incur additional training costs.\n' +
+      '\n' +
+      'To address these limitations, we introduce a new _training-free_ text-to-image generation/editing framework, namely _Recaption, Plan and Generate (RPG)_, unleashing the impressive multimodal reasoning ability of (multimodal) LLMs to enhance the compositionality and controllability of diffusion models. We propose three core strategies in RPG:\n' +
+      '\n' +
+      '**Multimodal Recaptioning.** We specialize in transforming text prompts into highly descriptive ones, offering informative augmented prompt comprehension and semantic alignment in diffusion models. We use LLMs to decompose the text prompt into distinct subprompts, and recaption them with more detailed descriptions. We use MLLMs to automatically recaption input image for identifying the semantic discrepancies between generated images and target prompt.\n' +
+      '\n' +
+      '**Chain-of-Thought Planning.** In a pioneering approach, we partition the image space into complementary subregions and assign different subprompts to each subregion, breaking down compositional generation tasks into multiple simpler subtasks. Thoughfully crafting task instructions and in-context examples, we harness the powerful chain-of-thought reasoning capabilities of MLLMs (Zhang et al., 2023) for efficient region division. By analyzing the recaptioned intermediate results, we generate detailed rationales and precise instructions for subsequent image compositions.\n' +
+      '\n' +
+      '**Complementary Regional Diffusion.** Based on the planned non-overlapping subregions and their respective prompts, we propose _complementary regional diffusion_ to enhance the flexibility and precision of compositional text-to-image generation. Specifically, we independently generate image content guided by subprompts within designated rectangle subregion, and subsequently merge them spatially in a _resize-and-concatenate_ approach. This region-specific diffusion effectively addresses the challenge of conflicting overlapped image contents. Furthermore, we extend this framework to accommodate editing tasks by employing contour-based regional diffusion, enabling precise manipulation of inconsistent regions targeted for modification.\n' +
+      '\n' +
+      'This new RPG framework can unify both text-guided image generation and editing tasks in a closed-loop fashion. We compare our RPG framework with previous work in Figure 1 and summarize our main contributions as follows:\n' +
+      '\n' +
+      '* We propose a new training-free text-to-image generation framework, namely _Recaption, Plan and Generate (RPG)_, to improve the composibility and controllability of diffusion models to the fullest extent.\n' +
+      '* RPG is the first to utilize MLLMs as both _multimodal recaptioner and CoT planner_ to reason out more informative instructions for steering diffusion models.\n' +
+      '* We propose _complementary regional diffusion_ to enable extreme collaboration with MLLMs for compositional image generation and precise image editing.\n' +
+      '* Our RPG framework is user-friendly, and can be generalized to different MLLM architectures (e.g., MiniGPT-4) and diffusion backbones (e.g., ControlNet).\n' +
+      '* Extensive qualitative and quantitative comparisons with previous SOTA methods, such as SDXL, DALL-E 3 and InstructPix2Pix, demonstrate our superior text-guided image generation/editing ability.\n' +
+      '\n' +
+      '## 2 Method\n' +
+      '\n' +
+      '### Overview of Proposed RPG\n' +
+      '\n' +
+      'In this section, we introduce our novel training-free framework - **R**ecaption, **P**lan and **G**enerate (**RPG**). We delineate three fundamental strategies of our RPG in text-to-image generation (Section 2.2), as depicted in Figure 4. Specifically, given a complex text prompt that includes multiple entities and relationships, we leverage (multimodal) LLMs to _recaption_ the prompt by decomposing it into a base prompt and highly descriptive subprompts. Subsequently, we utilize multimodal CoT planning to allocate the split (sub)prompts to complementary regions along the spatial axes. Building upon these assignments, we introduce _complementary regional diffusion_ to independently generate image latents and aggregate them in each sampling step.\n' +
+      '\n' +
+      'Our RPG framework exhibits versatility by extending its application to text-guided image editing with minimal adjustments, as exemplified in Section 2.3. For instance, in the recaptioning phase, we utilize MLLMs to analyze the paired target prompt and source image, which results in informative multimodal feedback that captures their cross-modal semantic discrepancies. In multimodal CoT planning, we generate a step-by-step edit plan and produce _precise contours_ for our regional diffusion. Furthermore, we demonstrate the ability to execute our RPG workflow in a closed-loop manner for progressive self-refinement, as showcased in Section 2.3. This approach combines precise contour-based editing with complementary regional diffusion generation.\n' +
+      '\n' +
+      '### Text-to-image Generation\n' +
+      '\n' +
+      'Prompt RecaptioningLet \\(y^{c}\\) be a complex user prompt which includes multiple entities with different attributes and relationships. We use MLLMs to identify the key phrases in \\(y^{c}\\) to obtain subopmpts denoted as:\n' +
+      '\n' +
+      '\\[\\{y^{i}\\}_{i=0}^{n}=\\{y^{0},y^{1},...,y^{n}\\}\\subseteq y^{c}, \\tag{1}\\]\n' +
+      '\n' +
+      'where \\(n\\) denotes the number of key phrases. Inspired by DALL-E 3 (Betker et al., 2023), which uses pre-trained **image-to-text** (I2T) caption models to generate descriptive prompts for images, and construct new datasets with high-quality image-text pairs. In contrast, we leverage the impressive language understanding and reasoning abilities of LLMs and use the LLM as the **text-to-text** (T2T) captioner to further _recaption_ each subprompt with more informative detailed descriptions:\n' +
+      '\n' +
+      '\\[\\{\\hat{y}^{0},\\hat{y}^{1},...,\\hat{y}^{n}\\}=\\text{Recaption}(\\{y^{i}\\}_{i=0}^{ n}). \\tag{2}\\]\n' +
+      '\n' +
+      'In this way, we can produce denser fine-grained details for each subprompt in order to effectively improve the fidelity of generated image, and reduce the semantic discrepancy between prompt and image.\n' +
+      '\n' +
+      'CoT Planning for Region DivisionBased on the recaptioned subprompts, we leverage the powerful multimodal chain-of-thought (CoT) reasoning ability of LLMs (Zhang et al., 2023) to plan the compositions of final image content for diffusion models. Concretely, we divide image space \\(H\\times W\\) into several _complementary regions_, and assign each augmented subprompt \\(\\hat{y}^{i}\\) to specific region \\(R^{i}\\):\n' +
+      '\n' +
+      '\\[\\{R^{i}\\}_{i=0}^{n}=\\{R^{0},R^{1},...,R^{n}\\}\\subseteq H\\times W, \\tag{3}\\]\n' +
+      '\n' +
+      'In order to produce meaningful and accurate subregions, we need to carefully specify two components for planning region divisions: (i) region parameters: we define that rows are separated by ";" and each column is denoted by a series of numbers separated by commas (e.g., "1,1,1"). To be specific, we first use ";" to split an image into different rows, then within each rows, we use commas to split a row into different regions. See Fig.2.2 for better comprehension; (ii) region-wise task specifications to instruct MLLMs: we utilize the CoT reasoning of MLLMs with some designed in-context examples to reason out the plan of region division. We here provide a simplified template of our instructions and in-context examples:\n' +
+      '\n' +
+      'Figure 4: Overview of our RPG framework for text-to-image generation.\n' +
+      '\n' +
+      'Figure 5: An illustrative example for region division.\n' +
+      '\n' +
+      'To facilitating inferring the region for each subprompt, we adhere to three key principles in designing in-context example and generating informative rationales: (i) the objects with same class name (e.g., five apples) will be separately assign to different regions to ensure the numeric accuracy; (ii) for complex interactions between two entities, we take these two entities as a whole to avoid contradictory overlapped generation results mentioned in (Lian et al., 2023); (iii) If the prompt focuses more on the appearance of a specific entity, we treat the different parts of this entity as different entities (e.g., A green hair twintail in red blouse, wearing blue skirt. \\(\\Longrightarrow\\) green hair twintail, red blouse, blue skirt).\n' +
+      '\n' +
+      'Complementary Regional DiffusionRecent works (Liu et al., 2022; Wang et al., 2023; Chefer et al., 2023; Feng et al., 2022) have adjusted cross-attention masks or layouts to facilitate compositional generation. However, these approaches predominantly rely on simply stacking latents, leading to conflicts and ambiguous results in overlapped regions. To address this issue, as depicted in Figure 6, we introduce a novel approach called complementary regional diffusion for region-wise generation and image composition. We extract non-overlapping complementary rectangular regions and apply a **resize-and-concatenate** post-processing step to achieve high-quality compositional generation. Additionally, we enhance coherence by combining the base prompt with recaptioned subprompts to reinforce the conjunction of each generated region and maintain overall image coherence (detailed ablation study in Section 4). This can be represented as:\n' +
+      '\n' +
+      '\\[\\mathbf{x}_{t-1}=\\text{CRD}(\\mathbf{x}_{t},y^{\\text{base}},\\{\\hat{y}^{i}\\}_{i=0}^{n}, \\{R_{i}\\}_{i=0}^{n},t,s), \\tag{4}\\]\n' +
+      '\n' +
+      'where \\(s\\) is a fixed random seed, CRD is the abbreviation for complementary regional diffusion.\n' +
+      '\n' +
+      'More concretely, we construct a prompt batch with base prompt \\(y^{\\text{base}}=y^{c}\\) and the recaptioned subprompts:\n' +
+      '\n' +
+      '\\[\\text{Prompt Batch:}\\quad\\{y^{\\text{base}},\\{\\hat{y}^{i}\\}_{i=0}^{n}\\}. \\tag{5}\\]\n' +
+      '\n' +
+      'Figure 6: The demonstration of each sampling step in our **Complementary Regional Diffusion**.\n' +
+      '\n' +
+      'Then, in each timestep, we deliver the prompt batch into the denoising network and manipulate the cross-attention layers to generate \\(n+1\\) different latents \\(\\{\\mathbf{z}^{i}_{t-1}\\}_{i=0}^{n}\\) in parallel as in Figure 6. This process can be formulated as:\n' +
+      '\n' +
+      '\\[\\mathbf{z}^{i}_{t-1}=\\text{Softmax}(\\frac{(W_{Q}\\cdot\\phi(z_{t}))(W_{K}\\cdot\\psi( \\hat{y}^{i}))^{T}}{\\sqrt{d}})W_{V}\\cdot\\psi(\\hat{y}^{i}), \\tag{6}\\]\n' +
+      '\n' +
+      'where image latent \\(\\mathbf{z}_{t}\\) is the query and each subprompt \\(y^{i}\\) works as a key and value. \\(W_{Q},W_{K},W_{V}\\) are linear projections and \\(d\\) is the latent projection dimension of the keys and queries. Then, we shall proceed with resizing and concatenating the generated regions \\(\\{\\mathbf{z}^{i}_{t-1}\\}_{i=0}^{n}\\), according to their assigned region numbers (from 0 to \\(n\\)) and respective proportions. Here we denoted each resized complementary hidden states as:\n' +
+      '\n' +
+      '\\[\\mathbf{z}^{i}_{t-1}(h,w)=\\text{Resize}(\\mathbf{z}^{i}_{t-1}), \\tag{7}\\]\n' +
+      '\n' +
+      'where \\(h,w\\) are the height and the width of the region. We directly concatenate them along the spatial axes:\n' +
+      '\n' +
+      '\\[\\mathbf{z}^{\\text{cat}}_{t-1}=\\text{Concatenate}(\\{\\mathbf{z}^{i}_{t-1}(h,w)\\}_{i=0}^ {n}). \\tag{8}\\]\n' +
+      '\n' +
+      'To ensure a coherent transition in the boundaries of different regions and a harmonious fusion between the background and the entities within each region, we use the weighted sum of the _base latents_\\(\\mathbf{z}^{\\text{base}}_{t-1}\\) and the _concatenated latent_\\(\\mathbf{z}^{\\text{cat}}_{t-1}\\) to produce the final denoising output:\n' +
+      '\n' +
+      '\\[\\mathbf{z}_{t-1}=\\beta*\\mathbf{z}^{\\text{base}}_{t-1}+(1-\\beta)*\\mathbf{z}^{\\text{cat}}_{t -1}. \\tag{9}\\]\n' +
+      '\n' +
+      'Here \\(\\beta\\) is used to achieve a suitable balance between human aesthetic perception and alignment with the complex text prompt of the generated image. It is worth noting that complementary regional diffusion can generalize to arbitrary diffusion backbones including SDXL (Podell et al., 2023), ConPreDiff (Yang et al., 2023b) and ControlNet (Zhang et al., 2023a), which will be evaluated in Section 3.1.\n' +
+      '\n' +
+      '### Text-Guided Image Editing\n' +
+      '\n' +
+      'Image RecaptioningOur RPG can also generalize to text-guided image editing tasks as illustrated in Figure 7. In recaptioning stage, RPG adopts MLLMs as a captioner to recaption the source image, and leverage its powerful reasoning ability to identify the fine-grained semantic discrepancies between the image and target prompt. We directly analyze how the input image \\(\\mathbf{x}\\) aligns with the target prompt \\(y^{\\text{tar}}\\). Specifically, we identify the key entities in \\(\\mathbf{x}\\) and \\(y^{\\text{tar}}\\):\n' +
+      '\n' +
+      '\\[\\begin{split}\\{y^{i}\\}_{i=0}^{n}&=\\{y^{0},y^{1},...,y^{n}\\}\\subseteq y^{\\text{tar}},\\\\ \\{e^{i}\\}_{i=0}^{m}&=\\{e^{0},e^{1},...,e^{m}\\} \\subseteq\\text{Recaption}(\\mathbf{x}),\\end{split} \\tag{10}\\]\n' +
+      '\n' +
+      'Then we utilize MLLMs (e.g., GPT4 (OpenAI, 2023), Gemini Pro (Team et al., 2023)) to check the differences between \\(\\{y^{i}\\}_{i=0}^{n}\\) and \\(\\{e^{i}\\}_{i=0}^{m}\\) regarding numeric accuracy, attribute binding and object relationships. The resulting multimodal understanding feedback would be delivered to MLLMs for reason out editing plans.\n' +
+      '\n' +
+      'Figure 7: RPG unifies text-guided image generation and editing in a closed-loop approach.\n' +
+      '\n' +
+      'CoT Planning for EditingBased on the captured semantic discrepancies between prompt and image, RPG triggers the CoT reasoning ability of MLLMs with high-quality filtered in-context examples, which involves manually designed step-by-step editing cases such as entity missing/redundancy, attribute mismatch, ambiguous relationships. Here, in our RPG, we introduce three main edit operations for dealing with these issues: addition \\(\\text{Add}()\\), deletion \\(\\text{Del}()\\), modification \\(\\text{Mod}()\\). Take the multimodal feedback as the grounding context, RPG plans out a series of editing instructions. An example \\(\\text{Plan}(y^{\\text{tar}},\\mathbf{x})\\) can be denoted as a composed operation list:\n' +
+      '\n' +
+      '\\[\\{\\text{Del}(y^{i},\\mathbf{x}),\\cdots,\\text{Add}(y^{j},\\mathbf{x}),\\cdots,\\text{Mod}(y^ {k},\\mathbf{x})\\}, \\tag{11}\\]\n' +
+      '\n' +
+      'where \\(i,j,k<=n,\\text{length}(\\text{Plan}(y^{\\text{tar}},x^{0}))=L\\). In this way, we are able to decompose original complex editing task into simpler editing tasks for more accurate results.\n' +
+      '\n' +
+      'Contour-based Regional DiffusionTo collaborate more effectively with CoT-planned editing instructions, we generalize our complementary regional diffusion to text-guided editing. We locate and mask the target contour associated with the editing instruction (Kirillov et al., 2023), and apply diffusion-based inpainting (Rombach et al., 2022) to edit the target contour region according to the planned operation list \\(\\text{Plan}(y^{\\text{tar}},\\mathbf{x})\\). Compared to traditional methods that utilize cross-attention map swap or replacement (Hertz et al., 2022; Cao et al., 2023) for editing, our **mask-and-inpainting** method powered by CoT planning enables more accurate and complex editing operations (i.e., addition, deletion and modification).\n' +
+      '\n' +
+      'Multi-Round Editing for Closed-Loop RefinementOur text-guided image editing workflow is adaptable for a closed-loop self-refined text-to-image generation, which combines the contour-based editing with complementary regional diffusion generation. We could conduct multi-round closed-loop RPG workflow controlled by MLLMs to progressively refine the generated image for aligning closely with the target text prompt. Considering the time efficiency, we set a maximum number of rounds to avoid being trapped in the closed-loop procedure. Based on this closed-loop paradigm, we can unify text-guided generation and editing in our RPG, providing more practical framework for the community.\n' +
+      '\n' +
+      '## 3 Experiments\n' +
+      '\n' +
+      '### Text-to-Image Generation\n' +
+      '\n' +
+      'Implementation DetailsOur RPG is general and extensible, we can incorporate arbitrary MLLM architectures and diffusion backbones into the framework. In our experi\n' +
+      '\n' +
+      'Figure 8: Qualitative comparison between our RPG and SOTA text-to-image models (SDXL (Podell et al., 2023) and DALL-E 3 (Betker et al., 2023)), and LLM-grounded diffusion model LMD+ (Lian et al., 2023).\n' +
+      '\n' +
+      'ment, we choose GPT-4 (OpenAI, 2023) as the recaptioner and CoT planner, and use SDXL (Podell et al., 2023) as the base diffusion backbone to build our RPG framework. Concretely, in order to trigger the CoT planning ability of MLLMs, we carefully design task-aware template and high-quality in-context examples to conduct few-shot prompting. _Base prompt_ and its weighted hyperparameter _base ratio_ are critical in our regional diffusion, we have provide further analysis in Figure 15. When the user prompt includes the entities with same class (e.g., two women, four boys), we need to set higher base ratio to highlight these distinct identities. On the contrary, when user prompt includes the the entities with different class name (e.g., ceramic vase and glass vase), we need lower base ratio to avoid the confusion between the base prompt and subprompts.\n' +
+      '\n' +
+      'Main ResultsWe compare with previous SOTA text-to-image models DALL-E 3 (Betker et al., 2023), SDXL and LMD+ (Lian et al., 2023) in three main compositional scenarios: **(i) Attribute Binding**. Each text prompt in this scenario has multiple attributes that bind to different entities. **(ii) Numeric Accuracy**. Each text prompt in this scenario has multiple entities sharing the same class name, the number of each entity should be greater than or equal to two. **(iii) Complex Relationship**. Each text prompt in this scenario has multiple entities with different attributes and relationships (e.g., spatial and non-spational). As demonstrated in Table 1, our RPG is significantly superior to previous models in all three scenarios, and achieves remarkable level of both fidelity and precision in aligning with text prompt. We observe that SDXL and DALL-E 3 have poor generation performance regarding numeric accuracy and complex relationship. In contrast, our RPG can effectively plan out precise number of subregions, and utilize proposed complementary regional diffusion to accomplish compositional generation. Compared to LMD+ (Lian et al., 2023), a LLM-grounded layout-based text-to-image diffusion model, our\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c c} \\hline \\hline \\multirow{2}{*}{**Model**} & \\multicolumn{3}{c}{**Attribute Binding**} & \\multicolumn{3}{c}{**Object Relationship**} & \\multirow{2}{*}{**Complex\\(\\uparrow\\)**} \\\\ \\cline{2-2} \\cline{5-6}  & **Color**\\(\\uparrow\\) & **Shape\\(\\uparrow\\)** & **Texture\\(\\uparrow\\)** & **Spatial\\(\\uparrow\\)** & **Non-Spatial\\(\\uparrow\\)** \\\\ \\hline Stable Diffusion v1.4 (Rombach et al., 2022) & 0.3765 & 0.3576 & 0.4156 & 0.1246 & 0.3079 & 0.3080 \\\\ Stable Diffusion v2 (Rombach et al., 2022) & 0.5065 & 0.4221 & 0.4922 & 0.1342 & 0.3096 & 0.3386 \\\\ Composable Diffusion (Liu et al., 2022) & 0.4063 & 0.3299 & 0.3645 & 0.0800 & 0.2980 & 0.2898 \\\\ Structured Diffusion (Feng et al., 2022) & 0.4990 & 0.4218 & 0.4900 & 0.1386 & 0.3111 & 0.3355 \\\\ Attn-Ext v2 (Chefer et al., 2023) & 0.6400 & 0.4517 & 0.5963 & 0.1455 & 0.3109 & 0.3401 \\\\ GORS (Huang et al., 2023a) & 0.6603 & 0.4785 & 0.6287 & 0.1815 & 0.3193 & 0.3328 \\\\ DALL-E 2 (Ramesh et al., 2022) & 0.5750 & 0.5464 & 0.6374 & 0.1283 & 0.3043 & 0.3696 \\\\ SDXL (Betker et al., 2023) & 0.6369 & 0.5408 & 0.5637 & 0.2032 & 0.3110 & 0.4091 \\\\ PixArt-\\(\\alpha\\)(Chen et al., 2023a) & 0.6886 & 0.5582 & 0.7044 & 0.2082 & 0.3179 & 0.4117 \\\\ ConPreDiff (Yang et al., 2023b) & 0.7019 & 0.5637 & 0.7021 & 0.2362 & 0.3195 & 0.4184 \\\\ \\hline\n' +
+      '**RPG (Ours)** & 0.8335 & 0.6801 & 0.8129 & 0.4547 & 0.3462 & 0.5408 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 1: Evaluation results on T2I-CompBench. RPG consistently demonstrates best performance regarding attribute binding, object relationships, and complex compositions. We denote the best score in \\(\\overline{\\text{blue}}\\), and the second-best score in green. The baseline data is quoted from Chen et al. (2023a).\n' +
+      '\n' +
+      'Figure 9: Demonstration of our hierarchical regional diffusion. Diffusion with more hierarchies can produce more satisfying results.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:10]\n' +
+      '\n' +
+      'InstructPix2Pix (Brooks et al., 2023) and MasaCtrl (Cao et al., 2023). Prompt2Prompt and MasaCtrl conduct editing mainly through text-grounded cross-attention swap or replacement, InstructPix2Pix aims to learn a model that can follow human instructions. As presented in Figure 11, RPG produces more precise editing results than previous methods, and our mask-and-inpainting editing strategy can also perfectly preserve the semantic structure of source image.\n' +
+      '\n' +
+      'Multi-Round EditingWe conduct multi-round editing to evaluate the self-refinement with our RPG framework in Figure 12. We conclude that the self-refinement based on RPG can significantly improve precision, demonstrating the effectiveness of our recaptioning-based multimodal feedback and CoT planning. We also find that RPG is able to achieve satisfying editing results within 3 rounds.\n' +
+      '\n' +
+      '## 4 Model Analysis\n' +
+      '\n' +
+      'Effect of RecaptioningWe conduct ablation study about the recaptioning, and show the result in Figure 13. From the result, we observe that without recaptioning, the model tends to ignore some key words in the generated images. Our recaptioning can describe these key words with high-informative and denser details, thus generating more delicate and precise images.\n' +
+      '\n' +
+      'Effect of CoT PlanningIn the ablation study about CoT planning, as demonstrated in Figure 14, we observe that the model without CoT planning fail to parse and convey complex relationships from text prompt. In contrast, our CoT planning can help the model better identify fine-grained attributes and relationships from text prompt, and express them through a more realistic planned composition.\n' +
+      '\n' +
+      'Effect of Base PromptIn RPG, we leverage the generated latent from base prompt in diffusion models to improve the coherence of image compositions. Here we conduct more analysis on it in Figure 15. From the results, we find that the proper ratio of base prompt can benefit the conjunction of different subregions, enabling more natural composition. Another finding is that excessive base ratio may result in undesirable results because of the confusion between the base prompt and regional prompt.\n' +
+      '\n' +
+      'Figure 12: Multi-round text-guided image editing with our RPG framework.\n' +
+      '\n' +
+      'Figure 13: Ablation study of recaptioning in RPG.\n' +
+      '\n' +
+      '## 5 Related Work\n' +
+      '\n' +
+      'Text-Guided Diffusion ModelsDiffusion models (Sohl-Dickstein et al., 2015; Song and Ermon, 2019; Ho et al., 2020; Song and Ermon, 2020; Song et al., 2020) are a promising class of generative models, and Dhariwal and Nichol (2021) have demonstrated the superior image synthesis quality of diffusion model over generative adversarial networks (GANs) (Reed et al., 2016; Creswell et al., 2018). GLIDE (Nichol et al., 2021) and Imagen (Saharia et al., 2022) focus on the text-guided image synthesis, leveraging pre-trained CLIP model (Radford et al., 2021; Raffel et al., 2020) in the image sampling process to improve the semantic alignment between text prompt and generated image. Latent Diffusion Models (LDMs) (Rombach et al., 2022) move the diffusion process from pixel space to latent space for balancing algorithm efficiency and image quality. Recent advancements in text-to-image diffusion models, such as SDXL (Podell et al., 2023) Dreambooth (Ruiz et al., 2023) and DALL-E 3 (Betker et al., 2023), further improve both quality and alignment from different perspectives. Despite their tremendous success, generating high-fidelity images with complex prompt is still challenging (Ramesh et al., 2022; Betker et al., 2023; Huang et al., 2023a). This problem is exacerbated when dealing with compositional descriptions involving spatial relationships, attribute binding and numeric awareness. In this paper, we aim to address this issue by incorporating the powerful CoT reasoning ability of MLLMs into text-to-image diffusion models.\n' +
+      '\n' +
+      'Compositional Diffusion GenerationRecent researches aim to improve compositional ability of text-to-image diffusion models. Some approaches mainly introduce additional modules into diffusion models in training (Li et al., 2023; Avrahami et al., 2023; Zhang et al., 2023a; Mou et al., 2023; Yang et al., 2023; Huang et al., 2023b;a). For example, GLIGEN (Li et al., 2023b) and ReCo (Yang et al., 2023e) design position-aware adapters on top of the diffusion models for spatially-conditioned image generation. T2I-Adapter and ControlNet (Zhang et al., 2023a; Mou et al., 2023) specify some high-level features of images for controlling semantic structures (Zhang et al., 2023b). These methods, however, result in additional training and inference costs. Training-free methods aim to steer diffusion models through manipulating latent or cross-attention maps according to spatial or semantic constraints during inference stages (Feng et al., 2022; Liu et al., 2022; Hertz et al., 2022; Cao et al., 2023; Chen et al., 2024; Chefer et al., 2023). Composable Diffusion (Liu et al., 2022) decomposes a compositional prompt into smaller sub-prompts to generate distinct latents and combines them with a score function. Chen et al. (2024) and Lian et al. (2023) utilize the bounding boxes (layouts) to propagate gradients back to the latent and enable the model to manipulate the cross-attention maps towards specific regions. Other methods apply Gaussian kernels (Chefer et al., 2023) or incorporate linguistic features (Feng et al., 2022; Rassin et al., 2023) to manipulate the cross-attention maps. Nevertheless, such manipulation-based methods can only make rough controls, and often lead to unsatisfied compositional generation results, especially when dealing with overlapped objects (Lian et al., 2023; Cao et al., 2023). Hence, we introduce an effective _training-free complementary regional diffusion model_, grounded by MLLMs, to progressively refine image compositions with more precise control in the sampling process.\n' +
+      '\n' +
+      'Figure 14: Ablation study of CoT planning in RPG.\n' +
+      '\n' +
+      'Figure 15: Ablation study of base prompt in complementary regional diffusion.\n' +
+      '\n' +
+      '**Multimodal LLMs for Image Generation** Large Language Models (LLMs) (ChatGPT, 2022; Chung et al., 2022; Zhang et al., 2022; Iyer et al., 2022; Workshop et al., 2022; Muennighoff et al., 2022; Zeng et al., 2022; Taylor et al., 2022; Chowdhery et al., 2023; Chen et al., 2023b; Zhu et al., 2023; Touvron et al., 2023; Yang et al., 2023a; Li et al., 2023a) have profoundly impacted the AI community. Leading examples like ChatGPT (ChatGPT, 2022) have showcased the advanced language comprehension and reasoning skills through techniques such as instruction tuning (Ouyang et al., 2022; Li et al., 2023c; Zhang et al., 2023c; Liu et al., 2023). Further, Multimodal Large language Models (MLLMs), (Koh et al., 2023; Yu et al., 2023; Sun et al., 2023b; Dong et al., 2023; Fu et al., 2023; Pan et al., 2023; Wu et al., 2023a; Zou et al., 2023; Yang et al., 2023d; Gupta & Kembhavi, 2023; Suris et al., 2023) integrate LLMs with vision models to extend their impressive abilities from language tasks to vision tasks, including image understanding, reasoning and synthesis. The collaboration between LLMs (ChatGPT, 2022; OpenAI, 2023) and diffusion models (Ramesh et al., 2022; Betker et al., 2023) can significantly improve the text-image alignment as well as the quality of generated images (Yu et al., 2023; Chen et al., 2023b; Dong et al., 2023; Wu et al., 2023b; Feng et al., 2023; Pan et al., 2023). For instance, GILL (Koh et al., 2023) can condition on arbitrarily interleaved image and text inputs to synthesize coherent image outputs, and Emu (Sun et al., 2023b) stands out as a generalist multi-modal interface for both image-to-text and text-to-image tasks. Recently, LMD (Lian et al., 2023) utilizes LLMs to enhance the compositional generation of diffusion models by generating images grounded on bounding box layouts from the LLM (Li et al., 2023b). However, existing works mainly incorporate the LLM as a simple plug-in component into diffusion models, or simply take the LLM as a layout generator to control image compositions. In contrast, we utilize MLLMs to plan out image compositions for diffusion models where MLLMs serves as a global task planner in both _region-based_ generation and editing process.\n' +
+      '\n' +
+      '## 6 Conclusion\n' +
+      '\n' +
+      'In this paper, aiming to address the challenges of complex or compositional text-to-image generation, we propose a SOTA training-free framework RPG, harnessing MLLMs to master diffusion models. In RPG, we propose complementary regional diffusion models to collaborate with our designed MLLM-based recaptioner and planner. Furthermore, our RPG can unify text-guided imgae generation and editing in a closed-loop approach, and is capable of generalizing to any MLLM architectures and diffusion backbones. For future work, we will continue to improve this new framework for incorporating more complex modalities as input condition, and extend it to more realistic applications.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* A. Avraham, T. Hayes, O. Gafni, S. Gupta, Y. Taigman, D. Parikh, D. Lischinski, D. Fried, O. Yin, and X. Yin (2023)Spatio-textual representation for controllable image generation. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pp. 18370-18380. Cited by: SS1.\n' +
+      '* O. Bar-Tal, L. Yariv, Y. Lipman, and T. Dekel (2023)Multi-diffusion: fusing diffusion paths for controlled image generation. arXiv preprint arXiv:2302.08113. Cited by: SS1.\n' +
+      '* J. Betker, G. Goh, L. Jing, T. Brooks, J. Wang, L. Li, L. Ouyang, J. Zhuang, J. Lee, Y. Guo, et al. (2023)Improving image generation with better captions. Computer Science. https://cdn. openai. com/papers/dall-e-3. pdf. Cited by: SS1.\n' +
+      '* T. Brooks, A. Holsrski, and A. A. Efros (2023)Instructpix2pix: learning to follow image editing instructions. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pp. 18392-18402. Cited by: SS1.\n' +
+      '* M. Cao, X. Wang, Z. Qi, Y. Shan, X. Xie, and Y. Zheng (2023)Masactrl: tuning-free mutual self-attention control for consistent image synthesis and editing. arXiv preprint arXiv:2304.08465. Cited by: SS1.\n' +
+      '* I. ChatGPT (2022)Introducing chatgpt. Cited by: SS1.\n' +
+      '* H. Chefer, Y. Alaluf, Y. Vinker, L. Wolf, and D. Cohen-Or (2023)Attend-and-excite: attention-based semantic guidance for text-to-image diffusion models. ACM Transactions on Graphics (TOG)42 (4), pp. 1-10. Cited by: SS1.\n' +
+      '* J. Chen, J. Yu, C. Ge, L. Yao, E. Xie, Y. Wu, Z. Wang, J. Kwok, P. Luo, H. Lu, et al. (2023)Pixart-alpha: fast training of diffusion transformer for photorealistic text-to-image synthesis. arXiv preprint arXiv:2310.00426. Cited by: SS1.\n' +
+      '* M. Chen, I. Laina, and A. Vedaldi (2024)Training-free layout control with cross-attention guidance. In Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision, pp. 5343-5353. Cited by: SS1.\n' +
+      '* W. Chen, I. Spiridonova, J. Yang, J. Gao, and C. Li (2023)Llava-interactive: an all-in-one demo for image chat, segmentation, generation and editing. arXiv preprint arXiv:2311.00571. Cited by: SS1.\n' +
+      '* A. Chowdhery, S. Narang, J. Devlin, M. Bosma, G. Mishra, A. Roberts, P. Barham, H. W. Chung, C. Sutton, S. Gehrmann, et al. (2023)Palm: scaling language modeling with pathways. Journal of Machine Learning Research24 (240), pp. 1-113. Cited by: SS1.\n' +
+      'Creswell, A., White, T., Dumoulin, V., Arulkumaran, K., Sengupta, B., and Bharath, A. A. Generative adversarial networks: An overview. _IEEE signal processing magazine_, 35(1):53-65, 2018.\n' +
+      '* Dhariwal and Nichol (2021) Dhariwal, P. and Nichol, A. Diffusion models beat gans on image synthesis. _Advances in neural information processing systems_, 34:8780-8794, 2021.\n' +
+      '* Dong et al. (2023) Dong, R., Han, C., Peng, Y., Qi, Z., Ge, Z., Yang, J., Zhao, L., Sun, J., Zhou, H., Wei, H., et al. Dreamllm: Synergistic multimodal comprehension and creation. _arXiv preprint arXiv:2309.11499_, 2023.\n' +
+      '* Fang et al. (2023) Fang, G., Jiang, Z., Han, J., Lu, G., Xu, H., and Liang, X. Boosting text-to-image diffusion models with fine-grained semantic rewards. _arXiv preprint arXiv:2305.19599_, 2023.\n' +
+      '* Feng et al. (2022) Feng, W., He, X., Fu, T.-J., Jampani, V., Akula, A. R., Narayana, P., Basu, S., Wang, X. E., and Wang, W. Y. Training-free structured diffusion guidance for compositional text-to-image synthesis. In _The Eleventh International Conference on Learning Representations_, 2022.\n' +
+      '* Feng et al. (2023) Feng, W., Zhu, W., Fu, T.-j., Jampani, V., Akula, A., He, X., Basu, S., Wang, X. E., and Wang, W. Y. Layout-gpt: Compositional visual planning and generation with large language models. _arXiv preprint arXiv:2305.15393_, 2023.\n' +
+      '* Fu et al. (2023) Fu, T.-J., Hu, W., Du, X., Wang, W. Y., Yang, Y., and Gan, Z. Guiding instruction-based image editing via multimodal large language models. _arXiv preprint arXiv:2309.17102_, 2023.\n' +
+      '* Gupta and Kembhavi (2023) Gupta, T. and Kembhavi, A. Visual programming: Compositional visual reasoning without training. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pp. 14953-14962, 2023.\n' +
+      '* Hertz et al. (2022) Hertz, A., Mokady, R., Tenenbaum, J., Aherman, K., Pritch, Y., and Cohen-Or, D. Prompt-to-prompt image editing with cross attention control. _arXiv preprint arXiv:2208.01626_, 2022.\n' +
+      '* Ho et al. (2020) Ho, J., Jain, A., and Abbeel, P. Denoising diffusion probabilistic models. _Advances in neural information processing systems_, 33:6840-6851, 2020.\n' +
+      '* Huang et al. (2023a) Huang, K., Sun, K., Xie, E., Li, Z., and Liu, X. T2i-compbench: A comprehensive benchmark for open-world compositional text-to-image generation. _arXiv preprint arXiv:2307.06350_, 2023a.\n' +
+      '* Huang et al. (2023b) Huang, L., Chen, D., Liu, Y., Shen, Y., Zhao, D., and Zhou, J. Composer: Creative and controllable image synthesis with composable conditions. _arXiv preprint arXiv:2302.09778_, 2023b.\n' +
+      '* Iyer et al. (2022) Iyer, S., Lin, X. V., Pasunuru, R., Mihaylov, T., Simig, D., Yu, P., Shuster, K., Wang, T., Liu, Q., Koura, P. S., et al. Opt-impl: Scaling language model instruction meta learning through the lens of generalization. _arXiv preprint arXiv:2212.12017_, 2022.\n' +
+      '* Kirillov et al. (2023) Kirillov, A., Mintun, E., Ravi, N., Mao, H., Rolland, C., Gustafson, L., Xiao, T., Whitehead, S., Berg, A. C., Lo, W.-Y., et al. Segment anything. _arXiv preprint arXiv:2304.02643_, 2023.\n' +
+      '* Koh et al. (2023) Koh, J. Y., Fried, D., and Salakhutdinov, R. Generating images with multimodal language models. _arXiv preprint arXiv:2305.17216_, 2023.\n' +
+      '* Li et al. (2023) Li, J., Li, D., Savarese, S., and Hoi, S. Blip-2: Bootstrapping language-image pre-training with frozen image encoders and large language models. _arXiv preprint arXiv:2301.12597_, 2023a.\n' +
+      '* Li et al. (2023) Li, Y., Liu, H., Wu, Q., Mu, F., Yang, J., Gao, J., Li, C., and Lee, Y. J. Gligen: Open-set grounded text-to-image generation. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pp. 22511-22521, 2023b.\n' +
+      '* Li et al. (2023c) Li, Y., Zhang, C., Yu, G., Wang, Z., Fu, B., Lin, G., Shen, C., Chen, L., and Wei, Y. Stablellava: Enhanced visual instruction tuning with synthesized image-dialogue data. _arXiv preprint arXiv:2308.10253_, 2023c.\n' +
+      '* Lian et al. (2023) Lian, L., Li, B., Yala, A., and Darrell, T. Llm-grounded diffusion: Enhancing prompt understanding of text-to-image diffusion models with large language models. _arXiv preprint arXiv:2305.13655_, 2023.\n' +
+      '* Liu et al. (2023) Liu, H., Li, C., Wu, Q., and Lee, Y. J. Visual instruction tuning. _arXiv preprint arXiv:2304.08485_, 2023.\n' +
+      '* Liu et al. (2022) Liu, N., Li, S., Du, Y., Torralba, A., and Tenenbaum, J. B. Compositional visual generation with composable diffusion models. In _European Conference on Computer Vision_, pp. 423-439. Springer, 2022.\n' +
+      '* Mou et al. (2023) Mou, C., Wang, X., Xie, L., Zhang, J., Qi, Z., Shan, Y., and Qie, X. T2i-adapter: Learning adapters to dig out more controllable ability for text-to-image diffusion models. _arXiv preprint arXiv:2302.08453_, 2023.\n' +
+      '* Muennighoff et al. (2022) Muennighoff, N., Wang, T., Sutawika, L., Roberts, A., Biderman, S., Scao, T. L., Bari, M. S., Shen, S., Yong, Z.-X., Schoelkopf, H., et al. Crosslingual generalization through multitask finetuning. _arXiv preprint arXiv:2211.01786_, 2022.\n' +
+      '* Nichol et al. (2022) Nichol, A., Dhariwal, P., Ramesh, A., Shyam, P., Mishkin, P., McGrew, B., Sutskever, I., and Chen, M. Glide: Towards photorealistic image generation and editingwith text-guided diffusion models. _arXiv preprint arXiv:2112.10741_, 2021.\n' +
+      '* OpenAI (2023) OpenAI, R. Gpt-4 technical report. arxiv 2303.08774. _View in Article_, 2:3, 2023.\n' +
+      '* Ouyang et al. (2022) Ouyang, L., Wu, J., Jiang, X., Almeida, D., Wainwright, C., Mishkin, P., Zhang, C., Agarwal, S., Slama, K., Ray, A., et al. Training language models to follow instructions with human feedback. _Advances in Neural Information Processing Systems_, 35:27730-27744, 2022.\n' +
+      '* Pan et al. (2023) Pan, X., Dong, L., Huang, S., Peng, Z., Chen, W., and Wei, F. Kosmos-g: Generating images in context with multimodal large language models. _arXiv preprint arXiv:2310.02992_, 2023.\n' +
+      '* Podell et al. (2023) Podell, D., English, Z., Lacey, K., Blattmann, A., Dockhorn, T., Muller, J., Penna, J., and Rombach, R. Sdxl: Improving latent diffusion models for high-resolution image synthesis. _arXiv preprint arXiv:2307.01952_, 2023.\n' +
+      '* Qu et al. (2023) Qu, L., Wu, S., Fei, H., Nie, L., and Chua, T.-S. Layoutllm-t2i: Eliciting layout guidance from llm for text-to-image generation. In _Proceedings of the 31st ACM International Conference on Multimedia_, pp. 643-654, 2023.\n' +
+      '* Radford et al. (2021) Radford, A., Kim, J. W., Hallacy, C., Ramesh, A., Goh, G., Agarwal, S., Sastry, G., Askell, A., Mishkin, P., Clark, J., et al. Learning transferable visual models from natural language supervision. In _International conference on machine learning_, pp. 8748-8763. PMLR, 2021.\n' +
+      '* Raffel et al. (2020) Raffel, C., Shazeer, N., Roberts, A., Lee, K., Narang, S., Matena, M., Zhou, Y., Li, W., and Liu, P. J. Exploring the limits of transfer learning with a unified text-to-text transformer. _The Journal of Machine Learning Research_, 21(1):5485-5551, 2020.\n' +
+      '* Ramesh et al. (2022) Ramesh, A., Dhariwal, P., Nichol, A., Chu, C., and Chen, M. Hierarchical text-conditional image generation with clip latents. _arXiv preprint arXiv:2204.06125_, 1(2):3, 2022.\n' +
+      '* Rassin et al. (2023) Rassin, R., Hirsch, E., Glickman, D., Ravfogel, S., Goldberg, Y., and Chechik, G. Linguistic binding in diffusion models: Enhancing attribute correspondence through attention map alignment. _arXiv preprint arXiv:2306.08877_, 2023.\n' +
+      '* Reed et al. (2016) Reed, S., Akata, Z., Yan, X., Logeswaran, L., Schiele, B., and Lee, H. Generative adversarial text to image synthesis. In _International conference on machine learning_, pp. 1060-1069. PMLR, 2016.\n' +
+      '* Rombach et al. (2022) Rombach, R., Blattmann, A., Lorenz, D., Esser, P., and Ommer, B. High-resolution image synthesis with latent diffusion models. In _Proceedings of the IEEE/CVF conference on computer vision and pattern recognition_, pp. 10684-10695, 2022.\n' +
+      '* Ruiz et al. (2023) Ruiz, N., Li, Y., Jampani, V., Pritch, Y., Rubinstein, M., and Aberman, K. Dreambooth: Fine tuning text-to-image diffusion models for subject-driven generation. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pp. 22500-22510, 2023.\n' +
+      '* Saharia et al. (2022) Saharia, C., Chan, W., Saxena, S., Li, L., Whang, J., Denton, E. L., Ghasemipour, K., Gontijo Lopes, R., Karagol Ayan, B., Salimans, T., et al. Photorealistic text-to-image diffusion models with deep language understanding. _Advances in Neural Information Processing Systems_, 35:36479-36494, 2022.\n' +
+      '* Sohl-Dickstein et al. (2015) Sohl-Dickstein, J., Weiss, E., Maheswaranathan, N., and Ganguli, S. Deep unsupervised learning using nonequilibrium thermodynamics. In _International conference on machine learning_, pp. 2256-2265. PMLR, 2015.\n' +
+      '* Song & Ermon (2019) Song, Y. and Ermon, S. Generative modeling by estimating gradients of the data distribution. _Advances in neural information processing systems_, 32, 2019.\n' +
+      '* Song & Ermon (2020) Song, Y. and Ermon, S. Improved techniques for training score-based generative models. _Advances in neural information processing systems_, 33:12438-12448, 2020.\n' +
+      '* Song et al. (2020) Song, Y., Sohl-Dickstein, J., Kingma, D. P., Kumar, A., Ermon, S., and Poole, B. Score-based generative modeling through stochastic differential equations. _arXiv preprint arXiv:2011.13456_, 2020.\n' +
+      '* Stiennon et al. (2020) Stiennon, N., Ouyang, L., Wu, J., Ziegler, D., Lowe, R., Voss, C., Radford, A., Amodei, D., and Christiano, P. F. Learning to summarize with human feedback. _Advances in Neural Information Processing Systems_, 33:3008-3021, 2020.\n' +
+      '* Sun et al. (2023a) Sun, J., Fu, D., Hu, Y., Wang, S., Rassin, R., Juan, D.-C., Alon, D., Herrmann, C., van Steenkiste, S., Krishna, R., et al. Dreamsync: Aligning text-to-image generation with image understanding feedback. _arXiv preprint arXiv:2311.17946_, 2023a.\n' +
+      '* Sun et al. (2023b) Sun, Q., Yu, Q., Cui, Y., Zhang, F., Zhang, X., Wang, Y., Gao, H., Liu, J., Huang, T., and Wang, X. Generative pretraining in multimodality. _arXiv preprint arXiv:2307.05222_, 2023b.\n' +
+      '* Suris et al. (2023) Suris, D., Menon, S., and Vondrick, C. Vipergpt: Visual inference via python execution for reasoning. _arXiv preprint arXiv:2303.08128_, 2023.\n' +
+      '* Taylor et al. (2022) Taylor, R., Kardas, M., Cucurull, G., Scialom, T., Hartshorn, A., Saravia, E., Poulton, A., Kerkez, V., and Stojnic, R. Galactica: A large language model for science. _arXiv preprint arXiv:2211.09085_, 2022.\n' +
+      '\n' +
+      '* [Team et al.2023] Team, G., Anil, R., Borgeaud, S., Wu, Y., Alayrac, J.-B., Yu, J., Soricut, R., Schalkwyk, J., Dai, A. M., Hauth, A., et al. Gemini: a family of highly capable multimodal models. _arXiv preprint arXiv:2312.11805_, 2023.\n' +
+      '* [Touvron et al.2023] Touvron, H., Lavril, T., Izacard, G., Martinet, X., Lachaux, M.-A., Lacroix, T., Roziere, B., Goyal, N., Hambro, E., Azhar, F., et al. Llama: Open and efficient foundation language models. _arXiv preprint arXiv:2302.13971_, 2023.\n' +
+      '* [Wang et al.2023] Wang, R., Chen, Z., Chen, C., Ma, J., Lu, H., and Lin, X. Compositional text-to-image synthesis with attention map control of diffusion models. _arXiv preprint arXiv:2305.13921_, 2023.\n' +
+      '* [Workshop et al.2022] Workshop, B., Scao, T. L., Fan, A., Akiki, C., Pavlick, E., Ilic, S., Hesslow, D., Castagne, R., Luccioni, A. S., Yvon, F., et al. Bloom: A 176b-parameter open-access multilingual language model. _arXiv preprint arXiv:2211.05100_, 2022.\n' +
+      '* [Wu et al.2023a] Wu, C., Yin, S., Qi, W., Wang, X., Tang, Z., and Duan, N. Visual chatgpt: Talking, drawing and editing with visual foundation models. _arXiv preprint arXiv:2303.04671_, 2023a.\n' +
+      '* [Wu et al.2023b] Wu, T.-H., Lian, L., Gonzalez, J. E., Li, B., and Darrell, T. Self-correcting llm-controlled diffusion models. _arXiv preprint arXiv:2311.16090_, 2023b.\n' +
+      '* [Xie et al.2023] Xie, J., Li, Y., Huang, Y., Liu, H., Zhang, W., Zheng, Y., and Shou, M. Z. Boxdiff: Text-to-image synthesis with training-free box-constrained diffusion. In _Proceedings of the IEEE/CVF International Conference on Computer Vision_, pp. 7452-7461, 2023.\n' +
+      '* [Xu et al.2023] Xu, J., Liu, X., Wu, Y., Tong, Y., Li, Q., Ding, M., Tang, J., and Dong, Y. Imagereward: Learning and evaluating human preferences for text-to-image generation. _arXiv preprint arXiv:2304.05977_, 2023.\n' +
+      '* [Yang et al.2023a] Yang, A., Xiao, B., Wang, B., Zhang, B., Bian, C., Yin, C., Lv, C., Pan, D., Wang, D., Yan, D., et al. Baichuan 2: Open large-scale language models. _arXiv preprint arXiv:2309.10305_, 2023a.\n' +
+      '* [Yang et al.2023b] Yang, L., Liu, J., Hong, S., Zhang, Z., Huang, Z., Cai, Z., Zhang, W., and Bin, C. Improving diffusion-based image synthesis with context prediction. In _Thirty-seventh Conference on Neural Information Processing Systems_, 2023b.\n' +
+      '* [Yang et al.2023c] Yang, L., Zhang, Z., Song, Y., Hong, S., Xu, R., Zhao, Y., Zhang, W., Cui, B., and Yang, M.-H. Diffusion models: A comprehensive survey of methods and applications. _ACM Computing Surveys_, 56(4):1-39, 2023c.\n' +
+      '* [Yang et al.2023d] Yang, Z., Li, L., Wang, J., Lin, K., Azarnasab, E., Ahmed, F., Liu, Z., Liu, C., Zeng, M., and Wang, L. Mm-react: Prompting chatgpt for multimodal reasoning and action. _arXiv preprint arXiv:2303.11381_, 2023d.\n' +
+      '* [Yang et al.2023e] Yang, Z., Wang, J., Gan, Z., Li, L., Lin, K., Wu, C., Duan, N., Liu, Z., Liu, C., Zeng, M., et al. Reco: Region-controlled text-to-image generation. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pp. 14246-14255, 2023e.\n' +
+      '* [Yu et al.2023] Yu, L., Shi, B., Pasunuru, R., Muller, B., Golovneva, O., Wang, T., Babu, A., Tang, B., Karrer, B., Sheynin, S., et al. Scaling autoregressive multi-modal models: Pretraining and instruction tuning. _arXiv preprint arXiv:2309.02591_, 2023.\n' +
+      '* [Zeng et al.2022] Zeng, A., Liu, X., Du, Z., Wang, Z., Lai, H., Ding, M., Yang, Z., Xu, Y., Zheng, W., Xia, X., et al. Glm-130b: An open bilingual pre-trained model. _arXiv preprint arXiv:2210.02414_, 2022.\n' +
+      '* [Zhang et al.2022] Zhang, L., Rao, A., and Agrawala, M. Adding conditional control to text-to-image diffusion models. In _Proceedings of the IEEE/CVF International Conference on Computer Vision_, pp. 3836-3847, 2023a.\n' +
+      '* [Zhang et al.2022] Zhang, S., Roller, S., Goyal, N., Artetxe, M., Chen, M., Chen, S., Dewan, C., Diab, M., Li, X., Lin, X. V., et al. Opt: Open pre-trained transformer language models. _arXiv preprint arXiv:2205.01068_, 2022.\n' +
+      '* [Zhang et al.2023b] Zhang, T., Zhang, Y., Vineet, V., Joshi, N., and Wang, X. Controllable text-to-image generation with gpt-4. _arXiv preprint arXiv:2305.18583_, 2023b.\n' +
+      '* [Zhang et al.2023c] Zhang, Y., Zhang, R., Gu, J., Zhou, Y., Lipka, N., Yang, D., and Sun, T. Enhanced visual instruction tuning for text-rich image understanding. In _NeurIPS 2023 Workshop on Instruction Tuning and Instruction Following_, 2023c.\n' +
+      '* [Zhang et al.2023d] Zhang, Z., Zhang, A., Li, M., Zhao, H., Karypis, G., and Smola, A. Multimodal chain-of-thought reasoning in language models. _arXiv preprint arXiv:2302.00923_, 2023d.\n' +
+      '* [Zhu et al.2023e] Zhu, D., Chen, J., Shen, X., Li, X., and Elhoseiny, M. Minigpt-4: Enhancing vision-language understanding with advanced large language models. _arXiv preprint arXiv:2304.10592_, 2023.\n' +
+      '* [Zou et al.2023] Zou, X., Dou, Z.-Y., Yang, J., Gan, Z., Li, L., Li, C., Dai, X., Behl, H., Wang, J., Yuan, L., et al. Generalized decoding for pixel, image, and language. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pp. 15116-15127, 2023.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>

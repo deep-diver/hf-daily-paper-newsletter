@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# Fast Registration of Photorealistic Avatars for VR Facial Animation\n' +
+      '\n' +
+      ' Chaitanya Patel\\({}^{1,2}\\)\n' +
+      '\n' +
+      'Shaojie Bai\\({}^{2}\\)\n' +
+      '\n' +
+      'Te-Li Wang\\({}^{2}\\)\n' +
+      '\n' +
+      'Jason Saragih\\({}^{2}\\)\n' +
+      '\n' +
+      'Shih-En Wei\\({}^{2}\\)\n' +
+      '\n' +
+      '\\({}^{1}\\)Stanford University  \\({}^{2}\\)Meta Reality Labs\n' +
+      '\n' +
+      '[https://chaitanya100100.github.io/FastRegistration](https://chaitanya100100.github.io/FastRegistration)\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      'Virtual Reality (VR) bares promise of social interactions that can feel more immersive than other media. Key to this is the ability to accurately animate a photoorealistic avatar of one\'s likeness while wearing a VR headset. Although high quality registration of person-specific avatars to headset-mounted camera (HMC) images is possible in an offline setting, the performance of generic realtime models are significantly degraded. Online registration is also challenging due to oblique camera views and differences in modality. In this work, we first show that the domain gap between the avatar and headset-camera images is one of the primary sources of difficulty, where a transformer-based architecture achieves high accuracy on domain-consistent data, but degrades when the domain-gap is re-introduced. Building on this finding, we develop a system design that decouples the problem into two parts: 1) an iterative refinement module that takes in-domain inputs, and 2) a generic avatar-guided image-to-image style transfer module that is conditioned on current estimation of expression and head pose. These two modules reinforce each other, as image style transfer becomes easier when close-to-ground-truth examples are shown, and better domain-gap removal helps registration. Our system produces high-quality results efficiently, obviating the need for costly offline registration to generate personalized labels. We validate the accuracy and efficiency of our approach through extensive experiments on a commodity headset, demonstrating significant improvements over direct regression methods as well as offline registration.\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      'Photorealistic avatar creation has seen much progress in recent years. Driven by advances in neural representations and inverse rendering [19, 20, 27, 28], highly accurate representations of individuals can now be generated even from limited captures such as phone scans [5] while supporting real time rendering for interactive applications [30]. An emerging use case for such avatars is for enabling social interactions in Virtual Reality (VR). This application presents a particular problem where the user\'s face is typically occluded from the environment by the VR headset. As such, it relies on headset-mounted cameras to drive a user\'s avatar. While accurate results have been demonstrated, they have been restricted to person-specific cases, where correspondences relating the avatar to the headset mounted cameras rely on the use of additional elaborate capture rigs [30]. Highly accurate tracking in the more general case remains an open problem.\n' +
+      '\n' +
+      'In this work, we demonstrate that generic facial expression registration can be both accurate and efficient on unseen identities, without relying on an additional capture device to provide avatar-to-image correspondences. For this, we first demonstrate that acurate results are possible when the modalities of the headset-mounted cameras and the user\'s avatar match, using a novel transformer-based network that iteratively refines expression estimation and head pose. Building on of this finding, we propose to learn a cross-identity domain-transfer function from the camera\'s domain to that of the avatar. The core challenge here lies in the high accuracy required of the domain transfer due to the challenging viewpoints of the face presented by headset mounted cameras; even a few pixels error can lead to significant effects in the estimated avatar\'s expression. A key design in our method is that the iterative expression and head pose estimation, and domain transfer reinforce one another. On the one hand, higher quality of domain transfer results make the iterative refining easier. A similar reinforcement holds in the other direction, from a design that conditions the domain-transfer function with multiple avatar renderings, where the expressions and head pose can be flexibly configured, including the one estimated from the refinement step. When the refined estimation is close to ground truth, the domain-transfer network can easily reason locally using the input HMC images and conditioning images.\n' +
+      '\n' +
+      'To demonstrate the efficacy of our approach, we perform experiments on a dataset of 208 identities, each captured in a multiview capture system [19] as well as a modified QuestPro headset [22], where the latter was used to provide ground truth correspondence between the driving cameras and the avatars. Compared to a direct regression method, our iterative constructions shows significantly improved robustness against novel appearance variations in unseen identities.\n' +
+      '\n' +
+      'In summary, the contribution of this work include:\n' +
+      '\n' +
+      '* A demonstration that accurate and efficient generic face registration is achievable under matching carcaravatar domains with an iterative transformer-based architecture on a neural rendering model.\n' +
+      '* A generalizing domain-transfer network that in flexibly conditioned on photorealistic avatar renderings of unseen identities.\n' +
+      '* The first generic expression estimation system from commodity headset cameras that outperforms regression methods and approaches person-specific level accuracy on unseen identities without preprocessing.\n' +
+      '\n' +
+      'The remaining of the paper is structured as follows. In the next section a literature review is presented. Then, in SS3, we outline our method for generic facial expression estimation. In SS4, we demonstrate the efficacy of our approach through extensive experiments. We conclude in SS5 with a discussion of future work.\n' +
+      '\n' +
+      '## 2 Related Work\n' +
+      '\n' +
+      '### VR Face Tracking\n' +
+      '\n' +
+      'While face tracking is a long studied problem, tracking faces of VR users from head mounted cameras (HMCs) poses an unique challenge. The difficulty mainly comes from restrictions in camera placement and occlusion caused by the headset. Sensor images only afford oblique and partially overlapping views of facial parts. Previous work explored different ways to circumvent these difficulties. In [16], a camera was attached on a protruding mount to acquire a frontal view of the lower face, but with a non-ergonomic hardware design. In [29], the outside-in third-person view camera limits the range of a user\'s head pose. Both of these works rely on RGBD sensors to directly register the lower face with a geometry-only model. To reduce hardware requirements, [23] used a single RGB sensor for the lower face and performed direct regression of blendshape coefficients. The training dataset comprised of subjects performing a predefined set of expressions and sentences that had associated artist-generated blendshape coefficients. The inconsistencies between subject\'s performances with the blendshape-labeled animation limited animation fidelity.\n' +
+      '\n' +
+      'A VR face tracking system on a consumer headset (Oculus Rift) with photorealistic avatars [19] was firstly presented in [30]. They introduced two novelties: (1) _The concept of a training- and tracking-headset_, where the former has a super-set of cameras of the latter. After training labels were obtained from the _training headset_, the auxiliary views from better positioned cameras can be discarded, and a regression model taking only _tracking headset_\'s input was built. They also employed (2) _analysis-by-synthesis with differentiable rendering and style transfer_ to precisely register parameterized photorealistic face models to HMC images, bridging the RGB-to-IR domain gap. The approach was extended in [27] via jointly learning the style-transfer and registration together, instead of an independent CycleGAN-based module. Although highly accurate driving was achieved, both [30] and [27] relied on person-specific models, the registration process required hours to days of training, and required the _training headset_ with auxiliary camera views to produce ground truth. As such, they cannot be used in a live setting where speed is required and only cameras on consumer headsets are avail able. In this work, we demonstrate that a system trained on a pre-registered dataset of multiple identities can generalize well to unseen identities\' HMC captures within seconds. These efficiently generated image-label pairs can be later used to adapt an unconditioned face tracker and make the animation more precise.\n' +
+      '\n' +
+      '### Image Style Transfer\n' +
+      '\n' +
+      'The goal of image style transfer is to render an image in a target style domain provided by conditioning information, while retaining semantic and structural content from an input\'s content. Convolutional neural features started to be utilized [11] to encode content and style information. Pix2pix [13] learns conditional GANs along with \\(L_{1}\\) image loss to encourage high-frequency sharpness, with an assumption of availability of paired ground truth. To alleviate the difficulty of acquiring paired images, CycleGAN [35] introduced the concept of cycle-consistency, but each model is only trained for a specific pair of domains, and suffers from semantic shifts between input and output. StarGAN [7] extends the concept to a fixed set of predefined domains. For more continuous control, many explored text conditioning [2] or images conditioning [1, 6, 8, 18, 31]. These settings usually have information imbalance between input and output space, where optimal output might not be unique. In this work, given a latent-space controlled face avatar [5], along with a ground-truth generation method [27], our image style transfer problem can be simply directly supervised, with conditioning images rendered from the avatar to address the imbalance information problem.\n' +
+      '\n' +
+      '### Learning-based Iterative Face Registration\n' +
+      '\n' +
+      'A common approach for high-precision face tracking involves a cascade of regressors that use image features extracted from increasingly registered geometry. One of the first methods to use this approach used simple linear models raw image pixels [26], which was extended by using SIFT features [33]. Later methods used more powerful regressors, such as binary trees [4, 14] and incorporated the 3D shape representation into the formulation. Efficiency could be achieved by binary features and linear models [25].\n' +
+      '\n' +
+      'While these face tracking methods use current estimates of geometry to extract relevant features from images, similar cascade architectures have also been explored for general detection and registration. In those works, instead of _extracting_ features using current estimates of geometry, the input data is augmented with _renderings_ of the current estimate of geometry, which simplifies the backbone of the regressors in leveraging modern convolutional deep learning architectures. For example, Cascade Pose Regression [9] draws 2D Gaussians centered at the current estimates of body keypoints, which are concatenated with the original input, acting as a kind of soft attention map. Similar design in [3] was used for 3D heatmap prediction. Xia et al. [32] applied vision transformer [10] to face alignment with landmark queries. In this work, we demonstrate a transformer-based network that doesn\'t require any guidance from landmark to predict precise corrections of head pose and expression from multiview images.\n' +
+      '\n' +
+      '## 3 Method\n' +
+      '\n' +
+      'We aim to register the avatar model presented in [5] to multi-view HMC images denoted \\(\\mathbf{H}=\\{H_{c}\\}_{c\\in C}\\), where each camera view \\(H_{c}\\in\\mathbb{R}^{h\\times w}\\) is a monochrome infrared (IR) image and \\(C\\) is the set of available cameras on a consumer VR headset (in this work, we primarily focus on Meta\'s Quest Pro [22], see the Appendix). They comprise a patchwork of non-overlapping views between each side of the upper and lower face. Some examples are shown in Fig. 2. Due to challenging camera angles and headset donning variations, it is difficult for the subtle facial expressions to be accurately recognized by machine learning models (e.g., see Fig. 7).\n' +
+      '\n' +
+      'Figure 2: **Examples of HMC images** and corresponding ground truth expression rendered on their avatars from the offline registration method [27], which utilizes augmented cameras with better frontal views (highlighted in green). In this work, we aim to efficiently register faces using cameras on consumer headsets, which only have oblique views (highlighted in red). In such views, information about subtle expressions (e.g., lip movements) are often cover very few pixels or even not visible.\n' +
+      '\n' +
+      'Setting.We denote the avatar\'s decoder model from [5] as \\(\\mathcal{D}\\). Following the same setting as in [5], given an input expression code \\(\\mathbf{z}\\in\\mathbb{R}^{256}\\), viewpoint \\(\\mathbf{v}\\in\\mathbb{R}^{6}\\), and identity information of the \\(i^{\\text{th}}\\) subject, \\(\\mathbf{I}^{i}\\), the decoder is able to render this subject\'s avatar from the designated viewpoint by \\(R=\\mathcal{D}(\\mathbf{z},\\mathbf{v}|\\mathbf{I}^{i})\\in\\mathbb{R}^{h\\times w\\times 3}\\). Specifically, when we use \\(\\mathbf{v}=\\mathbf{v}_{c}\\); i.e., the viewpoint of a particular head-mounted camera (HMC), we\'ll obtain \\(R_{c}=\\mathcal{D}(\\mathbf{z},\\mathbf{v}_{c}|\\mathbf{I}^{i})\\in\\mathbb{R}^{h\\times w\\times 3}\\), which has the same size as the corresponding \\(H_{c}\\in\\mathbb{R}^{h\\times w}\\), except the latter is monochromatic. Following [5], the identity information \\(\\mathbf{I}^{i}\\) for a specific identity \\(i\\) is provided as multi-scale untied bias maps to the decoder neural network. In this paper, we assume \\(\\mathbf{I}^{i}\\) is available for both training and testing identities, either from the lightstage or a phone scanning1; and that the calibrations of all head-mounted cameras are known. We utilize the method in [27] to establish ground truth HMC image-to-(\\(\\mathbf{z}\\),\\(\\mathbf{v}\\)) correspondences, which relies a costly optimization process and an augmented additional camera set, \\(C^{\\prime}\\), which provides enhanced visibility. The examples are highlighted in the green boxes in Fig. 2. Our goal in this work is to estimate the same optimal \\(\\mathbf{z}\\) and \\(\\mathbf{v}\\) for new identities leveraging the avatar model (i.e., registration), while using only the original camera set \\(C\\), highlighted in red boxes in Fig. 2.\n' +
+      '\n' +
+      'Footnote 1: In this work we differentiate between unseen identities for avatar generation vs. unseen identities for HMC driving. We always assume an avatar for a new identity is available through methods in prior works, and evaluate the performance of expression estimation methods on unseen HMC images of that identity.\n' +
+      '\n' +
+      '### A Simplified Case: Matching Input Domain\n' +
+      '\n' +
+      'Accurate VR face registration entails exact alignment between \\(H_{c}\\) and \\(R_{c}\\) for each head-mounted camera \\(c\\). However, a vital challenge here is their enormous domain gap: \\(\\mathbf{H}=\\{H_{c}\\}_{c\\in C}\\) are monochrome infrared images with nearfield lighting and strong shadows, while \\(\\mathbf{R}=\\{R_{c}\\}_{c\\in C}\\) are renderings of an avatar built from uniformly lit colored images in the visible spectrum. [27, 30] utilized a style-transfer network to bridge this gap in a identity-specific setting. To simplify the problem in the generic, multi-identity case, we first ask the question: what performance is possible when there is no domain difference? In order to study this, we replace \\(\\mathbf{H}\\) with \\(\\mathbf{R}_{gt}=\\mathcal{D}(\\mathbf{z}_{gt},\\mathbf{v}_{gt})\\) obtained from the costly method in [27], which can be seen as a perfectly domain-transferred result from \\(\\mathbf{H}\\) to the 3D avatar rendering space, that exactly retains expression. To extract \\((\\mathbf{z}_{gt},\\mathbf{v}_{gt})\\) from \\(\\mathbf{R}_{gt}\\), a naive way is to build a regression CNN, such as MobileNetV3 [12], which can be extremely efficient. Alternatively, given \\(\\mathcal{D}\\) is differentiable and the inputs are in the same domain, another straightforward approach is to optimize \\((\\mathbf{z},\\mathbf{v})\\) to fit to \\(\\mathbf{R}_{gt}\\) using pixel-wise image losses. As we show in Table 1, the regression model is extremely lightweight but fails to generalize well; whereas this offline method (unsurprisingly) generates low error, at the cost of extremely long time to converge. Note that despite the simplification we make on the input domain difference (i.e., assuming access to \\(\\mathbf{R}_{gt}\\) rather than \\(\\mathbf{H}\\)), the registration is still challenging due to the inherent oblique viewing angles, headset donning variations and the need to generalize to unseen identities.\n' +
+      '\n' +
+      'In contrast, we argue that a carefully designed function that leverages avatar model (i.e., \\(\\mathcal{D}\\)) information, which we denote as \\(\\mathcal{F}_{0}(\\cdot|\\mathcal{D})\\), achieves a good balance: (1) it\'s feed-forward (no optimization needed for unseen identities) so its speed can afford online usage; (2) it utilizes the renderings of \\(\\mathcal{D}\\) as a feedback to compare with input \\(H_{c}\\) and minimize misalignment. Before we later\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c c c} \\hline \\hline  & Aug. & Frontal & Rot. & Trans. & \\\\  & Cams & Image \\(L_{1}\\) & Err. & Err. & Speed \\\\  & & & (deg.) & (mm) & \\\\ \\hline Offline [27] & ✗ & \\(0.784\\) & \\(0.594\\) & \\(0.257\\) & \\(\\sim\\)1 day \\\\ Regression [12] & ✗ & \\(2.920\\) & \\(-\\) & \\(-\\) & 7ms \\\\ Regression [12] & ✓ & \\(2.902\\) & \\(-\\) & \\(-\\) & 7ms \\\\ Our \\(\\mathcal{F}_{0}(\\mathbf{R}_{gt}|\\mathcal{D})\\) & ✗ & \\(1.652\\) & \\(0.660\\) & \\(0.618\\) & 0.4sec \\\\ Our \\(\\mathcal{F}_{0}(\\mathbf{R}_{gt}|\\mathcal{D})\\) & ✓ & \\(1.462\\) & \\(0.636\\) & \\(0.598\\) & 0.4sec \\\\ \\hline Our \\(\\mathcal{F}_{0}(\\mathbf{H}|\\mathcal{D})\\) & ✗ & \\(2.851\\) & \\(1.249\\) & \\(1.068\\) & 0.4sec \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 1: **Registration accuracy in simplified setting:** The errors are averaged across all frames in the test set. Augmented cameras means the use of camera set \\(C^{\\prime}\\) (which has better lower-face visibility) instead of \\(C\\). Frontal Image \\(L_{1}\\) describes expression prediction error, while rotation and translation errors describe the headpose prediction error.\n' +
+      '\n' +
+      'Figure 3: **Overview of the method.** We decouple the problem into a avatar-conditioned image-to-image style transfer module \\(\\mathcal{S}\\) and a iterative refinement module \\(\\mathcal{F}\\). Module \\(\\mathcal{F}_{0}\\) initializes both modules by directly estimating on HMC input \\(\\mathbf{H}\\).\n' +
+      '\n' +
+      'describe \\(\\mathcal{F}_{0}\\) in SS 3.3, we report the results of aforementioned methods under this simplified setting in Table 1.\n' +
+      '\n' +
+      'Specifically, we show that \\(\\mathcal{F}_{0}\\) can achieve performance approaching that of offline registration [27]. In contrast, naive direct regressions perform substantially worse, even with the augmented set of cameras. This highlights the importance of conditioning face registration learning with information about the target identity\'s avatar (in our case, \\(\\mathcal{D}\\)). But importantly, when reverting back to the real problem, by replacing \\(\\mathbf{R}_{gt}\\) with \\(\\mathbf{H}\\), the performance of \\(\\mathcal{F}_{0}\\) also degrades significantly. This observation demonstrates the challenge posed by input domain gap difference, and motivates us to decouple style transfer problem from registration, as we describe next.\n' +
+      '\n' +
+      '### Overall Design\n' +
+      '\n' +
+      'In light of the observation in SS3.1, we propose to decouple the problem into the learning of two modules: an iterative refinement module, \\(\\mathcal{F}\\), and a style transfer module, \\(\\mathcal{S}\\). The goal of \\(\\mathcal{F}\\) is to produce an iterative update to the estimate expression \\(\\mathbf{z}\\) and headpose \\(\\mathbf{v}\\) of a given frame. However, as Table 1 shows, conditioning on avatar model \\(\\mathcal{D}\\) alone is not sufficient; good performance of such \\(\\mathcal{F}\\) relies critically on closing the gap between \\(\\mathbf{H}\\) and \\(\\mathbf{R}_{gt}\\). Therefore, module \\(\\mathcal{F}\\) shall rely on style transfer module \\(\\mathcal{S}\\) for closing this monochromatic domain gap. Specifically, in addition to raw HMC images \\(\\mathbf{H}\\), we also feed a domain-transferred version of them (denoted \\(\\hat{\\mathbf{R}}\\)), produced by \\(\\mathcal{S}\\), as input to \\(\\mathcal{F}\\). Intuitively, \\(\\hat{\\mathbf{R}}\\) should then resemble avatar model \\(\\mathcal{D}\\)\'s renderings with the same facial expression as in \\(\\mathbf{H}\\). (And as Table 1 shows, if \\(\\hat{\\mathbf{R}}\\approx\\mathbf{R}_{gt}\\), one can obtain really good registration.) Differing from the common style transfer setting, here the conditioning information that provides "style" to \\(\\mathcal{S}\\) is the entire personalized model \\(\\mathcal{D}(\\cdot|\\mathbf{I}^{i})\\) itself. As such, we have the options of providing various conditioning images to \\(\\mathcal{S}\\) by choosing expression and viewpoints to render. Through out experiments, we find that selecting frames with values closer to \\((\\mathbf{z}_{gt},\\mathbf{v}_{gt})\\) improves the quality of \\(\\mathcal{S}\\)\'s style transfer output.\n' +
+      '\n' +
+      'Figure 4: **Iterative refinement module \\(\\mathcal{F}\\)**. For each view \\(c\\in C\\), a shared CNN encodes the alignment information between the current rendering \\(R_{t,c}\\) and input images \\(H_{c}\\) along with style-transferred images \\(\\hat{R}_{c}\\) into a feature grid. After adding learnable grid positional encoding and camera-view embedding, the grid features concatenated with the current estimate \\((\\mathbf{z}_{t},\\mathbf{v}_{t})\\) and are flattened into a sequence of tokens. These tokens are processed by a transformer module with a learnable decoder query to output residual updates to the estimation.\n' +
+      '\n' +
+      'Figure 5: **Style transfer module \\(\\mathcal{S}\\)**. Given an estimate of \\((\\mathbf{z}_{0},\\mathbf{v}_{0})\\), conditioning images are generated from the same estimate and \\(M\\) other key expressions, concatenated channel-wise and encoded by a U-Net encoder. Input HMC image is encoded by a separate U-Net encoder. Sliding window based attention [24] modules are used to fuse input features and conditioning features to compensate for the misalignment between them. These fused features are provided as the skip connection in the U-Net decoder to output style-transferred image.\n' +
+      '\n' +
+      'Therefore, a desirable mutual reinforcement is formed: the better \\(\\mathcal{S}\\) performs, the lower the errors of \\(\\mathcal{F}\\) are on face registration; in turn, the better \\(\\mathcal{F}\\) performs, the closer rendered conditioning images will be to the ground truth, simplifying the problem for \\(\\mathcal{S}\\). An initialization \\((\\mathbf{z}_{0},\\mathbf{v}_{0})=\\mathcal{F}_{0}(\\mathbf{H})\\) for this reinforcement process can be provided by any model that directly works on monochromatic inputs \\(\\mathbf{H}\\). Fig. 3 illustrates the overall design of our system. In what follows, we will describe the design of each module.\n' +
+      '\n' +
+      '### Transformer-based Iterative Refinement Network\n' +
+      '\n' +
+      'The role of the iterative refinement module, \\(\\mathcal{F}\\), is to predict the updated parameters \\((\\mathbf{z}_{t+1},\\mathbf{v}_{t+1})\\) from input and current rendering:\n' +
+      '\n' +
+      '\\[[\\mathbf{z}_{t+1},\\mathbf{v}_{t+1}]=\\mathcal{F}\\left(\\mathbf{H},\\hat{\\mathbf{R}},\\mathbf{R}_{t} \\right),\\ \\ \\mathbf{R}_{t}=\\mathcal{D}(\\mathbf{z}_{t},\\mathbf{v}_{t}) \\tag{1}\\]\n' +
+      '\n' +
+      'where \\(t\\in[1,T]\\) is number of steps and \\(\\hat{\\mathbf{R}}=\\mathcal{S}(\\mathbf{H})\\) is the style transferred result (see Fig. 4). \\(\\mathcal{F}\\) can easier reason about the misalignment between input \\(\\mathbf{H}\\) and current rendering \\(\\mathcal{D}(\\mathbf{z}_{t},\\mathbf{v}_{t})\\), with the aid of \\(\\mathcal{S}(\\mathbf{H})\\) to bridge the domain gap. In Fig. 4, we show the hybrid-transformer [10] based architecture of \\(\\mathcal{F}\\). We will show in SS4.2 that this hybrid-transformer structure is a crucial design choice for achieving generalization across identities. The transformer layers help to fuse feature pyramid from multiple camera views while avoiding model size explosion and information bottleneck. Output of the model is treated as \\((\\Delta\\mathbf{z}_{t},\\Delta\\mathbf{v}_{t})\\) and added to \\((\\mathbf{z}_{t},\\mathbf{v}_{t})\\) to yield the new estimate for the next iteration. Fig. 6 shows the progression of \\(\\mathbf{R}_{t}\\) over the steps. This iterative refinement module is trained to minimize:\n' +
+      '\n' +
+      '\\[\\mathcal{L}_{\\mathcal{F}}=\\lambda_{\\text{front}}\\mathcal{L}_{\\text{front}}+ \\lambda_{\\text{hmc}}\\mathcal{L}_{\\text{hmc}}, \\tag{2}\\]\n' +
+      '\n' +
+      'where\n' +
+      '\n' +
+      '\\[\\mathcal{L}_{\\text{hmc}} =\\sum_{t=1}^{T}\\sum_{c\\in C}\\lVert\\mathcal{D}(\\mathbf{z}_{t},\\mathbf{v}_{ t,c}|\\mathbf{I}^{i})-\\mathcal{D}(\\mathbf{z}_{gt},\\mathbf{v}_{gt,c}|\\mathbf{I}^{i})\\rVert_{1}\\] \\[\\mathcal{L}_{\\text{front}} =\\sum_{t=1}^{T}\\lVert\\mathcal{D}(\\mathbf{z}_{t},\\mathbf{v}_{\\text{front}} |\\mathbf{I}^{i})-\\mathcal{D}(\\mathbf{z}_{gt},\\mathbf{v}_{\\text{front}}|\\mathbf{I}^{i})\\rVert_{1}\\]\n' +
+      '\n' +
+      'Here, \\(\\mathbf{v}_{\\text{front}}\\) is a predefined frontal view of the rendered avatar (see Fig. 2 for an example). While \\(\\mathcal{L}_{\\text{hmc}}\\) encourages alignment between the predicted and input HMC images, \\(\\mathcal{L}_{\\text{front}}\\) promotes an even reconstruction over the entire face to combat effects of oblique viewing angles in the HMC images.\n' +
+      '\n' +
+      'While \\(\\mathcal{F}_{0}\\) could be any module that works on HMC images \\(\\mathbf{H}\\) for the purpose of providing \\(\\{\\mathbf{z}_{0},\\mathbf{v}_{0}\\}\\), for consistency, we simply set \\(\\mathcal{F}_{0}\\) to also be iterative refining, where the internal module is the same as Eq. (1), except without \\(\\hat{\\mathbf{R}}\\) as input.\n' +
+      '\n' +
+      '### Avatar-conditioned Image-to-image Style Transfer\n' +
+      '\n' +
+      'The goal of the style transfer module, \\(\\mathcal{S}\\), is to directly transform raw IR input images \\(\\mathbf{H}\\) into \\(\\hat{\\mathbf{R}}\\) that resembles the avatar rendering \\(\\mathbf{R}_{gt}\\) of that original expression. Our setting differs from the methods in the literature in that our style-transferred images need to recover identity-specific details including skin-tone, freckles, etc., that are largely missing in the IR domain; meanwhile, the illumination differences and oblique view angle across identities imply any minor changes in the inputs could map to a bigger change in the expression. These issues make the style transfer problem ill-posed without highly detailed conditioning.\n' +
+      '\n' +
+      'To this end, we design a novel style transfer architecture that utilizes the prior registration estimation given by \\(\\mathcal{F}_{0}\\). Specifically, we can utilize \\(\\mathcal{F}_{0}\\) that was trained directly on monochrome images \\(\\mathbf{H}\\), to obtain an estimate of \\((\\mathbf{z}_{0},\\mathbf{v}_{0})\\) for the current frame. Additionally, we choose \\(M\\) "reference conditioning expressions": \\((\\mathbf{z}_{k_{1}},...,\\mathbf{z}_{k_{M}})\\) to cover a range of reference expressions; e.g., mouth open, squinting eyes, closed eyes, etc., which we find to significantly help mitigate ambiguities in style-transferring extreme expressions (we show examples of these conditioning reference expressions in the Appendix). Formally, given the current frame HMC image \\(\\mathbf{H}\\), we compute\n' +
+      '\n' +
+      '\\[\\hat{\\mathbf{R}}=\\mathcal{S}\\left(\\mathbf{H},(\\mathbf{z}_{0},\\mathbf{z}_{k_{1}},...,\\mathbf{z}_{k_{ M}}),\\mathbf{v}_{0}\\right). \\tag{3}\\]\n' +
+      '\n' +
+      'With a better estimation of \\((\\mathbf{z}_{0},\\mathbf{v}_{0})\\) provided by \\(\\mathcal{F}_{0}\\), these conditioning images become closer to ground truth, thereby simplifying the style transfer learning task of \\(\\mathcal{S}\\). Fig. 5 shows the UNet-based architecture of \\(\\mathcal{S}\\). A U-Net decoder decodes the input images features into an RGB image \\(\\hat{\\mathbf{R}}\\) with skip connections from the combined features. This style transfer module is trained with a simple image \\(L_{1}\\) loss:\n' +
+      '\n' +
+      '\\[\\mathcal{L}_{\\mathcal{S}}=\\lVert\\hat{\\mathbf{R}}-\\mathbf{R}_{gt}\\rVert_{1}. \\tag{4}\\]\n' +
+      '\n' +
+      '## 4 Experiments\n' +
+      '\n' +
+      'We perform experiments on a dataset of 208 identities (32\\(M\\) frames in total), each captured in a lightstage [19] as well as a modified Quest-Pro headset [22] with augmented camera views. The avatars are generated for all identities with a unified latent expression space using the method from [5]. We utilize the extensive offlineregistration pipeline in [27] to generate high-quality labels. We held out 26 identities as validation set. We use \\(T=3\\) refinement iterations during training and \\(M=4\\) key expressions are used to provide conditioning images for style transfer, which is operating at \\(192\\times 192\\) resolution. See the Appendix for more details on model architecture and training.\n' +
+      '\n' +
+      '### Comparison with Baselines\n' +
+      '\n' +
+      'As discussed, there are two obvious types of methods to compare for general face registration: (1) the same **offline registration** method in [27], but only using the camera set \\(C\\). Its performance anchors the challenge from camera angles, if computing time is not limited. The training here is only across frames from the same identity, so less prior knowledge it can leverage from other identities\' images. (2) **Direct regression**: using the same set of ground truth label, we train a MobileNetV3 [12] to directly regress HMC images to expression codes \\(\\mathbf{z}\\). This method represents a online model that could use in a realtime system where the use of \\(\\mathcal{D}\\) is prohibited. Table 2 summarized the comparison. The offline method achieves good averaged frontal image loss. Albeit its high precision, it has common failure modes in lower jaw and inner mouth, where the observation is poor, as shown in Fig. 7. In comparison, our method could leverage the learning from cross-identity dataset, producing a more uniformly distributed error and even better head pose estimation. Our method is also much faster due to its feed-forward design. On the other hand, the direct regression method performs notably worse on average, as expected. We also provide relaxed conditions (e.g. \\(\\mathbf{R}_{gt}\\) as input, or using augmented cameras), and interestingly the method fails to improve, while our method can leverage these conditions significantly.\n' +
+      '\n' +
+      '### Ablation Studies\n' +
+      '\n' +
+      'In this section, we ablate the design of \\(\\mathcal{F}\\) and \\(\\mathcal{S}\\). See the Appendix for more detailed analysis and experiments.\n' +
+      '\n' +
+      'Iterative Refinement Module \\(\\mathcal{F}\\).We design a simple baseline where we remove the transformer layers of \\(\\mathcal{F}\\) and trivially fuse the features \\(\\{\\mathbf{F}_{c}\\}_{c\\in C}\\) followed by an MLP network. We train this baseline on the simplified case of matching modalities (similar to \\(\\mathcal{F}_{0}(\\mathbf{R}_{gt})\\)). It fails to learn the iterative refinement of \\((\\mathbf{z},\\mathbf{v})\\) and achieves frontal image \\(L_{1}\\) of \\(3.65\\), rotation error of \\(5.09\\) degrees and translation error of \\(5.84\\)mm. These errors are significantly higher than that of \\(\\mathcal{F}_{0}\\) model as shown in Table 1. This shows that the transformer is able to better fuse information from multiview features.\n' +
+      '\n' +
+      'Style Transfer Module \\(\\mathcal{S}\\).In Fig. 8, we compare the results of our style transfer module \\(\\mathcal{S}\\) with baselines. \\(\\text{StyTr}^{2}\\)[8] is one of the recent style transfer methods that leverages the power of vision transformers [10] with large datasets. For comparison, we feed \\(\\mathbf{R}_{gt}\\) as the\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c c c c} \\hline \\hline  & Aug. & \\multicolumn{3}{c}{Frontal} & Rot. & Trans. & \\\\  & \\multicolumn{1}{c}{c} & Image & Err. & Err. & \\multicolumn{1}{c}{Speed} \\\\  & & \\multicolumn{1}{c}{\\(L_{1}\\)} & (deg.) & (mm) & \\\\ \\hline Offline [27] & ✗ & \\(\\mathbf{H}\\) & \\(1.713\\) & \\(2.400\\) & \\(2.512\\) & \\(\\sim\\)1 day \\\\ Regression [12] & ✗ & \\(\\mathbf{H}\\) & \\(2.956\\) & \\(-\\) & \\(-\\) & 7ms \\\\ Regression [12] & ✗ & \\(\\mathbf{R}_{gt}\\) & \\(2.920\\) & \\(-\\) & \\(-\\) & 7ms \\\\ Regression [12] & ✓ & \\(\\mathbf{H}\\) & \\(2.967\\) & \\(-\\) & \\(-\\) & 7ms \\\\ Regression [12] & ✓ & \\(\\mathbf{R}_{gt}\\) & \\(2.902\\) & \\(-\\) & \\(-\\) & 7ms \\\\ \\hline\n' +
+      '**Ours** (\\(\\mathcal{F}\\)+\\(\\mathcal{S}\\)) & ✗ & \\(\\mathbf{H}\\) & \\(2.655\\) & \\(0.947\\) & \\(0.886\\) & 0.4s \\\\\n' +
+      '**Ours** (\\(\\mathcal{F}\\)+\\(\\mathcal{S}\\)) & ✓ & \\(\\mathbf{H}\\) & \\(2.399\\) & \\(0.917\\) & \\(0.845\\) & 0.4s \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 2: **Comparison with direct regression and offline methods.** The errors are the averages of all frames in the test set. Augmented view means the use of camera set \\(C^{\\prime}\\) instead of \\(C\\).\n' +
+      '\n' +
+      'Figure 6: **Progression of iterative refinement:** we show intermediate results \\(\\mathcal{D}(\\mathbf{z}_{t},\\mathbf{v}_{t})\\) in \\(\\mathcal{F}\\) on a validation identity.\n' +
+      '\n' +
+      'style image and \\(\\mathbf{H}\\) as content image. Although the contents of input is well-preserved, \\(\\text{StyTr}^{2}\\) fails to bridge the domain gap. To show the benefit of iterative feedback from \\(\\mathcal{F}_{0}\\), we train a baseline style transfer model \\(\\mathcal{S}\\left(\\mathbf{H},(\\mathbf{z}_{k_{1}},...,\\mathbf{z}_{k_{M}}),\\mathbf{v}_{\\text{ mean}}\\right)\\), where only the conditioning images of \\(M\\) key expressions rendered with mean viewpoint \\(\\mathbf{v}_{\\text{mean}}\\) (computed from the dataset) are provided. Although it produces better style transfer than StyTr\\({}^{2}\\)[8], it smooths out high-frequency details including freckles, teeth, soft-tissue deformations near eyes and nose. These high-frequency details are crucial for animating subtle expressions. Our style transfer model \\(\\mathcal{S}\\) is able to retain such details by leveraging the estimate provided by \\(\\mathcal{F}_{0}\\).\n' +
+      '\n' +
+      '## 5 Conclusions and Future Work\n' +
+      '\n' +
+      'In this paper, we present a lightweight generic method for registering photorealistic 3D avatars on monochromatic images of consumer Virtual Reality (VR) headset cameras. We show that closing the domain gap between avatar\'s rendering and headset images is a key to achieve high registration quality. Motivated by this, we decompose the problem into two modules, style transfer and iterative refinement, and present a system where one reinforces the other. Extensive experiments on real capture data show that our system achieves superior registration quality than direct regression methods and can afford online usage. We believe this provides a viable path for efficiently generating high quality image-label pairs on the fly to adapt real-time facial expression encoders with on-device compute in the future.\n' +
+      '\n' +
+      'Figure 8: **Ablation on style transfer results.** We compare our results with a generic style transfer method as well as with our baseline method without the estimates by \\(\\mathcal{F}_{0}\\).\n' +
+      '\n' +
+      'Figure 7: **Qualitative Results:** we compare different methods by evaluating **(b,c,d,e)** frontal rendering (with error maps), and **(f,g)** error maps in HMC viewpoints. See the Appendix for more examples.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* [1] Jie An, Siyu Huang, Yibing Song, Dejing Dou, Wei Liu, and Jiebo Luo. Artflow: Unbiased image style transfer via reversible neural flows. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 862-871, 2021.\n' +
+      '* [2] Tim Brooks, Aleksander Holynski, and Alexei A. Efros. Instructpix2pix: Learning to follow image editing instructions. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_, pages 18392-18402, 2023.\n' +
+      '* [3] Adrian Bulat and Georgios Tzimiropoulos. How far are we from solving the 2d & 3d face alignment problem? (and a dataset of 230,000 3d facial landmarks). In _Proceedings of the IEEE International Conference on Computer Vision (ICCV)_, 2017.\n' +
+      '* [4] Chen Cao, Qiming Hou, and Kun Zhou. Displaced dynamic expression regression for real-time facial tracking and animation. _ACM Trans. Graph._, 33(4), 2014.\n' +
+      '* [5] Chen Cao, Tomas Simon, Jin Kyu Kim, Gabe Schwartz, Michael Zollhoefer, Shun-Suke Saito, Stephen Lombardi, Shih-En Wei, Danielle Belko, Shoou-I Yu, Yaser Sheikh, and Jason Saragih. Authentic volumetric avatars from a phone scan. _ACM Trans. Graph._, 41(4), 2022.\n' +
+      '* [6] Haibo Chen, Zhizhong Wang, Huiming Zhang, Zhiwen Zuo, Ailin Li, Wei Xing, Dongming Lu, et al. Artistic style transfer with internal-external learning and contrastive learning. _Advances in Neural Information Processing Systems_, 34:26561-26573, 2021.\n' +
+      '* [7] Yunjey Choi, Minje Choi, Munyoung Kim, Jung-Woo Ha, Sunghun Kim, and Jaegul Choo. Stargan: Unified generative adversarial networks for multi-domain image-to-image translation. In _Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition_, 2018.\n' +
+      '* [8] Yingying Deng, Fan Tang, Weiming Dong, Chongyang Ma, Xingjia Pan, Lei Wang, and Changsheng Xu. Styt\\({}^{2}\\): Image style transfer with transformers. In _IEEE Conference on Computer Vision and Pattern Recognition (CVPR)_, 2022.\n' +
+      '* [9] Piotr Dollar, Peter Welinder, and Pietro Perona. Cascaded pose regression. In _2010 IEEE Computer Society Conference on Computer Vision and Pattern Recognition_, pages 1078-1085, 2010.\n' +
+      '* [10] Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov, Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner, Mostafa Dehghani, Matthias Minderer, Georg Heigold, Sylvain Gelly, Jakob Uszkoreit, and Neil Houlsby. An image is worth 16x16 words: Transformers for image recognition at scale. _ArXiv_, abs/2010.11929, 2020.\n' +
+      '* [11] Leon A. Gatys, Alexander S. Ecker, and Matthias Bethge. Image style transfer using convolutional neural networks. In _IEEE Conference on Computer Vision and Pattern Recognition (CVPR)_, 2016.\n' +
+      '* [12] Andrew Howard, Mark Sandler, Grace Chu, Liang-Chieh Chen, Bo Chen, Mingxing Tan, Weijun Wang, Yukun Zhu, Ruoming Pang, Vijay Vasudevan, et al. Searching for mobilenetv3. In _Proceedings of the IEEE/CVF international conference on computer vision_, pages 1314-1324, 2019.\n' +
+      '* [13] Phillip Isola, Jun-Yan Zhu, Tinghui Zhou, and Alexei A Efros. Image-to-image translation with conditional adversarial networks. _CVPR_, 2017.\n' +
+      '* [14] Vahid Kazemi and Josephine Sullivan. One millisecond face alignment with an ensemble of regression trees. In _Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR)_, 2014.\n' +
+      '* [15] Alexander Kolesnikov, Lucas Beyer, Xiaohua Zhai, Joan Puigcerver, Jessica Yung, Sylvain Gelly, and Neil Houlsby. Big transfer (bit): General visual representation learning. In _Computer Vision-ECCV 2020: 16th European Conference, Glasgow, UK, August 23-28, 2020, Proceedings, Part V 16_, pages 491-507. Springer, 2020.\n' +
+      '* [16] Hao Li, Laura Trutoiu, Kyle Olszewski, Lingyu Wei, Tristan Trutna, Pei-Lun Hsieh, Aaron Nicholls, and Chongyang Ma. Facial performance sensing head-mounted display. _ACM Transactions on Graphics (TOG)_, 34(4):47:1-47:9, 2015.\n' +
+      '* [17] Liyuan Liu, Haoming Jiang, Pengcheng He, Weizhu Chen, Xiaodong Liu, Jianfeng Gao, and Jiawei Han. On the variance of the adaptive learning rate and beyond. _arXiv preprint arXiv:1908.03265_, 2019.\n' +
+      '* [18] Songhua Liu, Tianwei Lin, Dongliang He, Fu Li, Meiling Wang, Xin Li, Zhengxing Sun, Qian Li, and Errui Ding. Adaattn: Revisit attention mechanism in arbitrary neural style transfer. In _Proceedings of the IEEE/CVF international conference on computer vision_, pages 6649-6658, 2021.\n' +
+      '* [19] Stephen Lombardi, Jason Saragih, Tomas Simon, and Yaser Sheikh. Deep appearance models for face rendering. _ACM Trans. Graph._, 37(4):68:1-68:13, 2018.\n' +
+      '* [20] Stephen Lombardi, Tomas Simon, Jason Saragih, Gabriel Schwartz, Andreas Lehrmann, and Yaser Sheikh. Neural volumes: Learning dynamic renderable volumes from images. _arXiv preprint arXiv:1906.07751_, 2019.\n' +
+      '* [21] Stephen Lombardi, Tomas Simon, Gabriel Schwartz, Michael Zollhoefer, Yaser Sheikh, and Jason Saragih. Mixture of volumetric primitives for efficient neural rendering. _ACM Trans. Graph._, 40(4), 2021.\n' +
+      '* [22] Meta Inc. Meta Quest Pro: Premium Mixed Reality. [https://www.meta.com/ie/quest/quest-pro/](https://www.meta.com/ie/quest/quest-pro/), 2023.\n' +
+      '* [23] Kyle Olszewski, Joseph J. Lim, Shunsuke Saito, and Hao Li. High-fidelity facial and speech animation for vr hmds. _ACM Transactions on Graphics (TOG)_, 35(6):1-14, 2016.\n' +
+      '** [24] Niki Parmar, Prajit Ramachandran, Ashish Vaswani, Irwan Bello, Anselm Levskaya, and Jonathon Shlens. Stand-alone self-attention in vision models. 2019.\n' +
+      '* [25] Shaoqing Ren, Xudong Cao, Yichen Wei, and Jian Sun. Face alignment at 3000 fps via regressing local binary features. In _2014 IEEE Conference on Computer Vision and Pattern Recognition_, pages 1685-1692, 2014.\n' +
+      '* Volume 02_, page 1196-1195, USA, 2006. IEEE Computer Society.\n' +
+      '* [27] Gabriel Schwartz, Shih-En Wei, Te-Li Wang, Stephen Lombardi, Tomas Simon, Jason Saragih, and Yaser Sheikh. The eyes have it: An integrated eye and face model for photorealistic facial animation. _ACM Trans. Graph._, 39(4), 2020.\n' +
+      '* [28] Aliaksandra Shysheya, Egor Zakharov, Kara-Ali Aliev, Renat Bashirov, Egor Burkov, Karim Iskakov, Aleksei Ivakhnenko, Yury Malkov, I. Pasechnik, Dmitry Ulyanov, Alexander Vakhitov, and Victor S. Lempitsky. Textured neural avatars. _2019 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_, pages 2382-2392, 2019.\n' +
+      '* [29] Justus Thies, Michael Zollhofer, Marc Stamminger, Christian Theobalt, and Matthias Niessner. Facevr: Real-time gaze-aware facial reenactment in virtual reality. _ACM Transactions on Graphics (TOG)_, 37(2):25:1-25:15, 2018.\n' +
+      '* [30] Shih-En Wei, Jason Saragih, Tomas Simon, Adam W. Harley, Stephen Lombardi, Michal Perdoch, Alexander Hypes, Dawei Wang, Herman Badino, and Yaser Sheikh. Vr facial animation via multiview image translation. _ACM Trans. Graph._, 38(4), 2019.\n' +
+      '* [31] Xiaolei Wu, Zhihao Hu, Lu Sheng, and Dong Xu. Styleformer: Real-time arbitrary style transfer via parametric style composition. In _Proceedings of the IEEE/CVF International Conference on Computer Vision_, pages 14618-14627, 2021.\n' +
+      '* [32] Jiahao Xia, Weiwei Qu, Wenjian Huang, Jianguo Zhang, Xi Wang, and Min Xu. Sparse local patch transformer for robust face alignment and landmarks inherent relation learning. In _2022 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_, pages 4042-4051, 2022.\n' +
+      '* [33] Xuehan Xiong and Fernando De la Torre. Supervised descent method and its applications to face alignment. _2013 IEEE Conference on Computer Vision and Pattern Recognition_, pages 532-539, 2013.\n' +
+      '* [34] Yi Zhou, Connelly Barnes, Lu Jingwan, Yang Jimei, and Li Hao. On the continuity of rotation representations in neural networks. In _The IEEE Conference on Computer Vision and Pattern Recognition (CVPR)_, 2019.\n' +
+      '* [35] Jun-Yan Zhu, Taesung Park, Phillip Isola, and Alexei A. Efros. Unpaired image-to-image translation using cycle-consistent adversarial networks. In _IEEE International Conference on Computer Vision (ICCV)_, 2017.\n' +
+      '\n' +
+      '## 6 More Qualitative Results\n' +
+      '\n' +
+      'We show more qualitative results on test identities in Fig. 13 and Fig. 14 comparing against regression and offline methods. More results can be found in the accompanying video. Overall, the regression method has the larger error in terms of expression, often failing to capture subtle mouth shapes and the amount of teeth/tongue that is visible. On the other hand, offline methods that allow for a slowly optimizing the expression code and head pose lead to lowest expression error overall. However, when key face areas are not well observed in the HMC images (e.g. row 1,3 in Fig. 13 and row 1,3,4,5,8 in Fig. 14), our method often estimates better expressions. Our method is also superior in head pose estimation. For example, in row 3,5 of Fig. 13, while our method has slightly high frontal error (expression), the offline method has higher head pose error, indicated by higher image error in the HMC perspective (column (f) and (g)). This is often caused by the style-transfer module compensating for registration error in it\'s person-specific training regime [27] where the model can overfit more easily. In contrast, our style transfer module is trained across a diverse set of identities, and does not overfit as easily, resulting in better retained facial structure, that in turn, leads to more accurate head pose. Fig. 12 shows some failure cases of our method, which is usually caused by uncommon expressions, occluded mouth regions from HMC cameras, and extreme head poses.\n' +
+      '\n' +
+      '## 7 Design Ablation\n' +
+      '\n' +
+      'This section provides a detailed description of the architecture of the Iterative Refinement module \\(\\mathcal{F}\\) and Style Transfer module \\(\\mathcal{S}\\). Additionally, we conduct ablation experiments to validate key design choices.\n' +
+      '\n' +
+      '### Iterative refinement module\n' +
+      '\n' +
+      'The iterative refinement module \\(\\mathcal{F}\\) has \\(\\sim\\)28M trainable parameters. The CNN is based on ResNetV2-50 [15] which takes as input images of size \\(128\\times 128\\) for each camera view and outputs \\(512\\times 4\\times 4\\) grid features. After adding learnable patch embedding and view embedding, and concatenating the current estimate \\((\\mathbf{z}_{t},\\mathbf{v}_{t})\\), the sequence of \\(|C|\\times 4\\times 4\\) feature tokens are processed by a ViT-based transformer module [10] that outputs the update \\((\\Delta\\mathbf{z}_{t},\\Delta\\mathbf{v}_{t})\\). The transformer module consists of 6 encoder layers and 4 decoder layers operating on 512-dim tokens. \\(\\mathcal{F}_{0}\\) follows the same architecture as \\(\\mathcal{F}\\) except without the style-transfer images \\(\\hat{\\mathbf{R}}\\) as input.\n' +
+      '\n' +
+      'Key to our design is the application of the transformer on the grid of features from all camera views. We validate this design by comparing it\'s performance against \\(\\mathcal{F}_{0}(\\hat{\\mathbf{R}}_{gt})\\) with the following settings (see Table 3):\n' +
+      '\n' +
+      '* **w/o transformer**, where we replace the transformer with an MLP. In this case, the \\(512\\times 4\\times 4\\) grid features from all four camera views are simply concatenated and processed by an MLP that outputs the update \\((\\Delta\\mathbf{z}_{t},\\Delta\\mathbf{v}_{t})\\). This trivial concatenation results in a 2x increase in the number of trainable parameters.\n' +
+      '* **w/o grid features**, where we average pool grid features to get a single \\(512\\)-dim feature for each camera view and use the same transformer design to process \\(|C|\\) tokens.\n' +
+      '* **w/o transformer & w/o grid features**, where we use an MLP to process the concatenation of pooled features from all camera views.\n' +
+      '\n' +
+      'We observe that processing grid features using transformers results in superior generalization while requiring fewer parameters compared to using an MLP with trivial concatenation. Pooling grid features also performs significantly worse than our model. This is particularly detrimental in the oblique viewing angle of head-set cameras because even minor variations in input pixels can result in more significant changes in expression. Transformers operating on grid tokens can effectively preserve fine-grained information and extract subtle expression details.\n' +
+      '\n' +
+      '### Style transfer module\n' +
+      '\n' +
+      'The style transfer module, \\(\\mathcal{S}\\), has \\(\\sim\\)25M trainable parameters and operates at an image resolution of\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c c} \\hline \\hline  & Aug. & Frontal & Rot. & Trans. \\\\  & Cams & Image \\(L_{1}\\) & Err. & Err. \\\\  & & & (deg.) & (mm) \\\\ \\hline Our \\(\\mathcal{F}_{0}(\\hat{\\mathbf{R}}_{gt}|\\mathcal{D})\\) & ✗ & \\(1.652\\) & \\(0.660\\) & \\(0.618\\) \\\\ w/o transformer & ✗ & 2.533 & 2.335 & 2.023 \\\\ w/o grid features & ✗ & 2.786 & 2.818 & 3.081 \\\\ w/o transformer \\& & & 3.645 & 5.090 & 5.839 \\\\ w/o grid features & & & & \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 3: **Ablation on the design of \\(\\mathcal{F}\\)**\\(192\\). Both the input encoder and the conditioning encoder, as well as the decoder, follow the UNet architecture. We train a single style transfer network for all camera views by incorporating a learnable view embedding at each layer of the UNet. Since the conditioning images are generated using the avatar model, \\(\\mathcal{D}\\), we also have access to their foreground masks and projected UV images of their guide mesh [21], which are also input to the conditioning encoder along with the rendered images.\n' +
+      '\n' +
+      'Fig. 9 illustrates the four key conditioning expressions \\((\\mathbf{z}_{k_{1}},...,\\mathbf{z}_{k_{4}})\\) utilized in our experiments. These expressions were selected to cover extremes of the expression space, to compensate for information deficiency in style transfer conditioning while the estimate \\(\\mathbf{z}_{0}\\) is suboptimal. Sliding Window Attention (SWA) [24] is based on the cross-attention layer of the transformer where each grid feature of the input branch cross-attends to a \\(5\\times 5\\) neighborhood around the aligned feature of the conditioning branch. SWA compensates for missregistration when the estimate \\(\\mathbf{v}_{0}\\) is suboptimal.\n' +
+      '\n' +
+      'We validate our design by comparing it with the following baselines:\n' +
+      '\n' +
+      '* **w/o SWA**, where we simply concatenate the features of input branch with the features of conditioning branch at each layer.\n' +
+      '* **w/o key conditioning expressions**, where only the conditioning corresponding to the current estimate \\((\\mathbf{z}_{0},\\mathbf{v}_{0})\\) is used.\n' +
+      '* **w/o \\(\\mathcal{F}_{0}\\)**, where conditioning is comprised only of the four key expressions rendered using the average viewpoint per-camera, \\(\\mathbf{v}_{\\text{mean}}\\).\n' +
+      '\n' +
+      'Table 4 shows the \\(L_{1}\\) error between the foreground pixels of the groundtruth image and the predicted style transferred image, as evaluated on the test set. The larger error of style-transfer without \\(\\mathcal{F}_{0}\\) validates our motivation that a better style transfer can be achieved by providing conditioning closer to the groundtruth \\((\\mathbf{z}_{gt},\\mathbf{v}_{gt})\\). When not incorporating SWA or key conditioning expressions, the model performs poorly when the estimates \\(\\mathbf{v}_{0}\\) and \\(\\mathbf{z}_{0}\\) are suboptimal respectively, resulting in higher error. We show more style transfer results on test identities in Fig. 11.\n' +
+      '\n' +
+      '## 8 HMC Details\n' +
+      '\n' +
+      'In this work, we follow the concept of _training headset_ and _tracking headsets_ in [30], where the former has a superset of cameras of the latter (see Fig. 10). In this work, we use a more recent and advanced VR consumer headset QuestPro [22] as the tracking headset, and augment it with additional cameras on a extended structure as the training headset. As shown in Fig. 10 (a), there are 10 cameras on the training headset. We use all of them to establish ground truth with the method in [27]. Camera set \\(C\\) on the tracking headset\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c} \\hline \\hline  & Image \\(L_{1}\\) Error \\\\ \\hline Our \\(\\mathcal{S}\\) & \\(2.55\\) \\\\ w/o SWA & \\(2.82\\) \\\\ w/o key cond. expressions & \\(2.75\\) \\\\ w/o \\(\\mathcal{F}_{0}\\) & \\(2.99\\) \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 4: **Ablation on the design of \\(\\mathcal{S}\\)**\n' +
+      '\n' +
+      'Figure 10: **HMC details:** We use all cameras on training headset to establish ground truth in this work. Camera sets \\(C\\) and \\(C^{\\prime}\\) used in the main paper are annotated.\n' +
+      '\n' +
+      'Figure 9: **Conditioning Expressions for \\(\\mathcal{S}\\):** Four conditioning expressions \\((\\mathbf{z}_{k_{1}},...,\\mathbf{z}_{k_{4}})\\) for three different identities.\n' +
+      '\n' +
+      'era set \\(C^{\\prime}\\) used for comparison in the main paper are also annotated in the Fig. 10. Note we exclude the cyclopean camera on the tracking headset from the camera set \\(C\\) due to limited observation and extreme illumination. We also focus on mouth area and did not compare against the other 2 eye cameras on the training headset. All cameras are synchronized and capture at 72 fps.\n' +
+      '\n' +
+      '## 9 Training Details\n' +
+      '\n' +
+      'Our model is trained in phases, where \\(\\mathcal{F}_{0}\\) is first trained, followed by \\(\\mathcal{S}\\), which takes the pre-trained \\(\\mathcal{F}_{0}\\)\'s output as input. The error distribution of the estimates \\((\\mathbf{z}_{0},\\mathbf{v}_{0})\\) provided by \\(\\mathcal{F}_{0}\\) to \\(\\mathcal{S}\\) will vary between training and testing due to the generalization gap inherent in \\(\\mathcal{F}_{0}\\). To address this discrepancy, we introduce random Gaussian noise to the estimates when training \\(\\mathcal{S}\\). Similarly, we add random Gaussian noise the the prediction of \\(\\mathcal{S}\\) when training \\(\\mathcal{F}\\). \\(\\mathcal{F}\\) is trained for \\(T=3\\) refinement iterations. To stabilize training the gradients of each iteration are not backpropagated to prior iterations; we detach the predictions \\((\\mathbf{z}_{t+1},\\mathbf{v}_{t+1})\\) before passing them as input to the next iteration.\n' +
+      '\n' +
+      'Both \\(\\mathcal{F}\\) and \\(\\mathcal{F}_{0}\\) are trained for 200K steps with a minibatch size of 4 using the RAdam optimizer [17]. Weight decay is set to \\(10^{-4}\\), and the initial learning rate is set to \\(3\\times 10^{-4}\\). This learning rate is then gradually decayed to \\(3\\times 10^{-6}\\) using a cosine scheduler. \\(\\mathcal{S}\\) is trained similarly except that the weight decay is set to \\(3\\times 10^{-4}\\). The rotation component of viewpoint \\(\\mathbf{v}\\) is converted to a 6D-rotation representation [34] before passing it to the network. Both loss weights \\(\\lambda_{\\text{hmc}}\\) and \\(\\lambda_{\\text{front}}\\) are set to 1.\n' +
+      '\n' +
+      'Figure 11: **More Qualitative Results on Style Transfer:** We compare our results with a generic style transfer method as well as with our baseline method without the estimates by \\(\\mathcal{F}_{0}\\).\n' +
+      '\n' +
+      'Figure 12: **Failure cases of our methods:** we compare different methods by evaluating **(b,c,d,e)** frontal rendering (with error maps), and **(f,g)** error maps in HMC viewpoints.\n' +
+      '\n' +
+      'Figure 13: **More Qualitative Results (1/2):** we compare different methods by evaluating **(b,c,d,e)** frontal rendering (with error maps), and **(f,g)** error maps in HMC viewpoints.\n' +
+      '\n' +
+      'Figure 14: **More Qualitative Results (2/2):** we compare different methods by evaluating **(b,c,d,e)** frontal rendering (with error maps), and **(f,g)** error maps in HMC viewpoints.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
