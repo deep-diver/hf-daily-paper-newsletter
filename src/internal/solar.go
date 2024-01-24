@@ -12,9 +12,8 @@ import (
 func SummarizeAbstract(solarapikey string, title string, abstract string) string {
 	// solarapikey, _ := cmd.Flags().GetString("solarapikey")
 
-	userMessage := `Below is the title and abstract of an academic paper. Summarize the paper in 500 characters. Your answer should be formatted in a valid JSON as {"summary": string}
+	userMessage := `below is an abstract from an academic paper. summarize the abstract in two sentences. If possible ELI5, and don't say "We introduce..." or "This paper...". Your answer should be formatted in a valid JSON as {"summary": string}
 --------------
-Title: "%s"
 Abstract: "%s"
 `
 	userMessage = fmt.Sprintf(userMessage, title, abstract)
