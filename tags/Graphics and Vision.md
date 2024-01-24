@@ -1,0 +1,1 @@
+- [GALA: Generating Animatable Layered Assets from a Single Scan](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/9/2024-01-24+GALA%3A+Generating+Animatable+Layered+Assets+from+a+Single+Scan.yaml) / 2024-01-24

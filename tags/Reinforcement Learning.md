@@ -7,3 +7,4 @@
 - [ReFT: Reasoning with Reinforced Fine-Tuning](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/5/2024-01-18+ReFT%3A+Reasoning+with+Reinforced+Fine-Tuning.yaml) / 2024-01-18
 - [Self-Rewarding Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/6/2024-01-19+Self-Rewarding+Language+Models.yaml) / 2024-01-19
 - [WARM: On the Benefits of Weight Averaged Reward Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/8/2024-01-23+WARM%3A+On+the+Benefits+of+Weight+Averaged+Reward+Models.yaml) / 2024-01-23
+- [Large-scale Reinforcement Learning for Diffusion Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/9/2024-01-24+Large-scale+Reinforcement+Learning+for+Diffusion+Models.yaml) / 2024-01-24

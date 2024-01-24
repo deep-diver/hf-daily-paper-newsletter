@@ -1,2 +1,3 @@
 - [LEGO:Language Enhanced Multi-modal Grounding Model](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/2/2024-01-12+LEGO%3ALanguage+Enhanced+Multi-modal+Grounding+Model.yaml) / 2024-01-12
 - [Synthesizing Moving People with 3D Control](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/7/2024-01-22+Synthesizing+Moving+People+with+3D+Control.yaml) / 2024-01-22
+- [BiTA: Bi-Directional Tuning for Lossless Acceleration in Large Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/9/2024-01-24+BiTA%3A+Bi-Directional+Tuning+for+Lossless+Acceleration+in+Large+Language+Models.yaml) / 2024-01-24
