@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# SpacTor-T5: Pre-training T5 Models with Span Corruption and Replaced Token Detection\n' +
+      '\n' +
+      ' Ke Ye\n' +
+      '\n' +
+      'Google Research\n' +
+      '\n' +
+      'kkye@google.com\n' +
+      '\n' +
+      '&Heinrich Jiang\n' +
+      '\n' +
+      'Google Research\n' +
+      '\n' +
+      'heinrichj@google.com\n' +
+      '\n' +
+      '&Afshin Rostamizadeh\n' +
+      '\n' +
+      'Google Research\n' +
+      '\n' +
+      'rostami@google.com\n' +
+      '\n' +
+      '&Ayan Chakrabarti\n' +
+      '\n' +
+      'Google Research\n' +
+      '\n' +
+      'ayanchakrab@google.com\n' +
+      '\n' +
+      '&Giulia DeSalvo\n' +
+      '\n' +
+      'Google Research\n' +
+      '\n' +
+      'giuliad@google.com\n' +
+      '\n' +
+      '&Jean-Francois Kagy\n' +
+      '\n' +
+      'Google Research\n' +
+      '\n' +
+      'jfkagy@google.com\n' +
+      '\n' +
+      '&Lazros Karydas\n' +
+      '\n' +
+      'Google Research\n' +
+      '\n' +
+      'lkary@google.com\n' +
+      '\n' +
+      '&Gui Citovsky\n' +
+      '\n' +
+      'Google Research\n' +
+      '\n' +
+      'gcitovsky@google.com\n' +
+      '\n' +
+      '&Sanjiv Kumar\n' +
+      '\n' +
+      'Google Research\n' +
+      '\n' +
+      'sanjivk@google.com\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      'Pre-training large language models is known to be extremely resource intensive and oftentimes inefficient, under-utilizing the information encapsulated in the training text sequences. In this paper, we present SpacTor, a new training procedure consisting of (1) a hybrid objective combining span corruption (SC) and token replacement detection (RTD), and (2) a two-stage curriculum that optimizes the hybrid objective over the initial \\(\\tau\\) iterations, then transitions to standard SC loss. We show empirically that the effectiveness of the hybrid objective is tied to the two-stage pre-training schedule, and provide extensive analysis on why this is the case. In our experiments with encoder-decoder architectures (T5) on a variety of NLP tasks, SpacTor-T5 yields the same downstream performance as standard SC pre-training, while enabling a 50% reduction in pre-training iterations and 40% reduction in total FLOPs. Alternatively, given the same amount of computing budget, we find that SpacTor results in significantly improved downstream benchmark performance.\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      'The recent emergence of successful large language models (LLMs) is in no small part due to the remarkable effectiveness of self-supervised pre-training on massive text corpora. Pre-trained models are found to perform strongly on a wide range of downstream tasks including natural language understanding (NLU) and generation (NLG) -- through fine-tuning on small task-specific datasets (Wei et al., 2021; Sanh et al., 2022; Chung et al., 2022), or through zero-shot / few-shot evaluation, whereby the model is given only task-specific instructions as input, or a handful of additional exemplars to learn from, respectively (Brown et al., 2020).\n' +
+      '\n' +
+      'On the one hand, pre-training LLMs using self-supervised objectives frees us from the burden of gathering human labels; on the other, the indirect nature of the supervision also means that each batch of text provides only weak signals that the model can learn from. Consequently, LLMs need to be pre-trained on datasets several orders of magnitude larger than the labeled domain specific datasets. Therefore, a major bottleneck in developing performant LLMs is the massive computational cost incurred at the pre-training phase -- _e.g._, GPT-3 (175B parameters) (Brown et al., 2020) and PaLM (540B parameters) (Chowdhery et al., 2022) need up to tens of thousands of PetaFLOP/s-days ofcompute for pre-training, respectively. In order to effectively scale language models towards better quality, it is imperative to design more efficient self-supervision strategies under which more useful signals for learning downstream tasks are extracted out of each pre-training iteration on unlabeled data\n' +
+      '\n' +
+      'In this paper, we propose SpacTor (short for "**Span** corruption and **T**oken replacement"), a new pre-training procedure that significantly improves the efficiency _and_ generalization of T5 models (Raffel et al., 2020). SpacTor consists of two ingredients. The first is an augmentation of the span corruption (SC) pre-training task with the replaced token detection (RTD) objective proposed in ELECTRA (Clark et al., 2020). The second is a two-staged pre-training schedule: after \\(\\tau\\) training steps on hybrid objectives, we continue pre-training only using the vanilla SC objective. The dual task in the first stage is illustrated in Figure 1. Specifically, starting with a span-corrupted input text, an auxiliary generator \\(G\\) replaces a portion of the _uncorrupted_ tokens with plausible tokens. The main T5 model (referred to as the discriminator \\(D\\)) is pre-trained to detect replaced tokens with its encoder component. Simultaneously, using the same token-replaced input, the discriminator attempts to denoise the SC masks with its decoder.\n' +
+      '\n' +
+      'From a quality standpoint, detecting replaced tokens enforces _all token attention_(Clark et al., 2020), leading to a better text representation. However, the generator \\(G\\) can also inadvertently introduce misleading yet plausible context (albeit trained non-adversarially), resulting in a noisier training environment for discriminator decoder \\(D\\).1 As we explain in more detail in Section 3, the advantages of RTD are predominantly observed in the initial stages of pre-training. As the training progresses however, these benefits are eventually overshadowed by the noise introduced to the discriminator\'s encoder. This phenomenon naturally motivates the two-staged training, which significantly boosts the performance on various downstream tasks. Figure 2 shows examples of these improvements when \\(\\tau\\) equals 120K (1/8 of total iterations) and 250K (1/4 of total iterations) on the SuperGLUE (Wang et al., 2019), SQuAD (Rajpurkar et al., 2016) and CNN/DailyMail (Hermann et al., 2015) benchmarks. These and several other results are discussed in detail in Section 3 and Appendix C.\n' +
+      '\n' +
+      'Figure 1: The SpacTor pre-training objective in the first stage. In step (1), the original text is randomly corrupted with span corruption (marked as [S0], [S1], _etc_, ) and then token-level random masking (marked as [M]). A small auxiliary generator model \\(G\\) is trained to recover [M] only. The resulting text is then fed into the T5 discriminator \\(D\\), whose encoder component learns to predict at every position whether the token is a replaced one, while its decoder component learns to fill in the ground truth token as in standard span corruption.\n' +
+      '\n' +
+      'From the perspective of efficiency, one major benefit of our design is that we do not increase the target length of the decoder. A naive extension of the ELECTRA approach to the encoder-decoder architecture would require decoding the entire original input sequence rather than only the corrupted spans, which is undesirable since the complexity of the decoder\'s self-attention is \\(\\mathcal{O}(L^{2})\\) for a given target length \\(L\\). The additional computational overhead of SpacTor, on the contrary, mainly comes from the inference and back-propagation of the generator \\(G\\) (typically much smaller compared to the discriminator \\(D\\)) and a light-weight binary classification head. The cost is only incurred during the first \\(\\tau\\) training steps and gets amortized over the rest of the steps. Consequently, SpacTor achieves a \\(50\\%\\) reduction in training iterations and a 40% reduction in FLOPs while maintaining task performance, as presented in detail in Section 3.\n' +
+      '\n' +
+      'The main contribution of the papers are:\n' +
+      '\n' +
+      '1. We propose a novel combination of RTD and SC, thus extending ELECTRA to encoder-decoder architecture.\n' +
+      '2. We analyze extensively the interactions between the two objectives, and establish a two-stage pre-training schedule.\n' +
+      '3. We show that SpacTor scales well as model size increases, and offers around 40% savings in total pre-training compute.\n' +
+      '\n' +
+      '## 2 SpacTor Method\n' +
+      '\n' +
+      'In this section, we first describe in detail the pre-training objective of SpacTor highlighted in Figure 1; after that we describe the methodology of two-stage pre-training.\n' +
+      '\n' +
+      '### The Hybrid Pre-training Objective\n' +
+      '\n' +
+      'Given an input text composed of a sequence of tokens \\(X=\\{x_{0},x_{1},...,x_{N-1}\\}\\), we introduce two types of masks and apply them sequentially:\n' +
+      '\n' +
+      '**SC masks**Raffel et al. (2020). Let \\(X_{i,j}\\) be the set of consecutive tokens \\(X_{i,j}=\\{x_{i},x_{i+1},...,x_{j-1},x_{j}\\}\\). SC selects \\(p\\) disjoint spans \\(\\mathcal{S}_{p}=\\{X_{i_{k},j_{k}}\\}_{k=0}^{p-1}\\) uniformly at random, with average span length \\(\\mu=3\\). Each \\(X_{i_{k},j_{k}}\\) is then replaced with a single sentinel token \\(\\left[\\!\\mathbb{S}k\\right]\\):\n' +
+      '\n' +
+      '\\[\\begin{split}\\left\\{x_{0},...,X_{i_{0},j_{0}},...,X_{i_{k},j_{k}},...,x_{N-1}\\right\\}\\longrightarrow\\\\ \\left\\{x_{0},...,\\left[\\!\\mathbb{S}0\\right],...,\\left[\\!\\mathbb{S }k\\right],...,x_{N-1}\\right\\}.\\end{split} \\tag{1}\\]\n' +
+      '\n' +
+      'For convenience, we denote \\(X_{c}\\) to be the right hand side of Equation 1.\n' +
+      '\n' +
+      'Figure 2: SpacTor(\\(\\tau\\)) performances on SuperGLUE, SQuAD and CNN/DailyMail with respect to pre-training FLOPs. Here, we include SpacTor(250K) and SpacTor(120K) where the second pre-training stage (using the span corruption objective only) starts at 250K and 120K training steps respectively. The plots for the remaining tasks are presented in Appendix C.\n' +
+      '\n' +
+      '**MLM masks**. For the rest of the tokens \\(X_{\\mathrm{c}}\\setminus\\left\\{\\left[\\mathbb{S}k\\right]\\right\\}\\), we continue _token level_ masking by selecting \\(q\\) additional tokens \\(\\mathcal{M}_{q}=\\{x_{u_{m}}\\}_{m=0}^{q-1}\\) uniformly at random and replace them with mask \\(\\left[\\mathbb{M}\\right]\\):\n' +
+      '\n' +
+      '\\[\\begin{split}\\{x_{0},...,x_{u_{0}},...,[\\mathbb{S}k],...,x_{u_{m}},...,x_{N-1}\\}\\longrightarrow\\\\ \\{x_{0},...,[\\mathbb{M}],...,[\\mathbb{S}k],...,[\\mathbb{M}],...,x_ {N-1}\\}\\,.\\end{split} \\tag{2}\\]\n' +
+      '\n' +
+      'We denote the final corrupted sentence with both masks as \\(X_{\\mathrm{c}}^{\\mathrm{MLM}}\\).\n' +
+      '\n' +
+      'Note that we apply MLM masks _after_ SC, to utilize well-established SC algorithm and distributions. MLM masks, being at token level, can also be inserted avoiding SC masks naturally.\n' +
+      '\n' +
+      'The inputs are now passed to a generator \\(G\\) and a discriminator \\(D\\). \\(G\\) and \\(D\\) share the same token embedder (Clark et al., 2020) and are jointly trained.\n' +
+      '\n' +
+      '**Generator**\\(G\\). The backbone of \\(G\\) is a bidirectional transformer _encoder_, mapping each token in \\(X_{\\mathrm{c}}^{\\mathrm{MLM}}\\) to contextualized vector representations \\(\\mathbf{H}_{d\\times n}^{G}=\\{h_{0}^{G},h_{1}^{G},...,h_{n-1}^{G}\\}\\) where \\(h_{\\ell}^{G},\\ell=0,...,n-1\\) is a \\(d\\)-dimensional column vector and \\(n=N-p(\\mu-1)\\) is the length of \\(X_{\\mathrm{c}}^{\\mathrm{MLM}}\\). We add a linear projection layer \\(\\mathbf{W}_{v\\times d}^{G}\\) that mapping \\(h_{\\ell}^{G}\\) to the \\(v\\)-dimensional embedding space of vocabulary. Finally, a softmax is taken to calculate the probabilities of output tokens:\n' +
+      '\n' +
+      '\\[p_{G}\\left(x_{\\ell}\\right|X_{\\mathrm{c}}^{\\mathrm{MLM}}\\right)=\\mathrm{softmax }\\left(\\mathbf{W}\\cdot h_{\\ell}^{G}\\right), \\tag{3}\\]\n' +
+      '\n' +
+      'The loss function for \\(G\\) is\n' +
+      '\n' +
+      '\\[\\mathcal{L}_{G}=\\mathbb{E}\\left(\\sum_{\\ell}-\\log p_{G}\\left(x_{\\ell}\\right|X_ {\\mathrm{c}}^{\\mathrm{MLM}}\\right)\\right) \\tag{4}\\]\n' +
+      '\n' +
+      '**Discriminator**\\(D\\). \\(D\\) is a T5 model. The encoder input of \\(D\\) is generated by sampling from categorical distribution \\(p_{G}\\) and replacing each \\(\\left[\\mathbb{M}\\right]\\) in \\(X_{\\mathrm{c}}^{\\mathrm{MLM}}\\) with plausible token \\(\\widehat{x}\\). We refer to the resulting text as \\(\\widehat{X_{\\mathrm{c}}}\\), which is used as the encoder input of \\(D\\).\n' +
+      '\n' +
+      'The encoder output of \\(D^{\\ast}\\), \\(\\mathbf{H}_{d\\times n}^{D}=\\{h_{0}^{D},h_{1}^{D},...,h_{n-1}^{D}\\}\\), is fed into an MLP layer \\(f\\) followed by sigmoid to determine whether the given token is the same as the ground truth or is replaced:\n' +
+      '\n' +
+      '\\[p_{D}^{\\mathrm{RTD}}(\\widehat{x}_{\\ell})=\\exp(f(h_{\\ell}^{D}))/\\left[1+\\exp(f( h_{\\ell}^{D}))\\right]. \\tag{5}\\]\n' +
+      '\n' +
+      'The corresponding loss for RTD is\n' +
+      '\n' +
+      '\\[\\mathcal{L}_{D}^{\\mathrm{RTD}}=\\mathbb{E}\\left[\\sum_{\\ell=0}^{n-1}-\\mathbb{I}( \\widehat{x}_{\\ell}=x_{\\ell})\\log p_{D}^{\\mathrm{RTD}}(\\widehat{x}_{\\ell})- \\mathbb{I}(\\widehat{x}_{\\ell}\\neq x_{\\ell})\\log(1-p_{D}^{\\mathrm{RTD}}( \\widehat{x}_{\\ell}))\\right] \\tag{6}\\]\n' +
+      '\n' +
+      'On the other hand, the decoder of \\(D\\) is trained to find the actual tokens behind the SC masks \\(\\left[\\mathbb{S}k\\right]\\), taking into account the embedding \\(\\mathbf{H}_{d\\times n}^{D}\\). As in Raffel et al. (2020), we formulate the decoder target as the concatenation of SC masks and the ground truth tokens:\n' +
+      '\n' +
+      '\\[T:=\\left[\\mathbb{S}0\\right]X_{i_{0},j_{0}}\\...\\ \\left[\\mathbb{S}(p-1)\\right]X_{i_{ p-1},j_{p-1}}\\ \\left[\\mathsf{EOS}\\right]. \\tag{7}\\]\n' +
+      '\n' +
+      'This gives the following loss,\n' +
+      '\n' +
+      '\\[\\mathcal{L}_{D}^{\\mathrm{SC}}=\\mathbb{E}\\left[\\sum_{i=1}^{p\\mu+p+1}-\\log p_{D} ^{\\mathrm{SC}}\\left(T_{i}\\mid T_{i-1},\\...,\\ T_{0};\\widehat{X_{\\mathrm{c}}}\\right)\\right]. \\tag{8}\\]\n' +
+      '\n' +
+      'The final loss of training is the weighted sum of three terms:\n' +
+      '\n' +
+      '\\[\\mathcal{L}=\\mathcal{L}_{G}+\\lambda_{1}\\mathcal{L}_{D}^{\\mathrm{RTD}}+\\lambda_{2 }\\mathcal{L}_{D}^{\\mathrm{SC}},\\ \\ \\ \\lambda_{1,2}\\geq 0. \\tag{9}\\]\n' +
+      '\n' +
+      '### Two-staged Pre-training\n' +
+      '\n' +
+      'As described in Section 1 and elaborated in Section 3.2.1 below, the existence of MLM masks, plus the imperfection of the generator \\(G\\) itself may provide misleading context \\(\\widehat{X_{\\mathrm{c}}}\\) which obstructs training from SC. We therefore introduce a one-parameter generalization that after training hybrid objective with \\(\\tau\\) iterations, only the discriminator \\(D\\) and shared token embedder are retained, and continue the rest of the pre-training with vanilla SC objective.\n' +
+      '\n' +
+      'Experiments\n' +
+      '\n' +
+      'In this section, we begin by describing our experimental setup. To emphasize the stage transition \\(\\tau\\) and the discriminator size \\(M\\), we explicitly write \\(\\textsc{SpacTor}_{M}(\\tau)\\) in the remaining of the paper. At two extremes, when \\(\\tau=0\\) (resp. \\(\\tau=\\infty\\)), we train with the SC objective (resp. the hybrid objective) exclusively. We then show that the performance gain of \\(\\textsc{SpacTor}_{\\textsc{Base}}(\\infty)\\) is not sustainable (Section 3.2.1), and a two-staged pre-training is the natural remedy (Section 3.2.2). With the knowledge gained from the Base model up to Section 3.2.3, we extend the experiment to the Large model in Section 3.2.4.\n' +
+      '\n' +
+      '### Setup\n' +
+      '\n' +
+      '**Pre-training procedures.** We closely follow the convention of the original T5 paper (Raffel et al., 2020), and focus on the T5.1.0 model throughout our experiments. The model is pre-trained on Colossal Clean Crawled Corpus (C4), a massive English-only web extracted text set. We use the SentencePiece tokenizer with 32,000 tokens for preprocessing the raw text corpus, and the Adafactor optimizer (Shazeer and Stern, 2018) for model parameter training. Details of the pre-training hyper-parameters and their tuning are discussed in Table 5 of Appendix A.1.\n' +
+      '\n' +
+      '**Fine-tuning procedure.** The weights of the pre-trained discriminator \\(D\\) and the token embedder are used to initialize fine-tuning. In accordance with standard practice, we use a constant learning rate and train over a sufficiently large number of iterations to ensure that the validation metrics have converged. More details of the fine-tuning hyperparameters can be found in Appendix A.2.\n' +
+      '\n' +
+      '**Evaluation.** We use the T5.1.0 model pre-trained with span corruption only (Raffel et al., 2020) as baseline. Table 1 gives a list of representative natural language tasks we evaluate in this paper. For tasks having multiple sub-tasks, we treat them independently, and select the best checkpoint based on the maximal value of the average of the corresponding set of metrics. For FLAN instruction-tuning in particular, we focus on the benchmark comprised of 27 tasks from BIG-Bench (BBH) (Srivastava et al., 2022) and 57 tasks from Massive Multitask Language Understanding (MMLU) (Hendrycks et al., 2021) with direct answers. Here we do not include benchmarks with Chain-of-Thought (Wei et al., 2022) as reasoning is an emergent capability of larger models beyond O(10B) scale. We compare the fine-tuning results without using LM adaptation (Lester et al., 2021) to directly reflect quality gains. We also exclude tasks involving multilinguality such as WMT translation (_e.g.,_ see Barrault et al. (2020)), because those tasks are more suitable for mT5 models (Xue et al., 2020).\n' +
+      '\n' +
+      '### Results\n' +
+      '\n' +
+      'We now present the main experimental results for \\(\\textsc{SpacTor}_{\\textsc{Base}}(\\tau)\\) and \\(\\textsc{SpacTor}_{\\textsc{Large}}(\\tau)\\). For the former, we compare \\(\\tau=\\infty\\) and \\(\\tau<\\infty\\) and emphasize the importance of training stage transition. We also analyze the quantitative gains from both generalizability and efficiency perspective.\n' +
+      '\n' +
+      '#### 3.2.1 Single stage pre-training\n' +
+      '\n' +
+      'As motivated in Section 1, jointly pre-training on SC and RTD can be a double-edged sword. This is reflected in Figure 3 where we plot the continuous fine-tuning results for \\(\\textsc{SpacTor}_{\\textsc{Base}}(\\infty)\\) up to 1M steps. While the added RTD objective enhances performance in the early iterations, the gains vanish after around 250K pre-training steps and the model eventually under-performs compared to the baseline.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c} \\hline \\hline\n' +
+      '**Task** & **Description** & **No. Datasets** & **Reference** \\\\ \\hline GLUE & General Language Understanding & 7 & Wang et al. (2019) \\\\ SuperGLUE & General Language Understanding & 8 & Wang et al. (2019) \\\\ SQuAD & QA (context) & 1 & Rajpurkar et al. (2016) \\\\ CNN/DailyMail & News Summarization & 1 & Hermann et al. (2015) \\\\ Rainbow & Commonsense Reasoning & 6 & Lourie et al. (2021) \\\\ FLAN & Instruction-tuning & 6 & Chung et al. (2022) \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 1: List of natural language tasks for fine-tuning.\n' +
+      '\n' +
+      'To gain more insights, we compare validation loss \\(\\mathcal{L}_{D}^{\\mathrm{SC}}\\) against baseline, when the encoder inputs are the original context \\(X_{\\mathrm{c}}\\) or the noisy context \\(\\widehat{X_{\\mathrm{c}}}\\) respectively in Figure 3(a). When noisy input \\(\\widehat{X_{\\mathrm{c}}}\\) is consumed, the loss is noticeably inferior compared to using \\(X_{\\mathrm{c}}\\), an indication that replaced tokens in fact hurts the validation score of SC.\n' +
+      '\n' +
+      'In Figure 3(b), we subtract \\(\\textsc{SpacTor}_{\\textsc{Base}}(\\infty)\\)\'s validation cross entropy against baseline. The gap in loss reduces initially, as the generator \\(G\\) produces more correct tokens. An inflection occurs at around 200K pre-training steps, after that a reverse trend is developed. The trend is statistically significant, based on the hypothesis test carried out in Appendix B. This implies the discriminator \\(D\\)\'s performance on the SC objective is diverging further away from baseline, suggesting that the training is bottlenecked by noise in the input context \\(\\widehat{X_{\\mathrm{c}}}\\). The inflection point approximately occurs at the same time as the one happened in Figure 3 -- a qualitative confirmation that downstream metric decay can be attributed to the degradation of span corruption performance during pre-training.\n' +
+      '\n' +
+      'Figure 4: **(Left) Validation loss curve for baseline and \\(\\textsc{SpacTor}(\\infty)\\). (Right) Validation cross-entropy loss differences between baseline and \\(\\textsc{SpacTor}(\\infty)\\) evaluated with encoder input \\(X_{\\mathrm{c}}\\). The dashed line is the linear regression fits to the data starting at iteration 120K.**\n' +
+      '\n' +
+      'Figure 3: Average score on downstream tasks (\\(y\\)-axis) when continuously fine-tuning along the pre-training checkpoints (\\(x\\)-axis). The error band illustrates the min-max range over 5 independent runs.\n' +
+      '\n' +
+      'We conjecture that RTD helps in early training iterations because discriminator \\(D\\) is still weak, and correlations of input and target tokens are not yet properly established. Therefore, noise in \\(G\\) does not matter too much. Meanwhile, all token attention enforced by RTD greatly aids the model to maximize the usage of input context, hence boosting the downstream metrics.\n' +
+      '\n' +
+      '#### 3.2.2 With continued pre-training\n' +
+      '\n' +
+      'Now we discuss \\(\\tau<\\infty\\). In practice, based on Figure 3 and Figure 3(b) we compare cases with \\(\\tau\\) to be 60K, 120K or 250K.\n' +
+      '\n' +
+      'In Table 2, we summarize the downstream task metrics for baseline and \\(\\textsc{SpacTor}_{\\textsc{Base}}(\\tau)\\) fine-tuned at 500K / 1M checkpoints. The results show that at 500K checkpoint, \\(\\textsc{SpacTor}_{\\textsc{Base}}(\\tau)\\) consistently outperforms the baseline by a large margin. For \\(\\tau=250\\)K as an example, the gain is at least one standard deviation, and can reach as large as \\(3\\sigma\\) on tasks like GLUE and SQuAD. Except MMLU and BBH, \\(\\textsc{SpacTor}_{\\textsc{Base}}(\\tau)\\) with only half of the pre-training iterations achieves similar or even better downstream performances than baseline. When training to 1M, \\(\\textsc{SpacTor}_{\\textsc{Base}}(\\tau)\\) retains its superiority over baseline, even though 75% of the steps are trained with SC only. This implies that the two-staged pre-training, indeed, fixes the decay in performance shown in Figure 3.\n' +
+      '\n' +
+      'Interestingly, comparing the fine-tuning results at the 500K checkpoint when \\(\\tau\\) equals 250K, 120K and 60K, we see there is no obvious difference on tasks such as SuperGLUE and SQuAD. For others, reducing \\(\\tau\\) from 250K to 60K we see a significant drop in the metrics, some of which become even on par with the baseline. This indicates that 60K iterations is perhaps too early for the transition to the second stage of pre-training. For that reason, we do not evaluate \\(\\textsc{SpacTor}_{\\textsc{Base}}(60\\text{K})\\) at 1M iterations anymore.\n' +
+      '\n' +
+      'The breakdown of individual subtasks and their evaluation metrics are described in Appendix D.\n' +
+      '\n' +
+      '#### 3.2.3 Efficiency analysis\n' +
+      '\n' +
+      'Comparing downstream tasks at the same number of iterations (_i.e._ Table 2) is not entirely indicative of training efficiency as \\(\\textsc{SpacTor}_{\\textsc{Base}}(\\tau)\\) requires more floating point operations (FLOPs) per step in the first \\(\\tau\\) iterations. Nonetheless, as the analysis in this section shows, \\(\\textsc{SpacTor}\\) achieves a net increase in performance as a function of overall compute cost.\n' +
+      '\n' +
+      'We compare the actual compute cost using two approaches. In the first approach, we read sequences per second metric using the T5X library (Roberts et al., 2022), a direct reflection of wall clock time. We normalize the value against the baseline to avoid hardware-dependent specifics. In the second approach, we calculate FLOPs per iteration, a hardware independent quantity. As summarized in Table 3, we find that pre-training on \\(\\textsc{SpacTor}_{\\textsc{Base}}(\\tau)\\) during the first stage incurs about 37.5% more FLOPs at each iteration than the baseline, which approximately matches the relative value of sequence per second.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c c c c c c c} \\hline \\hline \\(\\tau\\) & **Ckpt.** & **FLOPs** & **GLUE** & **SuperGLUE** & **SQuAD** & **CNNDM** & **Rainbow** & **MMLU** & **BBH** \\\\ \\hline\n' +
+      '0 & 500K & 1.0 & 85.89 \\(\\pm\\) 0.17 & 77.33 \\(\\pm\\) 0.74 & 88.59 \\(\\pm\\) 0.05 & 33.27 \\(\\pm\\) 0.12 & 70.14 \\(\\pm\\) 0.25 & 50.20 \\(\\pm\\) 1.47 & 36.82 \\(\\pm\\) 0.55 \\\\\n' +
+      '250K & 500K & 1.2 & **86.46**\\(\\pm\\) 0.17 & **78.26**\\(\\pm\\) 0.63 & **88.91**\\(\\pm\\) 0.11 & **33.34**\\(\\pm\\) 0.10 & **71.60**\\(\\pm\\) 0.18 & **51.15**\\(\\pm\\) 0.80 & **37.30**\\(\\pm\\) 0.33 \\\\\n' +
+      '120K & 500K & 1.1 & **86.35**\\(\\pm\\) 0.13 & **78.23**\\(\\pm\\) 0.81 & **88.93**\\(\\pm\\) 0.11 & **33.37**\\(\\pm\\) 0.10 & **71.34**\\(\\pm\\) 0.23 & **51.01**\\(\\pm\\) 0.40 & **36.97**\\(\\pm\\) 0.31 \\\\\n' +
+      '60K & 500K & 1.05 & **86.28**\\(\\pm\\) 0.22 & **78.50**\\(\\pm\\) 0.56 & **88.95**\\(\\pm\\) 0.14 & 33.27 \\(\\pm\\) 0.08 & **71.35**\\(\\pm\\) 0.16 & **50.67**\\(\\pm\\) 1.02 & 36.72 \\(\\pm\\) 0.30 \\\\ \\hline\n' +
+      '0 & 1M & 2.0 & 86.11 \\(\\pm\\) 0.17 & 78.14 \\(\\pm\\) 0.80 & 88.90 \\(\\pm\\) 0.23 & 33.34 \\(\\pm\\) 0.10 & 71.00 \\(\\pm\\) 0.20 & 52.79 \\(\\pm\\) 0.95 & 37.57 \\(\\pm\\) 0.77 \\\\\n' +
+      '250K & 1M & 2.2 & **86.48**\\(\\pm\\) 0.29 & **78.33**\\(\\pm\\) 0.76 & **89.09**\\(\\pm\\) 0.12 & **33.47**\\(\\pm\\) 0.07 & **72.27**\\(\\pm\\) 0.29 & **52.96**\\(\\pm\\) 0.61 & **38.18**\\(\\pm\\) 0.84 \\\\\n' +
+      '120K & 1M & 2.1 & **86.57**\\(\\pm\\) 0.35 & **78.16**\\(\\pm\\) 0.76 & **88.99**\\(\\pm\\) 0.14 & **33.53**\\(\\pm\\) 0.09 & **72.14**\\(\\pm\\) 0.25 & **52.81**\\(\\pm\\) 0.57 & **38.08**\\(\\pm\\) 0.65 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 2: Average score of each downstream tasks for \\(\\textsc{SpacTor}_{\\textsc{Base}}(\\tau)\\). When \\(\\tau=0\\) it becomes the baseline. We present both the mean value and standard deviation across five independent runs. We bold numbers for \\(\\textsc{SpacTor}_{\\textsc{Base}}(\\tau)\\) with a higher mean than baseline at the same pre-training steps. In the third column, we add the normalized FLOPs where baseline-500K checkpoint is normalized to be 1.0. Details are presented in Section 3.2.3.\n' +
+      '\n' +
+      'In the second column of Table 2, we added the relative FLOPs of each method at a fixed iteration. For example, \\(\\text{\\sc SpacTor}_{\\text{Base}}(250\\text{K})\\) has an overall normalized FLOPs of \\(0.5\\times 1.375+0.5\\times 1.0\\approx 1.2\\) after 500K iterations. For majority of the benchmarks, the 500K checkpoint is matching or beating the baseline 1M ones with a normalized FLOPs of 2.0. This represent an overall efficiency gain of at least 40%. It is also worth noting that, as the length of the second stage training grows relative to the first stage, the extra cost of \\(\\text{\\sc SpacTor}_{\\text{Base}}(\\tau)\\) is reduced. For example, at 1M iterations the number shrinks to \\(2.2/2=1.1\\).\n' +
+      '\n' +
+      'To better illustrate performance as a function of compute, Figure 2 plots average score of SuperGLUE, SQuAD and CNN/DailyMail with respect to FLOPs. Not only do we see that \\(\\text{\\sc SpacTor}_{\\text{Base}}(\\tau)\\) achieves the same average score as baseline-1M with 40% less compute, but that is also outperforms baseline across the majority of compute budgets. In Appendix C we include similar plot for the remaining tasks.\n' +
+      '\n' +
+      '#### 3.2.4 Large models\n' +
+      '\n' +
+      'We now scale up SpacTor to T5-Large model (Raffel et al., 2020) of around 700M parameters. We pick transition parameter \\(\\tau=120\\text{K}\\) and MLM ratio to be 20%, due to the proportional size increase of the generator \\(G\\). Other hyperparameters such as coefficients \\(\\lambda_{1,2}\\) (Equation 9) and SC configurations have stayed the same as before.\n' +
+      '\n' +
+      'Table 4 lists fine-tuning results for the same set of benchmarks as Base model. Because of the choice of generator \\(G\\), the extra compute budget at 500K and 1M checkpoints is now 6% and 3% respectively. Just like previous experiments, we see that \\(\\text{\\sc SpacTor}_{\\text{Large}}(\\tau)\\) consistently outperforms the baseline with a significant margin, measured by standard deviation. For GLUE, SuperGLUE and CNN/DailyMail, the 500K checkpoint of \\(\\text{\\sc SpacTor}_{\\text{Large}}\\) leads to better or equal downstream metrics compared to 1M checkpoint of baseline, while the rest of the tasks, the former is behind the latter, but the difference is within \\(1\\sigma\\). This results in an overall compute saving of 35%. We conclude that \\(\\text{\\sc SpacTor}\\) method scales well as model size grows, probably because RTD provides purely complementary information on top of vanilla SC training objective. The breakdown of individual task is given in Appendix D.\n' +
+      '\n' +
+      '## 4 Related Work\n' +
+      '\n' +
+      'Dai and Le (2015); Ramachandran et al. (2017) introduced language modeling with in-domain data to pre-train RNN sequence models. With the invention of transformer architecture (Vaswani et al.,\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c c c c c c} \\hline \\hline \\(\\tau\\) & **Ckpt. FLOPs** & **GLUE** & **SuperGLUE** & **SQuAD** & **CNNDM** & **Rainbow** & **MMLU** & **BBH** \\\\ \\hline\n' +
+      '0 & 500K & 1.0 & 88.92 \\(\\pm\\) 0.27 & 85.10 \\(\\pm\\) 0.43 & 91.30 \\(\\pm\\) 0.10 & 34.14 \\(\\pm\\) 0.02 & 81.48 \\(\\pm\\) 0.22 & 55.59 \\(\\pm\\) 0.84 & 40.30 \\(\\pm\\) 0.30 \\\\\n' +
+      '120K & 500K & 1.06 & **89.66**\\(\\pm\\) 0.19 & **86.06**\\(\\pm\\) 0.47 & **91.36**\\(\\pm\\) 0.10 & **34.22**\\(\\pm\\) 0.18 & **82.68**\\(\\pm\\) 0.23 & **57.78**\\(\\pm\\) 1.01 & **42.07**\\(\\pm\\) 1.44 \\\\ \\hline\n' +
+      '0 & 1M & 2.0 & 89.24 \\(\\pm\\) 0.17 & 86.11 \\(\\pm\\) 0.76 & 91.52 \\(\\pm\\) 0.04 & 34.24 \\(\\pm\\) 0.08 & 82.97 \\(\\pm\\) 0.20 & 58.72 \\(\\pm\\) 0.61 & 42.35 \\(\\pm\\) 0.72 \\\\\n' +
+      '120K & 1M & 2.06 & **89.90**\\(\\pm\\) 0.26 & **86.38**\\(\\pm\\) 0.80 & **91.53**\\(\\pm\\) 0.13 & **34.27**\\(\\pm\\) 0.26 & **83.92**\\(\\pm\\) 0.32 & **59.06**\\(\\pm\\) 0.90 & **44.22**\\(\\pm\\) 1.52 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 4: Average score of each downstream tasks for \\(\\text{\\sc SpacTor}_{\\text{Large}}(\\tau)\\). \\(\\tau=0\\) corresponds to the baseline. The mean value and standard deviation across three independent runs. We bold numbers for \\(\\text{\\sc SpacTor}_{\\text{Large}}(\\tau)\\) with a higher mean than baseline at the same pre-training steps.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c} \\hline \\hline\n' +
+      '**Experiment** & **Seqs / second** & **FLOPs / step** \\\\ \\hline Baseline & 1.0 & \\(1.6\\times 10^{4}\\) GFLOPs \\\\ \\(\\text{\\sc SpacTor}_{\\text{Base}}(\\tau)\\) (1st stage) & 0.7 & \\(2.2\\times 10^{4}\\) GFLOPs \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 3: Efficiency analysis of baseline and \\(\\text{\\sc SpacTor}_{\\text{Base}}(\\tau)\\) in the first stage (The second stage compute is identical to the baseline). Seqs / second is normalized using the baseline value.\n' +
+      '\n' +
+      '2017), pre-training has become a standard paradigm to scale language models beyond O(100B) parameters, which often leads to strong performance on natural language tasks.\n' +
+      '\n' +
+      'Assorted pre-training objectives have been studied in the literature, among which the most popular ones are causal language modeling (CLM) (Radford et al., 2018, 2019), prefix language modeling (PLM) (Liu et al., 2018; Raffel et al., 2020), masked language modeling (MLM) (Devlin et al., 2019). It has been understood that different pre-training objectives correlate with performance in different downstream tasks (Wang et al., 2022); therefore, one naturally curates a mixtures of these objectives (Dong et al., 2019; Tay et al., 2022) such that the pre-trained LLM may inherit strength from them all.\n' +
+      '\n' +
+      'Subsequent work also attempts to improve individual objectives. For MLM as an example, Joshi et al. (2020) introduced SpanBERT, which masks contiguous tokens and uses span boundary to assist prediction. Inspired by that, Raffel et al. (2020); Lewis et al. (2020) considered a denoising objective where contiguous tokens are replaced with a single mask token, and showed that it achieves the best performances among other denoising options for encoder-decoder models.\n' +
+      '\n' +
+      'The drawback of plain MLM, as well as other variants, is that not all tokens need to be attended to in order to figure out the ground truth. The existence of mask token \\(\\llbracket\\texttt{M}\\rrbracket\\) also creates misalignment between pre-train and downstream tasks. ELECTRA (Clark et al., 2020) rectifies those issues by jointly training a generator model that fills masked positions with plausible tokens, while the main model learning to detect which tokens have been replaced (_i.e._ the RTD loss). The authors showed that ELECTRA significantly reduces the computing cost compared to other larger networks such as GPT (Radford et al., 2018) and XLNet (Yang et al., 2019). Further extensions of ELECTRA can be found in Meng et al. (2021, 2022); He et al. (2021); Bajaj et al. (2022).\n' +
+      '\n' +
+      'Besides its success in BERT models, few works have attempted ELECTRA in T5. This is partially because RTD by itself is discriminative rather than generative in nature. As described in Section 2, instead of _replacing_ SC with RTD, we _combine_ them to form a hybrid of pre-training objectives. The hybrid objective is evaluated on each individual input, where RTD learns a text representation while SC learns token generation. A closely related work that explored hybrid objective is PEGASUS (Zhang et al., 2020); We emphasize our difference from PEGASUS in the following aspects: (i) PEGASUS de-noises MLM in the encoder. For encoder component, RTD usually brings more benefit due to all token attention (Clark et al., 2020); in addition, leaving MLM mask \\(\\llbracket\\texttt{M}\\rrbracket\\) as model input hurts SC more, because token replacement can generate at least a proportion of context correctly; (ii) PEGASUS focuses exclusively on text summarization tasks.\n' +
+      '\n' +
+      'Finally, there has been research on continued pre-training in LLMs, with focus on model adaptation: either adapting _data_(Gururangan et al., 2020), or adapting the training _objective_(Wang et al., 2022) towards downstream tasks. The continued pre-training used in this paper is neither of the above two scenarios, rather it is more akin to curriculum type of training (Bengio et al., 2009; Braun et al., 2017): the difficulty of the objective changes as training progresses.\n' +
+      '\n' +
+      '## 5 Conclusion and Future Work\n' +
+      '\n' +
+      'In this paper, we construct a novel combination of pre-training objectives: span corruption (SC) (Raffel et al., 2020) and replaced token detection (RTD) (Clark et al., 2020), which enables the language model to learn from two signals simultaneously for every single input.\n' +
+      '\n' +
+      'In Section 1 and 3, we argue empirically that RTD and SC cannot be co-trained for long durations since the downstream task performance would deteriorates sharply as pre-training progresses. It is then natural to propose a two-staged pre-training recipe, where after \\(\\tau\\) iterations we continue training with SC alone. We show that this approach is highly effective, where the model is able to reach the same performance as baseline with significantly less compute, while outperforming baseline given the same compute budget. Our observation also indicates that high quality data is critical for preserving and improving language abilities in later iterations.\n' +
+      '\n' +
+      'There are a few limitations in the current scope of the paper. First, one may wonder whether a continuous pre-training curriculum exists. For example, smoothly varying the \\(\\lambda_{1}\\), \\(\\lambda_{2}\\) parameters, or MLM masking ratio. Secondly, our results are restricted to encoder-decoder architecture. It is interesting to extend the work to other architectures, and explore the scaling behavior along the lines of Wei et al. (2022); Tay et al. (2022). We plan to leave those for future work.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* Aribandi et al. (2021) Aribandi, V., Tay, Y., Schuster, T., Rao, J., Zheng, H. S., Mehta, S. V., Zhuang, H., Tran, V. Q., Bahri, D., Ni, J., et al. (2021). Ext5: Towards extreme multi-task scaling for transfer learning. In _International Conference on Learning Representations_.\n' +
+      '* Bajaj et al. (2022) Bajaj, P., Xiong, C., Ke, G., Liu, X., He, D., Tiwary, S., Liu, T.-Y., Bennett, P., Song, X., and Gao, J. (2022). Metro: Efficient denoising pretraining of large scale autoencoding language models with model generated signals. _arXiv preprint arXiv:2204.06644_.\n' +
+      '* Barrault et al. (2020) Barrault, L., Biesialska, M., Bojar, O., Costa-jussa, M. R., Federmann, C., Graham, Y., Grundkiewicz, R., Haddow, B., Huck, M., Jounis, E., Kocmi, T., Koehn, P., Lo, C.-k., Ljubesic, N., Monz, C., Morishita, M., Nagata, M., Nakazawa, T., Pal, S., Post, M., and Zampieri, M. (2020). Findings of the 2020 conference on machine translation (WMT20). In _Proceedings of the Fifth Conference on Machine Translation_, pages 1-55, Online. Association for Computational Linguistics.\n' +
+      '* Bengio et al. (2009) Bengio, Y., Louradour, J., Collobert, R., and Weston, J. (2009). Curriculum learning. In _Proceedings of the 26th annual international conference on machine learning_, pages 41-48.\n' +
+      '* Braun et al. (2017) Braun, S., Neil, D., and Liu, S.-C. (2017). A curriculum learning method for improved noise robustness in automatic speech recognition. In _2017 25th European Signal Processing Conference (EUSIPCO)_, pages 548-552. IEEE.\n' +
+      '* Brown et al. (2020) Brown, T., Mann, B., Ryder, N., Subbiah, M., Kaplan, J. D., Dhariwal, P., Neelakantan, A., Shyam, P., Sastry, G., Askell, A., et al. (2020). Language models are few-shot learners. In _NeurIPS_.\n' +
+      '* Chowdhery et al. (2022) Chowdhery, A., Narang, S., Devlin, J., Bosma, M., Mishra, G., Roberts, A., Barham, P., Chung, H. W., Sutton, C., Gehrmann, S., Schuh, P., Shi, K., Tsyvashchenko, S., Maynez, J., Rao, A., Barnes, P., Tay, Y., Shazeer, N., Prabhakaran, V., Reif, E., Du, N., Hutchinson, B., Pope, R., Bradbury, J., Austin, J., Isard, M., Gur-Ari, G., Yin, P., Duke, T., Levskaya, A., Ghemawat, S., Dev, S., Michalewski, H., Garcia, X., Misra, V., Robinson, K., Fedus, L., Zhou, D., Ippolito, D., Luan, D., Lim, H., Zoph, B., Spiridonov, A., Sepassi, R., Dohan, D., Agrawal, S., Omernick, M., Dai, A. M., Pillai, T. S., Pellat, M., Lewkowycz, A., Moreira, E., Child, R., Polozov, O., Lee, K., Zhou, Z., Wang, X., Saeta, B., Diaz, M., Firat, O., Catasta, M., Wei, J., Meier-Hellstern, K., Eck, D., Dean, J., Petrov, S., and Fiedel, N. (2022). Palm: Scaling language modeling with pathways. _CoRR_, abs/2204.02311.\n' +
+      '* Chung et al. (2022) Chung, H. W., Hou, L., Longpre, S., Zoph, B., Tay, Y., Fedus, W., Li, E., Wang, X., Dehghani, M., Brahma, S., et al. (2022). Scaling instruction-finetuned language models. _arXiv preprint arXiv:2210.11416_.\n' +
+      '* Clark et al. (2020) Clark, K., Luong, M.-T., Le, Q. V., and Manning, C. D. (2020). ELECTRA: Pre-training text encoders as discriminators rather than generators. In _ICLR_.\n' +
+      '* Dai and Le (2015) Dai, A. M. and Le, Q. V. (2015). Semi-supervised sequence learning. In Cortes, C., Lawrence, N., Lee, D., Sugiyama, M., and Garnett, R., editors, _Advances in Neural Information Processing Systems_, volume 28. Curran Associates, Inc.\n' +
+      '* Devlin et al. (2019) Devlin, J., Chang, M.-W., Lee, K., and Toutanova, K. (2019). BERT: Pre-training of deep bidirectional transformers for language understanding. In _Proceedings of the 2019 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies, Volume 1 (Long and Short Papers)_, pages 4171-4186, Minneapolis, Minnesota. Association for Computational Linguistics.\n' +
+      '* Dong et al. (2019) Dong, L., Yang, N., Wang, W., Wei, F., Liu, X., Wang, Y., Gao, J., Zhou, M., and Hon, H.-W. (2019). Unified language model pre-training for natural language understanding and generation. _Advances in Neural Information Processing Systems_, 32.\n' +
+      '* Gururangan et al. (2020) Gururangan, S., Marasovic, A., Swayamdipta, S., Lo, K., Beltagy, I., Downey, D., and Smith, N. A. (2020). Don\'t stop pretraining: Adapt language models to domains and tasks. In _Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics_, pages 8342-8360, Online. Association for Computational Linguistics.\n' +
+      '* He et al. (2021) He, P., Liu, X., Gao, J., and Chen, W. (2021). Deberta: Decoding-enhanced bert with disentangled attention. In _International Conference on Learning Representations_.\n' +
+      '* Hendrycks et al. (2021) Hendrycks, D., Burns, C., Basart, S., Zou, A., Mazeika, M., Song, D., and Steinhardt, J. (2021). Measuring massive multitask language understanding. In _International Conference on Learning Representations_.\n' +
+      '* He et al. (2021)Hendrycks, D. and Gimpel, K. (2016). Gaussian error linear units (gelus). _arXiv preprint arXiv:1606.08415_.\n' +
+      '* Hermann et al. (2015) Hermann, K. M., Kocisky, T., Grefenstette, E., Espeholt, L., Kay, W., Suleyman, M., and Blunsom, P. (2015). Teaching machines to read and comprehend. _Advances in neural information processing systems_, 28.\n' +
+      '* Joshi et al. (2020) Joshi, M., Chen, D., Liu, Y., Weld, D. S., Zettlemoyer, L., and Levy, O. (2020). Spanbert: Improving pre-training by representing and predicting spans. _Transactions of the Association for Computational Linguistics_, 8:64-77.\n' +
+      '* Lester et al. (2021) Lester, B., Al-Rfou, R., and Constant, N. (2021). The power of scale for parameter-efficient prompt tuning. In _Proceedings of the 2021 Conference on Empirical Methods in Natural Language Processing_, pages 3045-3059, Online and Punta Cana, Dominican Republic. Association for Computational Linguistics.\n' +
+      '* Lewis et al. (2020) Lewis, M., Liu, Y., Goyal, N., Ghazvininejad, M., Mohamed, A., Levy, O., Stoyanov, V., and Zettlemoyer, L. (2020). BART: Denoising sequence-to-sequence pre-training for natural language generation, translation, and comprehension. In _Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics_, pages 7871-7880, Online. Association for Computational Linguistics.\n' +
+      '* Liu et al. (2018) Liu, P. J., Saleh, M., Pot, E., Goodrich, B., Sepassi, R., Kaiser, L., and Shazeer, N. (2018). Generating wikipedia by summarizing long sequences. In _International Conference on Learning Representations_.\n' +
+      '* Lourie et al. (2021) Lourie, N., Le Bras, R., Bhagavatula, C., and Choi, Y. (2021). Unicorn on rainbow: A universal commonsense reasoning model on a new multitask benchmark. In _Proceedings of the AAAI Conference on Artificial Intelligence_, volume 35, pages 13480-13488.\n' +
+      '* Meng et al. (2021) Meng, Y., Xiong, C., Bajaj, P., Tiwary, S., Bennett, P., Han, J., and Song, X. (2021). COCO-LM: Correcting and contrasting text sequences for language model pretraining. In _Conference on Neural Information Processing Systems_.\n' +
+      '* Meng et al. (2022) Meng, Y., Xiong, C., Bajaj, P., Tiwary, S., Bennett, P., Han, J., and Song, X. (2022). Pretraining text encoders with adversarial mixture of training signal generators. In _International Conference on Learning Representations_.\n' +
+      '* Radford et al. (2018) Radford, A., Narasimhan, K., Salimans, T., Sutskever, I., et al. (2018). Improving language understanding by generative pre-training. _OpenAI blog_.\n' +
+      '* Radford et al. (2019) Radford, A., Wu, J., Child, R., Luan, D., Amodei, D., Sutskever, I., et al. (2019). Language models are unsupervised multitask learners. _OpenAI blog_, 1(8):9.\n' +
+      '* Raffel et al. (2020) Raffel, C., Shazeer, N., Roberts, A., Lee, K., Narang, S., Matena, M., Zhou, Y., Li, W., and Liu, P. J. (2020). Exploring the limits of transfer learning with a unified text-to-text transformer. In _JMLR_.\n' +
+      '* Rajpurkar et al. (2016) Rajpurkar, P., Zhang, J., Lopyrev, K., and Liang, P. (2016). Squad: 100, 000+ questions for machine comprehension of text. In _EMNLP_.\n' +
+      '* Ramachandran et al. (2017) Ramachandran, P., Liu, P., and Le, Q. (2017). Unsupervised pretraining for sequence to sequence learning. In _Proceedings of the 2017 Conference on Empirical Methods in Natural Language Processing_, pages 383-391, Copenhagen, Denmark. Association for Computational Linguistics.\n' +
+      '* Roberts et al. (2022) Roberts, A., Chung, H. W., Levskaya, A., Mishra, G., Bradbury, J., Andor, D., Narang, S., Lester, B., Gaffney, C., Mohiuddin, A., Hawthorne, C., Lewkowicz, A., Salcanu, A., van Zee, M., Austin, J., Goodman, S., Soares, L. B., Hu, H., Tsyvashchenko, S., Chowdhery, A., Bastings, J., Bulian, J., Garcia, X., Ni, J., Chen, A., Kenealy, K., Clark, J. H., Lee, S., Garrette, D., Lee-Thorp, J., Raffel, C., Shazeer, N., Ritter, M., Bosma, M., Passos, A., Maitin-Shepard, J., Fiedel, N., Omernick, M., Saeta, B., Sepassi, R., Spiridonov, A., Newlan, J., and Gesmundo, A. (2022). Scaling up models and data with t5x and seqio. _arXiv preprint arXiv:2203.17189_.\n' +
+      '* Sanh et al. (2022) Sanh, V., Webson, A., Raffel, C., Bach, S., Sutawika, L., Alyafeai, Z., Chaffin, A., Stiegler, A., Raja, A., Dey, M., Bari, M. S., Xu, C., Thakker, U., Sharma, S. S., Szczechla, E., Kim, T., Chhablani, G., Nayak, N., Datta, D., Chang, J., Jiang, M. T.-J., Wang, H., Manica, M., Shen, S., Yong, Z. X., Pandey, H., Bawden, R., Wang, T., Neeraj, T., Rozen, J., Sharma, A., Santilli, A., Fevry, T., Fries, J. A., Teehan, R., Scao, T. L., Biderman, S., Gao, L., Wolf, T., and Rush, A. M. (2022). Multitask prompted training enables zero-shot task generalization. In _International Conference on Learning Representations_.\n' +
+      '* Sukhukhukh et al. (2019)Shazeer, N. (2020). Glu variants improve transformer. _arXiv preprint arXiv:2002.05202_.\n' +
+      '* Shazeer and Stern (2018) Shazeer, N. and Stern, M. (2018). Adafactor: Adaptive learning rates with sublinear memory cost. In Dy, J. and Krause, A., editors, _Proceedings of the 35th International Conference on Machine Learning_, volume 80 of _Proceedings of Machine Learning Research_, pages 4596-4604. PMLR.\n' +
+      '* Srivastava et al. (2022) Srivastava, A., Rastogi, A., Rao, A., Shoeb, A. A. M., Abid, A., Fisch, A., Brown, A. R., Santoro, A., Gupta, A., Garriga-Alonso, A., et al. (2022). Beyond the imitation game: Quantifying and extrapolating the capabilities of language models. _arXiv preprint arXiv:2206.04615_.\n' +
+      '* Tay et al. (2022a) Tay, Y., Dehghani, M., Tran, V. Q., Garcia, X., Bahri, D., Schuster, T., Zheng, H. S., Houlsby, N., and Metzler, D. (2022a). Unifying language learning paradigms. _arXiv preprint arXiv:2205.05131_.\n' +
+      '* Tay et al. (2022b) Tay, Y., Wei, J., Chung, H. W., Tran, V. Q., So, D. R., Shakeri, S., Garcia, X., Zheng, H. S., Rao, J., Chowdhery, A., et al. (2022b). Transcending scaling laws with 0.1% extra compute. _arXiv preprint arXiv:2210.11399_.\n' +
+      '* Vaswani et al. (2017) Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A. N., Kaiser, L. u., and Polosukhin, I. (2017). Attention is all you need. In Guyon, I., Luxburg, U. V., Bengio, S., Wallach, H., Fergus, R., Vishwanathan, S., and Garnett, R., editors, _Advances in Neural Information Processing Systems_, volume 30. Curran Associates, Inc.\n' +
+      '* Wang et al. (2019a) Wang, A., Pruksachatkun, Y., Nangia, N., Singh, A., Michael, J., Hill, F., Levy, O., and Bowman, S. (2019a). Superglue: A stickier benchmark for general-purpose language understanding systems. _Advances in neural information processing systems_, 32.\n' +
+      '* Wang et al. (2019b) Wang, A., Singh, A., Michael, J., Hill, F., Levy, O., and Bowman, S. R. (2019b). GLUE: A multitask benchmark and analysis platform for natural language understanding. In _International Conference on Learning Representations_.\n' +
+      '* Wang et al. (2022) Wang, T., Roberts, A., Hesslow, D., Scao, T. L., Chung, H. W., Beltagy, I., Launay, J., and Raffel, C. (2022). What language model architecture and pretraining objective work best for zero-shot generalization? _arXiv preprint arXiv:2204.05832_.\n' +
+      '* Wei et al. (2021) Wei, J., Bosma, M., Zhao, V. Y., Guu, K., Yu, A. W., Lester, B., Du, N., Dai, A. M., and Le, Q. V. (2021). Finetuned language models are zero-shot learners. _arXiv preprint arXiv:2109.01652_.\n' +
+      '* Wei et al. (2022a) Wei, J., Tay, Y., Bommasani, R., Raffel, C., Zoph, B., Borgeaud, S., Yogatama, D., Bosma, M., Zhou, D., Metzler, D., et al. (2022a). Emergent abilities of large language models. _Transactions on Machine Learning Research_.\n' +
+      '* Wei et al. (2022b) Wei, J., Wang, X., Schuurmans, D., Bosma, M., Chi, E., Le, Q., and Zhou, D. (2022b). Chain of thought prompting elicits reasoning in large language models. _arXiv preprint arXiv:2201.11903_.\n' +
+      '* Xue et al. (2020) Xue, L., Constant, N., Roberts, A., Kale, M., Al-Rfou, R., Siddhant, A., Barua, A., and Raffel, C. (2020). mt5: A massively multilingual pre-trained text-to-text transformer. _arXiv preprint arXiv:2010.11934_.\n' +
+      '* Yang et al. (2019) Yang, Z., Dai, Z., Yang, Y., Carbonell, J., Salakhutdinov, R. R., and Le, Q. V. (2019). Xlnet: Generalized autoregressive pretraining for language understanding. In _Advances in Neural Information Processing Systems_, volume 32. Curran Associates, Inc.\n' +
+      '* Zhang et al. (2020) Zhang, J., Zhao, Y., Saleh, M., and Liu, P. (2020). Pegasus: Pre-training with extracted gap-sentences for abstractive summarization. In _International Conference on Machine Learning_, pages 11328-11339. PMLR.\n' +
+      '\n' +
+      'Training Hyperparameters\n' +
+      '\n' +
+      'In this section, we summarize more details of hyperparameter choices for both pre-training and fine-tuning. We only tune those parameters for \\(\\text{\\sc SpacTor}_{\\text{Base}}(\\tau)\\) and then choose most of the optimal parameters for \\(\\text{\\sc SpacTor}_{\\text{Large}}(\\tau)\\) experiments.\n' +
+      '\n' +
+      '### Pre-training Hyperparameters\n' +
+      '\n' +
+      'To select hyperparameters for T5-Base model, we run \\(\\text{\\sc SpacTor}_{\\text{Base}}(\\infty)\\) with batch size 2048 to 250K steps, and then fine-tune the final checkpoints on a subset of downstream tasks (SuperGLUE, SQuAD) and select a set of reasonable values based on validation scores. For coefficients \\(\\lambda_{1,2}\\) in loss function, _i.e._ Equation 9, we apply a simple grid search such that \\(\\lambda_{1,2}\\in[1.0,10.0,20.0,50.0]\\). For the additional token level masking ratio, we experiment with \\(r_{\\text{MLM}}=[5\\%,10\\%,15\\%,20\\%,25\\%]\\) and find that a masking ratio of 15% works the best. Indeed, a ratio that is too small would result in generator \\(G\\) producing few different tokens from the initial input; while a ratio that is too large leads to an overly-corrupted input for the discriminator \\(D\\), further affecting \\(D\\) from training SC properly.\n' +
+      '\n' +
+      'We also experiment with different generator architecture and sizes, in particular, selecting from encoder-only or encoder-decoder architecture. It is found that an encoder-only architecture suffices and there is no quality degradation using a linear projection layer mapping encoder output to the probability distribution of tokens in the vocabulary. We also compare final downstream performances when \\(G\\) is a 3-layer, 4-layer, 6-layer model. Same as Clark et al. (2020), when \\(G\\) is around 1/4 - 1/3 the size of the _encoder_ of \\(D\\), the result is optimal.\n' +
+      '\n' +
+      'The hyperparameter set is then fixed throughout the remainder of the empirical evaluation across all checkpoints and benchmarks. For T5-Large model, we re-use majority of the hyperparameters except scaling generator accordingly and increasing the MLM ratio from 15% to 20%.\n' +
+      '\n' +
+      '### Fine-tuning Hyperparameters\n' +
+      '\n' +
+      'For all the tasks except FLAN instruction-tuning, we fix a constant learning rate 1e-3, dropout rate 0.1, and batch size 128. For FLAN, we use constant learning rate 5e-4, dropout rate 0.05 and batch size 64, following Chung et al. (2022). For the latter we also reset optimizer states since the data distribution is very different from pre-training corpus. We fine-tune for sufficiently long iterations, typically 250K - 300K, to ensure convergence.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l l l} \\hline \\hline\n' +
+      '**Parameter** & **T5-Base Value** & **T5-Large Value** \\\\ \\hline Discriminator Layers & 12 & 24 \\\\ Discriminator Num Heads & 12 & 16 \\\\ Discriminator Hidden Dimension & 768 & 1024 \\\\ Discriminator MLP Size & 3072 & 4096 \\\\ RTD Head MLP Size & 3072 & 4096 \\\\ RTD Head MLP Activation & GELU & GELU \\\\ Generator Layers & 4 & 6 \\\\ Generator MLP Size & 1024 & 2048 \\\\ Input Length & 512 & 512 \\\\ Batch Size & 2048 & 2048 \\\\ Span Corruption & (\\(r\\) = 15\\%, \\(\\mu\\) = 3.0) & (\\(r\\) = 15\\%, \\(\\mu\\) = 3.0) \\\\ MLM Ratio & 15\\% & 20\\% \\\\ Warmup Steps & \\(\\kappa=10,000\\) & \\(\\kappa=10,000\\) \\\\ Learning Rate Schedule & \\(1.0/\\sqrt{\\max(n,\\kappa)}\\) & \\(1.0/\\sqrt{\\max(n,\\kappa)}\\) \\\\ \\((\\lambda_{1},\\lambda_{2})\\) & \\((10.0,10.0)\\) & \\((10.0,10.0)\\) \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 5: Model architecture and pre-training hyperparameters for SpacTor. The RTD head uses the GELU activation initially proposed in Hendrycks and Gimpel (2016); Shazeer (2020).\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:14]\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c c c c c c c} \\hline \\hline\n' +
+      '**Size** & \\(\\tau\\) & **Ckpt** & **CoLA** & **MNLI** & **MRPC** & **QNLI** & **QQP** & **RTE** & **SST-2** & **STS-B** \\\\ \\hline \\multirow{4}{*}{Large} & 0 & 500K & 64.14 & 90.29 / 90.39 & 93.66 / 91.18 & 94.82 & 90.13 / 92.62 & 89.17 & 95.76 & 91.85 / 91.64 \\\\  & 120K & 500K & **68.28** & **90.55 / 90.57** & **94.33 / 92.16** & **94.93** & 90.06 / **92.63** & **90.25** & **96.22** & 91.78 / 91.54 \\\\  & 0 & 1M & 63.33 & 90.80 / 90.94 & 94.16 / 91.91 & 95.04 & 90.20 / 92.68 & 90.61 & 96.10 & 91.83 / 91.72 \\\\  & 120K & 1M & **67.43** & **90.93 / 90.95** & **94.41 / 92.16** & **95.20** & **90.25 / 92.70** & **91.34** & **96.44** & **92.17 / 92.00** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 7: Breakdown of GLUE (Wang et al., 2019) sub-tasks for SpacTorLarge. Each score corresponds to the median of 3 independent runs. The metrics for each sub-task are: Matthews correlation coefficient for CoLA, matched/mismatched accuracy for MNLI, F1/accuracy for MRPC, accuracy for QNLI, F1/accuracy for QQP, accuracy for RTE, accuracy for SST-2, Pearson correlation coefficient/Spearman correlation coefficient for STS-B.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c c c c c c c} \\hline \\hline\n' +
+      '**Size** & \\(\\tau\\) & **Ckpt** & **BoolQ** & **CB** & **COPA** & **MultiRC** & **ReCoRD** & **RTE** & **WiC** & **WSC** \\\\ \\hline \\multirow{4}{*}{Base} & 0 & 500K & 81.99 & 96.07 / 96.43 & 70.00 & 76.15 / 37.88 & 77.65 / 78.53 & 81.59 & 68.97 & 83.65 \\\\  & 250K & 500K & **82.32** & 93.70 / 94.64 & **73.00** & **77.09 / 40.19** & 77.65 / **78.55** & **83.03** & **69.44** & **85.58** \\\\  & 120K & 500K & **82.72** & 95.03 / 96.43 & **74.00** & **77.04 / 38.93** & **77.92 / 78.92** & **82.31** & **70.22** & **84.62** \\\\  & 0 & 1M & 82.39 & 97.36 / 96.43 & 72.00 & 77.10 / 39.66 & 78.10 / 79.10 & 83.03 & 69.44 & 86.54 \\\\  & 250K & 1M & **82.78** & 91.89 / 94.64 & **76.00** & **77.63 / 41.03** & 78.05 / 79.03 & 83.03 & 69.12 & 85.58 \\\\  & 120K & 1M & **82.66** & 95.04 / 94.64 & **74.00** & **77.94 / 41.76** & **78.21 / 79.20** & 82.67 & 69.28 & 82.69 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 8: Breakdown of SuperGLUE (Wang et al., 2019) sub-tasks for SpacTorBase. Each score corresponds to the median of 5 independent runs. The metrics for each sub-task are: accuracy for BoolQ, average F1/accuracy for CB, accuracy for COPA, F1/Exact Match (EM) for MultiRC, EM/F1 for ReCoRD, accuracy for RTE, accuracy for RTE, WiC and WSC.\n' +
+      '\n' +
+      'Figure 5: SpacTor performances on GLUE, Rainbow, BBH and MMLU with respect to pre-training FLOPs for T5-Base model.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c c c c c c c c} \\hline \\hline\n' +
+      '**Size** & \\(\\tau\\) & **Ckpt** & **SQuAD** & **CNNDM** & \\(\\alpha\\)**NLI** & **CosmosQA** & **HellaSWAG** & **PIQA** & **SocialIQA** & **WinoGrande** \\\\ \\hline \\multirow{4}{*}{Base} & 0 & 500K & 85.01 / 92.20 & 41.48 / 19.43 / 38.98 & 71.28 & 74.51 & 62.47 & 76.28 & 69.60 & 66.85 \\\\  & 250K & 500K & **85.34 / 92.42** & **41.50 / 19.41 / 39.03** & **71.87** & **75.58** & **66.80** & **76.93** & **70.32** & **67.96** \\\\  & 120K & 500K & **85.37 / 92.42** & **41.54 / 19.47 / 39.04** & **71.67** & **75.08** & **66.11** & **77.15** & **70.01** & **68.03** \\\\  & 0 & 1M & 85.37 / 92.34 & 41.51 / 19.48 / 39.02 & 71.34 & 75.31 & 64.44 & 76.55 & 70.83 & 67.17 \\\\  & 250K & 1M & **85.63 / 92.57** & **41.69 / 19.55 / 39.17** & **72.26** & **76.55** & **67.19** & **77.42** & 70.78 & **68.35** \\\\  & 120K & 1M & **85.54 / 92.58** & **41.76 / 19.60 / 39.24** & **72.39** & **76.58** & **67.30** & **77.20** & **71.29** & **68.67** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 10: Breakdown of SQuAD (Rajpurkar et al., 2016), CNN/DailyMail (Hermann et al., 2015) and Rainbow (Lourie et al., 2021) sub-tasks for \\(\\text{SpaceTor}_{\\text{Base}}\\). Each score corresponds to the median of 5 independent runs. The metrics for each sub-task are: EM/F1 for SQuAD, Rouge-1/Rouge-2/Rouge-L for CNN/DailyMail, and accuracy for all the Rainbow tasks.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c c c c c c c c} \\hline \\hline\n' +
+      '**Size** & \\(\\tau\\) & **Ckpt** & **BoolQ** & **CB** & **COPA** & **MultiRC** & **ReCoRD** & **RTE** & **WiC** & **WSC** \\\\ \\hline \\multirow{4}{*}{Large} & 0 & 500K & 87.49 & 95.59 / 98.21 & 85.00 & 83.97 / 52.93 & 86.30 / 87.21 & 89.89 & 72.88 & 94.23 \\\\  & 120K & 500K & 87.43 & **100.00** / **100.00** & **87.00** & **84.33 / 54.98** & **86.86 / 87.74** & **91.94** & **74.92** & 93.27 \\\\  & 0 & 1M & 87.92 & 96.23 / 98.21 & 90.00 & 85.19 / 56.45 & 87.31 / 88.17 & 90.61 & 74.92 & 91.35 \\\\  & 120K & 1M & 87.80 & **100.00** / **100.00** & 87.00 & 85.05 / 56.35 & **87.43 / 88.29** & **90.97** & 73.98 & **93.27** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 9: Breakdown of SuperGLUE (Wang et al., 2019) sub-tasks for \\(\\text{SpaceTor}_{\\text{Large}}\\). Each score corresponds to the median of 3 independent runs. The metrics for each sub-task are: accuracy for BoolQ, average F1/accuracy for CB, accuracy for COPA, F1/Exact Match (EM) for MultiRC, EM/F1 for ReCoRD, accuracy for RTE, accuracy for RTE, WiC and WSC.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c c c c c c c c} \\hline \\hline \\multirow{2}{*}{**Size**} & \\(\\tau\\) & \\multirow{2}{*}{**Ckpt**} & \\multicolumn{2}{c}{**Boolean**} & \\multirow{2}{*}{**Causal**} & \\multirow{2}{*}{**Date**} & \\multirow{2}{*}{**Disambi-**} & \\multirow{2}{*}{**Local**} & \\multirow{2}{*}{**Manishing**} & \\multirow{2}{*}{**Local**} & \\multirow{2}{*}{**Manishing**} & \\multirow{2}{*}{**Local**} & \\multirow{2}{*}{**Fallacies**} & \\multirow{2}{*}{**Shanes**} & \\multirow{2}{*}{**Hyperson**} \\\\  & & & Expressions & & & & & & & \\\\ \\hline \\multirow{9}{*}{Base} & 0 & 500K & 57.60 & 56.68 & 38.00 & 52.00 & 6.80 & 56.00 & 22.40 & 68.80 \\\\  & 250K & 500K & 55.20 & 55.61 & **40.40** & **60.00** & 3.60 & **58.80** & **28.40** & 66.40 \\\\  & 120K & 500K & 54.40 & 55.61 & **42.80** & **56.80** & 6.40 & **59.60** & 21.20 & 65.20 \\\\  & 0 & 1M & 54.80 & 55.61 & 40.80 & 58.40 & 6.40 & 60.40 & 18.00 & 72.00 \\\\  & 250K & 1M & **59.60** & 54.55 & **44.00** & **60.80** & 5.20 & 60.00 & **29.60** & 69.20 \\\\  & 120K & 1M & **58.00** & **56.15** & 40.00 & **60.80** & 3.60 & 60.00 & **30.00** & 62.00 \\\\ \\hline \\hline \\multirow{2}{*}{**Size**} & \\multirow{2}{*}{\\(\\tau\\)} & \\multirow{2}{*}{**Ckpt**} & \\multicolumn{2}{c}{**Logical**} & \\multicolumn{2}{c}{**Logical**} & \\multirow{2}{*}{**Logical**} & \\multirow{2}{*}{**Movie Reco-**} & \\multirow{2}{*}{**Multistep**} & \\multirow{2}{*}{**Astigate**} & \\multirow{2}{*}{**Object**} & \\multirow{2}{*}{**In A**} \\\\  & & \\multicolumn{2}{c}{**Deduction**} & \\multicolumn{2}{c}{**Deduction**} & \\multicolumn{2}{c}{**Deduction**} & & & & \\\\  & & **5 Objects** & **7 Objects** & **3 Objects** & **mendation** & \\begin{tabular}{c} **Movie Reco-** \\\\ **Anithmetic** \\\\ **Two** \\\\ \\end{tabular} & \\begin{tabular}{c} **Multistep** \\\\ **Two** \\\\ \\end{tabular} & \\begin{tabular}{c} **Navigate** \\\\ **Counting** \\\\ \\end{tabular} & \n' +
+      '\\begin{tabular}{c} **Object** \\\\ **In A** \\\\ **Table** \\\\ \\end{tabular} \\\\ \\hline \\hline \\multirow{9}{*}{Base} & 0 & 500K & 28.00 & 26.40 & 42.40 & 49.20 & 1.60 & 64.00 & 24.80 & 32.88 \\\\  & 250K & 500K & **32.40** & **29.20** & **44.00** & 47.60 & 1.20 & **64.40** & 23.20 & 27.40 \\\\  & 120K & 500K & **31.20** & **29.60** & **45.60** & 47.20 & 1.20 & 64.00 & **26.40** & 28.77 \\\\  & 0 & 1M & 33.20 & 25.60 & 44.40 & 47.20 & 1.20 & 64.00 & 28.00 & 32.88 \\\\  & 250K & 1M & 32.40 & **32.40** & **47.60** & **47.60** & **1.60** & **64.80** & **28.40** & 30.82 \\\\  & 120K & 1M & **34.00** & **29.60** & **47.20** & **47.60** & 1.20 & **65.60** & **29.60** & 30.14 \\\\ \\hline \\hline \\multirow{9}{*}{**Size**} & \\multirow{2}{*}{\\(\\tau\\)} & \\multirow{2}{*}{**Ckpt**} & \\multicolumn{2}{c}{**Reasoning**} & \\multicolumn{2}{c}{**Salient**} & \\multirow{2}{*}{**Shanes**} & \\multirow{2}{*}{**Shanes**} & \\multirow{2}{*}{**Temporal**} & \\multirow{2}{*}{**Shuffled**} & \\multirow{2}{*}{**Shuffled**} \\\\  & & \\multicolumn{2}{c}{**About**} & \\multicolumn{2}{c}{**Kun**} & \\multicolumn{2}{c}{**Translation**} & & & & \\\\ \\cline{1-1}  & & \\multicolumn{2}{c}{**Colored**} & \\multicolumn{2}{c}{**Names**} & \\multicolumn{2}{c}{**Error**} & & & & & \\\\ \\cline{1-1}  & & \\multicolumn{2}{c}{**Objects**} & \\multicolumn{2}{c}{**Detection**} & & & & & & & \\\\ \\cline{1-1} \\cline{2-1}  & & 0 & 500K & 4.80 & 28.00 & 26.00 & 53.93 & 56.80 & 28.40 & 22.40 & 18.00 \\\\  & 250K & 500K & **34.80** & 28.00 & **27.20** & 53.93 & 56.80 & **28.80** & 22.00 & 17.20 \\\\  & 120K & 500K & **32.80** & 28.00 & 26.00 & 53.93 & 56.40 & **28.80** & 22.40 & 18.00 \\\\  & 0 & 1M & 35.20 & 28.00 & 30.00 & 54.49 & 57.20 & 30.40 & 21.20 & 18.40 \\\\  & 250K & 1M & 32.00 & 28.00 & 29.20 & 53.93 & **57.60** & 26.40 & 21.20 & 18.40 \\\\  & 120K & 1M & 34.80 & 28.00 & **30.40** & 53.93 & **57.60** & 30.00 & **21.60** & 17.20 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 12: Breakdown of 27 BBH (Srivastava et al., 2022) tasks with direct answers for \\(\\text{{\\sc SpacTor}}_{\\text{Base}}\\). The metric are all accuracy.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c c c c c c c c} \\hline \\hline \\multirow{2}{*}{**Size**} & \\(\\tau\\) & \\multirow{2}{*}{**Ckpt**} & \\multicolumn{2}{c}{**Reasoning**} & \\multicolumn{2}{c}{**Salient**} & \\multirow{2}{*}{**Senarks**} & \\multirow{2}{*}{**Senarks**} & \\multirow{2}{*}{**Turchasing**} & \\multirow{2}{*}{**Tharking**} & \\multirow{2}{*}{**Shuffed**} & \\multirow{2}{*}{**Shuffed**} & \\multirow{2}{*}{**Shuffed**} \\\\  & & & & & & & & & & & \\\\  & & & **Aboat** & **Aboat** & **Aboat** & **Aboat** & **Aboat** & **Aboat** & **Aboat** & **Aboat** & **Aboat** \\\\ \\hline \\multirow{3}{*}{**Size**} & 0 & 500K & 44.00 & 46.00 & 56.00 & 60.80 & 1.20 & 59.60 & 40.00 & 34.93 \\\\  & 120K & 500K & **48.00** & **50.40** & **58.40** & **62.00** & **1.60** & **60.40** & 36.80 & **35.62** \\\\  & 0 & 1M & 44.40 & 48.80 & 61.60 & 54.80 & 1.20 & 62.40 & 42.40 & 39.04 \\\\  & 120K & 1M & **52.00** & **55.60** & **68.80** & **62.00** & **1.20** & **65.20** & 37.60 & **43.15** \\\\ \\hline \\hline \\multirow{3}{*}{**Size**} & \\(\\tau\\) & \\multirow{3}{*}{**Ckpt**} & \\multicolumn{2}{c}{**Reasoning**} & \\multicolumn{2}{c}{**Salient**} & \\multirow{3}{*}{**Senarks**} & \\multirow{3}{*}{**Senarks**} & \\multirow{3}{*}{**Temporal**} & \\multirow{3}{*}{**Shuffed**} & \\multirow{3}{*}{**Shuffed**} \\\\  & & \\multicolumn{2}{c}{**Aboat**} & \\multicolumn{2}{c}{**Ruin**} & \\multicolumn{2}{c}{**Translation**} & \\multirow{3}{*}{**Senarks**} & \\multirow{3}{*}{**Turchasing**} & \\multirow{3}{*}{**Sequences**} & \\multirow{3}{*}{**Objects**} & \\multirow{3}{*}{**Objects**} \\\\  & & & **Colored** & & & & & & \\\\  & & **Aboat** & **Aboat** & **Aboat** & **Aboat** & **Aboat** & **Aboat** & **Aboat** \\\\ \\hline \\hline \\multirow{3}{*}{**Size**} & 0 & 500K & 41.60 & 20.00 & 34.40 & 53.37 & 58.40 & 26.80 & 17.60 & 15.60 \\\\  & 120K & 500K & **44.40** & **25.60** & 28.00 & **55.06** & **59.20** & **37.20** & **19.20** & 14.80 \\\\  & 0 & 1M & 44.80 & 25.60 & 34.80 & 58.99 & 58.80 & 30.40 & 17.60 & 14.40 \\\\  & 120K & 1M & **46.40** & 24.80 & **41.20** & 52.25 & 57.60 & **36.00** & **19.20** & **14.80** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 13: Breakdown of 27 BBH (Srivastava et al., 2022) tasks with direct answers for \\(\\text{\\sc{SpaceTor}}_{\\text{Large}}\\). The metric are all accuracy.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c c c c c c c c} \\hline \\hline \\multirow{2}{*}{**Size**} & \\(\\tau\\) & \\multirow{2}{*}{**Ckpt**} & \\multirow{2}{*}{**Abstract**} & \\multirow{2}{*}{**Anatomy**} & \\multirow{2}{*}{**Astronomy**} & \\multirow{2}{*}{**Business**} & \\multirow{2}{*}{**Clinical**} & \\multirow{2}{*}{**College**} & \\multirow{2}{*}{**College**} & \\multirow{2}{*}{**Chemistry**} & \\multirow{2}{*}{**College**} \\\\  & & & & & & & & & & \\\\  & & & & & & & & & & \\\\ \\hline \\multirow{6}{*}{Base} & 0 & 500K & 36.36 & 50.00 & 50.00 & 63.64 & 55.17 & 50.00 & 50.00 & 63.64 \\\\  & 250K & 500K & 36.36 & 50.00 & **56.25** & 63.64 & 44.83 & 50.00 & **62.50** & 63.64 \\\\  & 120K & 500K & 36.36 & 50.00 & 50.00 & **72.73** & 48.28 & 43.75 & **62.50** & 54.55 \\\\  & 0 & 1M & 45.45 & 57.14 & 50.00 & 72.73 & 55.17 & 43.75 & 62.50 & 72.73 \\\\  & 250K & 1M & 45.45 & 50.00 & 50.00 & 63.64 & 51.72 & **50.00** & 62.50 & 63.64 \\\\  & 120K & 1M & 36.36 & 57.14 & **56.25** & 72.73 & 51.72 & 43.75 & 62.50 & 63.64 \\\\ \\hline \\hline \\multirow{2}{*}{**Size**} & \\(\\tau\\) & \\multirow{2}{*}{**Ckpt**} & \\multirow{2}{*}{**College**} & \\multirow{2}{*}{**College**} & \\multirow{2}{*}{**College**} & \\multirow{2}{*}{**Physics**} & \\multirow{2}{*}{**Computer**} & \\multirow{2}{*}{**Conceptual**} & \\multirow{2}{*}{**Physics**} & \\multirow{2}{*}{**Econo-**} & \\multirow{2}{*}{**Electrical**} & \\multirow{2}{*}{**Engineering**} \\\\  & & & & & & & & & \\\\  & & **Mathematics** & **College** & **College** & **Physics** & **Security** & **Physics** & **Chemichers** & **Engineering** & **Mathematics** \\\\ \\hline \\multirow{6}{*}{Base} & 0 & 500K & 36.36 & 63.64 & 72.73 & 45.45 & 42.31 & 58.33 & 50.00 & 36.59 \\\\  & 250K & 500K & **45.45** & 63.64 & 72.73 & **63.64** & **46.15** & 50.00 & 43.75 & 36.59 \\\\  & 120K & 500K & **45.45** & 63.64 & 63.64 & **54.55** & 42.31 & 50.00 & 50.00 & **39.02** \\\\  & 0 & 1M & 45.45 & 63.64 & 81.82 & 54.55 & 38.46 & 58.33 & 56.25 & 36.59 \\\\  & 250K & 1M & 45.45 & 59.09 & 72.73 & **63.64** & 38.46 & 50.00 & 50.00 & **39.02** \\\\  & 120K & 1M & 45.45 & 63.64 & 63.64 & 54.55 & **42.31** & 50.00 & 50.00 & 34.15 \\\\ \\hline \\hline \\multirow{2}{*}{**Size**} & \\(\\tau\\) & \\multirow{2}{*}{**Ckpt**} & \\multirow{2}{*}{**Formal**} & \\multirow{2}{*}{**Global**} & \\multirow{2}{*}{**Eacts**} & \\multirow{2}{*}{**High**} & \\multirow{2}{*}{**High**} & \\multirow{2}{*}{**School**} & \\multirow{2}{*}{**High**} & \\multirow{2}{*}{**High**} \\\\  & & & & & & & & & & \\\\  & & **Logic** & **Facts** & **School** & **Chamistry** & **Computer** & **European** & **School** & **Geography** & **Geovernment** \\\\  & & & & & & & & & & \\\\  & 0 & 500K & 57.14 & 50.00 & 40.63 & 40.91 & 55.56 & 55.56 & 59.09 & 61.90 \\\\  & 250K & 500K & 57.14 & 50.00 & **50.00** & **50.00** & 55.56 & 55.56 & **68.18** & 61.90 \\\\  & 120K & 500K & 57.14 & 50.00 & **50.00** & **50.00** & 55.56 & 55.56 & **63.64** & **66.67** \\\\  & 0 & 1M & 50.00 & 50.00 & 43.75 & 40.91 & 55.56 & 61.11 & 68.18 & 71.43 \\\\  & 250K & 1M & **57.14** & 50.00 & 43.75 & **50.00** & 55.56 & 61.11 & **72.73** & 61.90 \\\\  & 120K & 1M & **64.29** & **60.00** & **46.88** & **45.45** & 55.56 & 55.56 & **77.27** & 66.67 \\\\ \\hline \\hline \\multirow{2}{*}{**Size**} & \\(\\tau\\) & \\multirow{2}{*}{**Ckpt**} & \\multirow{2}{*}{**High**} & \\multirow{2}{*}{**High**} & \\multirow{2}{*}{**High**} & \\multirow{2}{*}{**School**} & \\multirow{2}{*}{**High**} & \\multirow{2}{*}{**High**} & \\multirow{2}{*}{**School**} & \\multirow{2}{*}{**High**} \\\\  & & & & & & & & & & \\\\  & & **Macro-** & **Anattics** & **Anattics** & **Anonomics** & **Physics** & **Chology** & **Physics** & **Chology** & **Physics** \\\\ \\hline \\multirow{6}{*}{Base} & 0 & 500K & 39.53 & 41.38 & 46.15 & 41.18 & 45.00 & 47.83 & 68.18 & 53.85 \\\\  & 250K & 500K & 34.88 & 41.38 & **53.85** & **47.06** & **48.33** & 47.83 & 68.18 & 53.85 \\\\  & 120K & 500K & 34.88 & 37.93 & **53.85** & **47.06** & **48.33** & 47.83 & 68.18 & **57.69** \\\\ \\cline{1-1}  & 0 & 1M & 37.21 & 41.38 & 53.85 & 41.18 & 50.00 & 47.83 & 72.73 & 57.69 \\\\ \\cline{1-1}  & 250K & 1M & 37.21 & 41.38 & 53.85 & **47.06** & 46.67 & 47.83 & 68.18 & 53.85 \\\\ \\cline{1-1}  & 120K & 1M & **41.86** & 41.38 & 53.85 & **47.06** & 50.00 & 43.48 & 72.73 & 57.69 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 14: Breakdown of first 32 of total 57 MMLU (Hendrycks et al., 2021) tasks with direct answers for \\(\\text{{\\tt SpaceTor}}_{\\text{Base}}\\). The metric are all accuracy.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c c c c c c c c} \\hline \\hline \\multirow{2}{*}{**Size**} & \\multirow{2}{*}{\\(\\tau\\)} & \\multirow{2}{*}{**Ckpt**} & \\multirow{2}{*}{**Human Aging**} & \\multirow{2}{*}{**Human Sexuality**} & \\multirow{2}{*}{**International Law**} & \\multirow{2}{*}{**Juris- Evidence**} & \\multirow{2}{*}{**Logical Fallacies**} & \\multirow{2}{*}{**Machine Learning**} & \\multirow{2}{*}{**Management**} & \\multirow{2}{*}{**Marketing**} \\\\ \\hline \\multirow{5}{*}{Base} & 0 & 500K & 39.13 & 50.00 & 61.54 & 45.45 & 55.56 & 45.45 & 63.64 & 68.00 \\\\  & 250K & 500K & 39.13 & 50.00 & **69.23** & 36.36 & **61.11** & 45.45 & 63.64 & 64.00 \\\\  & 120K & 500K & **47.83** & **58.33** & 61.54 & 36.36 & **61.11** & 45.45 & 54.55 & 64.00 \\\\  & 0 & 1M & 43.48 & 58.33 & 69.23 & 45.45 & 66.67 & 45.45 & 63.64 & 68.00 \\\\  & 250K & 1M & 43.48 & 50.00 & 61.54 & 45.45 & 61.11 & **63.64** & 63.64 & 68.00 \\\\  & 120K & 1M & **47.83** & 50.00 & 61.54 & 45.45 & **72.22** & 45.45 & 63.64 & **72.00** \\\\ \\hline \\hline \\multirow{2}{*}{**Size**} & \\multirow{2}{*}{\\(\\tau\\)} & \\multirow{2}{*}{**Ckpt**} & \\multirow{2}{*}{**Medical Genetics**} & \\multirow{2}{*}{**Misc.**} & \\multirow{2}{*}{**Moral Disputes**} & \\multirow{2}{*}{**Stenarions**} & \\multirow{2}{*}{**Nutrition**} & \\multirow{2}{*}{**Philosophy**} & \\multirow{2}{*}{**Prehistory**} & \\multirow{2}{*}{**Professional Accounting**} \\\\ \\hline \\multirow{5}{*}{Base} & 0 & 500K & 45.45 & 39.53 & 50.00 & 33.00 & 51.52 & 35.29 & 48.57 & 35.48 \\\\  & 250K & 500K & **54.55** & 38.37 & 50.00 & 33.00 & 51.52 & **41.18** & 48.57 & 35.48 \\\\  & 120K & 500K & **63.64** & **40.70** & 44.74 & 33.00 & 51.52 & **41.18** & 45.71 & 35.48 \\\\  & 0 & 1M & 54.55 & 40.70 & 50.00 & 32.00 & 57.58 & 38.24 & 48.57 & 35.48 \\\\  & 250K & 1M & **63.64** & 40.70 & 50.00 & **33.00** & 57.58 & **41.18** & **54.29** & **41.94** \\\\  & 120K & 1M & 54.55 & 39.53 & 47.37 & **34.00** & 54.55 & **41.18** & 45.71 & 35.48 \\\\ \\hline \\hline \\multirow{2}{*}{**Size**} & \\multirow{2}{*}{\\(\\tau\\)} & \\multirow{2}{*}{**Ckpt**} & \\multirow{2}{*}{**Professional Law**} & \\multirow{2}{*}{**Professional Medicine**} & \\multirow{2}{*}{**Professional Psychology**} & \\multirow{2}{*}{**Relations**} & \\multirow{2}{*}{**Stenarity**} & \\multirow{2}{*}{**Sociology**} & \\multirow{2}{*}{**US Foreign Policy**} & \\multirow{2}{*}{**Virology**} \\\\ \\hline \\multirow{5}{*}{Base} & 0 & 500K & 35.29 & 38.71 & 46.38 & 75.00 & 44.44 & 63.64 & 63.64 & 50.00 \\\\  & 250K & 500K & 35.29 & 38.71 & 44.93 & 58.33 & **48.15** & 63.64 & 54.55 & **55.56** \\\\  & 120K & 500K & 35.29 & 35.48 & **49.28** & 66.67 & 40.74 & 63.64 & 54.55 & **55.56** \\\\  & 0 & 1M & 35.29 & 38.71 & 44.93 & 66.67 & 48.15 & 68.18 & 63.64 & 50.00 \\\\  & 250K & 1M & 33.53 & 38.71 & **49.28** & 58.33 & 44.44 & 68.18 & 63.64 & **61.11** \\\\  & 120K & 1M & 33.53 & 38.71 & **47.83** & 66.67 & 48.15 & 68.18 & 63.64 & **61.11** \\\\ \\hline \\hline \\multirow{2}{*}{bfSize} & \\multirow{2}{*}{\\(\\tau\\)} & \\multirow{2}{*}{**Ckpt**} & \\multirow{2}{*}{**World Religions**} & \\multirow{2}{*}{**Professional Religions**} & \\multirow{2}{*}{**Professional Analytics**} & \\multirow{2}{*}{**Professional Analytics**} & \\multirow{2}{*}{**Professional Analytics**} \\\\ \\hline \\multirow{5}{*}{Base} & 0 & 500K & 42.11 & & & & & \\\\  & 250K & 500K & 36.84 & & & & & \\\\  & 120K & 500K & **47.37** & & & & & \\\\  & 0 & 1M & 47.37 & & & & & \\\\  & 250K & 1M & 47.37 & & & & & \\\\  & 120K & 1M & 47.37 & & & & & \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 15: Breakdown of second 25 of total 57 MMLU (Hendrycks et al., 2021) tasks with direct answers for \\(\\text{{\\sc SpacTor}}_{\\text{{\\sc Base}}}\\). The metric are all accuracy.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c c c c c c c c} \\hline \\hline \\multirow{2}{*}{**Size**} & \\(\\tau\\) & \\multirow{2}{*}{**Ckpt**} & \\multirow{2}{*}{**Abstract**} & \\multirow{2}{*}{**Anatomy**} & \\multirow{2}{*}{**Astronomy**} & \\multirow{2}{*}{**Business**} & \\multirow{2}{*}{**Clinical**} & \\multirow{2}{*}{**College**} & \\multirow{2}{*}{**College**} & \\multirow{2}{*}{**Chemistry**} & \\multirow{2}{*}{**College**} \\\\  & & & & & & & & & & \\\\ \\hline \\multirow{4}{*}{Large} & 0 & 500K & 36.36 & 57.14 & 56.25 & 72.73 & 55.17 & 43.75 & 50.00 & 54.55 \\\\  & 120K & 500K & **45.45** & **57.14** & 50.00 & **72.73** & **62.07** & **62.50** & **50.00** & **63.64** \\\\  & 0 & 1M & 45.45 & 50.00 & 56.25 & 72.73 & 55.17 & 56.25 & 50.00 & 54.55 \\\\  & 120K & 1M & **54.55** & **64.29** & 43.75 & **72.73** & **58.62** & **62.50** & **50.00** & **54.55** \\\\ \\hline \\hline \\multirow{2}{*}{**Size**} & \\(\\tau\\) & \\multirow{2}{*}{**Ckpt**} & \\multirow{2}{*}{**College**} & \\multirow{2}{*}{**Medicine**} & \\multirow{2}{*}{**College**} & \\multirow{2}{*}{**College**} & \\multirow{2}{*}{**Computer**} & \\multirow{2}{*}{**Conceptual**} & \\multirow{2}{*}{**Physics**} & \\multirow{2}{*}{**Econo-metrics**} & \\multirow{2}{*}{**Electrical**} & \\multirow{2}{*}{**Elementary**} \\\\  & & & & & & & & & \\\\ \\hline \\multirow{4}{*}{Large} & 0 & 500K & 45.45 & 59.09 & 81.82 & 36.36 & 42.31 & 50.00 & 62.50 & 39.02 \\\\  & 120K & 500K & **54.55** & **63.64** & 72.73 & **54.55** & **46.15** & **58.33** & **62.50** & 36.59 \\\\  & 0 & 1M & 54.55 & 59.09 & 81.82 & 54.55 & 42.31 & 50.00 & 68.75 & 39.02 \\\\  & 120K & 1M & 36.36 & 54.55 & **90.91** & 45.45 & **50.00** & **58.33** & 62.50 & **43.90** \\\\ \\hline \\hline \\multirow{4}{*}{**Size**} & \\(\\tau\\) & \\multirow{2}{*}{**Ckpt**} & \\multirow{2}{*}{**Formal**} & \\multirow{2}{*}{**Global**} & \\multirow{2}{*}{**High**} & \\multirow{2}{*}{**High**} & \\multirow{2}{*}{**High**} & \\multirow{2}{*}{**High**} & \\multirow{2}{*}{**High**} & \\multirow{2}{*}{**High**} & \\multirow{2}{*}{**School**} \\\\  & & & & & & & & & & \\\\ \\hline \\multirow{4}{*}{Large} & 0 & 500K & 57.14 & 60.00 & 46.88 & 45.45 & 55.56 & 72.22 & 77.27 & 61.90 \\\\  & 120K & 500K & 50.00 & **60.00** & **46.88** & **45.45** & **66.67** & **72.22** & **77.27** & **66.67** \\\\  & 0 & 1M & 64.29 & 60.00 & 46.88 & 45.45 & 66.67 & 66.67 & 81.82 & 71.43 \\\\  & 120K & 1M & 50.00 & **70.00** & 43.75 & 36.36 & **66.67** & **72.22** & **81.82** & 61.90 \\\\ \\hline \\hline \\multirow{4}{*}{**Size**} & \\(\\tau\\) & \\multirow{2}{*}{**Ckpt**} & \\multirow{2}{*}{**High**} & \\multirow{2}{*}{**High**} & \\multirow{2}{*}{**High**} & \\multirow{2}{*}{**High**} & \\multirow{2}{*}{**High**} & \\multirow{2}{*}{**School**} \\\\  & & & & & & & & & & \\\\ \\hline \\multirow{4}{*}{**Size**} & 0 & 500K & 57.14 & 60.00 & 46.88 & 45.45 & 55.56 & 72.22 & 77.27 & 61.90 \\\\  & 120K & 500K & 50.00 & **60.00** & **46.88** & **45.45** & **66.67** & **72.22** & **77.27** & **66.67** \\\\  & 0 & 1M & 64.29 & 60.00 & 46.88 & 45.45 & 66.67 & 66.67 & 81.82 & 71.43 \\\\  & 120K & 1M & 50.00 & **70.00** & 43.75 & 36.36 & **66.67** & **72.22** & **81.82** & 61.90 \\\\ \\hline \\hline \\multirow{4}{*}{**Size**} & \\(\\tau\\) & \\multirow{2}{*}{**Ckpt**} & \\multirow{2}{*}{**High**} & \\multirow{2}{*}{**High**} & \\multirow{2}{*}{**High**} & \\multirow{2}{*}{**High**} & \\multirow{2}{*}{**School**} \\\\  & & & & & & & & & & \\\\ \\hline \\multirow{4}{*}{**Size**} & 0 & 500K & 41.86 & 48.28 & 65.38 & 47.06 & 63.33 & 47.83 & 59.09 & 57.69 \\\\  & 120K & 500K & **44.19** & **48.28** & 57.69 & **47.06** & **66.67** & 43.48 & **68.18** & **69.23** \\\\  & 0 & 1M & 44.19 & 44.83 & 65.38 & 47.06 & 66.67 & 52.17 & 59.09 & 65.38 \\\\  & 120K & 1M & 41.86 & **44.83** & **69.23** & **52.94** & **70.00** & **56.52** & **68.18** & 61.54 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 16: Breakdown of first 32 of total 57 MMLU (Hendrycks et al., 2021) tasks with direct answers for \\(\\text{{\\tt SpacTor}}_{\\text{Large}}\\). The metric are all accuracy.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:22]\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
