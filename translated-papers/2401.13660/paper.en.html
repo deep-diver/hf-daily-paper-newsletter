@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# MambaByte: Token-free Selective State Space Model\n' +
+      '\n' +
+      'Junxiong Wang  Tushaar Gangavarapu  Jing Nathan Yan  Alexander M Rush\n' +
+      '\n' +
+      'Cornell University\n' +
+      '\n' +
+      '{jw2544,tg352,jy858,arush}@cornell.edu\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      'Token-free language models learn directly from raw bytes and remove the bias of subword tokenization. Operating on bytes, however, results in significantly longer sequences, and standard autoregressive Transformers scale poorly in such settings. We experiment with MambaByte, a token-free adaptation of the Mamba state space model, trained autoregressively on byte sequences. Our experiments indicate the computational efficiency of MambaByte compared to other byte-level models. We also find MambaByte to be competitive with and even outperform state-of-the-art subword Transformers. Furthermore, owing to linear scaling in length, MambaByte benefits from fast inference compared to Transformers. Our findings establish the viability of MambaByte in enabling token-free language modeling.\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      'When defining a language model, a base tokenization is typically used--either words (Bengio et al., 2000), subwords (Schuster and Nakajima, 2012; Sennrich et al., 2015; Wu et al., 2016; Wang et al.,\n' +
+      '\n' +
+      'Figure 1: **Benchmarking byte-level models with a fixed parameter budget.** Language modeling results on PG19 (\\(8,192\\) consecutive bytes), comparing the standard Transformer (Vaswani et al., 2017; Su et al., 2021), MegaByte Transformer (Yu et al., 2023), gated diagonalized S4 (Mehta et al., 2023), and MambaByte. (Left) Model loss over training step. (Right) FLOP-normalized training cost. MambaByte reaches Transformer loss in less than one-third of the compute budget.\n' +
+      '\n' +
+      '2020), or characters (Gao et al., 2020). Of these, subword tokenization has been the most popular choice, as it achieves a natural compromise between training efficiency and the ability to handle out-of-vocabulary words. However, several works (e.g., Xue et al. (2022)) have noted issues with subword tokenizers, such as a lack of robustness to typos, spelling and capitalization variations, and morphological changes.\n' +
+      '\n' +
+      'Researchers (Clark et al., 2022; Xue et al., 2022; Yu et al., 2023) have employed an alternative approach of using byte sequences, i.e., an end-to-end mapping from raw data to predictions without any intermediate tokenization. Compared to subword models, byte-level language models can generalize more easily across orthographic and morphological variants. Of course, modeling text as bytes means that the resultant sequences are significantly longer than their subword counterparts. This pushes the efficiency issues upstream into the architecture itself.\n' +
+      '\n' +
+      'Efficiency issues are particularly pronounced for autoregressive Transformers (Vaswani et al., 2017), which dominate language modeling (Brown et al., 2020; Touvron et al., 2023). Due to the quadratic cost of attention, Transformers scale poorly for long (byte) sequences (Brown et al., 2020; Zhang et al., 2022). Researchers have _compressed_ the internal Transformer representation to work with long sequences, for instance, developing length-aware modeling approaches (Dai et al., 2020; Nawrot et al., 2022), where groups of tokens are merged within the intermediate layers. Recently, Yu et al. (2023) proposed the MegaByte Transformer, which uses compression in the form of fixed-size patches of bytes as a subword analog. As a result, MegaByte enables lower computational costs.1\n' +
+      '\n' +
+      'Footnote 1: Although our experiments (see Figure 1) indicate that patching can also lower the model performance compared to the standard Transformer.\n' +
+      '\n' +
+      'In this work, we introduce MambaByte, an efficient and simple byte-level language model. The model is a straightforward adaptation of the recently introduced Mamba architecture (Gu and Dao, 2023), a linear-time approach for sequence modeling. Mamba builds off the approach pioneered by state space models (SSMs) (Gu et al., 2021; Gupta et al., 2022; Gu et al., 2022; Smith et al., 2023) by introducing a selection mechanism that is more effective for discrete data such as text and providing an efficient GPU implementation. Our simple observation is that using Mamba (without modifications) relieves the main computational bottleneck in language modeling, thus allowing for the elimination of patching and effective use of the available compute budget.\n' +
+      '\n' +
+      'Experiments compare MambaByte to Transformers, SSMs, and MegaByte (patching) architectures in a fixed parameter and fixed compute setting on several long-form text datasets. Figure 1 summarizes our main findings. Compared to byte-level Transformers, MambaByte achieves better performance faster and is significantly more compute efficient. We also consider the viability of token-free language models compared to the existing state-of-the-art subword models. In this regard, we find MambaByte to be competitive with various subword baselines despite handling significantly longer sequences. Our results establish MambaByte as a strong alternative to the existing tokenizer-dependent models and advocate its use to facilitate end-to-end learning.\n' +
+      '\n' +
+      '## 2 Background: Selective state space sequence models\n' +
+      '\n' +
+      'SSMs model the evolution of a hidden state across time through a first-order differential equation. Linear time-_invariant_ SSMs (Gu et al., 2021; Gupta et al., 2022; Gu et al., 2022; Smith et al., 2023) have shown promising results in deep learning across several modalities. However, Gu and Dao (2023) have recently argued that the constant dynamics of these approaches lack input-dependent context _selection_ in the hidden state, which may be necessary for tasks such as language modeling. To this end, they proposed Mamba, which defines the time-varying continuous state dynamics for a given input \\(x(t)\\in\\mathbb{R}\\), hidden state \\(h(t)\\in\\mathbb{R}^{n}\\), and output \\(y(t)\\in\\mathbb{R}\\) at time \\(t\\) as:\n' +
+      '\n' +
+      '\\[\\frac{\\mathrm{d}h(t)}{\\mathrm{d}t}=\\mathrm{A}h(t)+\\mathrm{B}(t)x(t);\\quad y(t )=\\mathrm{C}(t)h(t), \\tag{1}\\]\n' +
+      '\n' +
+      'which is parameterized by a diagonal time-invariant system matrix \\(\\mathrm{A}\\in\\mathbb{R}^{n\\times n}\\) and time-dependent input and output matrices \\(\\mathrm{B}(t)\\in\\mathbb{R}^{n\\times 1}\\) and \\(\\mathrm{C}(t)\\in\\mathbb{R}^{1\\times n}\\).\n' +
+      '\n' +
+      'To model discrete-time sequences such as bytes, the continuous time dynamics in (1) must be approximated through discretization. This results in a discrete-time hidden state recurrence with new matrices at each timestep, \\(\\overline{\\Lambda}\\), \\(\\overline{\\text{B}}\\), and \\(\\overline{\\text{C}}\\), such that\n' +
+      '\n' +
+      '\\[h[k]=\\overline{\\Lambda}[k]h[k-1]+\\overline{\\text{B}}[k]x[k];\\quad y[k]= \\overline{C}[k]h[k]. \\tag{2}\\]\n' +
+      '\n' +
+      'Observe that (2) resembles a linear version of a recurrent neural network and can be applied in this recurrent form during language model generation. The discretization requires a timestep, \\(\\Delta[k]\\), for each input position, corresponding to treating \\(x[k]=x\\left(t_{k}\\right)\\) for \\(t_{k}=\\sum_{j=1}^{k}\\Delta[j]\\). The discrete-time matrices \\(\\overline{\\Lambda}\\), \\(\\overline{\\text{B}}\\), and \\(\\overline{\\text{C}}\\) can then be computed from \\(\\Delta[k]\\). Figure 2 illustrates how Mampa models discrete sequences.\n' +
+      '\n' +
+      'In Mampa, the SSM terms are input-selective, i.e., \\(\\text{B}\\), \\(\\text{C}\\), and \\(\\Delta\\) are defined as functions of the input \\(x[k]\\in\\mathbb{R}^{d}\\):\n' +
+      '\n' +
+      '\\[\\Delta[k]=\\operatorname{softplus}(W_{\\Delta}(W_{R}x[k]);\\quad\\text{B}(t_{k}) =W_{\\text{B}}x[k], \\tag{3}\\]\n' +
+      '\n' +
+      'where \\(W_{\\text{B}}\\in\\mathbb{R}^{n\\times d}\\) (C is similarly defined), \\(W_{\\Delta}\\in\\mathbb{R}^{d\\times r}\\) and \\(W_{R}\\in\\mathbb{R}^{r\\times d}\\) (for some \\(r\\ll d\\)) are learnable weights, and softplus ensures positivity. Note that the SSM parameters \\(\\text{A}\\), \\(\\text{B}\\), and \\(\\text{C}\\) are identical for each input dimension \\(d\\), but the timesteps \\(\\Delta\\) are distinct; this results in a hidden state size of \\(n\\times d\\) per timestep \\(k\\). (See Appendix D for specifics on discretization and selectivity.)\n' +
+      '\n' +
+      'Mampa embeds this SSM layer into a full neural network language model. Specifically, the model utilizes a stack of gated layers inspired by the previous gated SSM (Mehta et al., 2023). Figure 3 shows the Mampa architecture combining the SSM layer with a gated neural network.\n' +
+      '\n' +
+      'Figure 3: **Mampa block.**\\(\\sigma\\) indicates Swish activation (Ramachandran et al., 2017).\n' +
+      '\n' +
+      'Figure 2: **Illustration of the Mampa SSM.** (a) The discrete-time input \\(x[k]\\), along with input-selective \\(\\Delta[k]\\). (b) The continuous-time signal \\(x(t)\\). (c) Mathematically, the SSM transforms the continuous-time \\(x(t)\\) through an \\(n\\)-dimensional hidden state (here, \\(n=4\\)) using parameters \\(\\text{A}\\) and \\(\\text{B}(t)\\), which is then mapped to the output \\(y(t)\\) using \\(\\text{C}(t)\\). (d) Practically, we compute \\(y[k]\\) using a discrete-time parallel scan at the steps defined by \\(\\Delta[k]\\) and discrete-time matrices \\(\\overline{A}[k]\\), \\(\\overline{B}[k]\\), and \\(\\overline{C}[k]\\). At inference, we run the recurrence directly.\n' +
+      '\n' +
+      'Parallel scans for linear recurrences.At training time, we have access to the entire sequence \\(x\\), allowing us to compute the linear recurrence more efficiently. Smith et al. (2023) demonstrated the use of work-efficient parallel scans (Blelloch, 1990) for efficiently computing the sequential recurrence in linear SSMs. For Mamba, we first map the recurrence to a sequence of \\(L\\) tuples, with \\(e_{k}=(A_{k},b_{k})\\coloneqq(\\overline{\\Lambda}[k],\\overline{\\mathrm{B}}[k]x[k])\\), then define an associative operator \\(\\bullet\\) such that \\(e_{j}\\bullet e_{k}=(A_{k}A_{j},A_{k}b_{j}+b_{k})\\). Finally, we apply a parallel scan to compute the sequence \\([(\\overline{\\Lambda}[1],h[1]),(\\overline{\\Lambda}[2]\\overline{\\Lambda}[1],h[2 ]),\\ldots]\\). In general, this requires \\(\\mathcal{O}(T_{\\bullet}\\log_{2}(L))\\) time, using \\(L/2\\) processors, where \\(T_{\\bullet}\\) is the cost of a matrix-matrix multiplication. Noting \\(\\overline{\\Lambda}\\) to be a diagonal matrix, the linear recurrence can be computed parallelly in \\(\\mathcal{O}(n\\log_{2}(L))\\) time and \\(\\mathcal{O}(nL)\\) space. A parallel scan with a diagonal matrix is also efficient in operation, requiring \\(\\mathcal{O}(nL)\\) FLOPs.\n' +
+      '\n' +
+      '## 3 Experimental setup\n' +
+      '\n' +
+      'Our experiments compare MambaByte to other byte-level Transformers and SSMs. All our models employ the same training recipes (see Appendix C for details). We utilize a set of diverse long-form text datasets: PG19 (Rae et al., 2020), Stories (Trinh and Le, 2018), Books (Gao et al., 2020), ArXiv (Gao et al., 2020), and Code (Gao et al., 2020). Dataset sizes and average document lengths are included in Appendix A.\n' +
+      '\n' +
+      'Performance comparison across architectures requires care. To this end, we consider two settings: compute-matched and parameter-matched. This setup is necessary as the default MegaByte Transformer employs a _global_ module that works with \\(8\\times\\)-patched representations of the input, thus using \\(8\\times\\) fewer feed-forward FLOPs per byte than a raw Transformer, while having significantly more parameters. Table 1 shows the MegaByte and MambaByte model sizes employed in our experiments. The (forward pass) FLOPs computation for various model architectures and the associated hyperparameters employed are detailed in Appendix B.\n' +
+      '\n' +
+      'All MambaByte models were trained using the open-source Mamba code base.2 At training, we shuffle the documents and use contiguous sequences of \\(8,192\\) bytes (one per document), starting from a random position. We enable mixed precision training using BF\\(16\\) for training efficiency at scale. The optimizer, learning rate scheduler, and other training details are specified in Appendix C.\n' +
+      '\n' +
+      'Footnote 2: [https://github.com/state-spaces/mamba](https://github.com/state-spaces/mamba).\n' +
+      '\n' +
+      'Press et al. (2021) proposed using a sliding window to trade off speed for performance during inference. Following this, we employ a sliding window (with a stride of \\(L_{\\text{ctx}}/2\\) for a byte sequence of length \\(L_{\\text{ctx}}\\)) when comparing with the state-of-the-art subword models in Table 3.\n' +
+      '\n' +
+      '## 4 Results\n' +
+      '\n' +
+      'Table 2 shows the bits per byte (\\(\\mathrm{BPB}\\)) across each dataset. For this experiment, the MegaByte-\\(758\\)M+\\(262\\)M and MambaByte models use the same number of FLOPs per byte (see Table 1). We observe MambaByte to outperform MegaByte consistently across all datasets. Furthermore, we note that we could not train MambaByte for the full \\(80\\)B bytes due to monetary constraints, but MambaByte outperforms MegaByte with \\(0.63\\times\\) less compute and training data. Additionally, MambaByte-\\(353\\)M also outperforms byte-level Transformer and PerceiverAR.\n' +
+      '\n' +
+      'How is MambaByte performing better than a much larger model in so few training steps? Figure 1 further explores this relationship by looking at models with the same number of parameters. The graphs indicate that for MegaByte models of the same parameter size, models with less input patching perform better, but when compute-normalized, they perform similarly. In fact, a full-length Transformer, while slow in an absolute sense, also performs similarly to MegaByte when compute-normalized. In contrast, switching to the Mamba architecture significantly improves both the compute usage and the model performance.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l l l} \\hline \\hline \\multirow{2}{*}{Experiment} & \\multirow{2}{*}{Models} & FLOPs per \\\\  & & train byte \\\\ \\hline Medium- & MegaByte-\\(758\\)M+\\(262\\)**M** : & \\(1.02:1\\) \\\\ scale & MambaByte-\\(353\\)M & \\\\ \\hline Large- & MegaByte-\\(1.3\\)B+\\(350\\)**M** : & \\(0.54:1\\) \\\\ scale & MambaByte-\\(972\\)M & \\\\ \\hline  & MegaByte-\\(1.3\\)B+\\(218\\)**M** : & \\(0.40:1\\) \\\\  & MambaByte-\\(972\\)M & \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 1: **Relative training FLOPs by model size.** All MegaByte models use a patch size of \\(8\\).\n' +
+      '\n' +
+      'Following these findings, Table 3 compares a larger version of these models on the PG19 dataset. For this experiment, we compare MambaByte-\\(972\\)M with MegaByte-\\(1.3\\)B+\\(350\\)M and other byte-level models, as well as several state-of-the-art subword models. (The conversion from \\(\\mathrm{BPB}\\) to perplexity (\\(\\mathrm{PPL}\\)) is detailed in Appendix E). We find that MambaByte-\\(972\\)M, even just trained for \\(150\\)B bytes, outperforms all the byte-level models and achieves competitive performance with subword models.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c} \\hline \\hline Model & \\begin{tabular}{c} Bytes \\\\ trained \\\\ \\end{tabular} & Context & \\begin{tabular}{c} Test \\\\ \\(\\mathrm{BPB}\\) \\\\ \\end{tabular} & \n' +
+      '\\begin{tabular}{c} Generation \\\\ time (s) \\\\ \\end{tabular} \\\\ \\hline Transformer-\\(350\\)M & \\(-\\) & \\(1,024\\) & \\(1.064\\) & \\(132\\) \\\\ MegaByte-\\(1.3\\)B+\\(218\\)M (patch: \\(8\\)) & \\(-\\) & \\(8,192\\) & \\(0.991\\) & \\(93\\) \\\\ \\hline MegaByte-\\(1.3\\)B+\\(218\\)M (patch: \\(8\\))6  & \\(-\\) & \\(8,192\\) & \\(-\\) & 265 \\\\ MambaByte-\\(972\\)M & \\(75\\)B\\({}^{*}\\) & \\(8,192\\) & \\(\\mathbf{0.883}\\) & \\(\\mathbf{29}\\) \\\\ w/ sliding window (\\(2\\times\\) bytes) & & & \\(\\mathbf{0.863}\\) & \\(\\mathbf{58}\\) \\\\ MambaByte-\\(1.6\\)B & \\(-\\) & \\(8,192\\) & \\(-\\) & \\(36\\) \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 4: **Generation speed benchmarking.** Speed to generate \\(8,192\\) bytes; fields marked \\(-\\) are unknown. (Upper) The \\(\\mathrm{BPB}\\) on PG19 and generation time for the Transformer and MegaByte are taken from Yu et al. (2023). (Lower) MegaByte and MambaByte run on the same hardware.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l l c c c c c c} \\hline \\hline \\multirow{2}{*}{Byte-level model} & \\multirow{2}{*}{Context} & \\multirow{2}{*}{\n' +
+      '\\begin{tabular}{c} Bytes \\\\ trained \\\\ \\end{tabular} } & \\multicolumn{4}{c}{Test \\(\\mathrm{BPB}\\downarrow\\)} \\\\ \\cline{3-8}  & & & PG19 & Stories & Books & ArXiv & Code \\\\ \\hline Transformer-\\(320\\)M & \\(1,024\\) & \\(80\\)B & \\(1.057\\) & \\(1.064\\) & \\(1.097\\) & \\(0.816\\) & \\(0.575\\) \\\\ PerceiverAR-\\(248\\)M & \\(8,192\\) & \\(80\\)B & \\(1.104\\) & \\(1.070\\) & \\(1.104\\) & \\(0.791\\) & \\(0.546\\) \\\\ MegaByte-\\(758\\)M+\\(262\\)M (patch: \\(8\\)) & \\(8,192\\) & \\(80\\)B & \\(1.000\\) & \\(0.978\\) & \\(1.007\\) & \\(0.678\\) & \\(0.411\\) \\\\ MambaByte-\\(353\\)M & \\(8,192\\) & \\(30\\)B\\({}^{*}\\) & \\(\\mathbf{0.930}\\) & \\(\\mathbf{0.908}\\) & \\(\\mathbf{0.966}\\) & \\(\\mathbf{0.663}\\) & \\(\\mathbf{0.396}\\) \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 2: **Medium-scale experiments.** MegaByte and MambaByte use the same FLOPs per byte. (The \\(\\mathrm{BPB}\\) for Transformer, PerceiverAR, and MegaByte are taken from Yu et al. (2023).)\n' +
+      '\n' +
+      'Text generation.Autoregressive inference in Transformer models requires caching the entire context, which can significantly affect the generation speed. MambaByte does not suffer from this bottleneck as it maintains a single hidden state per layer that evolves with time, enabling constant time per generation step. Table 4 compares the text generation speeds of MambaByte-\\(972\\)M and MambaByte-\\(1.6\\)B with MegaByte-\\(1.3\\)B+\\(350\\)M on an A100 80GB PCIe GPU. While MegaByte significantly reduces the generation cost through patching, we observe MambaByte to be \\(2.6\\times\\) faster in a parameter-matched setting due to its use of recurrent generation. Appendix F includes more information about the generation process.\n' +
+      '\n' +
+      '## 5 Conclusion\n' +
+      '\n' +
+      'We introduce MambaByte, a token-free SSM for modeling long byte-sequences. MambaByte outperforms other byte-level models over several datasets and shows competitive results with subword Transformers, thus serving as a promising tokenization alternative. SSMs also enable significantly fast text generation due to their recurrent nature, making byte models practical. Our findings establish the possibility of token-free language modeling in future large models.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* Vaswani et al. (2017) Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Lukasz Kaiser, and Illia Polosukhin. Attention Is All You Need. _Advances in neural information processing systems_, 30, 2017.\n' +
+      '* Su et al. (2021) Jianlin Su, Yu Lu, Shengfeng Pan, Bo Wen, and Yunfeng Liu. Roformer: Enhanced transformer with rotary position embedding. _arXiv e-prints_, pages arXiv-2104, 2021.\n' +
+      '* Yu et al. (2023) Lili Yu, Daniel Simig, Colin Flaherty, Armen Aghajanyan, Luke Zettlemoyer, and Mike Lewis. MegaByte: Predicting Million-byte Sequences with Multiscale Transformers. In _Thirty-seventh Conference on Neural Information Processing Systems_, 2023. URL [https://openreview.net/forum?id=JTm02V9Xpz](https://openreview.net/forum?id=JTm02V9Xpz).\n' +
+      '* Mehta et al. (2023) Harsh Mehta, Ankit Gupta, Ashok Cutkosky, and Behnam Neyshabur. Long Range Language Modeling via Gated State Spaces. In _The Eleventh International Conference on Learning Representations_, 2023. URL [https://openreview.net/forum?id=5MkYIYCbva](https://openreview.net/forum?id=5MkYIYCbva).\n' +
+      '* Bengio et al. (2000) Yoshua Bengio, Rejean Ducharme, and Pascal Vincent. A Neural Probabilistic Language Model. _Advances in neural information processing systems_, 13, 2000.\n' +
+      '* Schuster and Nakajima (2012) Mike Schuster and Kaisuke Nakajima. Japanese and Korean Voice Search. In _2012 IEEE international conference on acoustics, speech and signal processing (ICASSP)_, pages 5149-5152. IEEE, 2012.\n' +
+      '* Sennrich et al. (2015) Rico Sennrich, Barry Haddow, and Alexandra Birch. Neural Machine Translation of Rare Words with Subword Units. _arXiv preprint arXiv:1508.07909_, 2015.\n' +
+      '* Wu et al. (2016) Yonghui Wu, Mike Schuster, Zhifeng Chen, Quoc V Le, Mohammad Norouzi, Wolfgang Macherey, Maxim Krikun, Yuan Cao, Qin Gao, Klaus Macherey, et al. Google\'s Neural Machine Translation System: Bridging the Gap between Human and Machine Translation. _arXiv preprint arXiv:1609.08144_, 2016.\n' +
+      '* Wang et al. (2020) Changhan Wang, Kyunghyun Cho, and Jiatao Gu. Neural Machine Translation with Byte-Level Subwords. In _Proceedings of the AAAI conference on artificial intelligence_, volume 34, pages 9154-9160, 2020.\n' +
+      '* Gao et al. (2020a) Yingqiang Gao, Nikola I Nikolov, Yuhuang Hu, and Richard HR Hahnloser. Character-Level Translation with Self-attention. In _Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics_, pages 1591-1604, 2020a.\n' +
+      '* Xue et al. (2022) Linting Xue, Aditya Barua, Noah Constant, Rami Al-Rfou, Sharan Narang, Mihir Kale, Adam Roberts, and Colin Raffel. ByT5: Towards a token-free future with pre-trained byte-to-byte models. _Transactions of the Association for Computational Linguistics_, 10:291-306, 2022.\n' +
+      '* Clark et al. (2022) Jonathan H Clark, Dan Garrette, Iulia Turc, and John Wieting. Canine: Pre-training an Efficient Tokenization-Free Encoder for Language Representation. _Transactions of the Association for Computational Linguistics_, 10:73-91, 2022.\n' +
+      '* Brown et al. (2020) Tom Brown, Benjamin Mann, Nick Ryder, Melanie Subbiah, Jared D Kaplan, Prafulla Dhariwal, Arvind Neelakantan, Pranav Shyam, Girish Sastry, Amanda Askell, et al. Language Models are Few-Shot Learners. _Advances in neural information processing systems_, 33:1877-1901, 2020.\n' +
+      '* Touvron et al. (2020) Hugo Touvron, Louis Martin, Kevin Stone, Peter Albert, Amjad Almahairi, Yasmine Babaei, Nikolay Bashlykov, Soumya Batra, Prajiwal Bhargava, Shruti Bhosale, Dan Bikel, Lukas Blecher, Cristian Canton Ferrer, Moya Chen, Guillem Cucurull, David Esiobu, Jude Fernandes, Jeremy Fu, Wenyin Fu, Brian Fuller, Cynthia Gao, Vedanuj Goswami, Naman Goyal, Anthony Hartshorn, Saghar Hosseini, Rui Hou, Hakan Inan, Marcin Kardas, Viktor Kerkez, Madian Khabsa, Isabel Kloumann, Artem Korenev, Punit Singh Koura, Marie-Anne Lachaux, Thibaut Lavril, Jenya Lee, Diana Liskovich, Yinghai Lu, Yuning Mao, Xavier Martinet, Todor Mihaylov, Pushkar Mishra, Igor Molybog, Yixin Nie, Andrew Poulton, Jeremy Reizenstein, Rashi Rungta, Kalyan Saladi, Alan Schelten, Ruan Silva, Eric Michael Smith, Ranjan Subramanian, Xiaoqing Ellen Tan, Binh Tang, Ross Taylor, Adina Williams, Jian Xiang Kuan, Puxin Xu, Zheng Yan, Iliyan Zarov, Yuchen Zhang, Angela Fan, Melanie Kambadur, Sharan Narang, Aurelien Rodriguez, Robert Stojnic, Sergey Edunov, and Thomas Scialom. Llama 2: Open Foundation and Fine-Tuned Chat Models, 2023.\n' +
+      '* Touvron et al. (2016)Susan Zhang, Stephen Roller, Naman Goyal, Mikel Artetxe, Moya Chen, Shuohui Chen, Christopher Dewan, Mona Diab, Xian Li, Xi Victoria Lin, et al. OPT: Open Pre-trained Transformer Language Models. _arXiv preprint arXiv:2205.01068_, 2022.\n' +
+      '* Dai et al. (2020) Zihang Dai, Guokun Lai, Yiming Yang, and Quoc Le. Funnel-Transformer: Filtering out Sequential Redundancy for Efficient Language Processing. _Advances in neural information processing systems_, 33:4271-4282, 2020.\n' +
+      '* Nawrot et al. (2022) Piotr Nawrot, Szymon Tworkowski, Michal Tyrolski, Lukasz Kaiser, Yuhuai Wu, Christian Szegedy, and Henryk Michalewski. Hierarchical Transformers Are More Efficient Language Models. In _Findings of the Association for Computational Linguistics: NAACL 2022_, pages 1559-1571, 2022.\n' +
+      '* Gu & Dao (2023) Albert Gu and Tri Dao. Mamba: Linear-Time Sequence Modeling with Selective State Spaces. _arXiv preprint arXiv:2312.00752_, 2023.\n' +
+      '* Gu et al. (2021) Albert Gu, Karan Goel, and Christopher Re. Efficiently Modeling Long Sequences with Structured State Spaces. _arXiv preprint arXiv:2111.00396_, 2021.\n' +
+      '* Gupta et al. (2022) Ankit Gupta, Albert Gu, and Jonathan Berant. Diagonal State Spaces are as Effective as Structured State Spaces. _Advances in Neural Information Processing Systems_, 35:22982-22994, 2022.\n' +
+      '* Gu et al. (2022) Albert Gu, Karan Goel, Ankit Gupta, and Christopher Re. On the Parameterization and Initialization of Diagonal State Space Models. _Advances in Neural Information Processing Systems_, 35:35971-35983, 2022.\n' +
+      '* Smith et al. (2023) Jimmy T.H. Smith, Andrew Warrington, and Scott Linderman. Simplified State Space Layers for Sequence Modeling. In _The Eleventh International Conference on Learning Representations_, 2023. URL [https://openreview.net/forum?id=Ai8Hw3AXqks](https://openreview.net/forum?id=Ai8Hw3AXqks).\n' +
+      '* Ramachandran et al. (2017) Prajit Ramachandran, Barret Zoph, and Quoc V Le. Searching for activation functions. _arXiv preprint arXiv:1710.05941_, 2017.\n' +
+      '* Blelloch (1990) Guy E Blelloch. Prefix Sums and Their Applications. (CMU-CS-90-190), nov 1990. URL [https://www.cs.cmu.edu/~guyb/papers/Ble93.pdf](https://www.cs.cmu.edu/~guyb/papers/Ble93.pdf).\n' +
+      '* Rae et al. (2020) Jack W. Rae, Anna Potapenko, Siddhant M. Jayakumar, Chloe Hillier, and Timothy P. Lillicrap. Compressive Transformers for Long-Range Sequence Modelling. In _International Conference on Learning Representations_, 2020. URL [https://openreview.net/forum?id=SylKikSYDH](https://openreview.net/forum?id=SylKikSYDH).\n' +
+      '* Trinh & Le (2018) Trieu H. Trinh and Quoc V. Le. A Simple Method for Commonsense Reasoning. _arXiv preprint arXiv:1806.02847_, 2018.\n' +
+      '* Gao et al. (2020) Leo Gao, Stella Biderman, Sid Black, Laurence Golding, Travis Hoppe, Charles Foster, Jason Phang, Horace He, Anish Thite, Noa Nabeshima, Shawn Presser, and Connor Leahy. The Pile: An 800GB Dataset of Diverse Text for Language Modeling. _arXiv preprint arXiv:2101.00027_, 2020b.\n' +
+      '* Press et al. (2021) Ofir Press, Noah A. Smith, and Mike Lewis. Shortformer: Better Language Modeling using Shorter Inputs. In _Proceedings of the 59th Annual Meeting of the Association for Computational Linguistics and the 11th International Joint Conference on Natural Language Processing (Volume 1: Long Papers)_, pages 5493-5505, Online, August 2021. Association for Computational Linguistics. doi: 10.18653/v1/2021.acl-long.427. URL [https://aclanthology.org/2021.acl-long.427](https://aclanthology.org/2021.acl-long.427).\n' +
+      '* Roy et al. (2021) Aurko Roy, Mohammad Saffar, Ashish Vaswani, and David Grangier. Efficient Content-Based Sparse Attention with Routing Transformers. _Transactions of the Association for Computational Linguistics_, 9:53-68, 2021. doi: 10.1162/tacl_a_00353. URL [https://aclanthology.org/2021.tacl-1.4](https://aclanthology.org/2021.tacl-1.4).\n' +
+      '* Hawthorne et al. (2022) Curtis Hawthorne, Andrew Jaegle, Catalina Cangea, Sebastian Borgeaud, Charlie Nash, Mateusz Malinowski, Sander Dieleman, Oriol Vinyals, Matthew Botvinick, Ian Simon, Hannah Sheahan, Neil Zeghidour, Jean-Baptiste Alayrac, Joao Carreira, and Jesse Engel. General-purpose, long-context autoregressive modeling with Perceiver AR. In _Proceedings of the 39th International Conference on Machine Learning_, volume 162 of _Proceedings of Machine Learning Research_, pages 8535-8558. PMLR, 17-23 Jul 2022. URL [https://proceedings.mlr.press/v162/hawthorne22a.html](https://proceedings.mlr.press/v162/hawthorne22a.html).\n' +
+      '* Krizhevsky et al. (2015)DeLesley Hutchins, Imanol Schlag, Yuhuai Wu, Ethan Dyer, and Behnam Neyshabur. Block-Recurrent Transformers. _Advances in Neural Information Processing Systems_, 35:33248-33261, 2022.\n' +
+      '* Hendrycks and Gimpel (2016) Dan Hendrycks and Kevin Gimpel. Gaussian error linear units (gelus). _arXiv preprint arXiv:1606.08415_, 2016.\n' +
+      '* Orvieto et al. (2023) Antonio Orvieto, Samuel L Smith, Albert Gu, Anushan Fernando, Caglar Gulcehre, Razvan Pascanu, and Soham De. Resurrecting Recurrent Neural Networks for Long Sequences. _arXiv preprint arXiv:2303.06349_, 2023.\n' +
+      '* Gu et al. (2023) Albert Gu, Isys Johnson, Aman Tamalsina, Atri Rudra, and Christopher Re. How to Train your HiPPO: State Space Models with Generalized Orthogonal Basis Projections. In _International Conference on Learning Representations_, 2023. URL [https://openreview.net/forum?id=klK17QQ3KB](https://openreview.net/forum?id=klK17QQ3KB).\n' +
+      '* Nguyen et al. (2022) Eric Nguyen, Karan Goel, Albert Gu, Gordon Downs, Preey Shah, Tri Dao, Stephen Baccus, and Christopher Re. S4ND: Modeling Images and Videos as Multidimensional Signals with State Spaces. _Advances in neural information processing systems_, 35:2846-2861, 2022.\n' +
+      '* Holtzman et al. (2020) Ari Holtzman, Jan Buys, Li Du, Maxwell Forbes, and Yejin Choi. The Curious Case of Neural Text Degeneration. In _International Conference on Learning Representations_, 2020. URL [https://openreview.net/forum?id=rygGQyrFvH](https://openreview.net/forum?id=rygGQyrFvH).\n' +
+      '\n' +
+      '[MISSING_PAGE_EMPTY:10]\n' +
+      '\n' +
+      'Dataset specifics\n' +
+      '\n' +
+      '**Text dataset statistics.** The total bytes, total documents, and the mean document size (bytes per document) for each dataset.\n' +
+      '\n' +
+      'We benchmark our results on various long-form text datasets. The PG19 dataset [14] is an extensive collection of full-length English books (written before \\(1919\\)) from the Project Gutenberg online library. The PG19 dataset is ideal to test for long-distance context modeling [13]. The Stories dataset [15] is a subset of the CommonCrawl data used for commonsense reasoning and language modeling. The Books dataset [13] is another collection of English books. The ArXiv dataset [13] from the arXiv online archive. Finally, the Code dataset [13] is a large dataset of publicly available open-source code (under Apache, MIT, or BSD licenses). Dataset statistics are tabulated in Table 5.\n' +
+      '\n' +
+      'For the PG19 dataset, we employ the train, validation, and test data splits as indicated by Rae et al. [20]. For Stories, Books, ArXiv, and Code datasets, we randomly sample \\(40\\)M consecutive bytes for testing and the rest to train MambaByte.\n' +
+      '\n' +
+      '## Appendix B Compute-constrained modeling\n' +
+      '\n' +
+      'As noted earlier, we evaluate and benchmark MambaByte in a compute-controlled setting. To this end, we estimate the FLOPs per byte incurred by various byte-level model architectures. We parameterize the architectures using hyperparameters \\(n\\) (\\(n_{g}/n_{l}\\)) number of (global/local) layers, dimension \\(d\\) (\\(d_{g}/d_{l}\\)) of the (global/local) residual stream, expansion factor \\(e\\) of linear layers, patch size \\(p\\) in MegaByte, state dimension \\(n_{\\text{state}}\\) in SSMs, 1D convolution kernel size \\(k\\), and low-rank projection dimension \\(r\\) in Mamba. We also include \\(L_{\\text{ctx}}\\) bytes in the input context. Detailed component-wise compute counts for the forward pass are included in Table 6.\n' +
+      '\n' +
+      'For the medium-scale language modeling experiments (Table 1, SS5 of Yu et al. [2023]), Yu et al. [2023] employ the MegaByte-\\(758\\)M+\\(262\\)M model, with a context length of \\(8,192\\) and patch size of \\(8\\), trained for \\(80\\)B bytes. As shown in Figure 5, MambaByte-\\(353\\)M (\\(n=53\\), \\(d=1,024\\), \\(e=2\\)) and MegaByte-\\(758\\)M+\\(262\\)M use the same total compute in FLOPs; hence, we employ the MambaByte-\\(353\\)M to benchmark against MegaByte-\\(758\\)M+\\(262\\)M in Table 2 of SS4.\n' +
+      '\n' +
+      'For the PG19 scaling experiment (Table 2, SS5 and Appendix D.3 of Yu et al. [2023]), Yu et al. [2023] use MegaByte-\\(1.3\\)B+\\(350\\)M (context length of \\(8,192\\) and patch size of \\(8\\)) trained for \\(400\\)B bytes to benchmark the observed word-level perplexity against several state-of-the-art subword models. Owing to our hardware limitations, we train MambaByte-\\(972\\)M (\\(n=48\\), \\(d=1,792\\), \\(e=2\\)) and control for the total compute used (see Figure 5 to view the associated computational costs). All the model sizes and associated hyperparameters employed in this work are tabulated in Table 7.\n' +
+      '\n' +
+      '## Appendix C Training recipes\n' +
+      '\n' +
+      'All the models in this study were trained using an AdamW optimizer with \\(\\beta=(0.9,0.95)\\). We used a linear learning rate warm-up (for the first \\(500\\) steps) followed by cosine annealing. Keeping consistent\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c} \\hline \\hline  & Total bytes & Total docs & \\(\\text{Bytes}/\\text{doc}\\) \\\\ \\hline PG19 & \\(11.74\\)G & \\(28,752\\) & \\(4,082,210\\) \\\\ Stories & \\(34.18\\)G & \\(948,247\\) & \\(36,045\\) \\\\ Books & \\(108.38\\)G & \\(196,640\\) & \\(551,179\\) \\\\ ArXiv & \\(60.27\\)G & \\(1,264,405\\) & \\(47,665\\) \\\\ Code & \\(677\\)G & \\(56,626,342\\) & \\(11,958\\) \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 5: **Text dataset statistics.** The total bytes, total documents, and the mean document size (bytes per document) for each dataset.\n' +
+      '\n' +
+      'Figure 4: **Gated-S4D block.** Adapted from Mehta et al. [2023]; \\(\\varphi\\) indicates GELU activation [1].\n' +
+      '\n' +
+      'with MegaByte training (Yu et al., 2023), we used a batch size of \\(48\\) across all our experiments. Additionally, we do not use dropout with any of our models.\n' +
+      '\n' +
+      'For the experiments in Figure 1, we conducted a hyperparameter search using peak learning rates of \\(0.0002\\), \\(0.0006\\), and \\(0.0008\\) and clipped the gradient norm to \\(1.0\\) for all the models. The best-observed performance curve for each model is reported in Figure 1. Furthermore, we use an improved Transformer recipe that uses RMSNorm instead of LayerNorm, rotary positional encodings (Su et al., 2021), and linear terms without bias (same as (Yu et al., 2023)).\n' +
+      '\n' +
+      'In our medium-scale experiments shown in Table 2, we set the peak learning rate to \\(0.0004\\) and clipped the gradient norm to \\(0.1\\). We trained the MambaByte-\\(353\\)M for a total of \\(80\\)K steps, equivalent to \\(80,000\\times 48\\times 8,192\\approx 30\\)B bytes.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l l l} \\hline \\hline Model & Component & FLOPs per byte \\\\ \\hline Transformer & Multi-head attention & \\(2n(4d^{2}+2L_{\\text{ctx}}d)\\) \\\\\n' +
+      '[Vaswani et al., 2017] & Pointwise feed-forward & \\(2n(2ed^{2})\\) \\\\ \\hline \\multirow{4}{*}{MegaByte [Yu et al., 2023]} & Embedding projection & \\(2d_{g}^{2}\\) \\\\  & Global transformer model & \\(2n_{g}(4d_{g}^{2}+2d_{g}L_{\\text{ctx}}/p+2ed_{g}^{2})/p\\) \\\\  & Global-to-local projection & \\(2d_{g}d_{l}\\) \\\\  & Local transformer model & \\(2n_{l}(4d_{l}^{2}+2pd_{l}+2ed_{l}^{2})\\) \\\\ \\hline \\multirow{4}{*}{Gated-S4D (Figure 4)} & Linear projections & \\(2n(3ed^{2}+d^{2})\\) \\\\  & Kernel via Vandermonde \\(v(\\overline{\\Lambda})\\) & \\(n(\\alpha_{\\text{r}}ed(n_{\\text{state}}+L_{\\text{ctx}})\\log_{2}^{2}(n_{\\text{ state}}+L_{\\text{ctx}})/L_{\\text{ctx}})\\) \\\\  & S4D SSM with convolution & \\(n(\\alpha_{\\text{fl}}\\log(L_{\\text{ctx}})ed+ed)\\) \\\\  & Element-wise gating & \\(ned\\) \\\\ \\hline \\multirow{4}{*}{MamboByte (Figure 3)} & Linear projections & \\(2n(3ed^{2})\\) \\\\  & Pre-SSM 1D convolution & \\(2nked\\) \\\\  & \\(\\Delta,\\mathrm{B},\\mathrm{C}\\) from input \\(x\\) & \\(2n(2edr+2edn_{\\text{state}})\\) \\\\  & Discretization, pre-scan: \\(\\overline{\\Lambda}\\), \\(\\overline{\\mathrm{B}}x\\) & \\(n(3edn_{\\text{state}})\\) \\\\  & Recurrence with parallel scan & \\(n(edn_{\\text{state}})\\) \\\\  & Output: \\(y=\\overline{\\mathrm{C}}h+\\overline{\\mathrm{D}}x\\) & \\(2nedn_{\\text{state}}+ned\\) \\\\  & Element-wise gating & \\(ned\\) \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 6: **Compute (forward pass) estimates for various byte-level language models.** Embedding, de-embedding, and sub-leading terms such as biases, nonlinearities, and layer norms are omitted. (\\(\\alpha_{*}\\) indicates an implementation-specific constant scaling term.)\n' +
+      '\n' +
+      'Figure 5: **Computational cost for different model architectures at different scales.** All models use a context length of \\(8,192\\), and MegaByte architectures use a patch size of \\(8\\).\n' +
+      '\n' +
+      'In the large-scale experiment on PG19, we use a similar setting to that in the medium-scale experiments: the peak learning rate is set to \\(0.0004\\), and the gradient norm is clipped to \\(0.1\\). The MambaByte-\\(972\\)M is trained for \\(380\\)K steps, equivalent to \\(380,000\\times 48\\times 8,192\\approx 150\\)B bytes.\n' +
+      '\n' +
+      '## Appendix D Discretization and selection\n' +
+      '\n' +
+      'Discretization has deep connections to continuous-time systems, which allows for desirable properties such as model normalization (Orvieto et al., 2023; Gu et al., 2023) and resolution invariance (Nguyen et al., 2022). In this section, we show how zero-order hold discretization of a selective SSM can be viewed as a generalization of the gating mechanism in recurrent networks.\n' +
+      '\n' +
+      'Zero-order hold discretization.For a given input \\(x(t)\\in\\mathbb{R}\\), we wish to discretize a continuous-time SSM defined by (1) in SS2. To this end, we sample the system at different time intervals such that \\(x[k]=x(t_{k})\\) for \\(t_{k}=\\sum_{j=1}^{k}\\Delta[j]\\) and assume a zero-order hold, i.e., \\(x(t)\\) is constant between samples: \\(x(t_{k}+\\xi)=x(t_{k})=x[k]\\) for any \\(\\xi\\in[t_{k},t_{k+1})\\). The resultant matrices of the associated discrete SSM are:8\n' +
+      '\n' +
+      'Footnote 8: In Mamba (Gu and Dao, 2023), \\(\\mathrm{B}\\) is discretized through a simplified Euler (as opposed to zero-order hold) discretization from empirical observations of \\(\\mathrm{A}\\) being more important than \\(\\mathrm{B}\\), and the performance does not change significantly with simplification on \\(\\mathrm{B}\\).\n' +
+      '\n' +
+      '\\[\\overline{\\mathrm{A}}=\\exp(\\mathrm{A}\\,\\Delta);\\quad\\overline{\\mathrm{B}}= \\mathrm{A}^{-1}(\\exp(\\mathrm{A}\\,\\Delta)-\\mathrm{I})\\,\\mathrm{B};\\quad \\overline{\\mathrm{C}}=\\mathrm{C}\\,.\\]\n' +
+      '\n' +
+      'Selection mechanics and gating in recurrent networks.Gu and Dao (2023) note that a selective SSM can be realized as a gated recurrence by setting \\(\\Delta=\\mathrm{softplus}(z(x))=\\mathrm{softplus}(W_{\\Delta}(W_{R}x))\\) (as indicated in (3) of SS2). By letting \\(\\mathrm{A}=-1\\), \\(\\mathrm{B}=1\\), and \\(n=1\\), the authors observe:\n' +
+      '\n' +
+      '\\[\\overline{\\mathrm{A}} =\\exp(\\mathrm{A}\\,\\Delta) \\overline{\\mathrm{B}} =\\mathrm{A}^{-1}(\\exp(\\mathrm{A}\\,\\Delta)-\\mathrm{I})\\,\\mathrm{B}\\] \\[=\\exp(-\\log(1+\\exp(z(x)))) =\\mathrm{I}-\\exp(\\mathrm{A}\\,\\Delta)\\] \\[=\\sigma(z(x)).\\] \\[=\\sigma(-z(x))\\] \\[=1-\\sigma(z(x)).\\]\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l l c c c c c} \\hline \\hline \\multirow{2}{*}{Model} & \\multirow{2}{*}{Parameters} & \\multicolumn{5}{c}{Hyperparameters} \\\\ \\cline{3-6}  & & \\(n\\) & \\(d\\) & \\(e\\) & \\(L_{\\mathrm{ex}}\\) & Others \\\\  & & \\((n_{g}/n_{l})\\) & \\((d_{g}/d_{l})\\) & & & \\\\ \\hline \\multirow{2}{*}{Transformer} & \\(320\\)M (Yu et al., 2023) & \\(22\\) & \\(1,024\\) & \\(4\\) & \\(1,024\\) & heads: \\(-\\) \\\\  & \\(350\\)M (Yu et al., 2023) & \\(24\\) & \\(1,024\\) & \\(4\\) & \\(1,024\\) & heads: \\(16\\) \\\\  & \\(361\\)M & \\(28\\) & \\(1,024\\) & \\(4\\) & \\(8,192\\) & heads: \\(16\\) \\\\ \\hline \\multicolumn{6}{l}{PerceiverAR} & \\(248\\)M (Yu et al., 2023) & \\(17\\) & \\(1,024\\) & \\(4\\) & \\(8,192\\) & latents: \\(1,024\\) \\\\ \\hline \\multirow{2}{*}{MegaByte} & \\(193\\)M+\\(177\\)M\\({}^{\\prime}\\) & \\(14/14\\) & \\(1,024/1,024\\) & \\(4\\) & \\(8,192\\) & \\(p=4,8\\); heads: \\(16/16\\) \\\\  & \\(758\\)M+\\(262\\)M (Yu et al., 2023) & \\(14/18\\) & \\(2,048/1,024\\) & \\(4\\) & \\(8,192\\) & \\(p=8\\); heads: \\(16/16\\) \\\\  & \\(1.3\\)B+\\(218\\)M (Yu et al., 2023) & \\(24/15\\) & \\(2,048/1,024\\) & \\(4\\) & \\(8,192\\) & \\(p=8\\); heads: \\(32/-\\) \\\\  & \\(1.3\\)B+\\(350\\)M (Yu et al., 2023) & \\(24/24\\) & \\(2,048/1,024\\) & \\(4\\) & \\(8,192\\) & \\(p=8\\); heads: \\(32/16\\) \\\\ \\hline \\multicolumn{6}{l}{Gated-S4D} & \\(368\\)M & \\(26\\) & \\(1,024\\) & \\(4\\) & \\(8,192\\) & \\(n_{\\mathrm{state}}=64\\) \\\\ \\hline \\multirow{2}{*}{MambaByte} & \\(353\\)M & \\(53\\) & \\(1,024\\) & \\(2\\) & \\(8,192\\) & \\(k=4;n_{\\mathrm{state}}=16;r=64\\) \\\\  & \\(972\\)M & \\(48\\) & \\(1,792\\) & \\(2\\) & \\(8,192\\) & \\(k=4;n_{\\mathrm{state}}=16;r=112\\) \\\\  & \\(1.6\\)B & \\(48\\) & \\(2,304\\) & \\(2\\) & \\(8,192\\) & \\(k=4Using \\(\\overline{\\text{A}}\\) and \\(\\overline{\\text{B}}\\) from above in the discrete recurrence (2), the selective SSM takes the form of a 1D gated recurrence:\n' +
+      '\n' +
+      '\\[h[k]=\\left(1-\\sigma(z(x))\\right)h[k-1]+\\sigma(z(x))x[k]. \\tag{4}\\]\n' +
+      '\n' +
+      'It is interesting to note from (4) that \\(\\lim_{\\Delta\\to\\infty}h[k]=x[k]\\) and \\(\\lim_{\\Delta\\to 0}h[k]=h[k-1]\\): a large \\(\\Delta\\) (\\(\\Delta\\to\\infty\\)) denotes the evolution of the system to focus only on the current input and forgetting the state. In contrast, a small \\(\\Delta\\) (\\(\\Delta\\to 0\\)) represents a transient input being ignored.\n' +
+      '\n' +
+      '**Selectivity of A, B, and C matrices.**Gu and Dao (2023) argue that since the system matrix A only affects the model through \\(\\Delta\\), i.e., \\(\\overline{\\text{A}}=\\exp(\\text{A}\\,\\Delta)\\). Hence, the selectivity in \\(\\Delta\\) is sufficient to ensure selectivity in A.\n' +
+      '\n' +
+      'While the selectivity in \\(\\Delta\\) enables selectivity in the input matrix B, Gu and Dao (2023) hypothesize that making \\(\\text{B}\\) and \\(\\text{C}\\) selective (in addition to \\(\\Delta\\)) would allow for more fine-grained control based on the content \\(x[k]\\) and evolving context \\(h[k]\\).\n' +
+      '\n' +
+      '## Appendix E Evaluation metrics\n' +
+      '\n' +
+      'Subword-based language models (Vaswani et al., 2017; Hawthorne et al., 2022; Hutchins et al., 2022) report their performance in word-level \\(\\mathrm{PPL}\\), while byte-level language models (Xue et al., 2022; Yu et al., 2023) report theirs in \\(\\mathrm{BPB}\\). To facilitate meaningful comparisons, we report performance in \\(\\mathrm{BPB}\\) when benchmarking against byte-level models and \\(\\mathrm{PPL}\\) when comparing to token-level models. In this section, we detail the conversion between word-level \\(\\mathrm{PPL}\\) and \\(\\mathrm{BPB}\\).\n' +
+      '\n' +
+      'Irrespective of the underlying segmentation, the amount of information \\(I(D)\\) in a given dataset \\(D\\) is constant. Simply put,\n' +
+      '\n' +
+      '\\[I(D) =L_{T}\\,\\text{bits per token}=L_{B}\\,\\text{bits per byte} \\tag{5a}\\] \\[\\triangleq\\frac{-\\ln(D;\\text{model})}{\\ln(2)}, \\tag{5b}\\]\n' +
+      '\n' +
+      'where \\(L_{T}\\) and \\(L_{B}\\) are the length of the dataset in tokens and bytes, respectively. From (5), we observe:\n' +
+      '\n' +
+      '\\[\\mathrm{BPB}=\\frac{-\\ln(D;\\text{model})/L_{B}}{\\ln(2)}=\\frac{\\ell_{\\text{byte} }}{\\ln(2)},\\]\n' +
+      '\n' +
+      'where \\(\\ell_{\\text{byte}}\\) is the observed byte-level negative log-likelihood loss (computed using \\(\\ln\\)). From (5), we also note the following conversion from \\(\\mathrm{BPB}\\) to word-level \\(\\mathrm{PPL}\\):\n' +
+      '\n' +
+      '\\[\\frac{-\\ln(D;\\text{model})/L_{T}}{\\ln(2)} =\\frac{L_{B}}{L_{T}}\\,\\mathrm{BPB}=\\frac{L_{B}}{L_{T}}\\frac{\\ell_ {\\text{byte}}}{\\ln(2)}\\] \\[\\Rightarrow\\mathrm{PPL} =\\exp\\left(\\frac{L_{B}}{L_{T}}\\ell_{\\text{byte}}\\right)=\\exp \\left(\\frac{L_{B}}{L_{T}}\\ln(2)\\,\\mathrm{BPB}\\right).\\]\n' +
+      '\n' +
+      'For the PG19 dataset, we train MamboByte-\\(972\\)M to minimize BPB over the training data and report word-level PPL on the test data. Split-wise values of \\(L_{B}/L_{T}\\) for the PG19 dataset are tabulated in Table 8.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c} \\hline \\hline  & \\(L_{B}\\) & \\(L_{T}\\) & \\(L_{B}/L_{T}\\) \\\\ \\hline Train & \\(11,677,824,216\\) & \\(1,973,048,393\\) & \\(5.92\\) \\\\ Validation & \\(17,733,002\\) & \\(3,007,061\\) & \\(5.90\\) \\\\ Test & \\(41,289,101\\) & \\(6,965,511\\) & \\(5.93\\) \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 8: **PG19 dataset statistics.** Split-wise UTF-\\(8\\) encoded byte \\(L_{B}\\) and space-separated token counts \\(L_{T}\\) in the PG19 dataset. (The byte count includes the newline character.) We also indicate the associated bytes per token \\(L_{B}/L_{T}\\).\n' +
+      '\n' +
+      'PG19 generation samples\n' +
+      '\n' +
+      'This section includes a few sample generations from the MambaByte-\\(972\\)M trained on the PG19 dataset. We use Nucleus sampling with \\(p=0.98\\)(Holtzman et al., 2020) and generate continuations for a total of \\(8,192\\) bytes (including the given context prefix). Furthermore, we chose the same test set prefixes used in Appendix F of Rae et al. (2020). We observe that the model is able to continue the dialogue in the style of the prefix and effectively recall the character names over hundreds of bytes.\n' +
+      '\n' +
+      '**Baby Mine by Margaret Mayo**\n' +
+      '\n' +
+      'Context (\\(487\\) bytes):\n' +
+      '\n' +
+      '* [noitemsep]\n' +
+      '* Even in college Alfred Hardy was a young man of fixed ideas and high ideals and proud of it.\n' +
+      '* His friend, Jimmy Jinks, had few ideas and no ideals, and was glad of it, and before half of their first college term had passed, Jimmy had ridded himself of all such worries as making up his own mind or directing his own morals. Alfred did all these things so much better, argued Jimmy, furthermore, Alfred LIKED to do them-Jimmy owed it to his friend to give him that pleasure.\n' +
+      '* [noitemsep]\n' +
+      '* It was not that Alfred really considered his friend an ideal husband, but Jimmy admitted that it looked differently. And, too, it was all there was to life.\n' +
+      '* And on went Alfred, through long years of honest comradeship and unblushing promises and bubbling kindness. In his heart he had long since forgotten Jimmy and his friendship, since he realized the superiority of Jimmy\'s ideal, if of any one\'s.\n' +
+      '\n' +
+      'It was to be expected that Prince William would fall a victim. Perhaps he was a modified betting man, and then had thrown over Nature and his team-mates, as a victim to ridicule or a follower of hazardous ways.\n' +
+      '\n' +
+      'It was then that Prince William went back into society, perhaps sought an interview with Miss La Roche, and learned that he had been the victim of romance death, and a suicide, and had been endowed with an absurd roman cross. Whatever it was, he saw in it the myth of Alfred\'s heroic deceds or the myth of a yellow dog in the market plate. It sohered him gradually.\n' +
+      '\n' +
+      'He became nearly a convert, and it was Alfred who, in bidding Miss Rossiter good-by, said that he would never forget her, and never would be friendly with his friend\'s family. It was not till now that Miss La Ross realized that a really good life results in an excellent impulse, but the sequel proved the truth of Miss La Ross\'s predictions. One night, a year before Prince William\'s death, when she was wearing a diamond star in her hair, and admiring it, she heard Jimmy\'s front door open in the hall, and, turning round to look through the open doorway, in came Jimmy, and after that where Jimmy went Alfred would sometimes go to the house next door, and they went over this now, and ever since Miss La Ross\'s spirit had been there, and Jimmy had often insisted that a marriage should be accomplished in some ancient house-"And we will found a family of our own," said Jimmy, "a for some distant house in this great Belgium."\n' +
+      '\n' +
+      'The days went on and it was a glorious spring morning. Early in March a thick autumn rain had fallen on the house in New York and the leafless trees looked weird and strange, and the wind roared like a crested wave of fire. In the afternoon the thunder roared and soon an occasional gray drizzle eddied about the wet streets and the city glow and tint began to merge into a world of pink and red and amber and purple and sunset colors.\n' +
+      '\n' +
+      'The low ceiling pillars had covered their treasures of gold and gems, and the great stained-glass windows in dreamily gentle, half-lights, had arranged themselves in red and gold stripes of magic tints. Even though the delicate color scheme had had its disappointments once, it had certainly affected one hour in this room as well as ten months later and longer stays at least would have done.\n' +
+      '\n' +
+      'To-day a soft South wind had drifted through the open door, and a sudden east wind had driven open the French windows of Miss La Ross\'s bedroom, and it rained in pure flames between the ceiling and boarded floor.\n' +
+      '\n' +
+      'Alfred\'s room was fragrant with his presence.\n' +
+      '\n' +
+      '"... A little singing bird\n' +
+      '\n' +
+      'That, living in a cage, demands a friend\n' +
+      '\n' +
+      'Whose cool-blooded lure can warm the heart with love\n' +
+      '\n' +
+      'To a fluttering, wounded thing.\n' +
+      '\n' +
+      'As in a pathetic garden, so in the hall room.\n' +
+      '\n' +
+      'It was cold, to-day. Already the rooms seemed overheated. The curtains were already half drawn.\n' +
+      '\n' +
+      'She shivered.\n' +
+      '\n' +
+      '"Mid-winter, to-day," thought Alfred, watching the sweep of Ann\'s white shoulder and patting her thin cotton frock. "Seven there were of days.\n' +
+      '\n' +
+      'And seven is yet untold gone. Fine, fine day, by Christ! Come out of this old soot, and we\'ll fly... Away. God rest his soul from hell, if ever such a devil crawled this broad, raw earth.... Where are you, Ann?"\n' +
+      '\n' +
+      'Ann waited and trembled, she knew not why, for a sharp voice was asking suddenly for the check book in her hand.\n' +
+      '\n' +
+      '"Get me change enough to pay for lunch for Jimmy," Alfred chided.\n' +
+      '\n' +
+      'Before the one empty chair on the hall table and under the curtains lay\n' +
+      '\n' +
+      'a crashing pile of ready money. "And the window shades are closed," added Alfred.\n' +
+      '\n' +
+      '"It won\'t shut out the rain," smiled Ann.\n' +
+      '\n' +
+      '"But he won\'t care," protested Ann.\n' +
+      '\n' +
+      'Alfred laid a strong withdrawing hand on the fair golden hair for a moment.\n' +
+      '\n' +
+      '"It\'s all right," he coaxed. "Without a cent behind them to-day we can put in four thousand and close the bottom against a falling price like this." He was holding up the window sill six inches.\n' +
+      '\n' +
+      'While he stood she whispered:\n' +
+      '\n' +
+      '"I\'m only lucky to save the day.""He helps you without a reward," Alfred said.\n' +
+      '\n' +
+      '"He\'s kind... and darned bad."\n' +
+      '\n' +
+      'Ann noted dangerous things that afternoon.\n' +
+      '\n' +
+      '"You could sing and play?" she asked.\n' +
+      '\n' +
+      '"No, no!" insisted Alfred. "I CAN\'T play and sing. The room is cold. It\'s warm within."\n' +
+      '\n' +
+      'Alfred was changing clothes when he had that lucky escape, and Alfred momentarily forgot his debt. Ann laid the bill she had placed on the table, and when she had gone Alfred had not even looked at it, and it was the act she saw in that frame of mind, remembering it, that made her put it back again.\n' +
+      '\n' +
+      'Now Alfred was thoroughly cold and temperamental, and when he probed an obligation that he had just been trying to shift on the other fellow, he was more easily reminded. When Jimmy, cold and hungry, had wormed his way into his room that day at dinner, and been halted at his close chair by the soup stove, the young man\'s gaze had fixed furiously to the platter of gold and had immediately started on the other food with an intensity of expression that had awakened Jimmy\'s appreciation of the hot day of purposes and had aroused even Ann\'s observant sense.\n' +
+      '\n' +
+      'Jimmy\'s employer had met him on Close Street after the unsuccessful row over the Dearborn Cats. Jimmy, who was not naturally an observant boy, had tried to keep in the line of his employer\'s movements and tell Alfred his employer just what he did for a living, but all Alfred\'s energy had vanished, and on sundry occasions he had caught Jimmy\'s eye, and once he had promptly appeared to mere assiduous examination of the window. Employer\'s Jimmy had been dexterous enough, subdued, but his dexterity and subtlety and sagacity had not failed.\n' +
+      '\n' +
+      'As one in employment was a most elusive proposition in this crafty world of facts, just then Alfred had found a perfect driftwood, and so had met and accepted and stood in the way of Jimmy\'s exagtisation and reproach. That is to say, he had saved Jimmy from seeing any of his own real qualities, and the critics, he had been asked in Jimmy\'s more frequent trainees to erase Alfred\'s sneer and snip off his coat, and he had instantly become a mental picture of Jimmy Dean\'s assistant to the lawyer and the college professor.\n' +
+      '\n' +
+      'It was Jimmy\'s reckless impetuousness, not his single fearless single energy, that had led Ann through the door at sight of Ann, that had electrified the tremendous audience, not her own act or attitude. Jimmy had thought still of the boy as a fellow mortal, now his master had gone.\n' +
+      '\n' +
+      'That was a satisfactory driftwood, of Jimmy.\n' +
+      '\n' +
+      'That evening Ann\'s maid had gone into the bedroom where Jimmy was and had said again that he looked very tired, and as Ann assigned as a reason his long face, it was not impossible to conclude that he was suffering from a formal ache.\n' +
+      '\n' +
+      'But, as she had only managed a nap and had been rather silent when away from Jimmy, Ann determined that the tired-out and worn-looking man must be tired, too, and she secretly determined that at breakfast to-morrow she would place in his hands all the evidence she could imagine against Jimmy, as pertaining to the unsolved mystery of Jimmy Dean\'s friend.\n' +
+      '\n' +
+      '## Chapter II\n' +
+      '\n' +
+      'That afternoon Jimmy was taken into the professor\'s home to dinner. Wonderful Dean\'s Hal\n' +
+      '\n' +
+      '### The Diary of Samuel Pepys\n' +
+      '\n' +
+      'Context (\\(826\\) bytes):\n' +
+      '\n' +
+      'June 1st. Having taken our leaves of Sir W. Batten and my Lady, who are gone this morning to keep their Whitsuntide, Sir W. Pen and I and Mr. Gauden by water to Woolwich, and there went from ship to ship to give order for and take notice of their forwardness to go forth, and then to Deptford and did the like, having dined at Woolwich with Captain Poole at the tavern there. From Deptford we walked to Redriffe, calling at the half-way house, and there come into a room where there was infinite of new cakes placed that are made against Whitsuntide, and there we were very merry. By water home, and there did businesses of the office. Among others got my Lord\'s imprest of L1000 and Mr. Creed\'s of L10,000 against this voyage their bills signed. Having wrote letters into the country and read some things I went to bed.\n' +
+      '\n' +
+      'MambaByte-\\(972\\)M:\n' +
+      '\n' +
+      'There came my ship in this morning, which had safely arrived after all our troubles, though some to this day we thought had been lost, viz., of the north winds. Whereabouts of us, and going to find them, we had much ado to get up in the day time without much losing our mast and going about by night. At noon came the King and Queen and all their Court (unhappily in some pain from the swelling of the belly). There were myself with others going to dinner to meet them; and my Lady Sandwich came, by special invitation of my Lady Jem., to dine at Court. She was invited to dinner afterwards by Mrs. Penington; and after dinner I going out to her coach, we fell to talk of the happiness of this, and being astonished at the curiosity and ingenium almost of the age and remarkable folly of the age for things of this kind: "Many good fortunes," says she, "will happen upon this discourse; your lady (I know) hath the choice of your person taken in some few; but you, charming and ingen as you are, I doubt you will not make an end." "Bah!" says I, "it is good dallying with the ladies; for if once off of her, I promise you her talking and witty company, and you could not choose but have her."\n' +
+      '\n' +
+      'At dinner we said some time, discoursing about her forwardness as to her coming over from her beloved Deptford to be Lady. My Lady is so tender, that I did not help to give her opportunity of shining a little, by having been called out to dinner to Sir R. Holmes before I set out, it having been proposed to my Lady to stay and go as far as Gravesende; of whom she was very much pleased, even to the skirt of her gowne. But, when I came back I found the strictest inquiry made after me, I coming over to Hinchinbroke; and my Lady cryed out of my going into the coach, lest she should be made to say I stayed for her. Poor little wench, I confess I was in a great confusion, being to see my Lady set out without me; which, if I had known, I had wisely taken a resolution not to have been of it. At last it was agreed between Sir W. Batten and my Lady that the maid should go herself in a boat, and my Lady his wife to go in another boat with Mrs. Penington, who had a great mind to go. My Lady had thoughts of sending Jane for her. Which we were loth to, the signeless of their minds and opposition they meeting with no manner of business at home, and being desired to do so by my Lady, did instance me to get Jane and little Mrs. Penington to stay with me, and myself to lodge and launch two boats more, for the building now and to study the disposing of them; but, being there, occasion will not suffer me to go upon them, but I leave it wholly to their own pleasures. The day proving most pleasant all the afternoon, so that it was agreed on, and even our preparations done, my mind all over afeard and discouraged, as if things would not have been better. Upon our sending away this poor wench (my Lady sitting looking on) I rose up and took my wife and my son T. Greaves as proxies for her to go by herself, in my great coach in the Tower garden, in the last coach my Lord will lend me; which coach is well chosen and good. So giving order for the horse to be chosen neatest and whiteset, we set forth; Mrs. Penington on the box with me scolding at him all the way; my great discourse my losing the fine pearl, where I had much ado to keep from crying, such a jealous pain she put me to. Away to Lambeth chappell; where, I perceive, my Lord did give his desire to have understand who are to sit in his chappell, he standing up all the sermon. This continued most part of the sermon, and in our going over the bridge above bridge, I bethought myself that my Lord must have grounded his resolution of having it so. He seemed therefore to give very civil direction at cards after sermon in the evening, to my Lord\'s great satisfaction; but on the reading of the Breviate he was as offended as I could be of the alteration (enquiring too deeply into the goodness of the gentlemen in their not desiring to have a further change) which my Lord did very readily, and told me he fell very off; and, losing all he had, and taking nothing, signed very heavily and mourfully, and so went away. The business was not made much merrier for this sermon; for which I was sorry, and remaining professedly sad we rowed to Kingston, and after some solemn service we landed there and went up to a little alehouse some few miles up yet Stoul. But, Lord! the humours of boys, which I never knew in my life before, how fretting, tearing and swearing, and so I made their bellies fret presently, no upper nor ever man of the house sitting down as I expected. So ended this businesse with joy beyond what was hoped for it the first time. To Stoul and back again.\n' +
+      '\n' +
+      '### The Patrol of the Sun Dance Trail by Ralph Connor\n' +
+      '\n' +
+      'Context (\\(1,059\\) bytes):\n' +
+      '\n' +
+      'High up on the hillside in the midst of a rugged group of jack pines the Union Jack shook out its folds gallantly in the breeze that swept down the Kicking Horse Pass. That gallant flag marked the headquarters of Superintendent Strong, of the North West Mounted Police, whose special duty it was to preserve law and order along the construction line of the Canadian Pacific Railway Company, now pushed west some scores of miles. Along the tote-road, which ran parallel to the steel, a man, dark of skin, slight but wiry, came running, his hard panting, his streaming face, his open mouth proclaiming his exhaustion. At a little trail that led to the left he paused, noted its course toward the flaunting flag, turned into it, then struggled up the rocky hillside till he came to the wooden shack, with a deep porch running round it, and surrounded by a rustic fence which enclosed a garden whose neatness illustrated a characteristic of the British soldier. The runner passed in through the gate and up the little gravel walk and began to ascend the steps.\n' +
+      '\n' +
+      'Indescribable and yet unconscious was this man. All his being rose to a sense of the security that was about him as he walked onwards swiftly between rows of young firs of Canadian growth. He swung impulsively by the gap of a gate and paused. Then the clangour of an alarm bell from a city clock was sharply repeated with its deep and terrible sound. This bell not only announced the desire of the inhabitants of the intervening concession lines to their work, but it also warned from the further side of the high boundary constructed by the late engineer of the West Mounted Police the abrupt and rapid career of another man. The pistol had fallen, and the runner was searching for another. The solicitor buried his face in his hands. "In God\'s name, man!" he ejaculated. "How do I know? Haven\'t I just found one?" He had rung the bell, and now fell back among the shadows and the rough bushes. The sound startled him. He stood transfixed a moment before he looked about him. "There\'s only one man knowing where that toe-road goes." He still held his breath and then listened. "\'Tis where the first news comes from, and-oh, I see! There\'s my boy." He waited a moment. Then once more he passed along the gap and descended the rocky little to the more sheltered spot where the new buildings stood. He was an under officer in that high branch of the service known as the Union League, and a short sharp beat was his upon the white drilling of bashi-bazouks. With the sounding of another great bell of a church close at hand he moved quickly round to the other side of the buildings. As he approached, however, he took from his pocket a thin black silk neckerchief. It was damp and stained with the blood of dead men. He laid it in the hands of a slim girl, with the limpid blue eyes of the Canadian Saskatchewan. "What\'s that for?" he demanded. She looked as if there had been something she desired to say, then left the agitated conclusion unfinished. Her eyes sought his in the pathetic wistfulness of a child, then suddenly fell. For the hurt he had done her was not a wound incurred in battle. It was merely a little scratch in the hand, and let alone that, in a manner of speaking, it was all she had. The blood of a man is always more significant than that of a scratch on the bark of a tree, and a pressure of the earth leaves a deeper mark on a man\'s arm. With a sigh the runner removed the blood stain and turned his face towards the sound again. He walked half across the open grass from which he had sprung. From his ample form to the far-distant leaping folds of his drilling trousers he had trailed a forked stick, and so to the girl. In a few seconds he came back. "It\'s me, pardner, Superintendent Strong. It\'s me I\'m goin\' down from the Soo, for the job I had in Mexico after I came out here. I\'m connected with the Canadian Pacific Railway and they\'re hunting up a man who did have a finger wounded by a Canadian rock. I\'m sendin\' the little flag with her." He emphasised the word "flag." A rough skin mark, furrowed in a straight line down his left cheek, marked the place of the scar and brought him to a sudden stop. His eyes were on the scrolled letters above his head.\n' +
+      '\n' +
+      '"I\'m going down to get it. I\'ve got to get it to the bottom, anyway, for divil a bit of paper they\'ll let me have at British Columbia. Oh, God!"\n' +
+      '\n' +
+      'He raised his voice. In a moment he had departed. In a few minutes he had rejoined the girl. They rejoined the solicitor and returned with him to an open space before the meeting place of the railway company. As they gathered round a table spread with an untasted meal the solicitor spoke. The railroad company was working out from British Columbia to Montreal.\n' +
+      '\n' +
+      '"In our fight we had it hard," he said. "The northern route to League Island was blocked, we could not reach there to recruit. We had to look for a northern route, for there was none. At first the league flag of Ottawa was given up. That was only till October. Then a young man on the ground from London came to us. He\'d been in the runner\'s service along the whole line from Montreal. He was headed for Canada on the telegraph. Two of us had to flag him as soon as we set out from here. He had been over that ground about fifty times before, and knew the whole road well for forty miles. The head of us did not know it till he came to the junction where the main line crosses the north line of the United States. We took that name on the tin to test him."\n' +
+      '\n' +
+      '"What was the corporation over there for?" said the solicitor. "I remember, I remember. It occupied a part of the big Kelvin mine. I was helping get the first claim post run by the Union League at the time I was there. He was out hunting coal. He came down one day to see the coal pits about the ground. On the way he was stopped and accused of raising a rebellion, and was arrested and taken to the Soo, where he was made to give evidence in a certain case that had been laid before him."\n' +
+      '\n' +
+      '"And what was the precise cause of the complaint?" asked the runner.\n' +
+      '\n' +
+      '"Well, it wasn\'t a case at all, it was a fact. That\'s all," explained the constable.\n' +
+      '\n' +
+      '"From what I heard then of the runners of the London and North West, their work wasn\'t near so exciting and dangerous as it had been reported to be. Also it was the work of others, others still, and they were arrested. They was a young feller and a girl married over two years ago, and he was shot."\n' +
+      '\n' +
+      '"Brought to trial for that by himself or his relatives or some of the men who were with him?" There was a puzzled, gentle expression on the face of the railway superintendent. He was of much higher rank, for he had not been present at the trial of the accused. He glanced up at the runner.\n' +
+      '\n' +
+      '"Arrested?" The bit of food in his mouth was working like a millstone in the Soo employer\'s breast. Then, as though unconsciously to himself, his lips said "yes" instead of "no," and he added instead, "and sworn to it. That\'s as far as you\'ve got, pardner. Anything else, sir?" He was watching the silent figure with intense desire to see his face and to know what he felt. It did not come, and he settled himself in his chair with a sigh.\n' +
+      '\n' +
+      '"That was short work. They marched the young feller up here, and give him the Canadian division. It was the station sergeant-inspector from the Canadian line sending down from headquarters to show he was all right and not having heard anything against him. And if you don\'t know that it\'s not the worst of the testimony we have to give, pardner. It wasn\'t the best.\n' +
+      '\n' +
+      'The fact is the young man was getting three weeks\' sentence at the time."\n' +
+      '\n' +
+      '"That was only a month ago," broke in the businesslike runner, who had been preparing himself for a full report. "What had he done? Tell us?"\n' +
+      '\n' +
+      'There was something pathetic in the voice and in the manner of the young man. Then, as he mounted his story, the under-officer took up the thread in an apologetic tone, but was brought back to a moment\'s serious interest by the stopping of it by the voice of the other.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
