@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# UNIMO-G: Unified Image Generation through Multimodal Conditional Diffusion\n' +
+      '\n' +
+      'Wei Li\\({}^{*}\\), Xue Xu\\({}^{*}\\), Jiachen Liu, Xinyan Xiao\n' +
+      '\n' +
+      'Baidu Inc., Beijing, China\n' +
+      '\n' +
+      '{liwei85.2023}@gmail.com\n' +
+      '\n' +
+      '{xuxue,xiaoxinyan,liujiachen}@baidu.com\n' +
+      '\n' +
+      'These authors contributed equally to this work.\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      'Existing text-to-image diffusion models primarily generate images from text prompts. However, the inherent conciseness of textual descriptions poses challenges in faithfully synthesizing images with intricate details, such as specific entities or scenes. This paper presents **UNIMO-G**, a simple multimodal conditional diffusion framework that operates on multimodal prompts with interleaved textual and visual inputs, which demonstrates a unified ability for both text-driven and subject-driven image generation. UNIMO-G comprises two core components: a Multimodal Large Language Model (MLLM) for encoding multimodal prompts, and a conditional denoising diffusion network for generating images based on the encoded multimodal input. We leverage a two-stage training strategy to effectively train the framework: firstly pre-training on large-scale text-image pairs to develop conditional image generation capabilities, and then instruction tuning with multimodal prompts to achieve unified image generation proficiency. A well-designed data processing pipeline involving language grounding and image segmentation is employed to construct multi-modal prompts. UNIMO-G excels in both text-to-image generation and zero-shot subject-driven synthesis, and is notably effective in generating high-fidelity images from complex multimodal prompts involving multiple image entities.\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      'Recent advancements in text-to-image (T2I) diffusion models have yielded impressive results in the generation of high-fidelity images from textual descriptions. Various methods, including DALLE-2 Ramesh et al. (2022), Imagen Saharia et al. (2022), Stable Diffusion Rombach et al. (2022), and SD-XL Podell et al. (2023), have been successful in producing photo-realistic and contextually relevant images based on textual prompts. Nevertheless, a fundamental challenge persists due to the inherent brevity of textual descriptions, particularly when intricate details, specific entities, or nuanced scenes are involved. Thus, faithfully generating images from general vision-language (VL) inputs is essential to improve the controllability of image generation.\n' +
+      '\n' +
+      'Numerous studies have explored VL-to-image generation techniques. Methods such as Dream-Booth Ruiz et al. (2023), Imagic Kawar et al. (2023), SuTI Chen et al. (2023) and BLIP-Diffusion Li et al. (2023) emphasize subject-driven generation, where they use both subject images and textual descriptions as inputs to recon-textualize the subject in a newly described setting. They either fine-tune specific models for a given subject or employ pre-trained subject representations. However, their specific training design and input templates hinder their scalability, especially in complex scenarios with multiple entities. Additionally, studies like FastComposer Xiao et al. (2023) and Subject-Diffusion Ma et al. (2023) focus on multiple-entity image generation, integrating image embeddings from image encoders with the standard text conditioning in pre-trained diffusion models. Nevertheless, these approaches lack the capacity to efficiently process generalized vision-language inputs that comprise a mix of textual and visual information in free forms.\n' +
+      '\n' +
+      'In this paper, we propose **UNIMO-G**, a simple multimodal conditional diffusion framework that operates on multimodal prompts comprising free-form interleaved vision-language inputs. Unlike traditional text-only prompts, multimodal prompts encompass various combinations of image entities and textual elements, as demonstrated in Figure 1. UNIMO-G is designed to faithfully reproduce all image entities, render textual content, and follow the instructions in multimodal prompts. Specifically, we leverage the perception capabilities ofFigure 1: Examples of UNIMO-G for both text-driven and zero-shot subject-driven generation. UNIMO-G can perceive free-form interleaved visual-language inputs and faithfully generate images. Particularly, it can generate images from multi-modal prompts with multiple image entities.\n' +
+      '\n' +
+      'Multimodal Large Language Models (MLLMs) to encode multimodal prompts into a unified vision-language semantic space. Subsequently, a conditional diffusion network generates images from these encoded representations.\n' +
+      '\n' +
+      'To train UNIMO-G efficiently, we implement a two-phase strategy. Initially, the model undergoes pre-training on a large-scale dataset of text-image pairs, enhancing its proficiency in conditional image generation. This is followed by a phase of instruction tuning with multimodal prompts, learns to generate images that align with the detailed specifications provided in these prompts. A carefully designed data processing pipeline, incorporating language grounding and image segmentation, is employed to construct these multimodal prompts. This approach enables UNIMO-G to harness rich features from the MLLM encoder to generate images faithfully reproducing the contents across various contexts.\n' +
+      '\n' +
+      'UNIMO-G exhibits a comprehensive capability for controllable image generation, excelling not only in text-to-image synthesis but also in zero-shot subject-driven generation. It adeptly produces high-fidelity images from multimodal prompts, even those containing multiple image entities. To assess its performance, we conducted evaluations in both text-to-image and subject-driven generation contexts using the MS-COCO and DreamBench datasets, respectively. The results consistently highlight UNIMO-G\'s superior performance in these scenarios. Additionally, recognizing DreamBench\'s focus on single-subject generation, we introduce MultiBench, a new benchmark featuring images with multiple entities. The evaluation on MultiBench confirms UNIMO-G\'s effectiveness in zero-shot multi-entity subject-driven generation.\n' +
+      '\n' +
+      'In summary, our contributions in this work can be summarized as follows:\n' +
+      '\n' +
+      '* We propose a simple multi-modal conditional diffusion framework that significantly enhances the controllability of image generation by supporting multimodal prompts with interleaved images and text input.\n' +
+      '* We introduce an effective two-stage training strategy, empowering zero-shot multi-entity subject-driven generation through multimodal instruction tuning.\n' +
+      '* UNIMO-G outperforms existing VL-to-image models in both single and multi-entity subject-driven generation tasks, especially on the capabilities of multimodal instruction following.\n' +
+      '\n' +
+      '## 2 Method\n' +
+      '\n' +
+      'The architecture of UNIMO-G, as depicted in Figure 2, primarily comprises two key components: a Multimodal Large Language Model (MLLM) responsible for encoding multimodal prompts and a conditional denoising diffusion network for image generation based on the encoded representations. In our study, we employed an in-house Chinese MLLM, structurally analogous to MiniGPT-4 Zhu et al. (2023). It contains a total of 7 billion parameters, underwent pre-training on a vast dataset comprising billions of image-text pairs. This extensive training process equips the model with a robust capability to process and interpret complex multimodal data. The training of UNIMO-G is conducted in a two-stage process:\n' +
+      '\n' +
+      '* **Text-to-Image Pre-training**: We pre-train the conditional denoising diffusion network from scratch on large-scale Chinese text-image pairs. We employ the same U-Net network architecture in Rombach et al. (2022) and condition it on the text using a cross-attention mechanism.\n' +
+      '* **Multi-modal Instruction Tuning**: We further fine-tune UNIMO-G on millions of pairs of multimodal prompts and images, to improve the capability of faithfully generating images from multimodal inputs.\n' +
+      '\n' +
+      'It is worth noting that during both stages of training, only the U-Net component is actively trained,\n' +
+      '\n' +
+      'Figure 2: UNIMO-G consists of an MLLM for multimodal perception, and a conditional denoising UNet for image generation. It accepts multimodal prompts with interleaved images and texts, and generate images consistent with the image entities. Orange denotes the trainable modules; Blue denotes the frozen ones.\n' +
+      '\n' +
+      'with the MLLM parameters frozen. This strategy ensures that UNIMO-G effectively learns to generate images while retaining the perception knowledge encoded in the pre-trained MLLM.\n' +
+      '\n' +
+      '### Text-to-Image Pre-training\n' +
+      '\n' +
+      'PreliminariesWe follow the latent diffusion model (Rombach et al., 2022), utilizing the perceptual compression model (i.e., VQ-VAE) consisting of an image encoder \\(\\mathcal{E}\\) and decoder \\(\\mathcal{D}\\) to encode the pixel data into the latent space and reverse, such that \\(\\mathcal{D}(\\mathcal{E}(x))\\approx x\\). The diffusion process is then performed on the latent space, which defines a Markov chain of forward diffusion process \\(q\\) by gradually adding Gaussian noise to the initial latent representations \\(z_{0}=\\mathcal{E}(x)\\) over \\(T\\) steps. The forward process \\(q(z_{t}|z_{t-1})\\) at each time step \\(t\\) can be expressed as follows:\n' +
+      '\n' +
+      '\\[q(z_{t}|z_{t-1})=\\mathcal{N}(z_{t};\\sqrt{1-\\beta_{t}}z_{t-1},\\beta_{t}I)\\]\n' +
+      '\n' +
+      'where \\(\\{\\beta_{t}\\}\\) is a series of hyper-parameters. Diffusion models are trained to learn a conditional U-Net (Ronneberger et al., 2015) denoiser \\(\\epsilon_{\\theta}\\) to reverse the diffusion Markov chain, predicting noise with current timestep \\(t\\), noisy latent \\(z_{t}\\) and generation condition \\(c\\). The training loss is the mean squared error (MSE) between the predicted noise \\(\\epsilon_{\\theta}(z_{t},t,c)\\) and the real noise \\(\\epsilon\\) in \\(z_{t}\\):\n' +
+      '\n' +
+      '\\[\\mathcal{L}=\\mathbb{E}_{z_{0},c,\\epsilon\\sim\\mathcal{N}(0,1),t}[\\|\\epsilon- \\epsilon_{\\theta}(z_{t},t,c)]\\|^{2}\\]\n' +
+      '\n' +
+      'Large-scale Chinese text-image pairs are utilized to train the above denoising objective. The condition information \\(c\\) is fed into each cross attention block of the UNet model as:\n' +
+      '\n' +
+      '\\[Attn(z_{t},c)=softmax(\\frac{Q(z_{t})\\cdot K(c)^{T}}{\\sqrt{d}})\\cdot V(c)\\]\n' +
+      '\n' +
+      'where \\(Q\\), \\(K\\) and \\(V\\) denote the query, key and value projections, respectively. \\(d\\) denotes the output dimension of the features. In our model, the condition \\(c\\) is encoded by the pre-trained MLLM.\n' +
+      '\n' +
+      'Pre-training StrategiesTraining a text-to-image diffusion model from scratch presents significant challenges in terms of complexity and resource expenditure. To address these, we introduce an effective training schedule to enhance the efficiency and performance of model training. This schedule encompasses three phases: (1) initial training on a small image corpus to establish foundational visual distribution knowledge; (2) subsequent expansion to large-scale text-image pair training, focusing on text-visual correspondence; (3) culminating in a final phase of training with a small refined corpus, characterized by high visual aesthetics and precise text-image alignment. In our experiments, the training of the UNet model is initially conducted using the CC3M dataset (Sharma et al., 2018). This dataset is chosen for its diverse range of visual concepts coupled with straightforward image descriptions, making it an effective tool for initiating training from scratch. Subsequently, the model undergoes further training with an extensive collection of 300M text-image pairs, aimed at broadening its conceptual understanding and improving its alignment to textual descriptions. The final phase of training involves fine-tuning the model using a meticulously curated corpus, consisting of tens of thousands of high-quality image-text pairs, carefully selected for their superior quality. Based on the above strategies and our architecture designs, we obtain a powerful Chinese text-to-Image generation model, surpassing open-source models like Stable Diffusion and its advanced version SD-XL (Podell et al., 2023). We provide detailed evaluations of our results in Section 4.2 and implementation details in Appendix A.\n' +
+      '\n' +
+      '### Multimodal Instruction Tuning\n' +
+      '\n' +
+      'Following the text-to-image pre-training, UNIMO-G is indeed capable of generating images from interleaved images and texts, relying on the perception capabilities of MLLM. However, it is important to note that the pre-training stage primarily focuses on generating images that are semantically consistent with the input representations. As a result, UNIMO-G still face challenges in utilizing the visual features of inputs to faithfully reproduce the contents specified in the image conditions. To address this limitation, we further conduct multimodal instruction tuning to enhance UNIMO-G\'s ability to faithfully reproduce image contents in diverse contexts.\n' +
+      '\n' +
+      'Multimodal PromptsTo enhance the representativeness of text prompts, we introduce a format for multimodal prompts that are composed of interleaved images and texts. Specifically, entities mentioned in text captions can be substituted with their corresponding images, like "<img>image of Elon Musk</img> holding his <img>image of iPhone</img>, takes a selfie on the street", as shown in Figure 2. To create pairs of multimodal prompts and images, we have designed a data processing pipeline as illustrated in Figure 3. The pipeline first generates captions and extracts entities from the caption by MLLM. Subsequently, it acquires the corresponding image segment for each entity using a combination of language grounding by Grounding DINO Liu et al. (2023) and image segmentation by SAM Kirillov et al. (2023). Further introduction on the data construction process is provided in Section A. With a collection of pairs of multimodal prompts and images, UNIMO-G is trained to generate images in accordance with these multimodal instructions.\n' +
+      '\n' +
+      'Visual-Enhanced LearningIn order to better harness the visual features of multi-modal input, we introduce an enhancement to the cross-attention mechanism between the generated objects and the input image entities. This improvement aims to foster a more robust and context-aware understanding of the relationships between generated content and the visual elements within the input images. As stated by Prompt-by-Prompt Hertz et al. (2022), the cross-attention in text-to-image diffusion models can reflect the positions of each generated object specified by the corresponding text token. Similarly, the visual features of image entities can also be treated as visual tokens. The cross-attention map between the intermediate feature of the noisy latent \\(z_{t}\\) and the visual token \\(v\\) can be calculated:\n' +
+      '\n' +
+      '\\[CA(z_{t},v)=Softmax(Q(z_{t})\\cdot K(v)^{T})\\]\n' +
+      '\n' +
+      'where \\(Q\\) and \\(K\\) denote the query and key projections, respectively. For each visual token, we could get an attention map of \\(h\\times w\\), where \\(h\\) and \\(w\\) are the spatial dimensions of the latent feature \\(z_{t}\\). The scores in cross-attention maps represent the amount of information that flows from a visual token to a latent pixel. Therefore, we introduce an additional loss term that encourages the model to ensure that each visual token mainly attends to the image region occupied by the corresponding objects. Specifically, we optimize \\(z_{t}\\) towards the target that the desired area of the object has large values by penalizing the \\(L1\\) deviation between the attention maps and the corresponding segmentation maps of the entities:\n' +
+      '\n' +
+      '\\[\\mathcal{L}_{attn}=\\frac{1}{N}\\sum_{k=1}^{N}\\mid CA(z_{t},v_{k})-M_{k}\\mid\\]\n' +
+      '\n' +
+      'where \\(M_{k}\\) is the segmentation mask of the \\(k_{th}\\) object corresponding to its visual token \\(v_{k}\\). Through this training process, UNIMO-G learns to effectively harness the visual features of input images to faithfully reproduce the corresponding content.\n' +
+      '\n' +
+      '## 3 Related Work\n' +
+      '\n' +
+      'Text-to-Image Diffusion GenerationThe incorporation of diffusion models into text-to-image synthesis represents a notable advancement in computational creativity Ho et al. (2020); Song et al. (2020); Li et al. (2022). Models like GLIDE Nichol et al. (2021) and DALL-E 2 Ramesh et al. (2022), which utilize CLIP image embeddings, have substantially progressed in producing images that are both diverse and semantically coherent with textual inputs. Imagen Saharia et al. (2022) underscores the importance of language comprehension, proposing the integration of a large T5 language model to enhance semantic representation. The Latent Diffusion model Rombach et al. (2022) addresses computational constraints by generating images from text-conditioned, low-dimensional latent spaces. Our proposed framework builds upon the principles of the Latent Diffusion model, leveraging its computational efficiency and scalability.\n' +
+      '\n' +
+      'Subject-Driven Image GenerationFollowing the success of generating high quality images from text descriptions, recent studies have explored subject-driven generation techniques. Models like DreamBooth Ruiz et al. (2023), textual-inversion Gal et al. (2022), and custom-diffusion Kumari et al. (2023) use optimization-based methods to embed subjects into diffusion models. This is achieved by either fine-tuning the model weights Ruiz et al. (2023); Kumari et al. (2023) or inverting the subject image into a text token that encodes the subject identity Gal et al. (2022). Some works have explored tuning-free\n' +
+      '\n' +
+      'Figure 3: Overview of our data construction pipeline for multi-modal instruction tuning.\n' +
+      '\n' +
+      'methods. ELITE (Wei et al., 2023) and Instant-Booth (Shi et al., 2023) project reference images into word embeddings and inject reference image patch features into cross-attention layers to enhance local details. PhotoMaker (Li et al., 2023) focuses on the generation of human portraits by extracting a stacked ID embedding from multiple ID images. Despite impressive results for single-object customization, their architecture design restricts their scalability to multiple subject settings. Models like Subject-Diffusion (Ma et al., 2023) and FastComposer (Xiao et al., 2023) are designed for multi-entity subject-driven generation. They enhance text conditioning within diffusion models by incorporating subject embeddings extracted from image encoders.Yet, a prevalent limitation of these approaches is their inclination to separate textual and visual guidance, thereby constraining the efficacy of joint modality integration. This issue is particularly pronounced when extending to scenarios with multiple entities.\n' +
+      '\n' +
+      '**Generating with Multi-modal Language Models** Multimodal Large Language Models (MLLMs) have significantly broadened the capabilities of language models to process various modalities, including images. These models inherently facilitate interleaved vision-language input, effectively handling multiple images. Notable works include M-VADER (Weinbach et al., 2022), which aligns MLLM semantics with the diffusion image decoder via image-caption pair training. Additionally, models such as GILL (Koh et al., 2023), Emu (Sun et al., 2023), Emu2 (Sun et al., 2023) and DreamLLM (Dong et al., 2023) specialize in interleaved vision-language generation, aligning the output space of MLLMs with the diffusion image decoder by leveraging CLIP supervision or pre-training on multimodal datasets. However, these methods primarily align at a semantic level and may struggle with detailed, subject-driven image generation. BLIP-Diffusion (Li et al., 2023) synthesizes images by composing subjects with random backgrounds, endowing it with zero-shot, subject-driven text-to-image generation capabilities. However, its specific input template and training process limit scalability for multiple entities. KOSMOS-G (Pan et al., 2023), a model closely related to our work, leverages a MLLM to encode interleaved text-visual inputs. It utilizes the U-Net of Stable Diffusion (SD) v1.5 as its image decoder, which remains frozen throughout the training process. The key component of KOSMOS-G is an AlignerNet, trained solely on textual data, to align the output embedding space of the frozen SDv1.5 U-Net with the MLLM. In contrast, our approach centers on training the U-Net model end-to-end specifically for multimodal diffusion, significantly enhancing both fidelity and relevance of generated images in multimodal contexts. Differing from embedding alignment-based methodologies, our two-stage training strategy markedly improves the model\'s capability in following multimodal instructions, which results in superior performance in both text-driven and subject-driven generation tasks, particularly in complex multi-entity scenarios.\n' +
+      '\n' +
+      '## 4 Experiments\n' +
+      '\n' +
+      'In this section, we first introduce the implementation details and settings of experiments. Then we present the evaluation results in both text-driven and subject-driven scenarios. Last, we further analyze the results with quantitative ablation studies.\n' +
+      '\n' +
+      '### Implementation Details\n' +
+      '\n' +
+      'UNIMO-G is composed of a 7B-parameter MLLM encoder, following the MiniGPT-4 architecture (Zhu et al., 2023), and a 4B-parameter denoising U-Net, totaling approximately 11B parameters. The MLLM is pretrained on a large-scale Chinese multimodal corpus, comprising text, image-caption pairs, and interleaved image-text data. The U-Net architecture includes 5 downsampling and 5 upsampling blocks with channel sizes [640, 1280, 2560, 2560], and a cross-attention mechanism with 4096 dimensions and 16 heads. The image auto-encoder, based on the LDM framework, has been optimized for our specific image corpus. The detail training process and data construction are further introduced in Appendix A.\n' +
+      '\n' +
+      '### Evaluation Results\n' +
+      '\n' +
+      'UNIMO-G demonstrates a unified image generation capability for both text-driven and subject-driven image generation, as shown in Figure 1. In the following, we will evaluate the performance of UNIMO-G from different aspects.\n' +
+      '\n' +
+      'Text-to-Image GenerationFor text-to-image generation, we used 30,000 captions randomly sampled from the MS-COCO (Lin et al., 2014) validation set, translating them into Chinese to align with UNIMO-G\'s input requirements. Images were generated at 512x512 pixels and resized to 256x256 for evaluation using the FID-30k metric, a standard in the field. Our model employs a classifier-free guidance scale of 5.0 and 50 DDIM inference steps for diffusion sampling. As shown in Table 1, UNIMO-G significantly surpasses other Vision-Language to Image (VL2I) models in performance.\n' +
+      '\n' +
+      'To further validate our model, we conducted a human evaluation comparing UNIMO-G with SD-XL (Podell et al., 2023), a leading open-source model. We established a comprehensive bilingual benchmark, encompassing 312 prompts (162 from DrawBench and 150 user queries randomly sampled from online * platforms). The DrawBench prompts were filtered to exclude language-specific ones. All prompts are manually translated and carefully proofread to achieve the final parallel Chinese and English set. Three independent evaluators rated the images from UNIMO-G and SD-XL by selecting the model they prefer, focusing on aspects of image aesthetics, image-text relevance, and overall quality, respectively. The results demonstrate UNIMO-G\'s substantial superiority in all aspects.\n' +
+      '\n' +
+      'Footnote *: [https://yige.baidu.com/](https://yige.baidu.com/)\n' +
+      '\n' +
+      'Single-Entity Subject-Driven GenerationFor single-entity subject driven generation, we evaluate UNIMO-G on DreamBench (Ruiz et al., 2023). DreamBench comprises 30 subjects with 25 prompt templates, yielding 750 unique prompts that test skills such as re-contextualization, modification, and accessorization. We follow prior work to generate four images for each prompt, creating a total of 3,000 images for a comprehensive assessment. We employed DINO and CLIP-I metrics for subject fidelity evaluation and CLIP-T for image-text relevance assessment. A classifier-free guidance scale of 5.0 and 50 DDIM inference steps were used for sampling. UNIMO-G, accepting a single image input, utilized the same images as KOSMOS-G (Pan et al., 2023) for a consistent comparison. As indicated in Table 2, UNIMO-G in a zero-shot setting surpasses other models like Textual Inversion (Gal et al., 2022), DreamBooth (Ruiz et al., 2023), BLIP-Diffusion (Li et al., 2023), and Re-Imagen (Chen et al., 2022), and marginally outperforms KOSMOS-G. Notably, our model demonstrates a significant improvement in balancing image-text relevance and image fidelity compared to the closely related KOSMOS-G. We observed that existing methods tend to prioritize image information over textual input. This tendency occasionally leads to a diminished focus on semantic content, favoring subject reconstruction. Thanks to our two-stage end-to-end learning framework, UNIMO-G maintained high image fidelity and achieved the highest CLIP-T score for image-text relevance, indicating a strong capability in following multi-modal instructions.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c} \\hline \\hline\n' +
+      '**Methods** & **FID** \\\\ \\hline \\multicolumn{3}{c}{_T2I Models_} \\\\ \\hline GLIDE (Nichol et al., 2021) & 12.24 \\\\ DALL-E 2 (Ramesh et al., 2022) & 10.39 \\\\ SDv1.5 (Rombach et al., 2022) & 9.34 \\\\ Imagen (Saharia et al., 2022) & 7.27 \\\\ SDXL (Podell et al., 2023) & 11.93 \\\\ \\hline \\multicolumn{3}{c}{_VL2I Models_} \\\\ \\hline GILL (Koh et al., 2023) & 12.20 \\\\ Emu (Sun et al., 2023) & 11.66 \\\\ KOSMOS-G (Pan et al., 2023) & 10.99 \\\\ UNIMO-G & 8.36 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 1: Zero-shot FID-30K comparisons on MSCOCO 256x256.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c} \\hline \\hline\n' +
+      '**Methods** & **DINO** & **CLIP-I** & **CLIP-T** & **Avg** \\\\ \\hline \\multicolumn{5}{c}{_Fine-Tuning Methods_} \\\\ \\hline Textual Inversion & 0.569 & 0.780 & 0.255 & 0.535 \\\\ DreamBooth & 0.668 & 0.803 & 0.305 & 0.592 \\\\ BLIP-Diffusion & 0.670 & 0.805 & 0.302 & 0.592 \\\\ \\hline \\multicolumn{5}{c}{_Zero-Shot Methods_} \\\\ \\hline Re-Imagen & 0.600 & 0.740 & 0.270 & 0.537 \\\\ BLIP-Diffusion & 0.594 & 0.779 & 0.300 & 0.558 \\\\ KOSMOS-G & **0.694** & **0.847** & 0.287 & 0.609 \\\\ UNIMO-G & 0.668 & 0.841 & **0.329** & **0.613** \\\\ w/o Tuning & 0.371 & 0.717 & 0.306 & 0.465 \\\\ w/o VisualEnh & 0.617 & 0.815 & 0.329 & 0.587 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 2: Comparisons of single-entity subject-driven image generation on DreamBench. _Avg_ denotes the average score of DINO, CLIP-I and CLIP-T.\n' +
+      '\n' +
+      'Figure 4: Comparison of UNIMO-G and SD-XL by human evaluation. The mean and standard deviation are shown in the figure.\n' +
+      '\n' +
+      '#### Multi-Entity Subject-Driven Generation\n' +
+      '\n' +
+      'UNIMO-G exhibits exceptional performance in zero-shot multi-entity subject-driven generation. To evaluate this capability, we established _Multi-Bench_, a novel benchmark specifically designed for multi-entity subject-driven generation assessment. MultiBench includes four object categories: living objects (humans and animals), food, wearable items, and toys, each containing 10 different objects. We developed five prompt templates for composing scenarios with 2 and 3 objects, resulting in a total of 2,300 distinct prompts. Details are introduced in the Appendix B. For each prompt, four images were generated, culminating in 9,200 images for an exhaustive evaluation. We conducted image similarity analysis using DINO and CLIP-I metrics, alongside text relevance assessments using CLIP-T. Image similarity was determined by averaging the similarities between the generated image and each of the two or three subjects. The results, as shown in Table 3, indicate that UNIMO-G outperforms BLIP-Diffusion and KOSMOS-G in terms of both image similarity and textual relevance. Some comparison examples are shown in Figure 5. This demonstrates UNIMO-G\'s superior capability to accurately capture subject information from input images and effectively follow multi-modal instructions. More examples are shown in Figure 5.\n' +
+      '\n' +
+      'Figure 5: Comparison with baselines for multi-entity subject-driven image generation.\n' +
+      '\n' +
+      'are shown in Figures 8 and 9.\n' +
+      '\n' +
+      'To further validate our model, we conducted a human evaluation comparing UNIMO-G with KSOMOS-G by sampling 200 prompts from MultiBench. Three raters are presented with two sets of images generated by UNIMO-G and the compared model. They are asked to compare these images from three dimensions of semantic relevance, visual faithfulness and image fidelity, and then select the model they prefer, or indifference. Throughout the process, raters are unaware of which model the image is generated from. The results in Figure 6 show that human raters greatly prefer UNIMO-G over KOSMOS-G on all aspects, which further validate the effectiveness of our approach in generating high-quality, personalized images from free-form multimodal prompts.\n' +
+      '\n' +
+      '### Analysis\n' +
+      '\n' +
+      '**Effectiveness of Multi-modal Instruction Tuning** UNIMO-G, prior to multi-modal instruction tuning (denoted as "w/o Tuning"), also demonstrates the capability to generate images from multi-modal prompts based on the MLLM. Nonetheless, it initially falls short in accurately reproducing input images. To evaluate the effectiveness of multi-modal instruction tuning, we compared the performance of UNIMO-G with and without this tuning in single-entity and multi-entity subject-driven generation tasks. The comparison results in Table 2 and Table 3 reveal that multi-modal instruction tuning substantially enhances image similarity metrics (DINO and CLIP-I) in both single and multi-entity scenarios. This improvement indicates that after tuning, UNIMO-G more effectively leverages visual features from the inputs, thereby accurately replicating the content defined in the image conditions. Furthermore, UNIMO-G with instruction tuning also shows obvious advancements in textual relevance, as evaluated by the CLIP-T metric. This indicates that the tuning process not only bolsters image fidelity but also amplifies the model\'s ability to follow multimodal instructions.\n' +
+      '\n' +
+      '**Effectiveness of Visual Enhancement Learning** The incorporation of a visual-enhanced learning strategy during multimodal instructional tuning significantly improves the visual alignment between input and output images. To quantify this effect, we conducted an ablation study by omitting the visual enhancement component during multimodal tuning (denoted as "w/o VisualEnh") and assessed its impact on both single-entity and multi-entity generation tasks. The results, as detailed in Tables 2 and 3, demonstrate that the visual-enhanced learning strategy markedly boosts the performance in image similarity metrics (DINO and CLIP-I), across both single and multi-entity scenarios. Notably, it also improves image-text alignment in multi-entity scenarios by reducing entity blending or missing.\n' +
+      '\n' +
+      '## 5 Conclusion\n' +
+      '\n' +
+      'This paper presents UNIMO-G, a simple multi-modal conditional diffusion framework designed to process multimodal prompts that interleave text and visual inputs. It demonstrates exceptional proficiency in text-to-image generation and zero-shot subject-driven synthesis, and is particularly adept at producing high-fidelity images from intricate multi-modal prompts with multiple image entities. In comparison to standard text-conditional diffusion models, UNIMO-G significantly enhances visual controllability in image generation. Thanks to our two-stage training strategy, UNIMO-G also outperforms existing VL-to-image models, especially on the ability to follow complex multimodal instructions. Overall, UNIMO-G showcases the potential for more nuanced and controlled image generation processes.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l l l l l} \\hline \\hline\n' +
+      '**Methods** & **DINO** & **CLIP-I** & **CLIP-T** & **Avg** \\\\ \\hline BLIP-Diffusion & 0.410 & 0.648 & 0.249 & 0.436 \\\\ KOSMOS-G & 0.419 & **0.671** & 0.283 & 0.458 \\\\ UNIMO-G & **0.436** & 0.665 & **0.298** & **0.466** \\\\ w/o Tuning & 0.235 & 0.583 & 0.240 & 0.353 \\\\ w/o VisualEnh & 0.399 & 0.631 & 0.276 & 0.435 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 3: Comparisons of multi-entity subject-driven image generation on MultiBench.\n' +
+      '\n' +
+      'Figure 6: Comparison of UNIMO-G and KOSMOS-G on MultiBench by human evaluation. The mean and standard deviation are shown in the figure.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:10]\n' +
+      '\n' +
+      'Xichen Pan, Li Dong, Shaohan Huang, Zhiliang Peng, Wenhu Chen, and Furu Wei. 2023. Kosmos-g: Generating images in context with multimodal large language models. _arXiv preprint arXiv:2310.02992_.\n' +
+      '* Podell et al. (2023) Dustin Podell, Zion English, Kyle Lacey, Andreas Blattmann, Tim Dockhorn, Jonas Muller, Joe Penna, and Robin Rombach. 2023. Sdxl: Improving latent diffusion models for high-resolution image synthesis. _arXiv preprint arXiv:2307.01952_.\n' +
+      '* Ramesh et al. (2022) Aditya Ramesh, Prafulla Dhariwal, Alex Nichol, Casey Chu, and Mark Chen. 2022. Hierarchical text-conditional image generation with clip latents. _arXiv preprint arXiv:2204.06125_, 1(2):3.\n' +
+      '* Rombach et al. (2022) Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Bjorn Ommer. 2022. High-resolution image synthesis with latent diffusion models. In _Proceedings of the IEEE/CVF conference on computer vision and pattern recognition_, pages 10684-10695.\n' +
+      '* Ronneberger et al. (2015) Olaf Ronneberger, Philipp Fischer, and Thomas Brox. 2015. U-net: Convolutional networks for biomedical image segmentation. In _Medical Image Computing and Computer-Assisted Intervention-MICCAI 2015: 18th International Conference, Munich, Germany, October 5-9, 2015, Proceedings, Part III 18_, pages 234-241. Springer.\n' +
+      '* Ruiz et al. (2023) Nataniel Ruiz, Yuanzhen Li, Varun Jampani, Yael Pritch, Michael Rubinstein, and Kfir Aberman. 2023. Dreambooth: Fine tuning text-to-image diffusion models for subject-driven generation. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 22500-22510.\n' +
+      '* Saharia et al. (2022) Chitwan Saharia, William Chan, Saurabh Saxena, Lala Li, Jay Whang, Emily L Denton, Kampar Ghasemipour, Raphael Gontijo Lopes, Burcu Karagol Ayan, Tim Salimans, et al. 2022. Photo-realistic text-to-image diffusion models with deep language understanding. _Advances in Neural Information Processing Systems_, 35:36479-36494.\n' +
+      '* Schuhmann et al. (2022) Christoph Schuhmann, Romain Beaumont, Richard Vencu, Cade Gordon, Ross Wightman, Mehdi Cherti, Theo Coombes, Aarush Katta, Clayton Mullis, Mitchell Wortsman, et al. 2022. Laion-5b: An open large-scale dataset for training next generation image-text models. _Advances in Neural Information Processing Systems_, 35:25278-25294.\n' +
+      '* Sharma et al. (2018) Piyush Sharma, Nan Ding, Sebastian Goodman, and Radu Soricut. 2018. Conceptual captions: A cleaned, hypernymed, image alt-text dataset for automatic image captioning. In _Proceedings of the 56th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)_, pages 2556-2565.\n' +
+      '* Shi et al. (2023) Jing Shi, Wei Xiong, Zhe Lin, and Hyun Joon Jung. 2023. Instantbooth: Personalized text-to-image generation without test-time finetuning. _arXiv preprint arXiv:2304.03411_.\n' +
+      '* Song et al. (2020) Jiaming Song, Chenlin Meng, and Stefano Ermon. 2020. Denoising diffusion implicit models. _arXiv preprint arXiv:2010.02502_.\n' +
+      '* Sun et al. (2023) Quan Sun, Qiying Yu, Yufeng Cui, Fan Zhang, Xiaosong Zhang, Yueze Wang, Hongcheng Gao, Jingjing Liu, Tiejun Huang, and Xinlong Wang. 2023. Generative pretraining in multimodality. _arXiv preprint arXiv:2307.05222_.\n' +
+      '* Wei et al. (2023) Yuxiang Wei, Yabo Zhang, Zhilong Ji, Jinfeng Bai, Lei Zhang, and Wangmeng Zuo. 2023. Elite: Encoding visual concepts into textual embeddings for customized text-to-image generation. _arXiv preprint arXiv:2302.13848_.\n' +
+      '* Weinbach et al. (2022) Samuel Weinbach, Marco Bellagente, Constantin Eichenberg, Andrew Dai, Robert Baldock, Souradeep Nanda, Bjorn Deiseroth, Koen Oostermeijer, Hannah Teufel, and Andres Felipe Cruz-Salinas. 2022. M-vader: A model for diffusion with multimodal context. _arXiv preprint arXiv:2212.02936_.\n' +
+      '* Xiao et al. (2023) Guangxuan Xiao, Tianwei Yin, William T Freeman, Fredo Durand, and Song Han. 2023. Fastcomposer: Tuning-free multi-subject image generation with localized attention. _arXiv preprint arXiv:2305.10431_.\n' +
+      '* Zhu et al. (2023) Deyao Zhu, Jun Chen, Xiaoqian Shen, Xiang Li, and Mohamed Elhoseiny. 2023. Minigpt-4: Enhancing vision-language understanding with advanced large language models. _arXiv preprint arXiv:2304.10592_.\n' +
+      '\n' +
+      '## Appendix A Implementation Details\n' +
+      '\n' +
+      'The training process include text-to-image pre-training and multi-modal instruction tuning.\n' +
+      '\n' +
+      'Text-to-Image Pre-trainingOur model\'s pre-training involves three stages, each utilizing distinct datasets:\n' +
+      '\n' +
+      '1. Initial Training with CC3M Dataset: The CC3M dataset, consists of about 3.3M image-description pairs, was translated into Chinese using Baidu Translate API *. The model is trained from scratch at 256x256 using the AdamW optimizer with a weight decay of 0.01, a learning rate of 5e-5, and a batch size of 40x256 for 100K steps. Footnote *: [https://fanyi.baidu.com](https://fanyi.baidu.com)\n' +
+      '2. Expansion with Large-Scale Chinese Data: We incorporate about 300M internal Chinese text-image pairs from multiple datasets, including LAION-2B (Schuhmann et al., 2022), COYO-700M (Byeon et al., 2022), Conceptual Captions (Changpinyo et al., 2021) and a series of internal Chinese datasets. The English captions are translated into Chinese.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:12]\n' +
+      '\n' +
+      'Figure 8: Examples of multi-entity subject-driven image generation on MultiBench by UNIMO-G.\n' +
+      '\n' +
+      'Figure 9: Examples of multi-entity subject-driven image generation on MultiBench by UNIMO-G.\n' +
+      '\n' +
+      'Figure 10: Examples of text-to-image generation by UNIMO-G.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
