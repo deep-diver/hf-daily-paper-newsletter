@@ -9,3 +9,4 @@
 - [Asynchronous Local-SGD Training for Language Modeling](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/5/2024-01-18+Asynchronous+Local-SGD+Training+for+Language+Modeling.yaml) / 2024-01-18
 - [ICON: Incremental CONfidence for Joint Pose and Radiance Field Optimization](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/5/2024-01-18+ICON%3A+Incremental+CONfidence+for+Joint+Pose+and+Radiance+Field+Optimization.yaml) / 2024-01-18
 - [Zero Bubble Pipeline Parallelism](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/7/2024-01-22+Zero+Bubble+Pipeline+Parallelism.yaml) / 2024-01-22
+- [Scaling Up to Excellence: Practicing Model Scaling for Photo-Realistic Image Restoration In the Wild](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/10/2024-01-25+Scaling+Up+to+Excellence%3A+Practicing+Model+Scaling+for+Photo-Realistic+Image+Restoration+In+the+Wild.yaml) / 2024-01-25
