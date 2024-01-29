@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# EAGLE: Speculative Sampling Requires Rethinking Feature Uncertainty\n' +
+      '\n' +
+      ' Yuhui Li\\({}^{\\spadesuit}\\)\n' +
+      '\n' +
+      'Fangyun Wei\\({}^{\\ddagger}\\)\n' +
+      '\n' +
+      'Chao Zhang\\({}^{\\spadesuit}\\)\n' +
+      '\n' +
+      'Hongyang Zhang\\({}^{\\spadesuit}\\)\\({}^{\\dagger}\\)\n' +
+      '\n' +
+      '\\({}^{\\spadesuit}\\)Peking University\n' +
+      '\n' +
+      'Microsoft Research\n' +
+      '\n' +
+      'University of Waterloo\n' +
+      '\n' +
+      'Vector Institute\n' +
+      '\n' +
+      'hongyang.zhang@uwaterloo.ca\n' +
+      '\n' +
+      '[https://github.com/SafeAILab/EAGLE](https://github.com/SafeAILab/EAGLE)\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      'Auto-regressive decoding makes the inference of Large Language Models (LLMs) time-consuming. We propose a simple framework, EAGLE (Extrapolation Algorithm for Greater Language-model Efficiency), for lossless acceleration. Unlike traditional speculative sampling methods, EAGLE operates the drafting process auto-regressively at the more regular (second-top-layer) feature level and addresses the sampling uncertainty issues in the next-feature prediction problems by integrating tokens from one time step ahead. The acceleration provided by EAGLE is lossless: it involves no fine-tuning of the target LLM, and the generated text maintains the same distribution as that of vanilla auto-regressive decoding. As of the submission of this paper, EAGLE is the _fastest_ known framework within the speculative sampling family. On MT-bench, EAGLE is 3x faster than vanilla decoding, 2x faster than Lookahead, and 1.6x faster than Medusa. Using gpt-fast, EAGLE attains on average 160 tokens/s with LLaMA2-Chat 13B on a single RTX 3090 GPU, compared to 24 tokens/s of Huggingface\'s implementations.\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      'Auto-regressive decoding has become the de facto standard for large language models (LLMs). This process generates output tokens one at a time, which makes the generation by LLMs both costly and slow. Speculative sampling (Leviathan et al., 2023; Chen et al., 2023) based methods offer a solution to this challenge. They divide the generation process of LLMs into two stages: the draft stage, where potential tokens are conjectured at a low cost, and the verification stage, where these tokens are validated _in parallel_ through a single forward pass of the LLM. The parallelization in speculative sampling facilitates the generation ofmultiple post-check tokens per LLM forward pass, significantly enhancing speed. More importantly, the verification stage in speculative sampling ensures that the text distribution aligns precisely with the decoding results of the original LLM, maintaining the integrity of the generated content.\n' +
+      '\n' +
+      'The key to applying speculative sampling is to identify a draft model that is sufficiently similar to the original LLM yet has lower latency. Speculative sampling typically employs a lower-parameter version of a LLM from the same series as the draft model. For instance, in the LLAMA2 (Touvron et al., 2023) series which includes models with 7B, 13B, and 70B parameters, using the 7B model as a proxy of the 70B model is valid, while finding a suitable draft model for the smallest 7B variant is tricky. An alternative could be to use TinyLLaMA (Zhang et al., 2024), but this is not feasible for instruct-tuned models due to the inconsistency in instruction templates between LLAMA2-Chat and TinyLLaMA-Chat. For 13B and 70B models, a 7B model within the same series could serve as the draft model. However, due to the high overhead of the 7B model, the acceleration effect of speculative sampling is not optimal. Training a new, appropriately sized draft model specifically for speculative sampling is not an ideal solution either due to the high cost: TinyLLaMA is trained on 3,000B tokens, whereas EAGLE is trained on 2-4B tokens.\n' +
+      '\n' +
+      'The key to enhancing acceleration in speculative sampling lies in reducing the time overhead and improving the acceptance rate of the draft by the original LLM (Chen et al., 2023; Xia et al., 2023; Santilli et al., 2023). Numerous approaches focus on reducing the overhead of the draft phase. Lookahead (Fu et al., 2023) employs n-gram and Jacobi iteration, while Medusa (Cai et al., 2023) utilizes a set of MLPs that predict tokens based on the second-top-layer feature of the original LLM. These strategies significantly decrease the latency in generating drafts, leading to improved acceleration. However, the ultimate potential of these methods is capped due to the lower accuracy of the drafts they produce.\n' +
+      '\n' +
+      'Building upon the observation that auto-regression at the feature level is more manageable than at the token level, we introduce a simple framework, EAGLE (Extrapolation Algorithm for Greater Language-model Efficiency), which diverges from direct token prediction and instead performs auto-regressive operations at the feature level. By incorporating a token sequence advanced by one time step, EAGLE circumvents the uncertainty associated with feature-level auto-regression. With the draft model comprising merely a transformer decoder layer, EAGLE achieves a draft accuracy of approximately 0.8, substantially surpassing Medusa\'s 0.6.\n' +
+      '\n' +
+      'We evaluated EAGLE on the MT-bench (Zheng et al., 2023), a highly realistic benchmark simulating actual applications and real-world scenarios, including multi-turn instructions akin to dialogues with ChatGPT. We have chosen to utilize this benchmark as it has been employed by the current state-of-the-art, including Lookahead and Medusa, to demonstrate their speedup ratios. This choice facilitates a fair and direct comparison between our approach and these benchmarks. Under a greedy decoding setting, for Vicuna-13B and LLAMA2-Chat 13B, 70B, EAGLE offers a **3x** acceleration that is theoretically guaranteed to maintain text distribution of the original LLM and is ready to use right out-of-the-box. Compared to the recently proposed speculative sampling-based frameworks, Lookahead and Medusa, EAGLE achieves **2x** and **1.6x** speedups, respectively. While enhancing speed, EAGLE also increases the throughput of LLM systems by **2x**. EAGLE operates in parallel with other acceleration or throughput-improving methods, such as quantization, compilation, etc. Combining EAGLE with these techniques could further reduce the operational costs of LLM systems. For example, with gpt-fast1, EAGLE accelerates LLAMA2-Chat 7B decoding from 24.5 tokens/s to 160.4 tokens/s on a single RTX 3090 GPU.\n' +
+      '\n' +
+      'Footnote 1: [https://github.com/pytorch-labs/gpt-fast](https://github.com/pytorch-labs/gpt-fast)\n' +
+      '\n' +
+      'EAGLE boasts low training costs. For the LLaMA2-Chat 70B model, EAGLE trains a decoder layer with fewer than 1B parameters using no more than 70k dialogues from the ShareGPT dataset. The training is completed in 1-2 days on 4x A100 (40G) GPUs. In practical applications, EAGLE requires only a single training session to provide acceleration for each query. As the number of queries increases, the amortized training cost of EAGLE becomes negligible.\n' +
+      '\n' +
+      'Compared with existing speculative sampling-based techniques, the advantages of EAGLE include:\n' +
+      '\n' +
+      '* **Simplicity:** EAGLE is a new framework to accelerate auto-regressive decoding and is applicable to any auto-regressive LLMs. The method adds only a lightweight plug-in (a single transformer decoder layer) to the LLM, which can be easily deployed in a production\n' +
+      '\n' +
+      'Figure 2: Speedup ratio on the MT-bench for non-greedy (temperature=1) settings. Lookahead is confined to greedy decoding, and the non-greedy generation of Medusa does not guarantee lossless performance. Therefore, EAGLE is not compared with these methods.\n' +
+      '\n' +
+      'environment. In this paper, we have applied EAGLE to LLaMA2-Chat (7B, 13B, 70B), Vicuna (7B, 13B, 33B) and Mistral 8x7B Instruct-v0.1 in a zero-shot way on the MT-bench and GSM8K datasets.\n' +
+      '* **Reliability:** EAGLE does not involve any fine-tuning of the original LLM, and the preservation of the output distribution by EAGLE is theoretically guaranteed for both the greedy and non-greedy settings. This ensures no risk of degradation in edge cases, where acceleration might lead to erroneous or even harmful LLM outputs. This is in sharp contrast to Lookahead and Medusa which focuses on greedy settings only.\n' +
+      '* **Speed:** EAGLE stands out as the _fastest_ framework within the family of speculative sampling as of the submission of this paper. Notably, on the Vicuna and LLaMA2-Chat for greedy inference (see Figure 1), EAGLE surpasses vanilla decoding speeds by a factor of 3, outpaces Lookahead decoding by 2 times, and is 1.6 times faster than Medusa decoding. Using gpt-fast, EAGLE attains on average 160 tokens/s with LLaMA2-Chat 13B on a single RTX 3090 GPU, compared to 24 tokens/s of Huggingface\'s implementations. In the MoE (Mixture of Experts) model, specifically the Mistral 8x7B Instruct-v0.1 (Jiang et al., 2024), the EAGLE algorithm achieves a speed increase of 1.5 times.\n' +
+      '\n' +
+      'In addition to introducing the simple yet efficient framework of EAGLE, we also provide an analysis of the factors contributing to its effectiveness, which might be of independent interest to other speculative sampling methods (Section 5.3.2). EAGLE is built upon the following two observations:\n' +
+      '\n' +
+      '* Firstly, utilizing top-layer features proves to be more effective than employing bottom-layer token embeddings when using the same lightweight network.\n' +
+      '* Secondly, the uncertainty inherent in the sampling process significantly constrains the performance of draft models that only input top-layer features. Hence, incorporating the sampling results (token) into the draft model is crucial.\n' +
+      '\n' +
+      '## 2 Preliminaries\n' +
+      '\n' +
+      '**Notations.** In this paper, we refer to the Large Language Model intended for acceleration as the "target LLM" and the model used for rapid draft generation as the "draft model". Unless specified otherwise, "feature" refers to the second-to-top-layer feature of LLM, that is, the hidden state before the LM Head. We denote tokens by lowercase letters \\(t\\), their embeddings by \\(e\\), and features by \\(f\\), and the distribution by \\(p\\). We use uppercase letters to represent sequences. For instance, \\(T_{i:j}\\) denotes the sequence \\((t_{i},t_{i+1},\\ldots,t_{j})\\). Considering a LLM, given an input token sequence \\(T_{1:j}\\), the LLM acquires corresponding embeddings \\(E_{1:j}\\) through the embedding layer. These are processed through multiple decoder layers to yield features \\(F_{1:j}\\). The LM Head then maps \\(f_{j}\\) onto a distribution \\(p_{j+1}=\\text{LM Head}(f_{j})\\), from which the next token \\(t_{j+1}\\) is sampled. As an example, vanilla auto-regression at the token level can be expressed by the process (\\(T_{1:j}\\to E_{1:j}\\to f_{j}\\to p_{j+1}\\to t_{j+1}\\)) for any integer \\(j\\geq 1\\).\n' +
+      '\n' +
+      '**Speculative sampling.** Speculative sampling alternates between the draft and verification phases. Consider the current sequence \\(T_{1:j}\\). During the draft phase, speculative sampling employs a model, smaller than the target LLM, to auto-regressively generate \\(\\gamma\\) tokens \\(\\hat{T}_{j+1:j+\\gamma}\\),2 and records the corresponding distributions \\(\\hat{P}_{j+1:j+\\gamma}\\). In the verification phase, a single forward pass of the target LLM yields the probabilities for the corresponding positions. During the verification phase, a single forward pass of the target LLM provides the probabilities for the corresponding positions. Tokens are then sequentially evaluated for acceptance, with token \\(\\hat{t}_{j+i}\\) having an acceptance probability \\(\\min(1,p_{j+i}/\\hat{p}_{j+i})\\). Upon the rejection of a token \\(\\hat{t}_{j+i}\\), all subsequent tokens are discarded, and this token is resampled based on a distribution \\(\\text{norm}(\\max(0,p_{j+i}-\\hat{p}_{j+i}))\\). Appendix A.1 of speculative sampling (Leviathan et al., 2023) proves that the aforementioned sampling method is equivalent to directly sampling from the distribution of the target LLM. EAGLE also employs this sampling approach, ensuring that **the distribution of the generated text remains unchanged for both the greedy and non-greedy settings**.\n' +
+      '\n' +
+      'Footnote 2: We will frequently use the hat notations to denote the corresponding terms for the draft models.\n' +
+      '\n' +
+      '## 3 Observations\n' +
+      '\n' +
+      'We begin with two observations that directly motivate the design of EAGLE.\n' +
+      '\n' +
+      '### Auto-regressing features is easier than tokens\n' +
+      '\n' +
+      'Token sequences represent simple transformations of natural language and are inherently complex. In contrast, the second-top-layer features of LLMs, after undergoing a linear transformation (LM Head), can predict the next token, making the feature sequences more structured and regular. Consequently, performing auto-regression at the feature level is expected to be more manageable than at the token level. We hypothesize this is because high-level feature\'s evolution path over time is simpler than that of tokens, thus the former can be characterized by a smaller model. To validate this hypothesis, we designed experiments on MTbench with Vicuna 7B (Chiang et al., 2023) by setting the draft models as a one-layer transformer decoder, for both the feature and token auto-regression. As illustrated in Figure 3, auto-regressive feature processing followed by token generation (\\((f_{1},f_{2})\\to f_{3}\\to t_{4}\\)) using the frozen LM Head yields a much higher accuracy compared to auto-regressive token processing (\\((t_{1},t_{2},t_{3})\\to t_{4}\\)), with an improvement as large as 30%. This results in a much higher speedup ratio too (1.5x\\(\\rightarrow\\)1.9x).\n' +
+      '\n' +
+      '### Uncertainty matters in next-feature predictions\n' +
+      '\n' +
+      'When generating text, the target LLM does not directly predict tokens; instead, it forecasts the probability distribution of tokens and then samples based on this distribution, thereby introducing randomness into the generation process. Unlike tokens, features are high-dimensional and continuous, precluding the use of the same sampling-based approach. Consider the example illustrated in Figure 4. If "am" is sampled, the feature sequence becomes \\((f_{I},f_{am})\\). Conversely, if "always" is sampled, the feature sequence becomes \\((f_{I},f_{always})\\). This introduces ambiguity into the auto-regressive model of feature sequences: it is uncertain whether the next feature following \\(f_{I}\\) should be \\(f_{am}\\) or \\(f_{always}\\). Medusa also confronts this issue. Its objective is to predict the probability of tokens spaced by an interval, such as using \\(f_{I}\\) to predict \\(p_{am}\\) or \\(p_{always}\\) in this example, corresponding to the probability of the next token following "I am" or "I always", respectively. This inherent uncertainty renders it impossible for Medusa\'s draft model to perfectly emulate the target LLM. To address this issue, EAGLE inputs the token sequence from one time step ahead, which includes the sampling outcomes, into the draft model. In the example illustrated in Figure 4, this involves predicting \\(f_{always}\\) based on \\(f_{I}\\) and \\(t_{always}\\), and predicting \\(f_{am}\\) based on \\(f_{I}\\) and \\(t_{am}\\). As illustrated in Figure 5, by addressing the uncertainty, the speedup ratio further increases from 1.9x to 2.8x.\n' +
+      '\n' +
+      '## 4 Eagle\n' +
+      '\n' +
+      'EAGLE is built upon the above two observations. It encompasses both a drafting phase and a verification phase, to be consistent with other speculative sampling based methods.\n' +
+      '\n' +
+      '### Drafting phase\n' +
+      '\n' +
+      'The primary distinction between EAGLE and other methods lies predominantly in the drafting phase. Figure 6 illustrates a schematic of the drafting phase for different methods. Speculative sampling (Leviathan et al., 2023; Chen et al., 2023) and Lookahead (Fu et al., 2023) predict tokens based on tokens. Medusa (Cai et al., 2023) independently predicts \\(t_{4}\\) and \\(t_{5}\\) using the feature \\(f_{2}\\) from the target LLM. EAGLE predicts \\(f_{3}\\) using the feature sequence \\((f_{1},f_{2})\\) and the token sequence \\((t_{2},t_{3})\\), advanced by one time step. From \\(p_{4}=\\) LM Head(\\(f_{3}\\)), \\(t_{4}\\) is sampled. Subsequently, \\(f_{3}\\) and \\(t_{4}\\) are concatenated into the input sequence to predict the next feature \\(f_{4}\\) and sample the subsequent token \\(t_{5}\\).\n' +
+      '\n' +
+      'As illustrated in Figure 7, EAGLE\'s draft model comprises three modules: the Embedding layer, LM Head, and Auto-regression Head. The Embedding layer and LM Head employ the parameters of the original LLM and do not necessitate additional training. The draft model takes as input a feature sequence of shape (bs, seq_len, hidden_dim) and an advanced token sequence of shape (bs, seq_len). It then converts the token sequence into a token embedding sequence of shape (bs, seq_len, hidden_dim), and concatenates it to\n' +
+      '\n' +
+      'Figure 4: Uncertainty in feature sequences. The next feature following \\(f_{I}\\) is contingent on the sampling outcome and cannot be determined solely based on \\(f_{I}\\), where both “always” and “am” are possible to follow the token “I” and lead to two branches.\n' +
+      '\n' +
+      'Figure 5: Accuracy and speedup ratio of draft models based on feature and feature&shifted-token. The feature&shifted-token approach effectively resolves the uncertainty. The models were tested on MT-bench, employing Vicuna 7B as the target LLM.\n' +
+      '\n' +
+      'Figure 3: Accuracy and speedup ratio of draft models based on tokens and features, tested on MT-bench with Vicuna 7B as the target LLM.\n' +
+      '\n' +
+      'form a fused sequence of shape (bs, seq_len, 2\\(\\times\\)hidden_dim). The Auto-regression Head consisting of an FC layer and a decoder layer. The FC layer reduces the dimensionality of the fused sequence to (bs, seq_len, hidden_dim) and then we utilize the decoder layer to predict the next feature. The LM Head calculates the distribution based on the feature, from which the next token is sampled. Finally, the predicted feature and the sampled token are concatenated into the input, facilitating the continuation of the auto-regressive process. EAGLE generates a tree-structured draft. To enhance efficiency, we implement tree attention, enabling the creation of a draft tree with a depth of \\(m\\) through \\(m\\) forward passes, thereby encompassing more than \\(m\\) tokens. In the example illustrated in Figure 7, EAGLE drafts a tree of 10 tokens through 3 forward passes.\n' +
+      '\n' +
+      '### Training of the draft models\n' +
+      '\n' +
+      'Predicting the next feature constitutes a regression task, for which we employ Smooth L1 loss (see Figure 6 EAGLE):\n' +
+      '\n' +
+      '\\[E_{2:i+1}=\\text{Token Embedding}(T_{2:i+1}),\\] \\[\\hat{f}_{i+1}=\\text{Auto-regression Head}(E_{2:i+1},F_{1:i}),\\] \\[L_{reg}=\\text{Smooth L1}(f_{i+1},\\hat{f}_{i+1}).\\]\n' +
+      '\n' +
+      'Predicting features is an intermediary objective of the draft model, with the ultimate goal being the prediction of tokens to generate a sequence of tokens. Consequently, we also employ classification loss to directly optimize towards this final objective:\n' +
+      '\n' +
+      '\\[p_{i+2}=\\text{Softmax}(\\text{LM Head}(f_{i+1})),\\] \\[\\hat{p}_{i+2}=\\text{Softmax}(\\text{LM Head}(\\hat{f}_{i+1})),\\] \\[L_{cls}=\\text{Cross Entropy}(p_{i+2},\\hat{p}_{i+2}).\\]\n' +
+      '\n' +
+      'By integrating regression loss and classification loss, we train the Auto-regression Head using the following combined loss function:\n' +
+      '\n' +
+      '\\[L=L_{reg}+w_{cls}L_{cls}.\\]\n' +
+      '\n' +
+      'Typically, the classification loss is an order of magnitude larger than the regression loss in numerical terms. Consequently, we set \\(w_{cls}\\) to 0.1.\n' +
+      '\n' +
+      'The optimal approach for training the Auto-regression Head involves generating text auto-regressively using the target LLM. However, such data generation is costly. Fortunately, EAGLE exhibits low sensitivity to training data (ablation\n' +
+      '\n' +
+      'Figure 6: A comparison of the methods for drafting the fourth and fifth tokens, \\(t_{4}\\) and \\(t_{5}\\), where \\((t_{1},t_{2})\\) is the prompt. \\(t\\) (represented by blue blocks) denotes tokens, and \\(f\\) (orange blocks) signifies the features, with subscripts indicating their positions in the sequence. The red border indicates the predictions of the draft model. For simplicity, the \\(n\\) in the \\(n\\)-gram for Lookahead, as shown in the figure, has been set to 2.\n' +
+      '\n' +
+      'Figure 7: Pipeline of EAGLE. The upper section illustrates the computational process, while the lower section displays the corresponding generation results for each step. In the upper section, green blocks represent token embeddings, orange blocks signify the features from the second-top-layer of the LLM, red boxes indicate features predicted by the Auto-regression Head, and blue modules with snowflake icons represent the use of original LLM parameters, which are not subject to training.\n' +
+      '\n' +
+      'study in Section 5.3.3). Instead of employing text generated by the target LLM, we utilize a fixed dataset, substantially reducing the overhead. During the drafting phase, EAGLE auto-regressively processes features. Inaccuracies in features can lead to error accumulation. To mitigate this issue, we employ data augmentation by adding random noise sampled from a uniform distribution \\(\\mathcal{U}(-0.1,0.1)\\) to the second-top-layer feature vectors of the target LLM during training (Jain et al., 2023).\n' +
+      '\n' +
+      '### Verification phase\n' +
+      '\n' +
+      'Employing tree attention, the target LLM computes the probability of each token in the tree-structured draft through a single forward pass. At every level of the draft tree, we recursively apply speculative sampling algorithms to sample or adjust the distribution, consistent with SpecInfer (Miao et al., 2023) and SpecTr (Sun et al., 2023), ensuring that the distribution of the output text aligns with that of the original LLM. Simultaneously, we record the accepted tokens and their corresponding features, which serve as the starting point for auto-regressive feature extrapolation in the subsequent draft phase.\n' +
+      '\n' +
+      '## 5 Experiments\n' +
+      '\n' +
+      '**Models and tasks.** We conducted experiments on Vicuna models (with sizes of 7B, 13B, 33B), LLaMA2-chat models (7B, 13B, 70B) and Mixtral 8x7B Instruct-v0.1, encompassing the common sizes of current mainstream Large Language Models (LLMs). Our evaluations span dialogue and mathematical reasoning tasks. For dialogue tasks, we utilized the MT-bench, which comprises highly realistic situational questions designed to test a model\'s capabilities in multi-turn conversations and adherence to instructions. For mathematical reasoning tasks, we employed the GSM8K (Cobbe et al., 2021) dataset, consisting of high-quality grade school math problems created by human problem writers. Speculative sampling (Leviathan et al., 2023) conducted experiments with a batch size of 1, a setting subsequently adopted by other works such as DistillSpec (Zhou et al., 2023) and BiLD (Kim et al., 2023). Similarly, the majority of our experiments also adopted this setting. Experiments with a batch size greater than 1 are presented in Section 5.4.\n' +
+      '\n' +
+      '**Metrics.** Similar to other methods based on speculative sampling, EAGLE primarily focuses on latency rather than throughput. Following the methodology of DistillSpec, we assess acceleration effects using the following metrics:\n' +
+      '\n' +
+      '* Walltime speedup ratio: The actual test speedup ratio relative to vanilla auto-regressive decoding.\n' +
+      '* Average acceptance length \\(\\tau\\): The average number of tokens accepted per forward pass of the original LLM.\n' +
+      '* Acceptance rate \\(\\alpha\\): The ratio of the number of tokens accepted to the number of tokens generated during the draft phase. The acceptance rate metric measures the accuracy of drafts. For tree draft, multiple tokens may be sampled at the same location, yet only one token is accepted, rendering the acceptance rate metric unsuitable for assessment in this context. Therefore, for the experiments reported in this paper concerning acceptance rate, we do not use tree draft but rather chain draft, similar to speculative sampling and DistillSpec. The draft model of EAGLE takes feature sequence and a token sequence as input. The auto-regressive processing of features in the draft phase can lead to the propagation of errors. We define the Acceptance rate when the input contains \\(n\\) features predicted by the draft model, which may include errors, as \\(n\\)-\\(\\alpha\\).\n' +
+      '\n' +
+      'Acceleration of EAGLE theoretically guarantees the preservation of the original LLMs\' output distribution. Consequently, evaluating the quality of EAGLE\'s generated results is both unnecessary and meaningless.\n' +
+      '\n' +
+      '**Training.** We fixed the target LLMs. EAGLE was trained on the ShareGPT platform, utilizing 68,000 dialogue iterations with a learning rate set at 3e-5. We employed the AdamW optimizer with beta values \\((\\beta_{1},\\beta_{2})\\) set to (0.9, 0.95) and implemented gradient clipping of 0.5. The trainable parameters of EAGLE corresponding to the 7B, 13B, 33B, and 70B models are 0.24B, 0.37B, 0.56B, and 0.99B, respectively. The trainable parameters of EAGLE for MoE model Mixtral 8x7B is 0.28B. EAGLE is characterized by its low training cost; the Auto-regression Head is trainable within 1-2 days on an A100 40G server for the 70B models.\n' +
+      '\n' +
+      'Figure 8: Speedup ratios of EAGLE across various tasks.\n' +
+      '\n' +
+      '### Effectiveness\n' +
+      '\n' +
+      'Figure 1 illustrates the speedup ratios of EAGLE, Medusa, and Lookahead on the MT-bench, with temperature=0. On the Vicuna 13B and LLaMA2-Chat 13B, 70B models, EAGLE achieves a speed that is 3x faster than vanilla auto-regressive decoding, 2x faster than Lookahead, and 1.6x faster than Medusa. Figure 2 and Table 2 showcase the acceleration ratios of EAGLE under various settings. Figure 8 presents the speedup ratios of EAGLE across various tasks. The coding task, which involves a substantial number of fixed templates, exhibits the most significant speedup effect. EAGLE also demonstrates notable effectiveness in other tasks. Tables 1 display the Average acceptance length and acceptance rate of EAGLE. The original LLM generates nearly four tokens per forward pass, which is a significant efficiency improvement compared to the vanilla auto-regressive decoding that generates one token per pass. The acceptance rate with completely accurate feature sequences, \\(0\\)-\\(\\alpha\\), is notably higher than that with a single erroneous feature, \\(1\\)-\\(\\alpha\\), indicating that errors in features can impact performance of EAGLE. However, the minimal differences between \\(1\\)-\\(\\alpha\\), \\(2\\)-\\(\\alpha\\), \\(3\\)-\\(\\alpha\\), and \\(4\\)-\\(\\alpha\\) demonstrate EAGLE\'s robustness to feature errors and its ability to effectively manage the accumulation of such errors.\n' +
+      '\n' +
+      'As shown in Table 3, for the Mixtral 8x7B Instruct-v0.1 model, EAGLE achieved a 1.5x acceleration. The comparatively lesser acceleration, as opposed to models like LLaMA, can be attributed partly to a lower average acceptance length and partly to the inherent challenges in accelerating Mixture of Experts (MoE) models using speculative sampling-based methods. MoE models select experts on a per-token basis. During vanilla auto-regressive decoding, forwarding a single token entails reading the weights of only two experts. In contrast, the verification phase of speculative sampling-based methods, which involves forwarding multiple tokens, may require reading the weights of more than two, or even all, experts. Conversely, standard decoder-only models necessitate reading all weights, regardless of whether one or multiple tokens are forwarded.\n' +
+      '\n' +
+      '### Case study: EAGLE + gpt-fast\n' +
+      '\n' +
+      'EAGLE is compatible with other acceleration technologies. We conducted experiments combining EAGLE with gpt-fast, which employs quantization and compilation for acceleration. As shown in Figure 4, by integrating EAGLE with gpt-fast, we increased the generation speed of LLaMA2-Chat 7B on a single RTX 3090 to 160.4 tokens/s, compared to 24.5 tokens/s using Huggingface\'s implementations.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c c c c c} \\hline \\hline  & Model & \\(\\tau\\) & 0-\\(\\alpha\\) & 1-\\(\\alpha\\) & 2-\\(\\alpha\\) & 3-\\(\\alpha\\) & 4-\\(\\alpha\\) \\\\ \\hline \\multirow{6}{*}{T=0} & V 7B & 3.94 & 0.79 & 0.74 & 0.72 & 0.73 & 0.67 \\\\  & V 13B & 3.98 & 0.79 & 0.74 & 0.72 & 0.74 & 0.70 \\\\  & V 33B & 3.68 & 0.74 & 0.69 & 0.67 & 0.67 & 0.66 \\\\  & LC 7B & 3.62 & 0.76 & 0.69 & 0.67 & 0.68 & 0.68 \\\\  & LC 13B & 3.90 & 0.77 & 0.69 & 0.69 & 0.70 & 0.71 \\\\  & LC 70B & 3.81 & 0.75 & 0.69 & 0.65 & 0.64 & 0.64 \\\\ \\hline \\multirow{6}{*}{T=1} & V 7B & 3.17 & 0.71 & 0.68 & 0.66 & 0.66 & 0.65 \\\\  & V 13B & 3.20 & 0.73 & 0.68 & 0.68 & 0.67 & 0.69 \\\\  & V 33B & 3.22 & 0.71 & 0.67 & 0.64 & 0.64 & 0.64 \\\\ \\cline{1-1}  & LC 7B & 3.30 & 0.71 & 0.66 & 0.66 & 0.66 & 0.64 \\\\ \\cline{1-1}  & LC 13B & 3.45 & 0.73 & 0.69 & 0.66 & 0.67 & 0.67 \\\\ \\cline{1-1}  & LC 70B & 3.46 & 0.73 & 0.67 & 0.64 & 0.66 & 0.65 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 1: Average acceptance length \\(\\tau\\) and acceptance rate \\(\\alpha\\) on MT-bench. T denotes temperature, V represents Vicuna, and LC stands for LLaMA2-Chat.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c} \\hline \\hline Precision & FP16 & int4 \\\\ \\hline Vanilla (Huggingface) & 24.5 tokens/s & N/A \\\\ gpt-fast & 55.1 tokens/s & 106.9 tokens/s \\\\ EAGLE + gpt-fast & 100.2 tokens/s & 160.4 tokens/s \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 4: Generation speed of combining EAGLE with gpt-fast. The evaluation dataset is MT-bench, the target LLM is LLaMA2-Chat 13B, and the temperature is set to 0.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c c c c c} \\hline \\hline  & Model & \\(\\tau\\) & 0-\\(\\alpha\\) & 1-\\(\\alpha\\) & 2-\\(\\alpha\\) & 3-\\(\\alpha\\) & 4-\\(\\alpha\\) \\\\ \\hline \\multirow{6}{*}{T=0} & V 7B & 3.94 & 0.79 & 0.74 & 0.72 & 0.73 & 0.67 \\\\  & V 13B & 3.98 & 0.79 & 0.74 & 0.72 & 0.74 & 0.70 \\\\  & V 33B & 3.68 & 0.74 & 0.69 & 0.67 & 0.67 & 0.66 \\\\  & LC 7B & 3.62 & 0.76 & 0.69 & 0.67 & 0.68 & 0.68 \\\\  & LC 13B & 3.90 & 0.77 & 0.69 & 0.69 & 0.70 & 0.71 \\\\  & LC 70B & 3.81 & 0.75 & 0.69 & 0.65 & 0.64 & 0.64 \\\\ \\hline \\multirow{6}{*}{T=1} & V 7B & 3.17 & 0.71 & 0.68 & 0.66 & 0.66 & 0.65 \\\\  & V 13B & 3.20 & 0.73 & 0.68 & 0.68 & 0.67 & 0.69 \\\\  & V 33B & 3.22 & 0.71 & 0.67 & 0.64 & 0.64 & 0.64 \\\\  & LC 7B & 3.30 & 0.71 & 0.66 & 0.66 & 0.66 & 0.64 \\\\  & LC 13B & 3.45 & 0.73 & 0.69 & 0.66 & 0.67 & 0.67 \\\\  & LC 70B & 3.46 & 0.73 & 0.67 & 0.64 & 0.66 & 0.65 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 2: Speedup ratio, average acceptance length \\(\\tau\\) and acceptance rate \\(\\alpha\\) on GSM8K. T denotes temperature, V represents Vicuna, and LC stands for LLaMA2-Chat.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c c c c c} \\hline \\hline Speedup & \\(\\tau\\) & 0-\\(\\alpha\\) & 1-\\(\\alpha\\) & 2-\\(\\alpha\\) & 3-\\(\\alpha\\) & 4-\\(\\alpha\\) \\\\ \\hline \\multirow{6}{*}{T=0} & V 7B & 3.94 & 0.79 & 0.74 & 0.72 & 0.73 & 0.67 \\\\  & V 13B & 3.98 & 0.79 & 0.74 & 0.72 & 0.74 & 0.70 \\\\  & V 33B & 3.68 & 0.74 & 0.69 & 0.67 & 0.67 & 0.66 \\\\  & LC 7B & 3.62 & 0.76 & 0.69 & 0.67 & 0.68 & 0.68 \\\\  & LC 13B & 3.90 & 0.77 & 0.69 & 0.69 & 0.70 & 0.71 \\\\  & LC 70B & 3.81 & 0.75 & 0.69 & 0.65 & 0.64 & 0.64 \\\\ \\hline \\multirow{6}{*}{T=1} & V 7B & 3.17 & 0.71 & 0.68 & 0.66 & 0.66 & 0.65 \\\\  & V 13B & 3.20 & 0.73 & 0.68 & 0.68 & 0.67 & 0.69 \\\\ \\cline{1-1}  & V 33B & 3.22 & 0.71 & 0.67 & 0.64 & 0.64 & 0.64 \\\\ \\cline{1-1}  & LC 7B & 3.30 & 0.71 & 0.66 & 0.66 & 0.66 & 0.64 \\\\ \\cline{1-1}  & LC 13B & 3.45 & 0.73 & 0.69 & 0.66 & 0.67 & 0.67 \\\\ \\cline{1-1}  & LC 70B & 3.46 & 0.73 & 0.67 & 0.64 & 0.66 & 0.65 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 3: Speedup ratio, average acceptance length \\(\\tau\\), and acceptance rate \\(\\alpha\\) on MT-bench at temperature=0. The target LLM is Mixtral 8x7B Instruct-v0.1.\n' +
+      '\n' +
+      '[MISSING_PAGE_EMPTY:8]\n' +
+      '\n' +
+      'batch size increases, the available computational capacity of the GPU decreases, leading to a reduction in the acceleration effect. In this section, we present experimental results for scenarios where the batch size exceeds 1. As demonstrated in Table 7, the speedup ratio diminishes with increasing batch size. When using Vicuna 7B as the target LLM, the speedup ratio at bs=4 is higher than at bs=3. This is attributed to the fact that, during the verification phase of EAGLE, the target LLM processes multiple tokens in a single forward pass, and the processing at bs=4 is faster than at bs=3. In contrast, with vanilla auto-regressive decoding where the target LLM processes one token per forward pass, the speeds at bs=3 and bs=4 are nearly identical.\n' +
+      '\n' +
+      'Although speculative sampling-based methods predominantly focus on latency, we also investigated EAGLE\'s throughput for batch size \\(>1\\), another key metric for LLM systems. Compared to vanilla auto-regressive decoding, EAGLE requires roughly the same CUDA memory. For Vicuna 7B as the target LLM, operating under a memory constraint of a single RTX 3090 with 24G of CUDA memory, the maximum batch size (bs) for vanilla auto-regressive decoding and EAGLE are 8 and 7, respectively. In the case of LLAMA2-Chat 70B, constrained by 4 A100 (40G) GPUs totaling 160G of CUDA memory, the maximum bs for vanilla auto-regressive decoding and EAGLE are 5 and 4, respectively. All evaluations were conducted at FP16 precision. We calculated the throughput for different bs and selected the maximum value. Both vanilla auto-regressive decoding and EAGLE achieve maximum throughput at their respective maximum bs. Tree attention consumes more computational resources. At a batch of bs=7, the computational resources are less abundant, making the non-use of tree attention more advantageous. As illustrated in Table 7, EAGLE achieves a 2x increase in throughput.\n' +
+      '\n' +
+      '## 6 Related Work\n' +
+      '\n' +
+      'There has been considerable research into accelerating language models, involving techniques such as distillation (Hinton et al., 2015), quantization (Hubara et al., 2018). These methods aim to reduce the latency per forward pass.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c} \\hline \\hline Training data & Speedup & \\(\\tau\\) \\\\ \\hline Fixed dataset & 2.78x & 3.62 \\\\ Data generated by target LLM & 2.88x & 3.75 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 6: The speedup ratios and average acceptance length \\(\\tau\\) using different training datasets evaluated on the MT-bench, with the target LLM being LLAMA2-Chat 7B and the temperature set to 0. “Fixed dataset” refers to both questions and answers originating from the ShareGPT dataset. “Data generated by target LLM” denotes that while questions are sourced from the ShareGPT dataset, the answers are generated by the target LLM.\n' +
+      '\n' +
+      'Figure 10: Performance of draft models with varying inputs. The target LLM is Vicuna 7B, and the test dataset is MT-bench. Speed refers to the walltime speedup ratio, \\(\\tau\\) denotes the average acceptance length, \\(0\\)-\\(\\alpha\\) represents the acceptance rate with entirely precise inputs, 1-\\(\\alpha\\) indicates the acceptance rate when the input includes one imprecise feature, and \\(T\\) refers to the temperature.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:10]\n' +
+      '\n' +
+      '* Hubara et al. (2018) Hubara, I., Courbariaux, M., Soudry, D., El-Yaniv, R., and Bengio, Y. Quantized neural networks: Training neural networks with low precision weights and activations. _journal of machine learning research_, 18(187):1-30, 2018.\n' +
+      '* Jain et al. (2023) Jain, N., Chiang, P.-y., Wen, Y., Kirchenbauer, J., Chu, H.-M., Somepalli, G., Bartoldson, B. R., Kailkhura, B., Schwarzschild, A., Saha, A., et al. NEFTune: Noisy embeddings improve instruction finetuning. _arXiv preprint arXiv:2310.05914_, 2023.\n' +
+      '* Jiang et al. (2024) Jiang, A. Q., Sablayrolles, A., Roux, A., Mensch, A., Savary, B., Bamford, C., Chaplot, D. S., Casas, D. d. l., Hanna, E. B., Bressand, F., et al. Mixtral of experts. _arXiv preprint arXiv:2401.04088_, 2024.\n' +
+      '* Kim et al. (2023) Kim, S., Mangalam, K., Moon, S., Malik, J., Mahoney, M. W., Gholami, A., and Keutzer, K. Speculative decoding with big little decoder. In _Thirty-seventh Conference on Neural Information Processing Systems_, 2023.\n' +
+      '* Leviathan et al. (2023) Leviathan, Y., Kalman, M., and Matias, Y. Fast inference from transformers via speculative decoding. In _International Conference on Machine Learning_, pp. 19274-19286. PMLR, 2023.\n' +
+      '* Liu et al. (2023) Liu, X., Hu, L., Bailis, P., Stoica, I., Deng, Z., Cheung, A., and Zhang, H. Online speculative decoding. _arXiv preprint arXiv:2310.07177_, 2023.\n' +
+      '* Miao et al. (2023) Miao, X., Oliaro, G., Zhang, Z., Cheng, X., Wang, Z., Wong, R. Y. Y., Chen, Z., Arfeen, D., Abhyankar, R., and Jia, Z. SpecInfer: Accelerating generative LLM serving with speculative inference and token tree verification. _arXiv preprint arXiv:2305.09781_, 2023.\n' +
+      '* Patterson (2004) Patterson, D. A. Latency lags bandwith. _Communications of the ACM_, 47(10):71-75, 2004.\n' +
+      '* Santilli et al. (2023) Santilli, A., Severino, S., Postolache, E., Maiorca, V., Mancusi, M., Marin, R., and Rodola, E. Accelerating transformer inference for translation via parallel decoding. In Rogers, A., Boyd-Graber, J., and Okazaki, N. (eds.), _Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)_, pp. 12336-12355, Toronto, Canada, July 2023. Association for Computational Linguistics. doi: 10.18653/v1/2023.acl-long.689. URL [https://aclanthology.org/2023.acl-long.689](https://aclanthology.org/2023.acl-long.689).\n' +
+      '* Shazeer (2019) Shazeer, N. Fast transformer decoding: One write-head is all you need. _arXiv preprint arXiv:1911.02150_, 2019.\n' +
+      '* Spector & Re (2023) Spector, B. and Re, C. Accelerating LLM inference with staged speculative decoding. _arXiv preprint arXiv:2308.04623_, 2023.\n' +
+      '* Stern et al. (2018) Stern, M., Shazeer, N., and Uszkoreit, J. Blockwise parallel decoding for deep autoregressive models. _Advances in Neural Information Processing Systems_, 31, 2018.\n' +
+      '* Sun et al. (2021) Sun, X., Ge, T., Wei, F., and Wang, H. Instantaneous grammatical error correction with shallow aggressive decoding. _arXiv preprint arXiv:2106.04970_, 2021.\n' +
+      '* Sun et al. (2023) Sun, Z., Suresh, A. T., Ro, J. H., Beirami, A., Jain, H., and Yu, F. Spectr: Fast speculative decoding via optimal transport. _arXiv preprint arXiv:2310.15141_, 2023.\n' +
+      '* Touvron et al. (2023) Touvron, H., Martin, L., Stone, K., Albert, P., Almahairi, A., Babaei, Y., Bashlykov, N., Batra, S., Bhargava, P., Bhosale, S., et al. LIAMA 2: Open foundation and fine-tuned chat models. _arXiv preprint arXiv:2307.09288_, 2023.\n' +
+      '* Xia et al. (2023) Xia, H., Ge, T., Wang, P., Chen, S.-Q., Wei, F., and Sui, Z. Speculative decoding: Exploiting speculative execution for accelerating seq2seq generation. In _Findings of the Association for Computational Linguistics: EMNLP 2023_, pp. 3909-3925, 2023.\n' +
+      '* Yang et al. (2023a) Yang, N., Ge, T., Wang, L., Jiao, B., Jiang, D., Yang, L., Majumder, R., and Wei, F. Inference with reference: Lossless acceleration of large language models. _arXiv preprint arXiv:2304.04487_, 2023a.\n' +
+      '* Yang et al. (2023b) Yang, S., Lee, G., Cho, J., Papailiopoulos, D., and Lee, K. Predictive pipelined decoding: A compute-latency trade-off for exact llm decoding. _arXiv preprint arXiv:2307.05908_, 2023b.\n' +
+      '* Zhang et al. (2023) Zhang, J., Wang, J., Li, H., Shou, L., Chen, K., Chen, G., and Mehrotra, S. Draft & verify: Lossless large language model acceleration via self-speculative decoding. _arXiv preprint arXiv:2309.08168_, 2023.\n' +
+      '* Zhang et al. (2024) Zhang, P., Zeng, G., Wang, T., and Lu, W. TinyLlama: An open-source small language model. _arXiv preprint arXiv:2401.02385_, 2024.\n' +
+      '* Zheng et al. (2023) Zheng, L., Chiang, W.-L., Sheng, Y., Zhuang, S., Wu, Z., Zhuang, Y., Lin, Z., Li, Z., Li, D., Xing, E., et al. Judging llm-as-a-judge with mt-bench and chatbot arena. _arXiv preprint arXiv:2306.05685_, 2023.\n' +
+      '* Zhou et al. (2023) Zhou, Y., Lyu, K., Rawat, A. S., Menon, A. K., Rostamizadeh, A., Kumar, S., Kagg, J.-F., and Agarwal, R. DistillSpec: Improving speculative decoding via knowledge distillation. _arXiv preprint arXiv:2310.08461_, 2023.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
