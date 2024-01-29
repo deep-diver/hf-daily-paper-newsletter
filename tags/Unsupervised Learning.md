@@ -6,3 +6,4 @@
 - [Lumiere: A Space-Time Diffusion Model for Video Generation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/9/2024-01-24+Lumiere%3A+A+Space-Time+Diffusion+Model+for+Video+Generation.yaml) / 2024-01-24
 - [Deconstructing Denoising Diffusion Models for Self-Supervised Learning](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/11/2024-01-26+Deconstructing+Denoising+Diffusion+Models+for+Self-Supervised+Learning.yaml) / 2024-01-26
 - [pix2gestalt: Amodal Segmentation by Synthesizing Wholes](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/11/2024-01-26+pix2gestalt%3A+Amodal+Segmentation+by+Synthesizing+Wholes.yaml) / 2024-01-26
+- [Learning Universal Predictors](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/12/2024-01-29+Learning+Universal+Predictors.yaml) / 2024-01-29

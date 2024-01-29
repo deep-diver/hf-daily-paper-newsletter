@@ -32,3 +32,5 @@
 - [Genie: Achieving Human Parity in Content-Grounded Datasets Generation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/11/2024-01-26+Genie%3A+Achieving+Human+Parity+in+Content-Grounded+Datasets+Generation.yaml) / 2024-01-26
 - [Sketch2NeRF: Multi-view Sketch-guided Text-to-3D Generation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/11/2024-01-26+Sketch2NeRF%3A+Multi-view+Sketch-guided+Text-to-3D+Generation.yaml) / 2024-01-26
 - [pix2gestalt: Amodal Segmentation by Synthesizing Wholes](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/11/2024-01-26+pix2gestalt%3A+Amodal+Segmentation+by+Synthesizing+Wholes.yaml) / 2024-01-26
+- [EAGLE: Speculative Sampling Requires Rethinking Feature Uncertainty](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/12/2024-01-29+EAGLE%3A+Speculative+Sampling+Requires+Rethinking+Feature+Uncertainty.yaml) / 2024-01-29
+- [Learning Universal Predictors](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/12/2024-01-29+Learning+Universal+Predictors.yaml) / 2024-01-29
