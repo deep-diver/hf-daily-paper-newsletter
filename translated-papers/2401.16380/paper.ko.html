@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# 웹을 리프레싱하는 단계:\n' +
+      '\n' +
+      '계산 및 데이터 효율적인 언어 모델링을 위한 레시피\n' +
+      '\n' +
+      ' Pryush Maini\n' +
+      '\n' +
+      '카네기 멜론 대학교\n' +
+      '\n' +
+      'pratyushmaini@cmu.edu\n' +
+      '\n' +
+      '애플 인턴십 기간 동안 수행한 균등 기여 작업\n' +
+      '\n' +
+      'Skyler Seto\n' +
+      '\n' +
+      'He Bai\n' +
+      '\n' +
+      'David Grangier\n' +
+      '\n' +
+      'Yizhe Zhang\n' +
+      '\n' +
+      'Navdeep Jaitly\n' +
+      '\n' +
+      'Apple\n' +
+      '\n' +
+      '{sseto,hbai22,grangier,yizhe_zhang,njailtly}@apple.com\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      '대형 언어 모델은 종종 구조화되지 않고 시끄럽고 표현이 좋지 않은 웹의 대규모 긁힘에 대해 훈련된다. 현재의 스케일링 법칙은 그러한 데이터로부터 학습하는 것은 훈련되는 모델의 크기에 따라 성장하는 계산 및 데이터 모두의 풍부함을 필요로 한다는 것을 보여준다. 이것은 사전 훈련과 관련된 큰 계산 비용과 기간, 그리고 웹에서 고품질 데이터의 임박한 희소성 때문에 불가능합니다. 본 연구에서는 웹 상의 문서를 "위키피디아와 같은" 특정 스타일 또는 "질문-답변 형식"과 같은 특정 스타일로 패러프레이즈하도록 촉구하는 기성 명령어 조정 모델을 사용하여 실제 및 합성 리프레이즈 상에서 LLM을 공동으로 사전 훈련하는 **웹** 리프레이즈 **A**ugmented **P**re-training(**WRAP**)을 제안한다. 먼저 C4 데이터세트에서 자연적으로 잡음이 심한 **WRAP**를 사용하면 사전 훈련 속도가 \\(\\sim 3\\times\\) 빨라짐을 보인다. 동일한 사전 훈련 계산 예산에서 파일의 다른 하위 집합에 걸쳐 평균 10% 이상 당혹감을 개선하고 13개 작업에 걸쳐 0-샷 질문 답변 정확도를 2% 이상 향상시킨다. 둘째, 리프레이징 스타일이 모델의 성능에 미치는 영향을 조사하여 학습 데이터의 구성이 OOD 설정에서 LLM의 성능에 어떻게 영향을 미칠 수 있는지에 대한 통찰력을 제공한다. 우리의 이익은 (i) 다운스트림 평가 스타일을 밀접하게 반영하는 스타일 다양성을 통합하고 (ii) 웹 스크래핑 데이터보다 \'품질\'이 높기 때문에 재구형 합성 데이터가 실제 데이터보다 더 높은 유용성을 가지고 있다는 사실에 기인한다.\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      '대규모 언어 모델(LLM) 사전 교육은 크게 민주화되고 오픈소싱되어 다양한 학술 연구소와 산업체가 맞춤형 LLM을 사전 훈련할 수 있다. 그러나 이러한 모델 간의 주요 차이점은 이를 훈련하는 데 사용되는 데이터의 구성과 크기이다. 데이터 큐레이션 전략은 비구조화 및/또는 제대로 표현되지 않은 웹의 스크랩을 걸러내기 위해 필요하다(아이젠슈타인, 2013). 이러한 전략 중 일부는 공개되었지만(Brown et al., 2020; Wenzek et al., 2020; Penedo et al., 2023), 대부분의 최첨단 데이터 큐레이션 기술은 연구 커뮤니티에 알려지지 않았으며 일화적인 증거만 남아 있다. 데이터 큐레이션에 대한 연구는 여러 번의 재교육을 요구하므로 실용적인 개선으로 이어지는 기술을 문서화하는 데 비용이 많이 든다. 한편, 언어 모델에 대한 스케일링 법칙(친칠라 스케일링 법칙(Hoffmann et al., 2022))은 모델 크기가 증가함에 따라 훈련 계산과 데이터 크기를 선형적으로 모두 증가시켜야 함을 보여준다. 이것은 (a) 고품질 데이터가 제한되기 때문에 불가능하며(Villalobos et al., 2022), 심지어 적은 수의 에포크(4개 이상)에 대해 반복하면 수익률이 감소하거나 과적합이 발생하기 때문이다(Muennighoff et al., 2023; Touvron et al., 2023; Xue et al., 2023); 그리고 (b) 이러한 긴 지속기간에 대한 사전 훈련은 엄청나게 비싸다.\n' +
+      '\n' +
+      '한편, 합성 데이터의 사용은 명령어 미세 조정, RLHF(Ouyang et al., 2022), 명령어 역번역(Li et al., 2023b)을 통해 사전 학습된 LLM을 정렬하는 패러다임에서 두드러지게 되었다. 최근, 사전 훈련의 맥락에서, 합성 데이터는 Tiny Stories(Eldan & Li, 2023) 및 Textbook 품질 합성 데이터(Gunasekar et al., 2023; Li et al., 2023c)와 같은 데이터 세트를 생성하는 데 사용되었다. 이들은 특정 작업에서 더 큰 언어 모델만큼 수행 가능한 더 작은 언어 모델(Phi 모델 패밀리처럼)을 훈련하는 데 사용되었다. 그러나 데이터 생성 프로세스는 대부분 불투명하고 엄청나게 비싸므로 수십억 개의 토큰을 생성하기 위한 GPT-3.5 모델을 촉발해야 한다. 또한, 이러한 데이터 생성은 우리가 잘 수행하고자 하는 태스크와 관련된 데이터를 구체적으로 생성함으로써 큰 "지식 편향"을 생성할 수 있다. 합성 데이터는 가능성을 보여주었지만, 이것이 합성 데이터의 더 높은 품질 특성 때문인지 아니면 전략적 주제 선택 때문인지 불분명하다(Maini, 2023).\n' +
+      '\n' +
+      '이 작업에서 우리는 데이터 큐레이션 주변의 모호성에서 비롯된 세 가지 중요한 문제를 해결하려는 **Web** Rephrase **A**ugmented Pre-training(**WRAP**)을 제안합니다. (**i**) 어떤 데이터를 미리 훈련해야 합니까? (ii) 제한된 데이터로 어떻게 사전 훈련을 할 수 있는가? (iii) 어떻게 계산적으로 효율적으로 사전 훈련을 할 수 있는가? 특히, 중간 크기의 LLM(off-the-shelf medium size LLM)을 사용하여 웹에서 문서를 재구문하는 것이 웹의 원시 텍스트에서 학습하는 것보다 훨씬 더 효율적으로 학습할 수 있으며, 추가 웹 데이터와 오프셋할 수 없는 배포 데이터 세트에서 성능 향상을 설명한다. 제안된 방법은 웹 코퍼스에서 문서를 다른 스타일로 재구문하기 위해 미리 훈련된 기성 LLM을 사용하는 것을 포함한다. 우리의 접근법의 개요는 그림 0(a)에 나와 있다.\n' +
+      '\n' +
+      '본 연구에서는 Gunasekar et al.(2023)의 연구에서 합성 데이터 큐레이션 동안 직면하는 두 가지 중요한 과제, 즉 생성 비용과 데이터 편향에 대해 웹에서 기사를 다시 표현함으로써 해결한다. (i) **WRAP**는 오픈 소스를 사용할 수 있고, 훨씬 더 작은 LLM(1.8B/7B v/s GPT3.5)은 지식 은행으로서 LLM에 의존하지 않기 때문에 구조화되지 않고 제대로 표현되지 않은 문서를 다른 스타일로 재구문할 수 있다. (ii) 리프레이징의 특성을 유지하는 정보 덕분에, 우리는 사실적 오류 및/또는 데이터 편향에 취약할 수 있는 정보에 대해 LLM에 의존하기보다는 웹의 자연스러운 다양성을 활용할 수 있다. 우리의 작업은 "스타일"만으로도 다운스트림 성능이 크게 향상될 수 있음을 보여준다.\n' +
+      '\n' +
+      'C4에서 **WRAP**를 사용하여 13개의 서로 다른 제로샷 태스크와 21개의 서로 다른 언어 모델링 도메인에 대한 모델 성능을 평가하고 합성 데이터로 LLM을 사전 훈련하면 5x 더 적은 데이터 또는 3x 더 적은 계산량으로 동등한 모델을 훈련할 수 있음을 발견했다. 사실, 우리의 합성 데이터 훈련된 모델은 또한 여러 제로 샷 Q/A 작업에서 3조 토큰(10x 데이터 및 계산)에 대해 훈련된 최근 TinyLLama 모델을 능가한다. 또한, 파일에서 50%의 복잡도 감소를 관찰하였으며, 전체 C4 코퍼스의 15%만을 대상으로 실제와 합성어 조합을 학습한 350M 파라미터 모델이 전체 C4에서 1.3B 파라미터를 사전 학습한 것보다 우수함을 주목한다. 마지막으로, **WRAP** 기반 LLM 사전 학습 개선을 위한 데이터 유출 가능성, 합성 데이터 스타일의 속성, 합성 데이터 결합 방법에 대한 분석을 수행한다.\n' +
+      '\n' +
+      '그림 1: (a) **WRAP** 레시피: 웹에서 기사를 재구문하고 실제 데이터와 합성 데이터의 혼합물에서 LLM을 사전 훈련하기 위해 기성 지시 조정 모델을 프롬프트한다. (b) C4 및 합성 변형의 조합에 대해 훈련된 GPT 1.3B 모델의 제로샷 성능. 각 단계는 1M 샘플의 배치에 해당한다. (c) 다양한 모델 크기 및 사전 훈련 데이터의 양에 대한 파일의 21개의 하위 도메인에 걸쳐 가중된 평균 당혹감.\n' +
+      '\n' +
+      ' \n' +
+      '\n' +
+      '##2 관련 업무\n' +
+      '\n' +
+      '언어 모델에 대한 신경망 스케일링 법칙 신경망 스케일링 법칙은 고정된 계산량에 대한 최적의 모델 매개변수 수와 학습 데이터 양을 연관시킨다. Hoffmann et al. (2022)는 모델의 크기와 필요한 훈련 데이터의 양 사이에 선형 관계가 있음을 입증하는 언어 모델에 대한 Chinchilla 스케일링 법칙을 제시하였다. 그들의 연구 결과는 Gopher(Rae et al., 2021)와 같은 이전 모델이 심각하게 과소 훈련되었음을 나타낸다. 최근, Llama(Touvron et al., 2023)와 같은 모델들은 훨씬 더 많은 데이터로 트레이닝된다. 이러한 스케일링 법칙은 단일 에포크 훈련의 패러다임을 위해 도출되었다. 최근 Muennighoff et al. (2023)은 반복 데이터의 한계 효용이 4개 이상의 에폭에 대해 훈련할 때 급격히 감소한다는 것을 보여주었고, 반복 데이터에 따라 스케일링 법칙을 공식화했다. 동시에 Xue et al.(2023)은 사전 훈련 데이터의 작은 부분이라도 반복하는 것이 과적합으로 이어질 수 있고 모델 성능을 감소시킬 수 있음을 보여주었다.\n' +
+      '\n' +
+      'LLM을 사전 훈련하기 위해 고품질 데이터를 선택하는 데이터 세트 선택은 활성적이고 영향을 많이 받지만 아직 연구되지 않은 영역으로 남아 있다. 예를 들어, GPT-2 모델은 적어도 3개의 업보를 수신한 소셜 미디어 플랫폼인 Reddit으로부터 모든 아웃바운드 링크에 대해 사전 훈련되었다(Brown et al., 2020). 이는 문서가 _interesting_, _educational_ 또는 _just funny_일 수 있다는 휴리스틱 지표로서 사용되었다. 후속 연구에서는 위키피디아(Gururangan et al., 2022)와 유사한 문서를 우선시하는 등의 다른 휴리스틱을 사용하였다. Rae et al. (2021)은 다수의 휴리스틱 필터를 사용하여 특정 불용어의 부재, 문서의 길이, 알파벳 문자의 백분율, 평균 단어 길이, 기호 대 단어 비율, 글꼴 포인트로 시작하는 선의 백분율, 또는 생략으로 끝나는 것과 같은 문서를 제거하였다. 그들의 작업은 텍스트 데이터를 필터링하는 복잡성을 강조한다. 훈련을 위한 더 나은 데이터 세트를 구축하기 위한 대안적인 패러다임은 고품질 데이터 세트를 증류하는 것이다. Xie et al. (2023)은 다양한 도메인의 데이터를 재가중하여 사전 학습 언어 모델에 가장 적합한 데이터 혼합을 선택하는 방법인 DoReMi를 제안하였다. 동시에 Abbas et al.(2023)은 사전 훈련 데이터의 탈복제가 사전 훈련 효율을 향상시킬 수 있음을 보여주었다. 최근 LLMs(Chen et al., 2023; Solaiman and Dennison, 2021; Zhou et al., 2023)의 빠른 미세 조정을 위해 저품질 데이터의 자동 필터링을 위한 몇 가지 방법이 제안되었다. 동시에, CLIP(Radford et al., 2021)와 같은 이미지-언어 모델들의 영역에서, Datacomp 벤치마크(Gadre et al., 2023) 및 최근 엔트리들(Maini et al., 2023; Yu et al., 2023)은 LIAION(Schuhmann et al., 2022)과 같은 사전 트레이닝 데이터세트들로부터 또는 공통 크롤의 스크랩들로부터 저-품질 서브세트들을 필터링하는 접근법들을 개발하였다.\n' +
+      '\n' +
+      '데이터 증강과 합성 데이터 엘단과 리(2023)는 유아들이 이해할 수 있는 이야기 형태의 합성어로 생성된 데이터셋을 통해 일관성 있는 문장을 생성할 수 있는 작은 언어 모델을 학습시킬 수 있음을 보여주었다. Gunasekar et al.(2023)은 교과서 품질(합성) 데이터만으로도 모델이 추론 및 코딩 작업에 대한 최첨단 성능을 달성하는 데 도움이 된다는 것을 보여주었다. Liu 등(2023); Wei 등(2023)을 미세화하는 동안 코딩 및 수학적 추론 능력을 향상시키기 위한 동시 작업에서 유사한 접근법이 사용된다. Shumailov et al. (2023)은 합성 데이터에 대한 트레이닝이 실제로 모델 성능에 해로울 수 있음을 보여주며, 특히 우리가 LLM을 여러 라운드로 사전 트레이닝한 다음 이전 데이터에 의해 생성된 데이터에 대해 다음 LLM을 트레이닝할 때 더욱 그렇다. 반면에, 몇몇 다른 작품들은 그러한 전략이 실제로 유용할 수 있다는 것을 보여주었다. Li et al. (2023) 및 Koksal et al. (2023)은 모델이 어떻게 명령어 데이터를 생성한 후 그 자체 생성된 데이터를 미세 조정함으로써 성능을 향상시킬 수 있는지를 논의한다. Jung et al.(2023)은 이러한 합성 데이터의 반복 사이클이 GPT-3보다 훨씬 우수한 매우 작은 패러프레이즈 및 요약 모델을 트레이닝하는 데 어떻게 도움이 될 수 있는지에 대해 논의한다.\n' +
+      '\n' +
+      '비전 및 멀티모달 문헌에서도 훈련을 위한 합성 데이터의 사용을 조사하는 작업이 급증했다. Bansal and Grover (2023); Trabucco et al. (2023); Azizi et al. (2023)의 연구는 합성 데이터를 실제 데이터와 결합하여 사용하는 것이 내부 배포 및 외부 배포 모두에서 최첨단 모델 성능을 달성한다는 것을 보여주었다. Cubuk et al. (2020)은 더 나은 도메인 일반화를 위해 이미지 증강을 생성하기 위해 생성 모델을 사용하였다. 또한 증강의 다양성과 일반화 개선의 가치에 대한 여러 연구가 있다(Choi et al., 2019; Fort et al., 2021; Hoffer et al., 2020). 그러나, Alemohammad et al.(2023)은 그들 자신의 생성된 데이터의 5 사이클 이상 동안 트레이닝된 생성된 모델들이 심각한 모드 붕괴를 겪을 수 있음을 보여주었다.\n' +
+      '\n' +
+      '##3 WRAP : Web Rephrase Augmented Pretraining\n' +
+      '\n' +
+      '외장 언어 모델을 사용하여 합성 데이터를 생성하는 것은 계산적으로 비용이 많이 들고 작동적으로 어려울 수 있다. LLMs(Gunasekar et al., 2023)를 사용하여 합성 교과서 품질 데이터를 생성하기 위한 이전의 접근법들은 (1) 트레이닝할 가치가 있는 기사들을 생성하기에 충분한 세계 지식을 포함하는 언어 모델을 요구하였고, 그에 따라 생성 비용을 증가시켰다; (2) 합성 말뭉치 내의 임의의 지식 갭을 채우는 고품질 및 다양한 기사들을 생성할 수 있게 하는 프롬프트들의 신중한 선택을 필요로 하였다. 이 도전은 Li 등(2023c)의 후속 작업에서 강조되었으며 웹의 자연적 다양성에 대해 훈련된 것과는 대조적으로 언어 모델들(Maini, 2023)에서 부주의하게 바이어스를 크리핑할 가능성이 있다. (i) 생성 비용과 (ii) 데이터 다양성의 문제에 대한 해결책으로 웹에서 기사의 자연적 다양성을 활용하여 웹에서 소음 및 비정형 기사의 고품질 패러프레이즈를 생성하기 위해 GPT-3.5보다 훨씬 작은 LLM을 활용할 수 있는 **WRAP**를 제안한다.\n' +
+      '\n' +
+      '웹의 리프레싱\n' +
+      '\n' +
+      '위키피디아의 텍스트와 같은 고품질 데이터를 가중화하는 것이 언어 모델링을 개선하는 데 유용할 수 있다는 것이 과거 작업에서 관찰되었다. 이러한 용어들은 일반적으로 매우 느슨하게 정의되었으며 동일한 일화적인 증거만 있다(Brown et al., 2020; Wenzek et al., 2020). 동시에 웹 데이터는 언어 모델의 두드러진 사용 사례인 질문 응답 또는 대화 형식의 텍스트가 부족하다. 이 두 가지 통찰력을 바탕으로 작업에 대한 리프레이징 스타일을 디자인합니다.\n' +
+      '\n' +
+      '위의 일화적 증거 대신에, 우리는 웹에서 문서들을 네 가지 다른 스타일로 다시 말하기를 시도한다 -- (i) 쉽게 (심지어 유아도 이해할 수 있는 텍스트); (ii) 위키피디아에서 발견되는 것과 같은 고품질 영어로; (iii) 딱딱하고 난해한 언어로; (iv) 질문-답변 형식으로. 이러한 양식적 변형에서 리프레이징을 조작화하기 위해, 우리는 적절하게 명령 조정 모델을 프롬프트한다. 이 네 가지 스타일의 재구정된 예와 작업에 사용된 프롬프트 템플릿은 부록 G에 나와 있다.\n' +
+      '\n' +
+      'Synthetic DataNow, 우리는 C4(Raffel et al., 2020)와 같은 웹 크롤링된 데이터 세트에서 텍스트를 재구문하기 위해 명령어 조정 언어 모델을 사용하는 방법을 자세히 설명한다. 특히, 우리는 동결된 Mistral-7B 명령어-튜닝된 모델(Jiang et al., 2023)을 사용한다(다른 모델들에 대해서는 섹션 6의 Ablations 참조). 미스트랄 모델은 "중간" 스타일의 합성 데이터를 생성하기 위해 다음과 같은 명령어를 사용하여 프롬프트된다. "_다음 단락에 대해 위키피디아에서 문장에서와 같이 고품질 영어로 동일한 패러프레이즈를 제공한다. 프롬프트는 "중간" 크기의 LLM의 출력을 GPT-4의 출력과 비교하여 반복적인 인간 피드백을 사용하여 생성되었으며, 모델 출력을 사용하여 원본 노이즈 웹 데이터에 해당하는 "고품질" 합성 데이터의 병렬 코퍼스를 생성한다. 각각의 예는 최대 300개의 토큰을 가지고 있으며, 이는 LLM에 300개 이상의 토큰을 재구문하도록 요청하는 것이 종종 정보의 손실을 초래한다는 우리의 경험적 관찰에 기초하여 결정되었다. 데이터 품질에 대한 논의는 C절에서 찾아볼 수 있다.\n' +
+      '\n' +
+      '리얼 데이터와 합성 데이터를 결합하는 웹 데이터의 재구분 방법은 인터넷에서 발견되는 정보 다양성을 자연스럽게 통합한다. 그러나 실제 데이터에 노이즈를 통합하지 않습니다. 합성 데이터는 LLM이 더 빨리 사전 훈련하는 데 도움이 될 수 있지만, 우리는 또한 LLM이 사용자가 직면한 상황에서 실패하지 않도록 오타와 언어 오류로 채워질 수 있는 시끄러운 웹 텍스트를 이해할 수 있기를 바란다. 이러한 스타일 다양성을 언어 모델링에 통합하기 위해 실제 데이터와 합성 데이터를 1:1 비율로 샘플링한다.\n' +
+      '\n' +
+      '### Implementation Details\n' +
+      '\n' +
+      'ArchitectureWe train decoder-only transformer models (Vaswani et al., 2017) in three different scale, small, medium and XL. 소규모(128M parameter) 모델은 12개의 레이어, 12개의 어텐션 헤드, 768의 은닉 차원 크기로 구성되며, 중규모(350M parameter) 모델은 24개의 레이어, 16개의 어텐션 헤드, 1024의 은닉 차원 크기로 구성되며, XL-스케일(1.3B parameter) 모델은 24개의 레이어, 16개의 어텐션 헤드, 2048의 은닉 차원 크기로 구성되며, NVIDIA의 Megatron-LM 저장소를 이용하여 학습한다.\n' +
+      '\n' +
+      '사전 훈련은 달리 명시되지 않는 한 100만 토큰의 배치 크기로 총 300k 단계에 대해 모든 XL 모델을 훈련한다. 128M, 350M 파라미터 모델은 최대 학습률(3e^{-4}\\), 1.3B 파라미터 모델은 최대 학습률(2e^{-4}\\)을 사용한다. 최소 학습률은 \\(1e^{-5}\\)이다. 가중치 감쇠는 0.01, 기울기 클리핑 규범은 1.0을 사용하였으며, 코사인 학습률 스케줄러는 전체 스텝의 1%를 워밍업으로 사용하였고, Adam 최적기는 \\(\\beta_{1}=0.9\\) 및 \\(\\beta_{2}=0.999\\)을 사용하였다.\n' +
+      '\n' +
+      '##4 복잡도 평가\n' +
+      '\n' +
+      '다중 분산외 데이터 세트의 유효성 검사 집합에서 사전 훈련된 모델의 복잡성을 평가한다. 모든 모델은 C4 데이터세트(Raffel et al., 2020)에 대해 트레이닝되거나, 또는 동일한 특정 스타일리스틱 재구문에 대해 트레이닝된다. 모든 평가는 파일의 21개의 하위 도메인에 대해 수행된다(Gao et al., 2020). 이러한 부분 집합은 파일 데이터 집합의 각 도메인에서 처음 10,000개의 문서로부터 생성됩니다. 그런 다음 이러한 하위 집합에 대한 모델의 당혹감을 평가한다. 추가적인 평가 세부 사항은 부록 D에 제공된다. C4 대신 파일에서 복잡성을 평가하는 것이 중요하다. 텍스트(합성 웹 및 실제 웹)의 여러 분포에 대한 훈련은 C4 검증 세트에서 1개 미만의 작은 비용으로 제공된다. 평가의 선택과 이러한 복잡성 증가를 관찰하는 이유를 이해하기 위해 C4 코퍼스를 통한 훈련은 목표를 최소화하는 데 해당한다는 점에 주목한다.\n' +
+      '\n' +
+      '\\[\\theta_{\\mathcal{C}4}=\\min_{\\theta}\\mathds{E}_{x\\sim D_{\\mathcal{C}4}}\\left[\\mathcal{L}(\\theta;x)\\right], \\tag{1}\\t]\n' +
+      '\n' +
+      'C4 웹 텍스트를 정확하게 모델링하려고 시도합니다. 대조적으로, 다수의 스타일에 대한 트레이닝은 상이한 분포에 대한 위험을 최소화하는 것에 대응하고,\n' +
+      '\n' +
+      '\\[\\theta_{\\mathbf{WRAP}=\\min_{\\theta}\\mathds{E}_{x\\sim D_{\\mathcal{C}4}\\cup D_{\\mathcal{D}m}}\\left[\\mathcal{L}(\\theta;x)\\right]. \\tag{2}\\cup\n' +
+      '\n' +
+      '방정식 2에 대한 해결은 C4에 대한 위험을 최소화하지 못하므로 C4에 대한 \\(\\theta_{\\mathcal{C}4}\\)와 \\(\\theta_{\\mathbf{WRAP}\\)을 비교하는 것은 부당하다. C4에 대해 훈련된 모델과 그 합성 구문에 대해 의미 있게 비교하기 위해, 파일의 21개의 다른 도메인(Gao et al., 2020)에서 그들의 일반화 능력을 평가한다. 각 도메인에 대한 결과는 그림 2에 나와 있다.\n' +
+      '\n' +
+      '도 2: **WRAP (C4 + QA-85B) v/s C4**: 300B 토큰에 대해 트레이닝된 1.3B LLM에 대한 파일 상의 복잡성의 비교는 WRAP가 2x 실제 데이터에 대해 트레이닝된 모델들보다 우수함을 보여준다.\n' +
+      '\n' +
+      '데이터 복잡도 그림 0(c)에서 우리는 더 적은 토큰(150B)과 훨씬 더 작은 350M 모델에 대해 훈련된 모델이 합성 재구문을 사용하여 더 빠른 학습을 나타내는 300B 토큰에 대해 전체 C4에 대한 훈련을 능가함을 보여준다. ArXiv 및 HackerNews와 같은 일부 도메인에서 합성 데이터로 훈련하면 실제 데이터만으로 훈련된 모델의 복잡성을 거의 3배 줄일 수 있음을 관찰한다. 이는 많은 경우 더 많은 실제 데이터에 대한 훈련만으로는 합성 데이터에 대한 사전 훈련의 성능 이점을 상쇄할 수 없음을 시사한다. 전반적으로 파일의 여러 하위 집합의 평균에서 우리 모델은 실제 데이터만으로 훈련된 모델에 비해 당혹감을 50% 개선한다.\n' +
+      '\n' +
+      '학습 속도 **WRAP** 훈련의 첫 번째 체크포인트(10B 토큰)에서도 파일 상의 LLM의 평균 당혹감은 15개의 체크포인트에 대해 C4에서 사전 훈련함으로써 달성된 것보다 낮다는 것을 관찰한다. 이것은 15배 사전 훈련 속도 향상을 시사한다. 우리는 더 의미 있는 비교를 하기 위해 학습 속도에 대한 논의를 \'제로 샷\' 과제에 유예한다.\n' +
+      '\n' +
+      '##5 제로샷 작업\n' +
+      '\n' +
+      '우리는 이제 LLM Evaluation Harness1Gao et al.(2023)을 사용하여 다양한 제로 샷 질문 응답(QA) 벤치마크에 대해 사전 훈련된 언어 모델을 평가한다.\n' +
+      '\n' +
+      '각주 1: 배치 크기가 32인 모든 실험에 걸쳐 일관성을 위해 git commit - 89618bf8을 사용한다.\n' +
+      '\n' +
+      '### Datasets\n' +
+      '\n' +
+      '우리는 총 13개의 서로 다른 제로샷 벤치마크에서 모델을 평가하여 상식 추론, 언어 및 지식 이해 및 수학적 추론과 같은 다양한 자연 언어 작업에 대한 능력을 평가한다.\n' +
+      '\n' +
+      '일반 이해 일반 이해 범주는 광범위한 인지 기술과 언어 이해를 테스트하는 데이터 세트로 구성된다. **ARC Easy(ARC-E)**Clark 등(2018)은 기본적인 추론 기술을 필요로 하는 질문들을 특징으로 하는 ARC-C의 덜 도전적인 대응물이다. **BoolQ**Clark 등(2019)은 읽기 이해 및 일반적인 언어 이해에 중점을 둔 부울 질문을 포함한다. **위노그란데(Wino.)**ai(2019)는 언어, 특히 대명사 명확화에서 상식 추론으로 모델에 도전한다. **PIQA**Bisk 등(2020)은 실질적인 상식의 필수적인 부분인 물리적 과정에 대한 이해를 평가한다. **HellaSwag**Zellers 등(2019)은 언어 이해와 상식 모두를 요구하면서 일관성 있게 시나리오를 완성하는 능력을 테스트한다. **TruthfulQA**Lin et al. (2021)은 진실하고 정확한 답변을 생성하는 것에 중점을 두고, 따라서 모델의 사실적 정확성을 테스트한다. **OpenBookQA(OBQA)**Mihaylov 등(2018)은 광범위한 사실 및 개념에 대한 이해를 평가한다. 마지막으로, **LogiQA-2**Liu 등(2023)은 논리적 원리를 이해하고 적용할 수 있는 모델의 능력을 평가한다.\n' +
+      '\n' +
+      '전문 지식 범주에는 특정 도메인에 전문 지식을 요구하는 데이터 세트가 포함됩니다. **ARC Challenge(ARC-C)**Clark et al. (2018)에는 3~9학년까지의 과학 시험 문제에 대한 도전적인 내용이 포함되어 있어 고급 지식을 요구하고 있다. **SciQ**Johannes Welbl(2017)은 과학 영역에서 모델의 이해와 추론을 테스트하기 위해 과학 시험 문제를 제공한다. **PubMedQA**Jin 등(2019)은 의학 및 건강 관련 정보에 대한 이해를 평가하면서 생명의학 문헌에 초점을 맞추고 있다. **MathQA**Amini et al.(2019)은 수학적 문제 해결을 테스트하는데, 수치적 이해와 추론을 모두 필요로 한다. 마지막으로, **MMLU**Hendrycks et al. (2021)은 전문 과목에서 학술에 이르기까지 여러 도메인에 걸쳐 모델을 테스트한다.\n' +
+      '\n' +
+      '### Results\n' +
+      '\n' +
+      '실제 데이터와 합성 데이터의 혼합에 대해 학습된 모델과 실제 데이터의 다양한 분할에 대해 학습된 모델의 성능을 비교한다. 모든 실험에서 합성 데이터의 분할을 재구분하고 생성하기 위해 C4(Raffel et al., 2020) 데이터 세트를 사용한다. 우리는 사전 학습에 사용할 수 있는 웹 데이터의 토큰 수를 나타내기 위해 \'Real Tok\'라는 약어를 사용한다. \'합성 + 실제\' 실험에서 우리는 동일한 수의 합성 재구문을 증가시킨다. 우리는 잠재적으로 동일한 문서를 여러 번 재구문할 수 있기 때문에 \'실제 토큰\'을 비교 메트릭으로 선택하는데, 이는 전체 말뭉치 크기가 의미가 없고 말뭉치 \'지식\'이 실제 관심 통화임을 의미한다.\n' +
+      '\n' +
+      '기준 MethodsWe pre-train LLM of (i) C4의 절반, 및 (ii) Full C4는 각각 약 85억 및 170억 실제 토큰에 대응한다(Raffel et al., 2020). 우리는 또한 (iii) RefinedWeb Dataset(Penedo et al., 2023)의 (iii) 160 Billion 및 (iv) 320 Billion 토큰에 대해 자체 모델을 사전 훈련한다. 추가적으로, 우리는 또한 파일 상에서 훈련된 (iv) Pythia-1.4B 모델(Gao et al., 2020)과 비교한다. 이 데이터 세트는 더 이상 공개적으로 사용할 수 없으므로 사전 훈련된 모델을 활용한다. 마지막으로, 우리는 또한 SlimPajama(Shen et al., 2023) 및 StarCoder(Li et al., 2023a)로부터 3개의 에포크들에 대해 트레이닝된 최근의 (v) TinyLlama 모델(Zhang et al., 2024)과 비교된다.\n' +
+      '\n' +
+      '표 1의 모든 작업에 걸쳐, 우리는 C4 데이터세트(합성+C4)와 결합된 합성 데이터에 대해 훈련된 모델이 85B 토큰 분할로 실제 C4 데이터세트에서만 훈련된 모델에 비해 평균 47.4%의 전체 평균 성능을 나타내는 것을 관찰한다. 이는 합성 데이터의 포함이 NLP 모델의 일반적인 이해 능력을 향상시킬 수 있음을 보여준다. 또한, 10배 연산 및 데이터에 대해 학습된 TinyLlama 모델조차도 실제 데이터에 대해 학습된 다른 모델들과 비교 가능하게 수행한다. 이는 실제 데이터를 필터링하거나 더 추가함으로써 얻는 이득이 매우 낮음을 시사한다. 이와는 반대로 **WRAP**은 적은 양의 합성 데이터에 대한 사전 훈련이 큰 성능 향상에 기여할 수 있음을 보여준다.\n' +
+      '\n' +
+      '전문 지식 과제 표 2의 결과에서 핵심 메시지는 합성 데이터가 \'새로운 지식\'을 부여할 수 없다는 것이다. 그것은 단지 우리의 일의 전제가 되었던 사전 훈련을 더 빨리 하도록 도울 수 있을 뿐이다. 특히, 우리는 몇 가지 주요 발견에 주목한다:\n' +
+      '\n' +
+      '1. 더 큰 데이터 세트에 대한 사전 훈련은 LLM을 더 많은 "지식"에 노출시킴으로써 성능을 향상시키는 데 도움이 된다. 예를 들어, 피티아(300B) 모델은 평균 점수 44.6%를 달성하여 더 작은 C4(85B) 데이터 세트의 점수 43.5%를 능가한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c c c c} \\hline \\hline Dataset (Real Tok.) & ARC-E & BoolQ & Wino. & PIQA & HellaSwag & TruthfulQA & OBQA & LogQA & Avg \\\\ \\hline Half C4 (85B) & 61.2 & 59.1 & 57.3 & 74.9 & 46.5 & 34.1 & 22.4 & 23.5 & 47.4 \\\\ Full C4 (170B) & 61.6 & 54.2 & 59.0 & 74.9 & 46.8 & 33.5 & 25.0 & 23.4 & 47.3 \\\\ RW (160B) & 61.6 & 60.7 & 57.5 & 74.3 & 45.2 & 36.8 & 21.8 & 23.2 & 47.6 \\\\ RW (320B) & 60.7 & 61.1 & 57.1 & 74.4 & 45.6 & 36.0 & 22.6 & 22.5 & 47.5 \\\\ Pythia-Pile (300B) & 60.5 & 63.3 & 57.5 & 70.8 & 40.4 & 38.9 & 22.2 & 22.2 & 47.0 \\\\ TinyLlama (17) & 60.3 & 57.8 & 59.1 & 73.3 & 45.0 & 37.6 & 21.8 & 24.5 & 47.4 \\\\ \\hline Synthetic (85B) & 63.9 & 60.0 & 58.8 & 76.1 & 45.2 & 44.0 & 23.0 & 24.1 & 49.4 \\\\ Synthetic+C4 (85B) & 64.1 & 62.2 & 58.9 & 75.4 & 46.2 & 40.6 & 24.1 & 23.9 & 49.4 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 1: 일반 추론, 언어 이해, 상식에 초점을 맞춘 데이터셋에 대한 \'일반 이해 과제\'에 대한 \\(\\sim\\)1.3B 파라미터 LLM의 평가. **WRAP**are 평균 3회 수행 결과\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c} \\hline \\hline Dataset (Real Tok.) & ARC-C & SciQ & PubMedQA & MathQA & MMLU & Avg \\\\ \\hline Half C4 (85B) & 26.3 & 84.5 & 57.2 & 23.4 & 24.2 & 43.1 \\\\ Full C4 (170B) & 26.8 & 85.0 & 57.4 & 24.3 & 23.9 & 43.5 \\\\ RW (160B) & 27.2 & 87.2 & 56.2 & 24.1 & 25.9 & 44.1 \\\\ RW (320B) & 27.8 & 88.0 & 57.4 & 23.0 & 25.4 & 44.3 \\\\ Pythia-Pile (300B) & 26.1 & 86.6 & 60.6 & 25.2 & 24.3 & 44.6 \\\\ TinyLlama (1T) & 27.8 & 88.9 & 61.4 & 24.1 & 25.8 & 45.6 \\\\ \\hline Synthetic (85B) & 29.7 & 87.0 & 60.2 & 23.4 & 24.6 & 45.0 \\\\ Synthetic+C4 (85B) & 29.9 & 87.6 & 61.5 & 23.9 & 24.8 & 45.5 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 2: 과학, 의학, 수학, 논리 등 특정 영역 지식이 필요한 \'전문 지식 과제\'에 대한 \\(\\sim\\)1.3B 매개변수 LLM의 평가. **WRAP**에 대한 결과는 평균 3회 실행이다.\n' +
+      '\n' +
+      '2. 더 큰 데이터 세트의 장점에도 불구하고, 개선은 포화되었다. 예를 들어, RefinedWeb(320B) 모델이 RefinedWeb(160B) 모델보다 0.2%만 우수합니다. 마찬가지로, TinyLlama 모델(1T 토큰)은 원시 웹 데이터의 85B 토큰만을 가지고 있던 **WRAP** 모델과 비교 가능하게 수행한다.\n' +
+      '\n' +
+      '특정 개선 우리는 합성(85B) 모델이 44.0%로 이 데이터 세트의 다른 모델 성능보다 훨씬 더 높은 TruthfulQA 데이터 세트의 최대 개선을 본다. 이것은 잠재적으로 명령 조정 LLM이 텍스트를 다시 발음하는 동안 잠재적인 오개념을 수정하기 때문이다. 흥미로운 사실은 실제 데이터를 합성 모델(합성+C4)에 추가하는 것이 진실QA의 성능을 4% 감소시켰으며 이는 실제 데이터와 결합할 때 합성 데이터에서 얻은 이점이 잠재적으로 희석되었음을 나타낸다. C4 훈련된 모델이 잘 작동하는 헬라 스웨그 및 BoolQ와 같은 다른 데이터 세트는 C4와 합성 리프레이즈의 조합을 통합하는 이점을 계속 보여준다.\n' +
+      '\n' +
+      '##6 분석 및 정리\n' +
+      '\n' +
+      '우리는 더 미세한 입도로 성능을 최적으로 향상시키는 방법을 조사하기 위해 다음 연구 질문(RQ)을 추가로 요청한다.\n' +
+      '\n' +
+      '### 데이터 결합 분석\n' +
+      '\n' +
+      'RQ1: 실제 C4 데이터를 갖는 것이 얼마나 중요한가? 표 1-2의 우리의 발견은 QA 프롬프트를 사용한 합성 데이터가 QA에 대한 강력한 성능에 충분하다는 것을 나타낸다.\n' +
+      '\n' +
+      '그림 3: **실제 데이터의 중요성:** C4에 대한 사전 훈련 시 파일의 복잡성 비교 대 합성 데이터 합성 데이터만 가능합니다. 모델들은 C4의 350억 개의 토큰들을 포함하는 실제 데이터 서브세트 상의 총 150B 토큰들에 대해 트레이닝된 1.3B 파라미터들이다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c c c c} \\hline \\hline Dataset (Real Tok.) & ARC-E & BoolQ & Wino. & PIQA & HellaSwag & TruthfulQA & OBQA & LogQA & Avg \\\\ \\hline Med+C4-35B & 59.8 & 57.0 & 55.7 & 74.6 & 44.5 & 36.5 & 23.8 & 21.5 & 46.7 \\\\ QA+C4-35B & 62.2 & 63.3 & 55.7 & 74.8 & 44.6 & 41.4 & 22.4 & 23.2 & 48.4 \\\\ Med-35B & 56.6 & 59.5 & 53.4 & 74.0 & 41.9 & 36.3 & 22.2 & 22.7 & 45.8 \\\\ QA-35B & 61.7 & 62.0 & 53.9 & 75.2 & 43.4 & 43.0 & 22.8 & 23.4 & 48.2 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 3: **Real Data의 중요성:** 일반 이해 작업에서 150B 토큰에 대해 훈련된 \\(\\sim\\)1.3B 파라미터 LLM의 평가. 결과는 실제 데이터를 추가하는 것이 \'중간\' 또는 \'위키피디아 스타일\' 패러프레이즈를 사전 훈련할 때 모델 성능을 향상시키는 데 도움이 된다는 것을 보여준다.\n' +
+      '\n' +
+      '작업. 그러나 파일 복잡성에 대해 평가할 때 그림 3의 많은 하위 도메인에서 복잡성이 크게 저하되는 것을 관찰한다. 이는 합성 데이터가 특수 문자를 거의 포함하지 않고 고도로 구조화되어 있기 때문일 수 있다. 대조적으로, OWT와 같은 파일의 여러 하위 도메인과 해커뉴스는 이러한 특수 토큰을 가지고 있다. 필립페이퍼 및 구텐베르크와 같은 도메인에서 사전 훈련 데이터에서 실제 C4 텍스트를 삭제하고 합성 문서에만 대한 훈련은 성능을 크게 떨어뜨린다는 것을 관찰한다. 이는 합성 데이터가 실제 데이터 스크래핑에 만연해 있는 특정 \'태그\'와 \'스타일\'을 담고 있지 않다는 점에 다시 한 번 기인하며, **WRAP**이 합성 데이터만을 사전 훈련하는 것보다 어떻게 더 나은 전략인지를 강조했다. 제로샷 태스크에 대한 성능 측면에서, 우리는 표 3,4에서 실제 데이터의 존재가 제로샷 성능을 개선하는 데 도움이 된다는 것을 다시 한 번 주목한다. 제로샷 태스크는 잘 작성된 Q/A 쌍을 포함하기 때문에, 이러한 효과는 실제 데이터에 대한 복잡성만큼 분명하지 않다.\n' +
+      '\n' +
+      'RQ2: 다중 합성 데이터 세트의 조합이 성능을 향상시키나요?우리는 훈련을 위해 다중 합성 스타일과 C4를 결합하는 것의 영향을 측정한다. 우리는 두 가지 변형을 고려한다: 1:1 비율로 결합한다는 것은 두 개의 합성 스타일(중간 및 QA)과 일치하는 두 개의 C4 사본이 있다는 것을 의미하며, C4 데이터 세트의 한 인스턴스만 결합하는 1:2 비율이다. 제로 샷 QA 작업의 경우 표 5-6의 결과는 QA와 C4 데이터만 결합하는 것보다 낮은 성능을 나타낸다. 파일에 대한 평가는 그림 4와 같다. 우리는 \'Q/A\'와 \'위키피디아\' 패러프레이즈가 특정 도메인에서 성능을 향상시키는 데 도움이 된다는 것을 알 수 있다. 예를 들어, 질의응답이 많은 \'Stackexchange\'는 Q/A 스타일의 합성 데이터의 존재로부터 이익을 얻는다. 전반적으로, 우리는 여러 스타일을 결합하여 파일에서 평균 당혹감이 약간 개선되었다는 점에 주목한다.\n' +
+      '\n' +
+      '### Method Ablations\n' +
+      '\n' +
+      'RQ3: 고품질 재구문을 갖는 것이 얼마나 중요한가? 이에 답하기 위해, 우리는 4개의 별개의 재구문 모델(T5-base(Raffel et al., 2020), Owen-L8B-chat(Bai et al., 2023a), Mistral-7B-chat(Jiang et al., 2023) 및 Vicuna-13B-chat-v1.3(Chiang et al., 2023))의 데이터를 사용하고 30B 토큰에 대한 345M 모델을 트레이닝한다. 동일한 프롬프트를 사용하여 모든 모델에서 데이터를 생성합니다. T5-base 모델의 경우, Vicuna-13b-chat 모델의 재구 쌍에 대해 1 에폭의 모델을 세밀하게 조정한다. 우리는 Qwen-1.8B 및 Mistral-7B와 같은 더 작은 재구 모델에 의해 생성된 데이터에 대한 사전 훈련이 Vicuna 13B(그림 5)보다 더 낮은 당혹감을 달성한다는 것을 발견했다. 동시에, 우리의 미세 조정 T5 기반 모델은 나머지 모델보다 훨씬 더 나쁜 성능을 보인다. 그럼에도 불구하고 모든 재구 모델은 실제 C4 데이터에 비해 복잡성을 줄인다. **WRAP**의 적용 가능성을 더욱 확장하기 위해 고품질 합성 데이터를 생성할 수 있는 패러프레이즈 모델을 얼마나 작게 훈련할 수 있는지에 대한 한계를 테스트하는 것은 아직 미해결 문제로 남아 있다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c c} \\hline \\hline Dataset (Real Tok.) & ARC-C & SciQ & PubMedQA & MathQA & MMLU & Avg \\\\ \\hline Med+C4-35B & 27.2 & 82.2 & 46.2 & 23.1 & 25.2 & 40.8 \\\\ QA+C4-35B & 29.0 & 85.1 & 62.2 & 22.5 & 26.1 & 45.0 \\\\ Med-35B & 27.0 & 80.0 & 59.4 & 22.5 & 24.7 & 42.7 \\\\ QA-35B & 27.1 & 85.5 & 59.2 & 22.2 & 25.0 & 43.8 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 4: **실제 데이터의 중요성:** 전문화된 지식 태스크에 대한 \\(\\sim 1.3\\)B 매개변수 LLM의 평가. 그 결과, \'Q/A 스타일\' 패러프레이즈 사전 학습 시 실제 데이터를 추가하는 것이 모델 성능을 향상시키는 데 도움이 된다는 것을 알 수 있다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c c} \\hline \\hline Dataset (Real Tok.) & ARC-C & SciQ & PubMedQA & MathQA & MMLU & Avg \\\\ \\hline Med+C4-35B & 27.2 & 82.2 & 46.2 & 23.1 & 25.2 & 40.8 \\\\ QA+C4-35B & 29.0 & 85.1 & 62.2 & 22.5 & 26.1 & 45.0 \\\\ Combined-1:1-35B & 28.2 & 85.9 & 61.2 & 23.2 & 23.9 & 44.5 \\\\ Combined-1:2-35B & 29.0 & 85.7 & 57.4 & 23.5 & 23.1 & 43.\n' +
+      '\n' +
+      'RQ4: 합성 데이터가 증강보다 향상됩니까? 합성 데이터에 대한 사전 훈련으로 관찰된 이득은 증강을 사용한 사전 훈련과 동일합니까? 이를 테스트하기 위해 NL-Augmenter 라이브러리를 사용한 동의어 대체 및 무작위 삭제라는 두 가지 인기 있는 텍스트 증강 기준선을 고려한다(Dhole et al., 2021). 이 실험 세트를 수행하기 위해 15B 토큰에 대한 350M 매개변수 모델을 사전 훈련한다. 전체 풀 크기는 약 1.5B 토큰에 불과하며, 이는 모델이 추가되지 않는 한 사전 훈련 단계에서 약 10회 데이터를 반복해야 함을 의미한다. 그림 6의 복잡도 분석에서 볼 수 있듯이 증강 데이터에 대해 훈련된 모델은 실제 데이터와 합성 데이터의 조합에 대해 훈련된 모델보다 훨씬 더 나쁜 성능을 보인다. 이는 합성 데이터가 학습 과정을 향상시키며, 단순히 또 다른 형태의 증강이 아님을 시사한다.\n' +
+      '\n' +
+      'RQ5: 합성 데이터의 스타일이 특수 도메인에 대한 성능에 어떻게 영향을 미치는가?우리는 합성 데이터의 다양한 스타일에 대해 훈련된 다양한 모델의 성능을 비교한다. 특히, 4가지 스타일의 합성 데이터(쉬운, 중간, 단단한, Q/A)를 생성하고, 파일 부분 집합에 걸쳐 각 스타일의 조합에 대한 훈련의 성능을 평가한다. 이러한 합성 데이터 스타일을 생성하기 위한 프롬프트는 부록 G에 요약되어 있다. Vicuna-v1.3 모델로부터의 세대에 대응하는 결과 및 3B 토큰에 대해 트레이닝된 128M 모델에 대한 결과는 그림 7에 요약되어 있다. 평가 시 도메인의 스타일에 매칭되는 실제 C4 및 합성 데이터의 조합을 사용한 트레이닝이 성능을 향상시킨다는 것을 알 수 있다. 그러나 단일 합성 데이터 스타일이 모든 도메인에서 가장 좋은 성능을 발휘하지 않아 실제 C4 데이터와 각 합성 스타일 변형의 조합으로 훈련 전반에 걸쳐 유사한 성능을 나타낸다. LLM을 사전 훈련하기 위한 최상의 합성 스타일을 아는 것은 비실용적이지만 모든 영역에서 최상의 합성 스타일을 선택하는 오라클은 16%의 당혹감을 개선할 것이다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c c c c c} \\hline Dataset (Real Tok.) & ARC-E & BoolQ & Wino. & PIQA & HellaSwag & TruthfulQA & OBQA & LogQA & Avg \\\\ \\hline Med+C4-35B & 59.8 & 57.0 & 55.7 & 74.6 & 44.5 & 36.5 & 23.8 & 21.5 & 46.7 \\\\ QA+C4-35B & 62.2 & 63.3 & 55.7 & 74.8 & 44.6 & 41.4 & 22.4 & 23.2 & 48.4 \\\\ Combined-1:1-35B & 60.6 & 60.2 & 57.7 & 73.8 & 43.7 & 40.2 & 22.0 & 22.1 & 47.5 \\\\ Combined-1:2-35B & 61.4 & 62.0 & 57.0 & 74.8 & 44.6 & 39.5 & 23.0 & 21.3 & 48.0 \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 6: **여러 스타일을 결합하는 것:** 일반 이해 작업에서 150B 토큰에 대해 훈련된 \\(\\sim 1.3\\)B 매개변수 LLM의 평가. 결과는 리프레이징 스타일을 조합하는 것이 Q/A 스타일에 비해 제로 샷 작업에 대한 성능 이점을 제공하지 않는다는 것을 시사한다.\n' +
+      '\n' +
+      '그림 4: **여러 스타일을 결합하는 것:** 합성 데이터의 여러 스타일을 결합하는 것을 비교하는 파일의 모든 도메인에 걸친 복잡성. 모델은 총 150B 토큰에 대해 훈련된 1.3B 파라미터이다. 여러 스타일을 결합하면 약간의 당혹감이 개선됩니다.\n' +
+      '\n' +
+      'RQ6: 재구 모델에서 훈련된 모델로 데이터 누출이 있는가? 우리는 합성 데이터가 원래의 C4 데이터와 양식적으로 다르고 다른 PILE 도메인의 스타일과 일치하면서 유사한 의미 의미를 유지하는지 조사한다. 우리는 합성 데이터와 실제 데이터의 쌍을 비교하여 성능 향상이 재구 모델로부터의 지식 유출에 기인하지 않는다는 것을 확인한다. 우리는 각 데이터 세트에서 첫 번째 1000개 샘플의 하위 집합을 취한다.\n' +
+      '\n' +
+      '우리는 도 8의 (a) 및 (b)에서 중간 및 qa 프롬프트에 대해 SimCSE 대물렌즈(Gao et al., 2021)로 훈련된 사전 훈련된 BERT 모델로부터 문장 임베딩의 코사인 유사성을 보여준다. 유사성을 계산할 때 특이치를 제거합니다. 분포가 있는 그림은 가우시안 커널 밀도 추정기(KDE)를 사용하여 통계에 대한 분포를 구성합니다.\n' +
+      '\n' +
+      '그림 5: **고품질 패러프레이저의 중요성:** 다른 LLM에 의해 생성된 데이터에 대한 **WRAP**에 대한 모든 파일 도메인에 걸친 복잡성. 결과는 Qwen-1.8B와 같은 작은 모델도 고품질 패러프레이즈를 생성할 수 있음을 보여준다. 그러나 미세 조정된 T5 기반 모델과 같은 낮은 품질의 재구문은 언어 모델링을 훨씬 더 나쁘게 만든다.\n' +
+      '\n' +
+      '그림 6: **재구성은 어떤 증강과 동일한가?** 다른 증강 전략에 대해 파일의 복잡성을 비교한다. 350M 파라미터 모델은 총 15B 토큰에 대해 학습된다. **WRAP**(Medium + C4)는 전통적인 증강보다 훨씬 더 좋은 성능을 보인다.\n' +
+      '\n' +
+      '1000 값입니다. 실제 합성 쌍의 코사인 유사도는 C4의 두 개의 무작위 실제 샘플, 샘플의 전반부와 전체 샘플 사이의 코사인을 계산하는 연속 기준선, 동일한 샘플의 전반부와 후반부 사이의 코사인 유사성을 포함하는 여러 기준선보다 높다. 유사도가 높다는 것은 재구문이 정보를 추가하지 않고 실제 상대방과 유사한 의미를 유지한다는 것을 나타낸다.\n' +
+      '\n' +
+      '##7 한계와 기회\n' +
+      '\n' +
+      '### Cost Analysis\n' +
+      '\n' +
+      '합성 데이터를 생성해야 합니까, 아니면 실제 데이터에 대해 더 오래 훈련해야 합니까?\n' +
+      '\n' +
+      '**WRAP**의 응용은 (i) 핀란드어에 대한 언어 모델과 같은 낮은 자원 데이터 설정(Luukkonen et al., 2023) 및 (ii) 공통 크롤에 대한 훈련과 같은 데이터가 풍부한 설정 등 두 패러다임 모두에 있다. 전자에서는 더 많은 데이터를 순진하게 수집하는 대체 옵션이 없으므로 합성 데이터는 도메인 내 데이터에서만 교육을 능가해야 하는 자연스러운 솔루션이다. 그러나, 영어, 또는 보다 광범위하게는 일반적인 웹 데이터에 대한 언어 모델 훈련에 상당한 관심이 있다. 합성 데이터를 사용하는 것이 이 패러다임에서도 실행 가능한 옵션입니까?\n' +
+      '\n' +
+      '그림 8: 합성 데이터가 실제 C4 데이터와 비교하여 의미론적 의미를 유지하고 주로 (a) C4의 중간 재구어, (b) C4의 QA 재구어에 대한 스타일을 변경한다는 것을 보여주는 C4 코퍼스의 합성 데이터와 실제 데이터 간의 비교.\n' +
+      '\n' +
+      '그림 7: ** 합성 구문의 스타일이 미치는 영향:** 다른 스타일의 합성 데이터를 비교하는 파일의 모든 도메인에 걸친 복잡성. 우리는 3B 토큰에 대해 128M 매개변수 모델을 훈련한다.\n' +
+      '\n' +
+      '이전에는 합성 데이터에 대한 사전 훈련의 실현 가능성을 살펴보았으며, 표 1의 결과를 인정해야 한다. 3조 토큰에 대해 훈련된 TinyLlama 모델은 실제 데이터와 합성 데이터에 대해 공동으로 훈련된 모델보다 성능이 낮다. 실제로 실제 데이터에서도 300B 토큰에 대해 훈련된 모델과 상당히 유사한 성능을 발휘합니다. 이것은 더 긴 트레이닝에 의한 개선의 천정이 그렇게 높지 않을 수 있음을 시사한다(크기 350M/1.3B 파라미터들의 모델의 경우; 더 큰 모델들은 더 긴 트레이닝으로부터 이익을 얻을 수 있다).\n' +
+      '\n' +
+      '이러한 비용 절충을 분석하기 위해 합성 데이터 생성 비용과 추가 데이터에 대한 언어 모델 학습 비용을 비교한다. 합성 데이터 생성 실험을 위해 빠른 생성을 위해 vLLM(Kwon et al., 2023) 라이브러리를 사용한다. 특히, 우리는 미스트랄-7B를 사용할 때 단일 A100에서 시간당 3M 토큰을 생성할 수 있다. 85B 토큰(우리 작업에서와 같이)을 생성하는 것은 약 25K GPU 시간을 설명한다.\n' +
+      '\n' +
+      '이에 비해 64 A100s에서 초당 0.5M 토큰의 처리량을 달성한다. 300B 토큰에 대한 훈련을 가정하면 256 GPU 일수를 의미하며 단일 모델을 훈련하기 위해 약 6k GPU 시간을 차지한다. 반대로 13B 모델을 훈련하는 데는 약 30K GPU 시간이 소요됩니다. 13B 모델의 훈련 규모에서, 훈련 비용을 3-10배 감소시키는 것은 단일 실행에서 합성 데이터로 훈련의 비용 오버헤드를 통합할 수 있다.\n' +
+      '\n' +
+      '고품질 데이터를 생성하는 비용은 여전히 상대적으로 높지만 두 가지 중요한 개선 소스가 이러한 비용 분석에 영향을 미친다. 첫째, Qwen-1.8B 모델 Bai et al.(2023b)을 재구문에 사용하면 3배 더 높은 토큰 처리량을 얻을 수 있다. 그림 5의 예비 결과에서 볼 수 있듯이 Qwen 모델에 의해 생성된 재구문에 대해 미리 훈련된 모델은 미스트랄 모델에 의한 모델과 비교할 수 있다. 이렇게 하면 생성 비용이 3배 줄어듭니다. 추측 디코딩(Liu et al., 2023c) 및 최적화된 추론(Xia et al., 2024)에서의 보다 최근의 작업은 우리가 생성 비용에서 또 다른 3-5배 개선을 레버리지할 수 있음을 시사한다. 따라서 실제로 1.3B 매개변수 모델 훈련의 규모에서도 실제 데이터를 사용하여 사전 훈련 비용을 개선할 수 있다.\n' +
+      '\n' +
+      '상기 논의에서 설명할 수 없었던 합성 데이터 생성의 두 가지 추가적인 중요한 이점:\n' +
+      '\n' +
+      '1. 합성 데이터 생성 비용은 일회성 투자이며, 데이터가 생성되면 다양한 규모의 많은 모델을 학습시킬 수 있다.\n' +
+      '2. 데이터 생성은 100% 병렬화 가능하지만, 학습은 노드 간 연결이 빠른 큰 클러스터의 가용성을 요구한다. 이것은 훨씬 더 비싸다. 한편, 생성은 임의의 대규모 컴퓨팅 클러스터에서 빈 GPU를 채울 수 있고, 단일 GPU 머신에서 실행될 수 있는 측면 프로세스로 생각할 수 있다.\n' +
+      '\n' +
+      '### 합성세대의 다양성\n' +
+      '\n' +
+      '또 다른 한계는 생성된 데이터의 다양성을 강화하는 것이다. 이러한 다양성은 생성된 데이터에 포함된 "스타일"과 "지식" 모두에서 비롯된다. 최근 작업들(Li et al., 2023b;c)은 새로운 텍스트들을 생성하기 위해 모델을 시드하기 위해 토픽들, 또는 시나리오들의 선택을 사용했다. 여전히 Padmakumar et al.(2023)의 최근 연구에 따르면 AI 보조 글쓰기를 위한 언어 모델을 사용하는 것은 특히 명령어 조정 모델을 사용하는 경우 콘텐츠 다양성을 감소시키는 경향이 있다. 특히 새로운 콘텐츠 생성의 다양성과 관련된 문제를 완화하기 위해 재구성의 패러다임을 사용했지만, 패러프레이즈 모델에서 콘텐츠 다양성의 존재(또는 부족)와 영향을 평가하는 향후 작업이 남아 있다.\n' +
+      '\n' +
+      '## 8 Conclusion\n' +
+      '\n' +
+      '강한 언어 모델은 실제 데이터와 합성 데이터의 조합에 대해 사전 훈련되고 있다. 합성 데이터를 사용하면 공정성, 편향성 및 스타일(지시 팔로우와 같은)과 같은 바람직한 속성에서 데이터에 직접 베이킹할 수 있으므로 훈련 알고리즘을 구체적으로 조정할 필요가 없다. 이는 언어 모델을 인간의 가치에 맞추는 대안적인 접근 방식을 제공한다. 최근 합성 데이터에 대한 관심 증가, 특히 명령어 조정 언어 모델에 대한 관심은 주목할 만하며 동시 연구자도 사전 훈련에 활용한다. 이 패러다임으로 전환함에 따라 모델에 공급되는 데이터의 속성을 이해하는 것이 가장 중요하다. 본 논문은 LLM 사전 훈련에서 서로 다른 합성 스타일 데이터를 사용하는 것에 대한 포괄적인 지침이 되는 것을 목표로 한다. 우리는 두 가지 관점에서 그 중요성을 탐구한다: (1) 고품질 데이터가 부족한 시나리오에서 합성어는 기존 데이터의 단순한 반복보다 더 많은 가치를 제공한다; (2) 합성 데이터는 다른 텍스트 도메인에 대한 일반화와 사전 훈련 데이터 세트에서 과소 대표되는 스타일로 텍스트를 생성하는 데 도움이 될 수 있다. 실무자들이 훈련 모델을 위한 합성 데이터를 생성함에 따라, 그들은 중요하고 값비싼 설계 선택에 직면하게 될 것이다--(i) 합성 데이터 생성기의 품질은 얼마나 중요한가? (ii) 실제 데이터와 합성 데이터의 균형을 맞추는 방법? (iii) 합성 데이터에 대한 트레이닝이 언제 에폭의 관점에서 수익 감소의 지점에 도달합니까? 이 작업은 이러한 질문에 답하기 위한 첫 번째 단계를 거칩니다.\n' +
+      '\n' +
+      '반대로, 내재된 한계와 합성 데이터로 기회를 주목하는 것이 필수적이다. 우리는 (1) 생성 비용이 여전히 크고 강력한 LM을 필요로 하며 (2) 생성된 데이터의 다양성을 강화하는 것은 어렵다는 두 가지 한계를 강조한다. 이 작업에서 우리는 웹의 자연스러운 다양성을 활용하여 합성 "재구"를 생성한다. 이는 모델이 새로운 "지식"을 학습하는 것을 제한하고 고품질 입력의 제공을 통해서만 학습 프로세스를 향상시킨다. 과거 작업은 모델의 사각지대에 대한 보다 복잡한 이해가 필요한 반면, 사전 훈련 데이터 분포에 포함된 지식을 잠재적으로 편향시킨다. 그럼에도 불구하고, 우리는 계산과 데이터 크기 모두에서 LLM 훈련 효율성을 향상시키기 위한 합성 데이터의 잠재력을 보여준다.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* A. Abbas, K. 티루말라, D. 시믹, S. Ganguli, and A. S. Morcos (2023)SemMedup: 의미 중복 제거를 통한 웹 스케일에서의 데이터 효율적인 학습. ArXivabs/2303.09540. External Links: Link, 2303.09540 Cited by: SS1.\n' +
+      '* S. 알레모하마드, J. 카스코-로드리게스, L. Luzi, A. Imtiaz Humayun, H. Babaei, D. LeJeune, A. Siahkoohi, 그리고 R. G. Baraniuk (2023)의 자기 소모적인 생성 모델들은 열광한다. ArXiv:2307.01850. 인용: SS1.\n' +
+      '* A. Amini, S. 가브리엘 린락 곤셀 케지레스키, Y. Choi, and H. Hajishirzi (2019)MathQA: toward interpretable math word problem solving with operation-based formalisms. In Proceedings of the 2019 Conference of the North American chapter of the Computational Linguistics: Human Language Technologies, Volume 1(Long and Short Papers), Minneapolis, Minnesota, June 2019, pp. 2357-2367. External Links: Link, 1905.05063 Cited by: SS1.\n' +
+      '* S. 아지치 콘블리쓰, C. 사하라, M. Norouzi, and D. J. Fleet(2023) 확산 모델로부터의 합성 데이터는 이미제넷 분류를 개선한다. ArXiv:2304.08466. 인용: SS1.\n' +
+      '*J.Bai, S 배영 추주영 최경 당영 판원 지영 한필황 지현림 Lin D. Liu G. Liu C. Lu K. 루정마 Men, X 렌진 렌철탄 탄준두 왕욱 왕승 Wu, B. Xu, J. Xu, A. Yang, H. Yang, J. Yang, S. 양영 야오비위안 위안장 장영 장장 장창주 저우, T. Zhu(2023)Qwen 기술 보고서. arXiv preprint arXiv:2309.16609. External Links: Link, 2309.16609 Cited by: SS1.\n' +
+      '*J.Bai, S 배영 추주영 최경 젠장, X 등영 판원 지영 Han, F. Huang, et al.(2023)Qwen technical report. arXiv preprint arXiv:2309.16609. External Links: Link, 2309.16609 Cited by: SS1.\n' +
+      '\n' +
+      '[MISSING_PAGE_POST]\n' +
+      '\n' +
+      ' S. 배영\n' +
+      '\n' +
+      '* Bisk 등(2020) 요나탄 비스크, Rowan Zellers, Ronan Le Bras, Jianfeng Gao, and Yejin Choi. 피카: 자연어로 물리적 상식에 대한 추론. 2020년 인공 지능에 관한 34번째 AAAI 회의에서.\n' +
+      '* Brown et al. (2020) Tom Brown, Benjamin Mann, Nick Ryder, Melanie Subbiah, Jared D Kaplan, Prafulla Dhariwal, Arvind Neelakantan, Pranav Shyam, Girish Sastry, Amanda Askell, Sandhini Agarwal, Ariel Herbert-Voss, Gretchen Krueger, Tom Henighan, Rewon Child, Aditya Ramesh, Daniel Ziegler, Jeffrey Wu, Clemens Winter, Chris Hesse, Mark Chen, Eric Sigler, Mateusz Litwin, Scott Gray, Benjamin Chess, Jack Clark, Christopher Berner, Sam McCandlish, Alec Radford, Ilya Sutskever, Dario Amodei. 언어 모델은 소수의 학습자들입니다. M. Larochelle 란자토 Hadsell, M.F. Balcan, and H. Lin(eds.), _Advances in Neural Information Processing Systems_, Volume 33, pp. 1877-1901. Curran Associates, Inc., 2020. URL[https://proceedings.neurips.cc/paper_files/paper/2020/file/1457c0d6bfcd967418bf8ac142f64a-Paper.pdf](https://proceedings.neurips.cc/paper_files/paper/2020/file/1457c0d6bfcd967418bf8ac142f64a-Paper.pdf](https://proceedings.neurips.cc/paper_files/paper/2020/file/1457c0d6bfcd967418bf8ac142f64a-Paper.pdf)\n' +
+      '* Chen et al. (2023) Lichang Chen, Shiyang Li, Jun Yan, Hai Wang, Kalpa Gunaratna, Vikas Yadav, Zheng Tang, Vijay Srinivasan, Tianyi Zhou, Heng Huang, et al. Alpagasus: 더 적은 데이터로 더 나은 알파카를 훈련한다. _ arXiv preprint arXiv:2307.08701_, 2023.\n' +
+      '* Chiang et al. (2023) Wei-Lin Chiang, Zhuohan Li, Zi Lin, Ying Sheng, Zhanghao Wu, Hao Zhang, Lianmin Zhang, Siyuan Zhuang, Yonghao Zhuang, Joseph E. Gonzalez, Ion Stoica, and Eric P. Xing. Vicuna: 90%* chatgpt 품질을 가진 gpt-4를 인상하는 오픈소스 챗봇, 3월 2023. URL[https://lmsys.org/blog/2023-03-30-vicuna/](https://lmsys.org/blog/2023-03-30-vicuna/]).\n' +
+      '* Choi et al. (2019) Dami Choi, Alexandre Passos, Christopher J Shallue, and George E Dahl. 데이터 반향을 이용한 더 빠른 신경망 훈련 ArXiv preprint arXiv:1907.05550_, 2019.\n' +
+      '* Clark et al. (2019) Christopher Clark, Kenton Lee, Ming-Wei Chang, Tom Kwiatkowski, Michael Collins, and Kristina Toutanova. BoolQ: 자연스러운 예/아니오 질문의 놀라운 어려움을 탐구하는 것. In _Proceedings of the 2019 Conference of the North American chapter of the Computational Linguistics: Human Language Technologies, Volume 1(Long and Short Papers)_, pp. 2924-2936, Minneapolis, Minnesota, June 2019. Association for Computational Linguistics. doi: 10.18653/v1/N19-1300. URL[https://aclanthology.org/N19-1300](https://aclanthology.org/N19-1300).\n' +
+      '* Clark et al. (2018) Peter Clark, Isaac Cowhey, Oren Etzioni, Tushar Khot, Ashish Sabharwal, Carissa Schoenick, and Oyvind Tafjord. 질문에 답하는 걸 해결했다고 생각해? try arc, the ai2 reasoning challenge. _ arXiv:1803.05457v1_, 2018.\n' +
+      '* 컴퓨터(2023) Together Computer. 레드파자마: 대규모 언어 모델을 훈련하기 위한 오픈 데이터셋입니다. 2023. URL[https://github.com/togethercomputer/RedPajama-Data](https://github.com/togethercomputer/RedPajama-Data)\n' +
+      '* Cubuk et al. (2020) Ekin D Cubuk, Barret Zoph, Jonathon Shlens, and Quoc V Le. 랜다거먼트: 검색 공간이 축소된 실용적인 자동화된 데이터 증강. In _Proceedings of the IEEE/CVF conference on computer vision and pattern recognition workshops_, pp. 702-703, 2020.\n' +
+      '* Dhole et al. (2020) Kaustubh D. Dhole, Varun Gangal, Sebastian Gehrmann, Aadesh Guharman, Zhenhao Li, Saad Mahamood, Abinish Srivastava, Samson Tan, Tongshuang Wu, Jasuard Hovy, Ondrej Dusek, Sebastian Ruder, Sajant Anand, Nagender Aneja, Rabin Banjade, Lisa Barthe, Hanna Behnke, Ian Berlot-Attwell, Samuel Chayawjiaya, Emile Chapuis, Pierre Colombo, Mautier Dixit, Fabrice Harel-Canada, Antoine Honore, Ishan 진달, Przemyslaw K. 요니아크, 데니스 클리코, 베넬린 코바체프, 칼페쉬 크리슈나, 아슈토시 쿠마르, 스테판 랑거, 승재 라이언 리, 코리 제임스 레빈슨, 후알루 리양, 카이즈하오 리양, 즈헥시온그 리우, 부코시 마리베이트, 제라드 드 멜로, 사이먼 마오니, 막심 마이어, 아프난 미르, 나피세 사다트 무사비, 니클라스 무엔히프, 티모시 섬 혼 문, 켄톤 머레이, 마르신 나미스키, 마리아 오베드코바, 프리티 올리, 니브란슈 파스히차, 얀 피스터, 리보 플랜트, 비카스 라지, 샤하브 라지, 파완 쿠마르 라즈푸트, 비카스 라우낙, 로이 린버그, 니콜라스 로버츠, 후안 디에고 로드리게스, 로빈 M. H. S.\n' +
+      '\n' +
+      '슈미트, 토마스 시알롬, 셰피쇼 세파라, 사킴 N. Shamsi, Xudong Shen, Haoyue Shi, Yiwen Shi, Anna Shvets, Nick Siegel, Damien Sileo, Jamie Simon, Chandan Singh, Roman Sitelew, Priyank Soni, Taylor Sorensen, William Soto, Aman Srivastava, KV Aditya Srivatsa, Tony Sun, Mukund Varma T, A Tabassum, Fiona Anting Tan, Ryan Teehan, Mo Tiwari, Marie Tolkiehn, Athena Wang, Zthena Wang, Gloria Wang, Genta Indra Winata, Xinyi Wu, Witold Wydmanski, Tianbao Xie, Usama Yaseen, M. 예, 징 장, 유에 장. NI-augmenter: 태스크에 민감한 자연어 증강을 위한 프레임워크, 2021.\n' +
+      '* 아이젠슈타인(2013) 제이콥 아이젠슈타인. 인터넷에서 나쁜 언어에 대해 무엇을 해야 하는가? In _Proceedings of the 2013 Conference of the North American chapter of the Computational Linguistics: Human Language Technologies_, pp. 359-369, Atlanta, Georgia, June 2013. Association for Computational Linguistics. URL[https://aclanthology.org/N13-1037](https://aclanthology.org/N13-1037).\n' +
+      '* 엘단 및 리(2023) 로난 엘단 및 위안지 리. 인생 이야기: 언어 모델이 얼마나 작고 여전히 일관성 있는 영어를 말할 수 있을까? arXiv preprint arXiv:2305.07759_, 2023.\n' +
+      '* Fort et al. (2021) Stanislav Fort, Andrew Brock, Razvan Pascanu, Soham De, and Samuel L Smith. 트레이닝 동안 이미지당 다수의 증강 샘플들을 그리는 것은 테스트 에러를 효율적으로 감소시킨다. _ arXiv preprint arXiv:2105.13343_, 2021.\n' +
+      '* Futrell et al.(2015) Richard Futrell, Kyle Mahowald, and Edward Gibson. 37개 언어의 의존 길이 최소화에 대한 대규모 증거 The Proceedings of the National Academy of Sciences_, 112(33):10336-10341, 2015.\n' +
+      '* Gadre et al. (2023) Samir Yitzhak Gadre, Gabriel Ilharco, Alex Fang, Jonathan Hayase, Georgios Smyrnis, Thao Nguyen, Ryan Marten, Mitchell Wortsman, Dhruba Ghosh, Jieyu Zhang, et al. Datacomp: next generation of multimodal datasets. _ arXiv preprint arXiv:2304.14108_, 2023.\n' +
+      '* Gao et al. (2020) Leo Gao, Stella Biderman, Sid Black, Laurence Golding, Travis Hoppe, Charles Foster, Jason Phang, Horace He, Anish Thite, Noa Nabeshima, et al. pile: 언어 모델링을 위한 다양한 텍스트의 800gb 데이터세트 _ ArXiv:2101.00027_, 2020.\n' +
+      '* Gao et al. (2023) Leo Gao, Jonathan Tow, Baber Abbasi, Stella Biderman, Sid Black, Anthony DiPofi, Charles Foster, Laurence Golding, Jeffrey Hsu, Alain Le Noac\'h, Haonan Li, Kyle McDonnell, Niklas Muennighoff, Chris Ociepa, Jason Phang, Laria Reynolds, Hailey Schoelkopf, Aviya Skowron, Lintang Sutawika, Eric Tang, Anish Thite, Ben Wang, Kevin Wang, And Andy Zou. 수-샷 언어 모델 평가를 위한 프레임워크, 12 2023. URL[https://zenodo.org/records/10256836](https://zenodo.org/records/10256836).\n' +
+      '* Gao et al. (2021) Tianyu Gao, Xingcheng Yao, and Danqi Chen. Simcse: 문장 임베딩의 단순 대조적 학습. _2021 Conference on Empirical Methods in Natural Language Processing, EMNLP 2021_, pp. 6894-6910. Association for Computational Linguistics(ACL), 2021.\n' +
+      '* Gibson et al. (2000) Edward Gibson et al. The dependency locality theory: distance-based theory of linguistic complexity. _ 이미지, 언어, 뇌_, 2000:95-126, 2000.\n' +
+      '* Gunasekar et al. (2023) Suriya Gunasekar, Yi Zhang, Jyoti Aneja, Caio Cesar Teodoro Mendes, Allie Del Giorno, Sivakanth Gopi, Mojan Javaheripi, Piero Kauffmann, Gustavo de Rosa, Olli Saarikivi et al. arXiv preprint arXiv:2306.11644_, 2023.\n' +
+      '* Gururangan et al. (2022) Suchin Gururangan, Dallas Card, Sarah Dreier, Emily Gade, Leroy Wang, Zeyu Wang, Luke Zettlemoyer, and Noah A. Smith. 누구의 언어가 높은 품질로 간주됩니까? 텍스트 데이터 선택에서 언어 이데올로기를 측정하는 중입니다. In _Proceedings of the 2022 Conference on Empirical Methods in Natural Language Processing_, pp. 2562-2580, Abu Dhabi, United Arab Emirates, December 2022. Association for Computational Linguistics. doi: 10.18653/v1/2022. emnlp-main.165. URL[https://aclanthology.org/2022.emnlp-main.165](https://aclanthology.org/2022.emnlp-main.165)\n' +
+      '* Hendrycks et al. (2021) Dan Hendrycks, Collin Burns, Steven Basart, Andy Zou, Mantas Mazeika, Dawn Song, and Jacob Steinhardt. 대규모 멀티태스크 언어 이해도 측정 The International Conference on Learning Representations (ICLR)_, 2021.\n' +
+      '\n' +
+      '* Hoffer et al. (2020) Elad Hoffer, Tal Ben-Nun, Itay Hubara, Niv Giladi, Torsten Hoefler, and Daniel Soudry. 배치 확장: 인스턴스 반복을 통해 일반화를 개선합니다. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pp. 8129-8138, 2020.\n' +
+      '* Hoffmann et al. (2022) Jordan Hoffmann, Sebastian Borgeaud, Arthur Mensch, Elena Buchatskaya, Trevor Cai, Eliza Rutherford, Diego de Las Casas, Lisa Anne Hendricks, Johannes Welbl, Aidan Clark, et al training compute-optimal large language models. _ arXiv preprint arXiv:2203.15556_, 2022.\n' +
+      '* Jiang et al. (2023) Albert Q Jiang, Alexandre Sablayrolles, Arthur Mensch, Chris Bamford, Devendra Singh Chaplot, Diego de las Casas, Florian Bressand, Gianna Lengyel, Guillaume Lample, Lucile Saulnier, et al. Mistral 7b. _ arXiv preprint arXiv:2310.06825_, 2023.\n' +
+      '* Jin et al. (2019) Qiao Jin, Bhuwan Dhingra, Zhengping Liu, William Cohen, and Xinghua Lu. Pubmedqa: 생물 의학 연구 질문 답변을 위한 데이터 세트. In _Proceedings of the 2019 Conference on Empirical Methods in Natural Language Processing and the 9th International Joint Conference on Natural Language Processing (EMNLP-IJCNLP)_, pp. 2567-2577, 2019.\n' +
+      '* Welbl et al. (2017) Matt Gardner Johannes Welbl, Nelson F. Liu. 다중 선택 과학 질문을 크라우드소싱합니다. 2017년\n' +
+      '* Jung et al. (2023) Jaehun Jung, Peter West, Liwei Jiang, Faeze Brahman, Ximing Lu, Jillian Fisher, Taylor Sorensen 및 Yejin Choi. 불가능한 증류: 저품질 모델에서 고품질 데이터세트 및 요약 및 패러프레이징 모델. _ arXiv preprint arXiv:2305.16635_, 2023.\n' +
+      '* Koksal et al. (2023) Abdullatif Koksal, Timo Schick, Anna Korhonen, and Hinrich Schutze. Longform: 코퍼스 추출과 함께 긴 텍스트 생성을 위한 명령어 튜닝 최적화. _ arXiv preprint arXiv:2304.08460_, 2023.\n' +
+      '* Kwon et al. (2023) Woosuk Kwon, Zhuohan Li, Siyuan Zhuang, Ying Sheng, Lianmin Zheng, Cody Hao Yu, Joseph E. Gonzalez, Hao Zhang, and Ion Stoica. 페이지어텐션으로 서비스를 제공하는 대용량 언어 모델을 위한 효율적인 메모리 관리 In _Proceedings of the ACM SIGOPS 29th Symposium on Operating Systems Principles_, 2023.\n' +
+      '*Li et al. (2021) Raymond Li, Loubna Ben Allal, Yangtian Zi, Niklas Muennighoff, Denis Koetkov, Chenghao Mou, Jia Li, Jenny Chim, Qian Liu, Mishig Zheltonzhskii, Terry Yue Wang, Olivier Dehaene, Mishig Davaadori, Joel Lamy-Poirier, Joao Monteiro, Oleleh Shliazkho, Nicolas Gontier, Nicholas Meade, Nour Fahmy, Marco Zocca, Manan Dey, Jashan Luccioni, Micholas Yee, Zhiruo Wang, Rudra Murthy, Jiva Reddy, Daniel Fried, Dzmitry Bahdanau, Wenan Zavitt, Danish Reddy, Carlos Munoz Ferrandis, Sean Hughes, Leandro verra, Harn de Vries. 출처가 당신과 함께 있기를! 2023a.\n' +
+      '* Li et al. (2023b) Xian Li, Ping Yu, Chunting Zhou, Timo Schick, Luke Zettlemoyer, Omer Levy, Jason Weston, and Mike Lewis. 명령어 역변환과 자기 정렬 arXiv preprint arXiv:2308.06259_, 2023b.\n' +
+      '* Li et al. (2023) Yuanzhi Li, Sebastien Bubeck, Ronen Eldan, Allie Del Giorno, Suriya Gunasekar, and Yin Tat Lee. 교과서는 ii: phi-1.5 기술 보고서가 필요한 전부입니다. _ arXiv preprint arXiv:2309.05463_, 2023c.\n' +
+      '* Lin et al.(2021) Stephanie Lin, Jacob Hilton, and Owain Evans. 진실: 모델들이 인간의 거짓을 어떻게 모방하는지 측정하는 것, 2021년.\n' +
+      '\n' +
+      '* Liu et al. (2023) Bingbin Liu, Sebastien Bubeck, Ronen Eldan, Janardhan Kulkarni, Yuanzhi Li, Anh Nguyen, Rachel Ward, and Yi Zhang. Tinygsm: 달성과 80% on gsm8k with small language models. _ arXiv preprint arXiv:2312.09241_, 2023a.\n' +
+      '* Liu et al. (2023b) Hanmeng Liu, Jian Liu, Leyang Cui, Zhiyang Teng, Nan Duan, Ming Zhou, and Yue Zhang. Logiqa 2.0 -- 자연어 이해에서 논리적 추론을 위한 개선된 데이터세트. _ IEEE/ACM Transactions on Audio, Speech, and Language Processing_, pp. 1-16, 2023b. doi: 10.1109/TASLP.2023.3293046.\n' +
+      '* Liu et al. (2023c) Xiaoxuan Liu, Lanziang Hu, Peter Bailis, Ion Stoica, Zhijie Deng, Alvin Cheung, and Hao Zhang. 온라인 추측 디코딩. _ arXiv preprint arXiv:2310.07177_, 2023c.\n' +
+      '* Luukkonen et al. (2023) Risto Luukkonen, Ville Komulainen, Jouni Luoma, Anni Eskelinen, Jenna Kanerva, Hanna-Mari Kupari, Filip Ginter, Veronika Liappala, Niklas Muennighoff, Aleksandra Piktus, et al. Fingpt: Large Generative models for small language. _ arXiv preprint arXiv:2311.05640_, 2023.\n' +
+      '* Maini(2023) Pratyush Maini. Phi-1.5 모델: 사과와 오렌지를 비교하는 경우? 2023. URL[https://pratyushmaini.github.io/phi-1.5/](https://pratyushmaini.github.io/phi-1.5/)\n' +
+      '* Maini et al. (2023) Pratyush Maini, Sachin Goyal, Zachary C Lipton, J Zico Kolter, and Aditi Raghunathan. T-mars: 텍스트 특징 학습을 우회하여 시각적 표현을 개선한다. _ arXiv preprint arXiv:2307.03132_, 2023.\n' +
+      '* Mihaylov et al. (2018) Todor Mihaylov, Peter Clark, Tushar Khot, and Ashish Sabharwal. 갑옷이 전기를 통할 수 있나요? 열린 책 질문 응답을 위한 새 데이터 세트 _EMNLP_, 2018.\n' +
+      '* Muennighoff et al. (2022) Niklas Muennighoff, Alexander M Rush, Boaz Barak, Teven Le Scao, Aleksandra Piktus, Nouamane Tazi, Sampo Pyysalo, Thomas Wolf, and Colin Raffel. 데이터 제한 언어 모델을 확장합니다. _ arXiv preprint arXiv:2305.16264_, 2023.\n' +
+      '* Ouyang et al. (2022) Long Ouyang, Jeffrey Wu, Xu Jiang, Diogo Almeida, Carroll Wainwright, Pamela Mishkin, Chong Zhang, Sandhini Agarwal, Katarina Slama, Alex Ray, et al. training language models to follow instructions with human feedback. _ 신경 정보 처리 시스템_, 35:27730-27744, 2022에서의 발전.\n' +
+      '* 오야(2021) 마산오리 오야. 다국어 병렬 말뭉치에서 문장의 평균 의존 거리의 세 가지 유형. In _Proceedings of the 35th Pacific Asia Conference on Language, Information and Computation_, pp. 652-661, 2021.\n' +
+      '* Padmakumar et al. (2023) Vishakh Padmakumar, Behnam Hangersatnia, Di Jin, Patrick Lange, 석환 Kim, Nanyun Peng, Yang Liu, and Dilek Hakkani-Tur. 트랜스포머 모델에 대한 열린 도메인 대화 컨텍스트의 표현을 조사합니다. In _Proceedings of the 24th Meeting of the Special Interest Group on Discourse and Dialogue_, pp. 538-547, Prague, Czechia, September 2023. Association for Computational Linguistics. URL[https://aclanthology.org/2023.sigdial-1.50](https://aclanthology.org/2023.sigdial-1.50).\n' +
+      '* Penedo et al. (2023) Guilherme Penedo, Quentin Malartic, Daniel Hesslow, Ruxandra Cojocaru, Alessandro Cappelli, Hamza Alobeidli, Baptiste Pannier, Ebtesam Almazrouei, and Julien Launay. Falcon llm에 대한 정제된 웹 데이터세트: 웹 데이터로 선별된 말뭉치를 능가하고 웹 데이터만 수행한다. _ arXiv preprint arXiv:2306.01116_, 2023.\n' +
+      '* Radford et al. (2021) Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, et al. Learning transferable visual models from natural language supervision. In _International conference on machine learning_, pp. 8748-8763. PMLR, 2021.\n' +
+      '* Rae et al. (2021) Jack W Rae, Sebastian Borgeaud, Trevor Cai, Katie Millican, Jordan Hoffmann, Francis Song, John Aslanides, Sarah Henderson, Roman Ring, Susannah Young, et al. Scaling language models: Methods, analysis and insights from training gopher. _ arXiv preprint arXiv:2112.11446_, 2021.\n' +
+      '* Rae et al. (2021)* Raffel et al. (2020) Colin Raffel, Noam Shazeer, Adam Roberts, Katherine Lee, Sharan Narang, Michael Matena, Yanqi Zhou, Wei Li, and Peter J Liu. 단일 텍스트-텍스트 변환기를 이용한 전이학습의 한계점 탐색 The Journal of Machine Learning Research_, 21(1):5485-5551, 2020.\n' +
+      '* Schuhmann et al. (2022) Christoph Schuhmann, Romain Beaumont, Richard Vencu, Cade Gordon, Ross Wightman, Mehdi Cherti, Theo Coombes, Aarush Katta, Clayton Mullis, Mitchell Wortsman, et al. Laion-5b: 차세대 이미지-텍스트 모델을 훈련시키기 위한 개방형 대규모 데이터세트. _ 신경 정보 처리 시스템_, 35:25278-25294, 2022에서의 발전.\n' +
+      '* Shen et al. (2023) Zhiqiang Shen, Tianhua Tao, Liqun Ma, Willie Neiswanger, Joel Hestness, Natalia Vassilieva, Daria Soboleva, and Eric Xing. Slimpajama-dc: llm 훈련을 위한 데이터 조합의 이해 arXiv preprint arXiv:2309.10818_, 2023.\n' +
+      '* Shumailov et al. (2023) Ilia Shumailov, Zakhar Shumaylov, Yiren Zhao, Yarin Gal, Nicolas Papernot, and Ross Anderson. 모델 치매: 생성된 데이터는 모델을 잊게 만든다. _ arXiv preprint arXiv:2305.17493_, 2023.\n' +
+      '* Solaiman and Dennison (2021) Irene Solaiman and Christy Dennison. 값-표적화된 데이터세트로 언어 모델을 사회(손바닥)에 적응시키기 위한 프로세스. _ 신경 정보 처리 시스템_, 34:5861-5873, 2021에서의 발전.\n' +
+      '* Touvron et al. (2023) Hugo Touvron, Louis Martin, Kevin Stone, Peter Albert, Amjad Almahairi, Yasmine Babaei, Nikolay Bashlykov, Soumya Batra, Prajwal Bhargava, Shruti Bhosale, et al. Llama 2: Open foundation and fine-tuned chat models. _ arXiv preprint arXiv:2307.09288_, 2023.\n' +
+      '* Trabucco et al.(2023) Brandon Trabucco, Kyle Doherty, Max Gurnias, and Ruslan Salakhutdinov. 확산 모델을 이용한 효과적인 데이터 증강 arXiv preprint arXiv:2302.07944_, 2023.\n' +
+      '* Vaswani et al. (2017) Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Lukasz Kaiser, and Illia Polosukhin. 주목해 주세요 신경 정보 처리 시스템_, 30, 2017의 발전.\n' +
+      '* Villalobos et al. (2022) Pablo Villalobos, Jaime Sevilla, Lennart Heim, Tamay Besiroglu, Marius Hobbhahn, and Anson Ho. 데이터가 다 떨어지나요? 머신 러닝에서 데이터 세트의 스케일링 한계에 대한 분석. _ arXiv preprint arXiv:2211.04325_, 2022.\n' +
+      '* Wei et al. (2023) Yuxiang Wei, Zhe Wang, Jiawei Liu, Yifeng Ding, and Lingming Zhang. 매직코더: 소스 코드만 있으면 돼 arXiv preprint arXiv:2312.02120_, 2023.\n' +
+      '* Wenzek et al. (2020) Guillaume Wenzek, Marie-Anne Lachaux, Alexis Conneau, Vishrav Chaudhary, Francisco Guzman, Armand Joulin, and Edouard Grave. CCNet: 웹 크롤 데이터에서 고품질 단일 언어 데이터 세트를 추출합니다. In _Proceedings of the Twelfth Language Resources and Evaluation Conference_, pp. 4003-4012, Marseille, France, May 2020. European Language Resources Association. ISBN 979-10-95546-34-4. URL[https://aclanthology.org/2020.1rec-1.494](https://aclanthology.org/2020.1rec-1.494).\n' +
+      '* Xia et al. (2024) Heming Xia, Zhe Yang, Qingxiu Dong, Peiyi Wang, Yongqi Li, Tao Ge, Tianyu Liu, Wenjie Li, 및 Zhifang Sui. 대용량 언어 모델 추론에서의 잠금 해제 효율성: 추측 디코딩에 대한 포괄적인 조사, 2024.\n' +
+      '* Xie et al. (2023) Sang Michael Xie, Hieu Pham, Xuanyi Dong, Nan Du, Hanxiao Liu, Yifeng Lu, Percy Liang, Quoc V Le, Tengyu Ma, and Adams Wei Yu. 도레미: 데이터 혼합물 최적화로 언어 모델 사전 훈련이 빨라집니다. _ arXiv preprint arXiv:2305.10429_, 2023.\n' +
+      '* Xue et al. (2023) Fuzhao Xue, Yao Fu, Wangchunshu Zhou, Zangwei Zheng, and Yang You. 반복하거나 반복하지 않으려면: 토큰 위기 하에서 llm의 축척에 대한 통찰력. _ arXiv preprint arXiv:2305.13230_, 2023.\n' +
+      '* Yu et al. (2023) Haichao Yu, Yu Tian, Sateesh Kumar, Linjie Yang, and Heng Wang. 악마는 세부 사항에 있습니다: 데이터 필터링의 토끼 구멍으로 깊이 파고듭니다. _ arXiv preprint arXiv:2309.15954_, 2023.\n' +
+      '\n' +
+      '* Zellers et al. (2019) Rowan Zellers, Ari Holtzman, 요나탄 Bisk, Ali Farhadi, and Yejin Choi. 헬라스바그: 기계가 정말로 당신의 문장을 끝낼 수 있을까요? _Proceedings of the 57th Annual Meeting of the Association for Computational Linguistics_, 2019.\n' +
+      '* Zhang et al. (2024) Peiyuan Zhang, Guangtao Zeng, Tianduo Wang, and Wei Lu. Tinyllama: 오픈소스 소형 언어 모델, 2024.\n' +
+      '* Zhou et al. (2023) Chunting Zhou, Pengfei Liu, Puxin Xu, Srini Iyer, Jiao Sun, Yuning Mao, Xuezhe Ma, Avia Efrat, Ping Yu, Lili Yu, et al. Lima: Lessly is more for alignment. _ arXiv preprint arXiv:2305.11206_, 2023.\n' +
+      '\n' +
+      'Dataset Details\n' +
+      '\n' +
+      '### Training Dataset\n' +
+      '\n' +
+      '실험에서 주요 사전 훈련 말뭉치는 1,700억 개 이상의 토큰으로 구성된 선별된 영어 텍스트 데이터 집합인 Colossal Clean Crawled Corpus(C4)이다. 이 말뭉치는 LLMs Brown et al. (2020); Raffel et al. (2020); Touvron et al. (2023)의 사전 훈련에서 일반적인 관행인 CommonCrawl로부터 도출된다. 이 데이터 소스는 또한 The Pile Gao et al. (2020) 및 RedPajama Computer (2023)를 포함하여 공개적으로 이용 가능한 LLM 사전 훈련 말뭉치에 두드러지게 특징지어진다. CommonCrawl 데이터에는 다양한 버전이 있으며 사전 교육을 위한 C4의 선택은 크기와 품질에 따라 결정된다.\n' +
+      '\n' +
+      '또한 정제 웹 코퍼스 Penedo et al. (2023)에 대한 사전 훈련과 비교한다. 데이터 세트는 CommonCrawl에서도 파생되지만 보다 엄격한 필터링 프로세스가 있다. Penedo et al. (2023)과 유사한 성능을 보이는 웹 데이터의 고품질 하위 집합과 합성 재구문을 비교하기 위해 정제 웹을 선택하였다. 실험을 위해 처음 3050개의 파일을 사용하고 C4에 대한 훈련과 일치하도록 300B 토큰에 대한 훈련을 수행했으며, 정제된 웹 데이터 세트에서 여러 에포크를 설명하기 위해 처음 1650개의 파일을 사용하여 실험을 수행했다.\n' +
+      '\n' +
+      '###말뚝의 성능평가\n' +
+      '\n' +
+      '평가 단계에서는 파일 코퍼스에서 20개의 하위 집합을 사용했다. 우리는 Europarl 하위 집합이 비영어를 포함했기 때문에 제외했다. 사용된 하위 집합은 CC, StackExchange, Wikipedia, GitHub, PubMed Abstracts, Openwebtext2, Freelaw, Math, NIH, USPTO, Hackernews, Enron, Books3, PubMed Central, Gutenberg, Arxiv, Bookcorpus2, Opensubtitles, Youtubesubtitles, Ubuntu, Philippers이다. 각 부분 집합에서 처음 10000개의 표본을 추출하여 최대 길이 1024의 문서로 분할한다. 모든 복잡도 그래프에서 보고된 평균은 표 7의 비율에 따라 모든 도메인의 복잡도에 대한 가중 평균이다.\n' +
+      '\n' +
+      'a.2.1 파일 가중 평균 비율\n' +
+      '\n' +
+      '표 7의 파일 검증 세트에서 처음 10,000개의 문서에 따라 샘플에 대한 비율을 보고한다. Gao et al.(2020)에 보고된 비율과 비교하여 비율에 약간의 변화가 있지만 대부분의 비율은 유사하다.\n' +
+      '\n' +
+      '### 제로샷 평가 데이터세트\n' +
+      '\n' +
+      '우리는 다양한 자연어 작업에서 그들의 능력을 평가하기 위해 총 13개의 서로 다른 제로샷 벤치마크에 대해 모델을 평가한다. 이러한 벤치마크는 전문 지식과 일반 이해의 두 가지 하위 집합으로 분류된다.\n' +
+      '\n' +
+      '전문 지식 이 하위 집합은 도메인별 지식과 전문지식에 초점을 맞춘 데이터 세트로 구성됩니다.\n' +
+      '\n' +
+      '***ARC Challenge(ARC-C)**: 이 데이터세트는 AI2 Reasoning Challenge(ARC) Clark et al.(2018)의 일부로서, 3등급부터 9등급까지의 과학 시험 문제를 포함한다. ARC Challenge 세트는 고차 추론을 필요로 하는 더 어려운 문제를 포함한다.\n' +
+      '** **SciQ:** 과학 시험 문제의 데이터 세트이며, 과학 도메인 요하네스 웰블(2017) 내에서 이해 및 추론에서 NLP 모델의 능력을 평가하기 위해 특별히 설계되었다.\n' +
+      '* **PubMedQA:** 이 데이터셋은 생명의료 문헌에 초점을 맞추고 있으며, 의료 및 의료 관련 정보 진 등(2019)의 이해를 평가하도록 설계되어 있다.\n' +
+      '* **MathQA:** 이 데이터 세트는 수학적 문제 해결에서 모델에 도전하며, 수치적 이해 및 추론 기술 Amini 등(2019)을 모두 필요로 한다.\n' +
+      '\n' +
+      '**MMLU**: Multi-domain question answering, MMLU는 전문 도메인에서 학계에 이르기까지 광범위한 전문 주제에 걸쳐 모델의 전문성을 평가한다(Hendrycks et al., 2021).\n' +
+      '\n' +
+      '일반 이해 이 부분 집합에는 일반적인 인지 기술, 언어 이해 및 상식 추론을 테스트하는 데이터 세트가 포함되어 있다.\n' +
+      '\n' +
+      '**ARC Easy(ARC-E)**: The Easy set of the AI2 Reasoning Challenge(Clark et al., 2018)는 ARC-C와 동일한 소스로부터의 질문들을 특징으로 하지만 덜 도전적인 것으로 간주되고 고급 추론 기술로서 요구되지 않는다.\n' +
+      '**BoolQ**: 부울(예/아니오) 문항으로 구성된 데이터셋으로, 자연어 텍스트에 대한 독해 및 일반 이해를 중심으로 한다(Clark et al., 2019).\n' +
+      '* **Winogrande (Wino.)**: 이 데이터 세트는 대명사 중의성 해소 작업(ai2, 2019)에 초점을 맞추어 언어 컨텍스트에서 상식 추론에 대한 모델에 도전한다.\n' +
+      '* **PIQA**: Physical Interaction Question Answering은 실용적인 상식의 한 측면인 일상적인 물리적 과정에 대한 이해를 테스트한다(Bisk et al., 2020).\n' +
+      '***HellaSwag**: 이 데이터세트는 문맥적 및 논리적으로 일관성 있는 방식으로 시나리오를 완성하는 모델의 능력을 평가하며, 언어 이해와 상식 추론 모두를 필요로 한다(Zellers et al., 2019).\n' +
+      '**TruthfulQA**: 진실하고 정확한 답변의 생성을 중심으로, 이 데이터세트는 사실적으로 정확한 정보를 식별하고 재현하는 능력에 대한 모델에 도전한다(Lin et al., 2021).\n' +
+      '***OpenBookQA(OBQA)**: OpenBookQA는 광범위한 사실 및 개념을 이해해야 하므로, 모델의 광범위한 지식 및 추론 기술을 평가할 수 있다(Mihaylov et al., 2018).\n' +
+      '**LogiQA-2**: 이 데이터세트는 논리적 추론, 논리적 구성 및 원리를 이해하고 적용하는 모델의 능력을 테스트하는 것을 포함한다(Liu et al., 2023b).\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c} \\hline \\hline Dataset & Validation Ratio (\\%) & Published Ratio (\\%) \\\\ \\hline ArXiv & 10.4 & 9.0 \\\\ BookCorpus2 & 0.8 & 0.8 \\\\ Books3 & 11.8 & 12.1 \\\\ Pile-CC & 14.0 & 18.11 \\\\ Enron & 0.1 & 0.1 \\\\ EuroParl & 1.1 & 0.7 \\\\ FreeLaw & 5.3 & 6.1 \\\\ Github & 10.9 & 7.6 \\\\ Gutenberg & 1.5 & 2.2 \\\\ Hackernews & 0.6 & 0.6 \\\\ Dm Mathematics & 2.0 & 1.2 \\\\ NIH & 0.2 & 0.3 \\\\ OpenSubtitles & 1.3 & 1.6 \\\\ OpenWebText2 & 8.2 & 10.0 \\\\ PhilPapers & 0.7 & 0.4 \\\\ PubMed Abstracts & 0.7 & 3.1 \\\\ PubMed Central & 14.9 & 14.4 \\\\ StackExchange & 5.8 & 5.1 \\\\ Ubuntu & 1.3 & 0.9 \\\\ USPTO & 2.7 & 3.7 \\\\ Wikipedia & 3.4 & 1.5 \\\\ YoutubeSubtitles & 0.6 & 0.6 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 7: 이러한 하위 집합의 각 데이터 세트에 게시된 비율과 비교한 평가에 대한 파일 비율은 과학, 의학 및 수학의 도메인 특정 지식에서 상식 추론 및 일반 언어 이해와 같은 광범위한 기술에 이르기까지 자연 언어 처리 모델의 특정 측면에 도전하고 평가하기 위해 신중하게 선택된다.\n' +
+      '\n' +
+      '## 합성 데이터에 대한 부록 B 필터링 세부사항\n' +
+      '\n' +
+      '언어 모델을 사용하여 합성 패러프레이즈를 생성할 때 생성된 출력에서 간혹 외부 도입의 문제에 직면한다. 이러한 패러프레이즈는 "여기 패러프레이즈...", "다음,..."과 같은 문구로 시작하거나 "고급 영어"와 같은 키워드를 포함할 수도 있습니다. 이를 완화하기 위해 합성 출력을 필터링하고 정제하는 방법을 개발했다.\n' +
+      '\n' +
+      '### Methodology\n' +
+      '\n' +
+      '1차 함수인 remove_unwanted_part는 입력 데이터를 개별 문장으로 분할함으로써 시작된다. 첫 번째 문장이 "\\n\\n"(새로운 단락을 표시) 또는 ":"와 같은 구분자를 포함하는 경우, 함수는 앞서 언급한 원하지 않는 요소에 대해 구분자 앞의 세그먼트를 확인한다. 이러한 요소가 탐지되면 이전 세그먼트가 제거됩니다. 그런 다음 수정된 전체 내용을 재구성하고 반환합니다. 수정할 수 없지만 플래그된 키워드가 있는 경우 패러프레이즈를 완전히 제거합니다. 이를 달성하기 위하여:\n' +
+      '\n' +
+      '1. NLTK의 문장 분할기 기능을 이용하여 입력 데이터를 개별 문장으로 분할한다.\n' +
+      '2. 구분자의 존재에 대한 첫 번째 문장을 검토한다.\n' +
+      '3. 구분 기호가 탐지되면 이전 세그먼트에 원하지 않는 요소가 있는지 확인합니다.\n' +
+      '4. 원하지 않는 엘리먼트들이 발견되면, 선행 세그먼트("\\n\\n" 또는 ":"의 발생 전에)를 폐기한다.\n' +
+      '5. 필터링된 단락을 수정하고 반환한다.\n' +
+      '\n' +
+      '수동 검사를 통해 수정 후 오류율(원치 않는 요소가 있는 문장의 발생)이 0.1% 미만임을 확인했다.\n' +
+      '\n' +
+      '## 합성코퍼스의 부록 C 특성\n' +
+      '\n' +
+      '사전 학습 성능을 향상시키는 재구 모델에서 생성된 합성 데이터의 특성을 이해하기 위해 합성 데이터, C4 데이터 및 파일 데이터 간의 의미 유사성, 구문 복잡성 및 다양성을 비교한다. 우리의 주요 초점은 합성 데이터에 대한 다음 질문에 답하는 것이다: (i) 합성 데이터에 대해 훈련된 모델은 재구 모델로부터의 정보 누출로 인해 더 나은 성능을 발휘합니까? (ii) 재구 모델은 복수의 스타일을 정확하게 포착하는가? (iii) 합성 데이터의 어떤 속성들이 그것을 고품질로 만드는가? 우리의 조사는 특정 도메인에 대한 더 나은 일반화에 유익한 데이터를 해결하고 데이터 가변성과 품질의 중요성을 정량화하는 데 도움이 된다.\n' +
+      '\n' +
+      '### Experimental Setup\n' +
+      '\n' +
+      '우리는 각 데이터 세트에서 처음 1000개의 문서의 하위 집합을 취한다. 실제 C4 데이터와의 합성 비교를 위해 샘플 쌍을 취하는 반면 파일 하위 집합의 경우 테스트 하위 집합에서 처음 1000개의 샘플을 취한다. 데이터 세트 품질 통계를 계산할 때 메트릭 값에서 두 개 이상의 표준 편차를 제거합니다. 파일 하위 집합의 샘플 수가 1000개 미만일 때 샘플을 분할한다. 분포가 있는 그림은 1000개의 값에서 통계에 대한 분포를 구성하기 위해 가우스 커널 밀도 추정기(KDE)를 사용한다.\n' +
+      '\n' +
+      '### Semantic Properties\n' +
+      '\n' +
+      '섹션 6에서는 그림 8(a) 및 (b)의 중간 및 qa 프롬프트에 대해 SimCSE 대물렌즈(Gao et al., 2021)로 훈련된 사전 훈련된 BERT 모델을 사용하여 재구 모델로부터의 지식 누출에 기인하지 않는 성능 이득을 확인하기 위해 합성 및 실제 데이터의 쌍 쌍을 비교했다. 그림 9(c)의 MRPC 코퍼스를 이용하여 합성 재구문과 실제 재구문의 유사성을 추가적으로 비교한다. 이 추가 비교는 RealP(real paraphrase)로 나타내며, 문장 분할의 비교는 R1과 R2를 유지한다. 합성 재구문은 MRPC 코퍼스에 따라 실제 재구문에 비해 평균적으로 유사한 코사인 유사성을 가지며 확산률이 낮다.\n' +
+      '\n' +
+      'C4와 합성 데이터 사이의 의미 정보가 유사하기 때문에 데이터의 양식적 차이를 추가로 조사한다. 그림 10(a)는 다양한 재구 스타일에 대한 Flesch-Kincaid 읽기 수준과 파일을 보여줍니다. 우리의 연구 결과는 C4가 읽기 수준이 낮은 수준(7-8)에 있음을 나타낸다. 대조적으로, 매체는 판독 수준을 10으로 증가시키고 qa 합성 변형은 판독 수준을 6으로 더욱 감소시킨다. 중간 합성 데이터는 위키피디아의 판독 수준과 일치하며, 다른 높은 판독 수준 데이터 세트는 이러한 도메인에서 더 나은 성능을 산출한다. QA 합성 데이터에서 읽기 수준이 감소하는 것을 관찰한다. 문장이 일반적으로 질문과 답변으로 분할되어 원문 및 중간 스타일 재구문에 비해 짧은 문장으로 이어지는 것을 관찰했기 때문이다.\n' +
+      '\n' +
+      '도 10: C4 및 파일의 상이한 서브세트들과 비교하여 합성 데이터의 가독성 및 다양성(ttr)의 비교.\n' +
+      '\n' +
+      '그림 9: 코사인 유사성 매체 합성 MRPC 재구문 이는 많은 메트릭에 대한 더 낮은 메트릭 값으로 이어진다. 유형 토큰 비율의 경우 다양성이 파일의 중간 하위 집합과 대부분의 하위 집합 간에 상당히 유사하다는 점에 주목한다. QA 데이터 세트는 특히 낮은 TTR 매칭 유분투, 기텁 및 수학을 가지고 있는데, 이는 QA 포맷 데이터 세트와 더 유사하고 질문 및 답변 포맷의 반복이 무겁기 때문이다.\n' +
+      '\n' +
+      '### Syntactic Properties\n' +
+      '\n' +
+      '마지막으로, 구문 난이도 Futrell et al.(2015); Gibson et al.(2000); Oya (2021)의 좋은 척도로 나타난 도 11의 평균 트리 깊이(의존성 트리 깊이의 문장들에 대한 평균으로 측정됨)와 평균 의존성 거리(한 문장 내의 임의의 단어 쌍의 평균 의존성 거리로 측정됨)를 비교한다. 우리는 매체 스타일이 일반적으로 깊이, mdd 및 구문 복잡성을 증가시키는 읽기 수준 및 TTR 다양성과 유사한 경향을 찾는다. 우리는 QA 스타일이 이러한 복잡성을 감소시킨다는 것을 다시 발견한다.\n' +
+      '\n' +
+      '## 부록 D 평가 메트릭스\n' +
+      '\n' +
+      '평가에 사용되는 메트릭은 _macro 토큰 레벨 perplexity_이다. 인코딩된 텍스트들의 배치가 주어지면, 토큰 레벨에서의 당혹감은 다음과 같이 계산되었다:\n' +
+      '\n' +
+      '전체 데이터 세트에 대한 누적 손실과 \\(L\\)로 표시되는 토큰의 총 수를 감안할 때 매크로 토큰 수준의 복잡성은 \\(\\mathcal{P}\\)으로 표시된다.\n' +
+      '\n' +
+      '\\[\\mathcal{P}=\\exp\\left(\\min\\left(20,\\frac{L}{T}\\right)\\right) \\tag{3}\\]\n' +
+      '\n' +
+      'Where:\n' +
+      '\n' +
+      '*\\(\\exp\\)는 지수함수이다.\n' +
+      '*\\(L\\)은 데이터 세트의 모든 이동된 로짓 및 레이블에 대한 누적 손실이다.\n' +
+      '*\\(T\\)은 데이터 세트의 총 토큰 수이다.\n' +
+      '\n' +
+      '20의 값은 손실 값이 높은 경우 메트릭을 안정화하기 위한 상한으로 작용한다.\n' +
+      '\n' +
+      '## 작은 모델과 토큰 크기에 대한 부록 E 추가 결과\n' +
+      '\n' +
+      '75B 토큰에 대해 훈련된 350M 모델의### 결과\n' +
+      '\n' +
+      '우리는 더 작은 규모로 모델을 훈련하고 개선을 보여준다. 특히 총 75B 토큰에 대해 350M GPT-2 중간 아키텍처를 교육합니다. 우리는 21개 도메인에 걸쳐 평균화된 파일 당혹성이 훈련된 모델의 당혹성보다 훨씬 낮음을 보여준다.\n' +
+      '\n' +
+      '도 11: 합성 데이터가 더 높은 평균 트리 깊이로 표시된 더 높은 구문 복잡성과 더 높은 평균 의존 거리(MDD)를 갖는다는 것을 보여주는 C4 코퍼스로부터의 합성 데이터와 실제 데이터의 비교.\n' +
+      '\n' +
+      '그림 12의 C4와 그림 1c의 C4에서만 훈련된 1.3B 모델보다 훨씬 낮다. 또한 QA 재구문을 추가할 때 표 8-9에서 일반 이해 언어 과제에 대해 1.5%, 전문 지식 과제에 대해 약 3%의 증가를 보여준다. 우리는 또한 이 작은 규모에서 중간 재구문을 실험했다. 우리의 연구 결과는 중간 리프레이즈가 제공하는 고품질은 C4보다 성능을 향상시키지만 QA 리프레이즈 성능이 나타내는 스타일과 일치하면 성능이 더욱 향상됨을 나타낸다.\n' +
+      '\n' +
+      '### 150B 토큰에 대해 훈련된 1.3B 모델에 대한 결과\n' +
+      '\n' +
+      '150B 토큰에서 1.3B GPT-2-XL 모델을 추가로 훈련하여 스텝 수를 절반으로 줄였습니다. 우리는 20개 도메인에 걸쳐 평균화된 파일 복잡성이 그림 13의 C4에서만 훈련된 모델보다 훨씬 낮고 그림 1c의 C4에서만 훈련된 1.3B 모델보다 두 배 더 낮다는 것을 보여준다. 또한 QA 재구문을 추가할 때 표 10-11에서 전문 지식 과제에 대해 2%, 일반 이해 과제에 대해 약 2.5%의 증가를 보여준다. 우리는 또한 이 작은 규모에서 중간 재구문을 실험했으며 다른 소규모 실험과 일치하는 유사한 결과를 보고한다.\n' +
+      '\n' +
+      '## 부록 F LLM 리더보드 Few-shot 결과\n' +
+      '\n' +
+      '섹션 4의 주요 실험에서 모델이 사전 훈련 동안 질문 응답 형식과 스타일을 학습함에 따라 합성 재구문으로 훈련된 LLM이 제로 샷 질문 응답 작업에 더 나은 백본임을 보여준다. 이 섹션에서는 합성 리프레이즈에 대한 사전 훈련의 개선이 소수의 샷에서도 여전히 존재한다는 것을 보여준다.\n' +
+      '\n' +
+      '그림 12: 합성 데이터의 여러 스타일을 결합하는 것을 비교하는 파일의 모든 도메인에 걸친 복잡성. 모델은 총 75B 토큰에 대해 훈련된 350M 파라미터이다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c c} \\hline Dataset (Real Tok.) & ARC-C & ScIQ & PubMedQA & MathQA & MMLU & Avg \\\\ \\hline C4-15B & 21.2 & 77.1 & 50.6 & 22.2 & 23.1 & 38.8 \\\\ C4-60B & 23.4 & 76.2 & 46.4 & 22.0 & 23.0 & 38.2 \\\\ QA+C4-15B & 24.4 & 79.8 & 56.0 & 21.7 & 22.9 & 41.0 \\\\ Med+C4-15B & 22.7 & 74.5 & 53.6 & 22.0 & 23.1 & 39.2 \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 8: 전문화된 지식 태스크에 대한 75B 토큰에 대해 트레이닝된 350M 파라미터 LLM의 평가. 이 표는 과학, 의학, 수학, 논리 등 특정 영역 지식이 필요한 과제에 대한 성과를 제시한다.\n' +
+      '\n' +
+      '모델이 테스트 샘플에 액세스할 수 있는 위치를 설정합니다. 몇 가지 샷 성능을 연구하기 위해 OpenLLMLeadeboard2에 존재하는 6가지 태스크에 대해 평가한다.\n' +
+      '\n' +
+      '각주 2: [https://huggingface.co/spaces/HuggingFaceH4/open_llm_leaderboard](https://huggingface.co/spaces/HuggingFaceH4/open_llm_leaderboard)\n' +
+      '\n' +
+      '1. ARC-챌린지(25샷)\n' +
+      '2. 헬라 스웨그(10샷)\n' +
+      '3. MMLU(5 shot)\n' +
+      '4. 진실-QA (5 shot)\n' +
+      '5. 위노그란데(5샷)\n' +
+      '6. GSM8k(5 shot)\n' +
+      '\n' +
+      '우리는 각각 약 85B 및 100B 고유 C4 토큰에 해당하는 300B 및 350B 토큰에 대해 훈련된 두 모델을 평가한다. 우리의 연구 결과는 ARC-챌린지 벤치마크에 대한 상당한 개선과 제로 샷 설정에서 일관된 진실-QA 및 다른 데이터 세트에서 유사한 성능을 보여준다. 우리의 모델은 또한 정제된 웹 데이터 세트에서 훈련된 공개적으로 출시된 팔콘-1.3B 모델과 파일에서 훈련된 피티아-1.4B 모델보다 더 나은 성능을 보인다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c c c c c} \\hline \\hline Dataset (Real Tok.) & ARC-E & BoolQ & Wino. & PIQA & HellaSwag & TruthfulQA & OBQA & LogQA & Avg \\\\ \\hline C4-18B & 50.5 & 52.8 & 53.0 & 69.8 & 35.6 & 37.8 & 18.6 & 23.0 & 42.6 \\\\ C4-75B & 51.4 & 53.4 & 51.6 & 70.3 & 36.1 & 39.0 & 17.4 & 22.6 & 42.7 \\\\ QA+C4-18B & 53.4 & 60.7 & 52.2 & 70.0 & 36.3 & 40.0 & 17.6 & 22.3 & 44.1 \\\\ Med+C4-18B & 50.6 & 57.3 & 53.6 & 70.8 & 36.1 & 36.9 & 18.6 & 22.0 & 43.2 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 9: 일반 이해 작업에서 75B 토큰에 대해 훈련된 350M 매개변수 LLM의 평가. 이 표는 일반적인 추론, 언어 이해 및 상식 비교 훈련을 중심으로 다양한 데이터 세트에 걸친 성능을 보여준다.\n' +
+      '\n' +
+      '그림 13: 합성 데이터의 여러 스타일을 결합하는 것을 비교하는 파일의 모든 도메인에 걸친 복잡성. 모델은 총 75B 토큰에 대해 훈련된 350M 파라미터이다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c c} \\hline Dataset (Real Tok.) & ARC-C & SciQ & PubMedQA & MathQA & MMLU & Avg \\\\ \\hline C4-35B & 27.0 & 83.4 & 55.0 & 22.5 & 24.3 & 42.4 \\\\ C4-150B & 25.9 & 83.8 & 55.4 & 23.5 & 25.4 & 42.8 \\\\ Med+C4-35B & 27.2 & 82.2 & 46.2 & 23.1 & 25.2 & 40.8 \\\\ QA+C4-35B & 29.0 & 85.1 & 62.2 & 22.5 & 26.1 & 45.0 \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 10: 전문화된 지식 태스크에 대해 150B 토큰에 대해 트레이닝된 \\(\\sim\\)1.3B 파라미터 LLM의 평가. 이 표는 과학, 의학, 수학, 논리 등 특정 영역 지식이 필요한 과제에 대한 성과를 제시한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c c c c} \\hline Dataset (Real Tok.) & ARC-E & BoolQ & Wino. & PIQA & HellaSwag & TruthfulQA & OBQA & LogiQA & Avg \\\\ \\hline C4-35B & 58.6 & 55.2 & 56.1 & 73.9 & 44.5 & 36.0 & 22.2 & 22.8 & 46.2 \\\\ C4-150B & 59.1 & 54.4 & 56.4 & 74.5 & 44.9 & 34.3 & 22.2 & 22.1 & 46.0 \\\\ Med+C4-35B & 59.8 & 57.0 & 55.7 & 74.6 & 44.5 & 36.5 & 23.8 & 21.5 & 46.7 \\\\ QA+C4-35B & 62.2 & 63.3 & 55.7 & 74.8 & 44.6 & 41.4 & 22.4 & 23.2 & 48.4 \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 11: 일반 이해 작업에서 150B 토큰에 대해 훈련된 \\(\\sim\\)1.3B 매개변수 LLM의 평가. 이 표는 일반적인 추론, 언어 이해 및 상식 비교 훈련을 중심으로 다양한 데이터 세트에 걸친 성능을 보여준다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c c c} \\hline Dataset & ARC & Hellaswag & MMLU & TruthfulQA & WinoGrande & GSM8K & Avg \\\\ \\hline C4 & 31.7 & 62.1 & 26.7 & 33.4 & 57.9 & 0.9 & 35.5 \\\\ Falcon-RW & 35.1 & 63.6 & 25.3 & 36.0 & 62.0 & 0.5 & 37.1 \\\\ Pythia-1.4b-Pile & 32.7 & 55.0 & 25.6 & 38.7 & 57.3 & 0.8 & 35.0 \\\\ \\hline QA+C4-85B (300K) & 36.4 & 60.9 & 25.5 & 40.6 & 59.4 & 0.4 & 37.2 \\\\ QA+C4-100B (350K) & 35.5 & 60.5 & 26.8 & 40.6 & 61.3 & 0.3 & 37.5 \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 12: 1.3B 300K LLM Leaderboard Eval. 평가는 단일 종자에 대해 수행된다(1234).\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c c c} \\hline Dataset (Real Tok.) & ARC-C & SciQ & PubMedQA & MathQA & MMLU & Avg \\\\ \\hline C4-35B & 27.0 & 83.4 & 55.0 & 22.5 & 24.3 & 42.4 \\\\ C4-150B & 25.9 & 83.8 & 55.4 & 23.5 & 25.4 & 42.8 \\\\ Med+C4-35B & 27.2 & 82.2 & 46.2 & 23.1 & 25.2 & 40.8 \\\\ QA+C4-35B & 29.0 & 85.1 & 62.2 & 22.5 & 26.1 & 45.0 \\\\ \\hline \\Rephrase Prompt Templates\n' +
+      '\n' +
+      '우리는 특정 스타일로 C4 데이터 세트의 합성 버전을 생성하기 위해 미스트랄-7B 모델에 제공된 프롬프트를 자세히 설명한다. _ 참고: 다른 냉동 LLM에 사용된 프롬프트에는 약간의 변동이 있으며 T5 모델에는 프롬프트가 사용되지 않았다._\n' +
+      '\n' +
+      '#### Easy Style\n' +
+      '\n' +
+      '유아들이 이해할 수 있는 콘텐츠를 생성하도록 설계된 스타일입니다.\n' +
+      '\n' +
+      '```\n' +
+      '호기심 많은 사용자와 인공지능 어시스턴트 간의 채팅. 조수는 질문에 도움이 되고 상세하며 공손한 답변을 제공합니다. USER: 다음 단락에 대해, 유아들이 이해할 매우 작은 어휘와 매우 간단한 문장들을 사용하여 동일한 의역을 내게 주세요:\n' +
+      '```\n' +
+      '\n' +
+      '#### Hard Style\n' +
+      '\n' +
+      '주로 불가사의한 언어를 사용하는 학자들이 이해할 수 있는 내용을 생성하도록 설계된 스타일입니다.\n' +
+      '\n' +
+      '```\n' +
+      '호기심 많은 사용자와 인공지능 어시스턴트 간의 채팅. 조수는 질문에 도움이 되고 상세하며 공손한 답변을 제공합니다. USER: 다음 단락에 대해 나에게 박식한 학자만이 이해할 매우 간결하고 난해한 언어를 사용하여 같은 의역을 부여한다 단순한 단어와 구문을 희귀하고 복잡한 단어로 대체하라:\n' +
+      '```\n' +
+      '\n' +
+      '#### Medium Style\n' +
+      '\n' +
+      '표준 백과사전 항목에 필적하는 콘텐츠를 생성하도록 설계된 스타일입니다.\n' +
+      '\n' +
+      '```\n' +
+      '호기심 많은 사용자와 인공지능 어시스턴트 간의 채팅. 조수는 질문에 도움이 되고 상세하며 공손한 답변을 제공합니다. USER: 다음 단락에 대해 위키피디아에 있는 문장에서와 같이 고품질 영어로 같은 다양한 패러프레이즈를 나에게 주세요:\n' +
+      '```\n' +
+      '\n' +
+      '#### Q/A Style\n' +
+      '\n' +
+      '내러티브를 대화 형식으로 변환하려는 스타일입니다.\n' +
+      '\n' +
+      '"호기심 많은 사용자와 인공지능 어시스턴트 간의 채팅" 조수는 질문에 도움이 되고 상세하며 공손한 답변을 제공합니다. USER: 다음 단락을 "질문:"의 다중 태그와 함께 대화 형식으로 변환하고 이어서 "답변:":리프레레이스 예\n' +
+      '\n' +
+      'Mistral-7B 모델에 의해 생성된 MRPC 코퍼스로부터의 샘플.\n' +
+      '\n' +
+      'Original\n' +
+      '\n' +
+      '그 주식은 2.11달러, 즉 약 11% 상승하여 금요일 뉴욕 증시에서 21.51달러로 마감되었다.\n' +
+      '\n' +
+      '1분기 매출은 전년 동기 대비 15% 감소했다.\n' +
+      '\n' +
+      'Medium Style\n' +
+      '\n' +
+      '그 주식은 금요일 뉴욕 증시에서 21.51달러로 마감하며 약 11%의 증가를 경험했고, 2.11달러의 상승을 기록했다.\n' +
+      '\n' +
+      '당년도 초기 3개월 동안 전년도의 해당 분기에 비해 15%의 수익 감소가 있었다.\n' +
+      '\n' +
+      'Q/A Style\n' +
+      '\n' +
+      '질문: 금요일 종가가 어떻게 되었나요? 답변: 21.51달러 질문: 금요일 주식이 얼마나 올랐나요? 대답: 2.11달러 또는 약 11%\n' +
+      '\n' +
+      '질문: 1분기의 수익 감소는 작년 동기 대비 어느 정도였습니까? 정답: 수익은 15% 감소했다.\n' +
+      '\n' +
+      '### 미스트랄-7B 모델에 의해 생성된 C4 코퍼스로부터의 샘플.\n' +
+      '\n' +
+      'Original\n' +
+      '\n' +
+      '직장에서의 스트레스 1차 조사. 설문지에 답하는 것은 자발적이며 모든 답변은 익명으로 저장됩니다. 일부 근무 경력, 파트 또는 풀 타임이 있는 경우에만 이 설문지를 작성하십시오. 그렇지 않으면 일부 질문에 답할 수 없습니다! 여기 모든 언어 버전 링크가 있습니다.\n' +
+      '\n' +
+      '냉동 버거에 문제가 있다는 건 아니야. 여기서 핵심은 고기 양념인데, 이것은 꽤 강하고 맵고 그냥 좋습니다, 칠면조 버거에 정말 필요하다고 생각합니다. 왜냐하면 갈은 칠면조는 맛이 없을 수 있기 때문입니다. 햄버거에는 갈은 칠면조, 양파 가루, 고춧가루, 소금, 후추, 시네메 후추가 필요합니다. 그런 다음 마요네즈는 마늘과 양파를 가져갑니다. 그럼 빵, 분명히 스위스 치즈, 양상추, 양파가 필요해. 나는 토마토를 좋아하지만 가끔 다른 맛을 방해한다는 것을 발견해서 이 버거에서 빼놓았다. 토핑의 배열에 추가하고 싶다면 추가하세요! 먼저 마요네즈를 만들 거예요. 마늘을 마요네즈에 직접 갈아 넣고, 소금을 조금 넣고 레몬즙을 짜내세요. 저으세요 됐어! 맘에 들어 그리고 나서, 우리는 버거를 작업할 것입니다. 큰 냄비를 올리브 오일과 함께 중간 센 불로 예열하고, 육계를 높은 불로 예열한 다음, 갈은 칠면조에 모든 향신료를 넣으세요.\n' +
+      '\n' +
+      '여러분이 벨벳을 으깨든, 생동감 넘치든, 머리부터 발끝까지 좋아하든, 이 시대를 초월한 직물의 순전한 고급스러움과 우아함을 부인할 수 없습니다. 매우 스타일리시할 뿐만 아니라 실제로 매일 착용할 수 있습니다. 네, 정말이에요! 올해는 재미있는 보석색 벨벳 조각들을 포용하는 것이 전부다. 벨벳이 남색과 검은색의 어두운 변덕스러운 색조와만 연관되었던 시대는 오래전에 사라졌다. 아래에서 우리는 지금 하이 스트리트에서 가장 탐나는 벨벳 조각들을 모았습니다. 우리는 이미 의상 아이디어를 생각해내고 있어요! 완전히 집착하는 거야 아니면 지겨워하는 거야?\n' +
+      '\n' +
+      '가까운 크라이슬러 200 1,258개 중 하나에 최대 8,086달러를 절약하세요. 에드먼즈 전문가와 소비자 자동차 리뷰, 딜러 리뷰, 자동차 비교 및 가격 책정 도구로 완벽한 자동차를 찾으세요. 연구 2015년 크라이슬러 200 세단 4D 200C I4 가격, 중고 가치 및 200 세단 4D 200C I4 가격, 사양 등이 있습니다. 수년 전, 우리는 2011년 크라이슬러 200의 지연 문제에 대해 썼고, 믿거나 말거나, 여전히 그 문제와 관련하여 가끔 전화를 받지만, 2015년 말 크라이슬러 200의 전송 문제로 인해 훨씬 더 큰 문제가 운전자에게 체크 엔진 조명, 혹독한 이동 및 때때로 전력 손실을 남겼습니다. 2015 크라이슬러 200은 그것의 스타일과 마력에 대한 프리미엄을 얻을 수 있지만, 뒷좌석과 취급은 다른 곳에서 더 좋은 가격이다. 2015년 크라이슬러 200이 왜 The에 의해 8.4로 평가되는지 알아보세요. 2015년 크라이슬러 200 CARiD.com을 위한 완벽한 림을 어디에서 찾을 수 있는지 모르겠습니다. 크롬, 블랙, 실버 등을 포함한 무수히 많은 디자인과 마감 옵션에서 제공되는 2015년 크라이슬러 200 휠을 대량으로 저장합니다.\n' +
+      '\n' +
+      'Medium Style\n' +
+      '\n' +
+      '업무 관련 스트레스 조사 초기 단계에서 참여는 선택 사항이며, 모든 응답은 기밀로 유지됩니다. 파트타임이든 풀타임이든 업무 경험이 있는 사람만이 특정 질문에 정확하게 응답할 수 있다는 점에 유의하는 것이 중요하다. 설문지를 작성하려면 여러 언어로 제공되는 다음 링크를 사용하십시오.\n' +
+      '\n' +
+      '냉동 버거는 본질적으로 결함이 없지만 고기 양념은 요리의 풍미를 높이는 중요한 요소입니다. 갈은 칠면조는 향신료의 적절한 혼합 없이 상당히 밋밋할 수 있으므로 혼합물에 양파 분말, 고춧가루, 소금, 후추 및 시네 후추를 첨가하는 것이 필수적이다. 또한, 버거 토핑에 필요한 마요네즈에 마늘과 양파를 사용해야 합니다. 마요네즈를 만들기 위해 마늘을 혼합물에 직접 갈아서 소금을 조금 넣고 레몬즙을 짜주세요. 잘 섞으세요. 마요네즈는 버거 토핑에 맛있는 첨가물이다. 이제, 햄버거를 만들자. 큰 냄비를 올리브 오일과 함께 중불로 가열하고, 그릴을 높게 예열한다. 갈은 칠면조에 양념을 넣고 잘 섞으세요. 햄버거는 프라이팬에서 각 면을 약 5분 정도 익힌 후 브로일러로 옮겨 추가로 2~3분 정도 익혀야 한다. 햄버거는 스위스 치즈, 양상추, 양파와 함께 빵에 조립할 준비가 되어 있습니다. 토마토는 토핑으로 첨가될 수 있지만 다른 맛을 압도할 수 있습니다. 햄버거에 포함시킬지 결정하는 것은 개인에게 달려 있습니다. 결론적으로, 냉동 버거는 맛있을 수 있지만, 요리에 깊이와 풍미를 더하기 위해서는 고기 양념이 필수적입니다. 마요네즈와 토핑도 개인의 취향에 맞게 맞춤 제작할 수 있습니다.\n' +
+      '\n' +
+      '벨벳의 고급스럽고 우아한 본성은 으깨지든, 생동감 넘치든, 머리부터 발끝까지 부정할 수 없다. 유행을 타지 않는 이 직물은 패셔너블할 뿐만 아니라 매일 착용할 수 있습니다. 최근 몇 년 동안, 남색과 검은색의 어두운 변덕스러운 색조와 벨벳의 전통적인 연관성에서 벗어나 재미있는 보석 톤 벨벳 조각을 수용하는 방향으로 전환되었다. 아래는 오늘날 하이 스트리트에서 구할 수 있는 가장 바람직한 벨벳 조각 중 일부이며, 우리는 이미 그 주위에 의상을 구상하고 있습니다. 당신은 벨벳에 완전히 빠져있나요, 아니면 단순히 그것에 질리지 않는 것인가요?\n' +
+      '\n' +
+      '가까운 크라이슬러 200 1,258개 중 하나에 최대 8,086달러의 저축을 발견하세요. 에드먼즈로부터 전문가 및 소비자 자동차 리뷰, 딜러 리뷰, 자동차 비교 및 가격 책정 도구를 얻으십시오. 2015 크라이슬러 200 세단 4D 200C I4 가격, 중고 가치 등에 대한 4,850,420개의 목록이 있습니다. 2011년 크라이슬러 200의 지연 문제에 대해 쓴 동안, 우리는 여전히 그 문제와 관련하여 가끔 전화를 받습니다. 그러나, 더 중요한 문제가 최근 전화선을 장악하고 있다 - 2015년 크라이슬러 200 전송 문제로 인해 운전자들은 점검 엔진 조명, 혹독한 변속, 때때로 전력 손실을 겪게 된다. 스타일과 마력에 대한 프리미엄 가격에도 불구하고, 뒷좌석과 취급은 다른 곳에서 더 좋은 가격입니다. 2015 크라이슬러 200은 The Car Connection에 의해 8.4 등급을 받았다. 2015년 크라이슬러 200 CARiD.com의 완벽한 림을 찾고 있다면 크롬, 블랙, 실버, 더 많은 Q/A 스타일을 포함한 다양한 디자인과 마감 옵션으로 다양한 2015 크라이슬러 200 휠을 제공합니다.\n' +
+      '\n' +
+      '질문: 업무 조사에서의 스트레스에 참여하는 것이 의무적인가? 정답: 아니요, 그것은 자발적입니다. 질문: 모든 답변은 익명으로 저장되나요? 정답: 그래, 그들은 그럴거야. 질문: 질문지를 받을 자격이 있는 사람은 누구인가? 정답: 파트타임이든 풀타임이든 업무 경험이 있는 개인만 가능합니다. 질문: 만약 누군가가 그 질문지를 받을 자격이 없다면 어떻게 될까요? 대답: 그들은 몇 가지 질문에 대답할 수 없을 것이다. 질문: 질문지의 모든 언어 버전 링크를 제공할 수 있습니까? 정답: 네, 여기 링크가 있습니다.\n' +
+      '\n' +
+      '질문: 무엇이 이 냉동 햄버거를 그렇게 맛있게 만드는가? 정답: 고기 양념은 강하고 맵고, 버거에 좋은 맛을 줍니다. 질문: 갈은 칠면조가 맛이 없을 수 있다고 생각하세요? 정답: 네, 갈은 칠면조는 맛이 없을 수 있지만 향신료와 조미료를 추가하는 것이 도움이 될 수 있습니다. 질문: 이 칠면조 버거를 만드는 데 무엇이 필요합니까? 정답: 버거용 갈은 칠면조, 양파 가루, 고춧가루, 소금, 후추, 시아베뉴 후추. 그런 다음 마요네즈는 마늘과 양파를 가져갑니다. 빵, 스위스 치즈, 양상추, 양파도 필요합니다. 질문: 토핑은 어떤가요? 답변: 토핑 배열에 토마토를 추가하십시오. 질문: 마요네즈를 어떻게 만드나요? 정답: 마늘을 마요네즈에 직접 넣고, 소금을 조금 넣고 레몬즙을 짜주세요. 저으세요 도널 질문: 햄버거를 어떻게 만드나요? 정답: 큰 냄비를 올리브 오일과 함께 중간 센 불로 예열하고, 육계를 높은 불로 예열한 다음, 갈은 칠면조에 모든 향신료를 첨가하세요.\n' +
+      '\n' +
+      '질문: 벨벳에 대해 어떻게 생각해? 정답: 여러분이 벨벳을 으깬 것을 좋아하든, 활기차든, 머리부터 발끝까지 좋아하든, 이 시대를 초월한 직물의 순전한 고급스러움과 우아함을 부인할 수 없습니다. 질문: 벨벳이 정말 멋있나요? 정답: 그래, 정말이야! 올해는 재미있는 보석색 벨벳 조각들을 포용하는 것이 전부다. 질문: 벨벳은 남색과 흑색의 어두운 변덕스러운 색조와만 관련이 있었는가? 정답: 벨벳이 남색과 흑색의 어두운 우울한 색조와만 연관되었던 시대는 오래전에 사라졌다. 질문: 지금 하이 스트리트에 탐나는 벨벳 조각이 있나요? 정답: 우리는 지금 하이 스트리트에서 가장 탐나는 벨벳 조각들을 모았습니다. 질문: 당신은 그것에 완전히 사로잡혀있나요 아니면 질리지 않고 있나요? 정답: 우리는 이미 의상 아이디어를 생각해내고 있어요!\n' +
+      '\n' +
+      '질문: 제가 어떻게 크라이슬러 200에 돈을 절약할 수 있을까요? 대답: 여러분 근처의 크라이슬러 200 1,258개 중 하나에 최대 8,086달러를 절약할 수 있습니다. 에드먼즈 전문가와 소비자 자동차 리뷰, 딜러 리뷰, 자동차 비교 및 가격 책정 도구로 완벽한 자동차를 찾으세요. 질문: 2015 크라이슬러 200의 문제점은 무엇인가? 대답: 우리는 4,850,420을 가지고 있습니다. 2015 크라이슬러 200 세단 4D 200C I4 가격, 사용 가치 및 200 세단 4D 200C I4 가격, 사양 등을 조사합니다. 수년 전, 우리는 2011년 크라이슬러 200의 지연 문제에 대해 썼고, 믿거나 말거나, 우리는 여전히 그 문제와 관련하여 가끔 전화를 받는다. 그러나 2015년 후반 크라이슬러 200 전송 문제로 인해 훨씬 더 큰 문제가 전화선을 독점하여 운전자는 점검 엔진 조명, 심한 이동 및 때때로 전력 손실을 겪고 있다. 질문: 2015 크라이슬러 200을 사는 것의 이점은 무엇인가? 대답: 2015 크라이슬러 200은 그 스타일에 대한 프리미엄을 얻을 수 있고 마력은 있지만 뒷좌석과 취급은 다른 곳에서 더 나은 할인이다. 질문: 2015 크라이슬러 200의 등급은 어떻게 되나요? 정답: The는 8.4등급입니다. 질문: 나의 2015 크라이슬러 200을 위한 완벽한 림을 어디서 찾을 수 있을까? 정답: CARiD.com은 크롬, 블랙, 실버 등을 포함한 무수한 디자인과 마감 옵션에서 제공되는 2015 크라이슬러 200 휠을 대량으로 저장한다.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>

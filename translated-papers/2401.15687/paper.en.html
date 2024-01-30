@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# Media2Face: Co-speech Facial Animation Generation With Multi-Modality Guidance\n' +
+      '\n' +
+      'Qingcheng Zhao\\({}^{1,2}\\) Pengyu Long\\({}^{1,2}\\) Qixuan Zhang\\({}^{1,2}\\) Dafei Qin\\({}^{2,3}\\) Han Liang\\({}^{1}\\)\n' +
+      '\n' +
+      'Longwen Zhang\\({}^{1,2}\\) Yingliang Zhang\\({}^{4}\\) Jingyi Yu\\({}^{1\\ddagger}\\) Lan Xu\\({}^{1\\ddagger}\\)\n' +
+      '\n' +
+      '\\({}^{1}\\)ShanghaiTech University \\({}^{2}\\)Deemos Technology \\({}^{3}\\)University of Hong Kong\n' +
+      '\n' +
+      '\\({}^{4}\\)DGene Digital Technology Co., Ltd.\n' +
+      '\n' +
+      '{zhaoqch1, longpy, zhangqx1, lianghan, zhanglw2, yujingyi, xulanl}@shanghaitech.edu.cn qindafei@connect.hku.hk yingliang.zhang@dgene.com\n' +
+      '\n' +
+      '[https://sites.google.com/view/media2face](https://sites.google.com/view/media2face)\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      'The synthesis of 3D facial animations from speech has garnered considerable attention. Due to the scarcity of high-quality 4D facial data and well-annotated abundant multi-modality labels, previous methods often suffer from limited realism and a lack of flexible conditioning. We address this challenge through a trilogy. We first introduce Generalized Neural Parametric Facial Asset (GNPFA), an efficient variational auto-encoder mapping facial geometry and images to a highly generalized expression latent space, decoupling expressions and identities. Then, we utilize GNPFA to extract high-quality expressions and accurate head poses from a large array of videos. This presents the M2F-D dataset, a large, diverse, and scan-level co-speech 3D facial animation dataset with well-annotated emotional and style labels. Finally, we propose Media2Face, a diffusion model in GNPFA latent space for co-speech facial animation generation, accepting rich multi-modality guidances from audio, text, and image. Extensive experiments demonstrate that our model not only achieves high fidelity in facial animation synthesis but also broadens the scope of expressiveness and style adaptability in 3D facial animation.\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      'Advancements in generative AI, powered by large language models, have brought to life virtual companion AI systems, reminiscent of the film "Her". The core of these systems is to provide realistic and immersive experiences, especially sustained emotional connections with users. To achieve this goal, it is crucial to generate natural facial animation consistent with rich speech content, subtle voice tones, and complicated underlying emotions.\n' +
+      '\n' +
+      'It has been a long journey for our graphics community to generate realistic co-speech facial animation. Early deterministic methods [16, 18, 19] could generate only limited animation variations from audio. Recently, generative models, especially diffusion models, found their way to non-deterministic generation ranging from 2D image [52, 55, 26] to 3D human motion [39, 1, 59, 3]. Inspired by them, diffusion-based facial animation generation [2, 10, 56, 57, 60] has achieved promising results and hence received substantial attention.\n' +
+      '\n' +
+      'We observe two key factors to explore such diffusion-based generation schemes for facial animations. First, the capability of the diffusion models heavily relies on large-scale and high-quality training data. However, most of the existing methods [20, 56, 70] are trained on small-scale datasets such as VOCASET [14] or BIWI [22]. These datasets only cover limited speech states and lack the diversity of emotional variations and character traits. Some recent methods [15, 40, 46, 57, 73] attempt to enrich speaking styles with 2D datasets. Yet, they fall short in authentically replicating natural expressions, since the adopted video-based facial trackers often produce sub-optimal expressions or neglect head motions. Second, it is crucial to enable flexible conditioning and disentangled controls, from diverse modalities like speech, style, or emotion. Some concurrent methods offer keyframe [60] (3DiFace), implicit style [46, 57], or emoji-based [15] controls. Yet, faithful conditioning from more diverse multi-modalities like text and image inputs remains an open challenge.\n' +
+      '\n' +
+      'In this paper, we approach the above challenges through a trilogy. First, we introduce General Neural Parametric Facial Asset (GNPFA), a neural representation of fine-grained facial expressions and head poses in latent space. We train GNPFA on a wide array of multi-identity 4D facial scanning data, including high-resolution images and artists\' refined face geometries, dubbed Range of Motion (RoM) data. As such, we decouple nuanced facial expressions from identity in a latent representation that is generalizable to various talking styles. Then, we utilize GNPFA to extract high-quality facial expressions and head poses from a diverse range of videos, including different content, styles, emotions, and languages. This results in the creation of the Media2Face Dataset (M2F-D), a diverse 4D dataset annotated with a variety of emotions and styles, with quality comparable to face scans.\n' +
+      '\n' +
+      'Finally, we propose _Media2Face_, a latent diffusion model for co-speech facial animation generation using the M2F-D dataset. It generates high-quality lip-sync with speech and expresses nuanced human emotions contained in text, images, and even music. Specifically, we train Media2Face in the latent space of GNPFA to recover fine-grained facial animations. It takes both audio features extracted by Wav2Vec2 [4] and text/image prompts encoded by CLIP [49] as conditions and generates the sequential facial expressions and head poses in a multi-classifier-free guidance manner. We conduct extensive experiments and user studies to demonstrate the effectiveness of Media2Face. We further showcase various applications, i.e., generating vivid and realistic facial animations from diverse audio sources like dialogues, music, and speeches, as well as various text/image-based conditioning and editing. To summarize, our main contributions include:\n' +
+      '\n' +
+      '* We present Media2Face, a diffusion-based generator that integrates diverse media inputs (audio, image, and text) to drive vivid facial animations including head poses.\n' +
+      '* To train Media2Face, We propose GNPFA, a neural latent representation to capture nuanced facial motion details, enabling the collection of a diverse co-speech 4D facial animation dataset with annotated expressions and styles.\n' +
+      '* We conduct extensive experiments and user studies and demonstrate exciting applications for generating facial animations with multi-modality guidances.\n' +
+      '\n' +
+      '## 2 Related Work\n' +
+      '\n' +
+      '### 3D Facial Animation Representations\n' +
+      '\n' +
+      'The quality of generated 3D facial expressions heavily relies on the chosen representation method for 3D facial animation. Over the years, various representation methods have been proposed in the field [5, 18, 35]. One widely adopted approach is the Facial Action Coding System (FACS) [18], which defines facial movements as combinations of muscle activations based on expert knowledge of human anatomy. Traditionally, these activations have been implemented using blendshape deformers [35]. To automate the process and encompass a broader range of facial expressions, [5] proposes 3D Morphable Models (3DMM). These models capture a linear deformation space directly from face scans, encompassing diverse identities and expressions [6, 29, 2]. For a comprehensive survey of 3DMM-related methods, we refer readers to [17]. Despite their usefulness, linear methods have limitations in capturing subtle nuances of facial expressions. To address this, FLAME [38] introduces pose-dependent corrective blendshapes, as well as articulated jaw, neck, and eyeballs, to enhance the fidelity of facial animation modeling. Further approaches have been developed to model facial expressions in nonlinear spaces [34, 54]. [34] employ a Gaussian mixture model to extend the traditional 3DMM, and [54] introduce the use of multi-scale maps to transfer expression wrinkles from a high-resolution example face model to a target model.\n' +
+      '\n' +
+      'Recent work [7, 11, 63, 64, 65, 48, 63, 65] leverages deep neural networks to build the latent expression space from data,achieving state-of-the-art performance on facial animation tasks. [7] incorporates a specialized convolutional operator designed for 3D meshes, capitalizing on the consistent graph structure inherent to deformable shapes with unchanging topology. [48] learn interpretable and editable latent code over high-fidelity facial deformations, extending its application to various mesh topologies. These methods, however, are constrained by the scope of available datasets, often necessitating a compromise between enhancement of quality and retention of diversity. With the advancements in implicit representations, several work [24, 72, 80] have spurred efforts to employ Signed Distance Fields (SDFs) for modeling human head geometry, coupled with a forward deformation field to articulate facial expressions. However, they fall short in comparison to our approach, which constructs a latent space from a head mesh with a fixed topology. Our technique not only aligns better with practical applications but also ensures compatibility with traditional computer graphics (CG) pipelines.\n' +
+      '\n' +
+      '### Conditional Facial Animation Synthesis\n' +
+      '\n' +
+      '_Audio-Driven Facial Animation._ Recent studies in audio-driven 3D facial animation have leveraged procedural [19, 31] and learning-based methods [28, 20, 21, 9, 30, 50, 62, 81, 9, 81] to map speech to facial movements. While procedural techniques give artists control over lip shapes, they lack flexibility in capturing individual speech styles and require intensive manual tuning [16]. Learning-based approaches, using blendshapes [46, 47, 58, 67, 75] or 3D meshes [14, 20, 45], better capture speech nuances but can lead to overly smooth lip motion and limited upper face expressiveness. To address the complex speech-to-facial-expression mapping, probabilistic models like Vector Quantized Variational Autoencoders (VQ-VAE) [66] have been introduced, predicting facial expression distributions from speech [74, 44, 70]. Despite their strengths, these models often fail to fully represent the stochastic nature of facial expressions. Diffusion models [26, 55], recognized for handling intricate generative tasks [23, 51, 52, 71], show promise in audio-driven facial animation [2, 10, 56, 57, 60], facilitating multi-modal generation. Yet, integrating speech with head movements remains a challenge, often yielding less convincing expressions. Our method introduces a novel head motion component within a prompt-guided diffusion model, improving the cohesiveness and expressiveness of generated facial animations, thus advancing the state-of-the-art in speech-driven 3D facial animation.\n' +
+      '\n' +
+      '_Style Control._ Current approaches predominantly utilize two methods for style modulation: label-based and contextual-based control. Label-based control employs a fixed set of categories within the data to construct labels, such as emotion [15, 32], speaker style [14, 20], and emotional intensity [46]. However, the pre-defined categories constrain the model to capture complex, nuanced emotions. Contextual-based control allows for the imitation of styles from given segments through a one-shot approach [57] or learning new speaking styles from given motions [61]. Techniques like 3DiFace [60] adapt to the context of provided keyframes, while DiffPoseTalk [57] and Imitator [61] extract or learn style embeddings from given facial animations and style adaptations, respectively. Yet, these methods fall short of quality and explicit controls, often resulting in animations that lack the depth and complexity of genuine human expressions.\n' +
+      '\n' +
+      '## 3 Reshape Facial Animation Data\n' +
+      '\n' +
+      'Realistic synthesis of 3D facial animations necessitates 4D dynamic facial performance capture, typically reliant on multiview-camera setups [69]. This requirement significantly limits the diversity and scalability of data acquisition due to the labor-intensive nature of capturing and processing such data.\n' +
+      '\n' +
+      'To address these constraints, we propose Generalized Neural Parametric Facial Asset (GNPFA), which is in essence a Variational Auto Encoder, mapping facial geometry and video footprints to the same latent space. We train GNPFA on large-scale 4D facial scanning, including high-resolution images and artists\' refined geometries, enabling it to produce nuanced facial animation from videos with diverse identities, languages, emotions, and head poses.\n' +
+      '\n' +
+      '### Expression Latent Space Learning\n' +
+      '\n' +
+      'Training dataWe first capture a dataset with vast multi-identity 4D scanings. We call this the Range of Motion (RoM) data. RoM consists of 43652 registered meshes and 698432 images from 300 identities across different genders, ages, and ethnicities. In addition, to enhance the robustness of expression-identity disentanglement, we create personalized blendshapes for 200 identities under FACS standards according to [36], and generate random artificial expressions during training for augmentation.\n' +
+      '\n' +
+      'Geometry VAETo learn an expression latent space disentangled from identities, we design a geometry VAE consisting of a geometry encoder \\(\\mathcal{E}_{\\text{geo}}\\) and a geometry generator \\(\\mathcal{G}_{\\text{geo}}\\), where \\(\\mathcal{G}_{\\text{geo}}\\) is conditioned on a neutral geometry and utilizes a UNet architecture. To support traditional blendshape animation, we train two mapping networks \\(\\mathcal{M}\\) and \\(\\mathcal{M}^{\\prime}\\), where the former maps the weight of blendshapes, \\(w\\) to our latent space, and the latter does the inverse. The forward process is illustrated in Fig. 2.\n' +
+      '\n' +
+      'Given the input geometry, \\(\\mathbf{G}_{\\text{R}}\\) and its paired neutral geometry \\(\\mathbf{\\bar{G}}_{\\text{R}}\\), our geometry encoder encodes it to the expression latent code via VAE sampling: \\(z_{\\text{R}}=\\mathcal{E}_{\\text{geo}}(\\mathbf{G}_{\\text{R}})\\). Then, the geometry decoder recovers the face geometry:\\(\\mathbf{\\tilde{G}}_{\\text{R}}=\\mathcal{G}_{\\text{geo}}(\\mathbf{\\tilde{G}}_{\\text{ R}},z_{\\text{R}})\\). The training objective is simply a reconstruction loss:\n' +
+      '\n' +
+      '\\[\\mathcal{L}_{\\text{recon,R}}=\\|\\mathbf{\\tilde{G}}_{\\text{R}}-\\mathbf{G}_{\\text {R}}\\|_{2}^{2}. \\tag{1}\\]\n' +
+      '\n' +
+      'Given a randomly sampled blendshape \\(w_{\\text{B}}\\) and neutral face \\(\\mathbf{\\tilde{G}}_{\\text{B}}\\), we obtain the deformed expression \\(\\mathbf{G}_{\\text{B}}\\) using personalized blendshapes. Similar to the real data scenario, we extract the expression latent code \\(\\tilde{z}_{\\text{B}}=\\mathcal{M}_{\\text{geo}}(w_{\\text{B}})\\) and reconstruct the geometry through the geometry decoder, \\(\\mathbf{\\tilde{G}}_{\\text{B}}=\\mathcal{G}_{\\text{geo}}(\\mathbf{\\tilde{G}}_{ \\text{B}},z_{\\text{B}})\\). We map the expression back by \\(\\tilde{w}_{\\text{B}}=\\mathcal{M}^{\\prime}(\\tilde{z}_{\\text{B}})\\). The training objective is defined as:\n' +
+      '\n' +
+      '\\[\\mathcal{L}_{\\text{recon,B}}=\\|\\mathbf{\\tilde{G}}_{\\text{B}}-\\mathbf{G}_{ \\text{B}}\\|_{2}^{2}+\\|\\tilde{z}_{\\text{B}}-z_{\\text{B}}\\|_{2}^{2}+\\|\\tilde{w} _{\\text{B}}-w_{\\text{B}}\\|_{2}^{2}. \\tag{2}\\]\n' +
+      '\n' +
+      'We use coordinate maps [77] to represent the geometries, which store the 3D position of each vertex on the 2D geometry map in the UV space. This representation can be converted to and from mesh representation using a fixed topology. Besides CG-compatible, it creates a more realistic and believable animation space than existing parametric facial models, due to its non-linearity and vertex-level granularity.\n' +
+      '\n' +
+      '### Image Facial Expression Extraction\n' +
+      '\n' +
+      'In addition to the geometry VAE, we train two vision encoders, \\(\\mathcal{E}_{\\text{exp}}\\) and \\(\\mathcal{E}_{\\text{pose}}\\), to extract unified expression latent code and head pose from RGB images. We freeze the geometry VAE and train the vision encoders under the supervision of both real images of RoM data and rendered images from geometries randomly generated by personalized blendshapes.\n' +
+      '\n' +
+      'Specifically, given an image \\(\\mathbf{I}_{\\text{R}}\\) in the RoM data with corresponding ground-truth geometry \\(\\mathbf{G}_{\\text{R}}\\) and neutral \\(\\mathbf{\\bar{G}}_{\\text{R}}\\), we extract the expression latent code \\(\\hat{z}_{R}=\\mathcal{E}_{\\text{exp}}(\\mathbf{I}_{\\text{R}})\\), and head pose \\(\\hat{p}_{\\text{R}}=\\mathcal{E}_{\\text{pose}}(\\mathbf{I}_{\\text{R}})\\). Then, we reconstruct the face geometry using our pretrained decoder, \\(\\mathbf{\\hat{G}}_{\\text{R}}=\\mathcal{G}_{\\text{geo}}(\\mathbf{\\bar{G}}_{\\text {R}},\\hat{z}_{\\text{R}})\\). We utilize a differentiable renderer \\(\\mathcal{R}\\), to get the rendered image of the face: \\(\\mathbf{\\hat{I}}_{\\text{R}}=\\mathcal{R}(\\mathbf{\\hat{G}}_{\\text{R}},\\hat{p}_{ \\text{R}})\\). We define the training loss, \\(\\mathcal{L}_{\\text{exp}}\\), as the combination of geometry loss and image loss:\n' +
+      '\n' +
+      '\\[\\mathcal{L}_{\\text{exp, R}}=\\ \\|\\mathbf{\\hat{G}}_{\\text{R}}-\\mathbf{G}_{\\text {R}}\\|_{2}^{2}++\\|\\mathbf{\\hat{I}}_{\\text{R}}-\\mathbf{I}_{\\text{R}}\\|_{2}^{2}. \\tag{3}\\]\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c} \\hline \\hline  & Hours & Emotion & Head Pose & Language \\\\ \\hline VOCASET & 0.5 & ✗ & ✗ & EN \\\\ BIWI & 1.7 & ✓ & ✓ & EN \\\\ MultiFace & 2.8 & ✓ & ✓ & EN \\\\ UUDaMM & 9.6 & ✗ & ✗ & EN \\\\ DiffposeTalk & 26.5 & ✗ & ✓ & EN \\\\ EMOTE & 25.3 & ✓ & ✗ & EN \\\\\n' +
+      '**M2F-D (Ours)** & 60.6 & ✓ & ✓ & 6 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 1: **4D datasets comparison**. Notice that DiffposeTalk [57] is a combination of reconstructed TFHP [57] and HDTF. EMOTE [15] is trained on reconstructed MEAD.\n' +
+      '\n' +
+      'Figure 2: **GNPFA pipeline**. (_Left:_) We train a geometry VAE to learn a latent space of expression and head pose, disentangling expression with identity. (_Right:_) Two vision encoders are trained to extract expression latent codes and head poses from RGB images, which enables us to capture a wide array of 4D data.\n' +
+      '\n' +
+      'Similarly, with a randomly sampled geometry \\(\\mathbf{G}_{\\text{B}}\\), we can extract its head pose \\(\\hat{p}_{\\text{B}}=\\mathcal{E}_{\\text{pose}}(\\mathcal{R}(\\mathbf{G}_{\\text{B}},p _{\\text{B}}))\\), and expression code \\(\\hat{z}_{\\text{B}}=\\mathcal{E}_{\\text{exp}}(\\mathcal{R}(\\mathbf{G}_{\\text{B}},p _{\\text{B}}))\\). We render the image by the same differentiable renderer \\(\\mathbf{\\hat{I}}_{\\text{B}}=\\mathcal{R}(\\mathbf{\\hat{G}}_{\\text{B}},\\hat{p}_{ \\text{B}})\\). Our training objective is defined as:\n' +
+      '\n' +
+      '\\[\\mathcal{L}_{\\text{exp, B}}=\\|\\mathbf{\\hat{G}}_{\\text{B}}-\\mathbf{G}_{\\text{B}} \\|_{2}^{2}+\\|\\mathcal{R}(\\mathbf{\\hat{G}}_{\\text{B}},\\hat{p}_{\\text{B}})- \\mathcal{R}(\\mathbf{G}_{\\text{B}},p_{\\text{B}})\\|_{2}^{2}.\\]\n' +
+      '\n' +
+      'After training, \\(\\mathcal{E}_{\\text{exp}}\\) and \\(\\mathcal{E}_{\\text{pose}}\\) can capture fine-grained expressions and head poses from in-the-wild videos, represented in the expression latent space, and map them to personalized expressions by \\(\\mathcal{G}_{\\text{geo}}\\). Owing to the rapid inference speed of GNPFA, we can efficiently extract high-quality and diverse expressions and head poses from in-the-wild videos.\n' +
+      '\n' +
+      '### Latent-based Facial Animation Dataset\n' +
+      '\n' +
+      'We leverage a large collection of online video facial data with abundant audio and text labels, and use GNPFA to extract exact facial expressions and accurate head poses. This allows us to avoid tedious annotations and thus easily augment the limited 4D facial animation dataset, which presents the Media2Face Dataset (M2F-D).\n' +
+      '\n' +
+      'We retrieve both the expression latent codes and head poses from MEAD [68], CREMA-D [8], RAVDESS [41], HDTF [79] and Acappella [43]. The MEAD dataset comprises talking-face videos of 60 actors and actresses expressing 8 different emotions at 3 varying intensity levels. The CREMA-D dataset comprises 7,442 distinct clips featuring 91 actors who delivered 12 sentences expressing 6 different emotions at 4 different intensity levels. The RAVDESS dataset consists of videos by 24 professional actors who vocalize speeches and songs, with a total of 7 and 5 emotions respectively. The HDTF dataset is a collection of high-quality videos and the Acappella dataset encompasses solo singing videos.\n' +
+      '\n' +
+      'To further increase the diversity of talking languages, we collect a 2-hour dataset from in-the-wild videos which contains 6 different languages: Chinese, French, German, Japanese, Russian, and Spanish. To allow for explicit head pose control under different scenarios, we capture a 1.6-hour dataset that consists of 14 speakers performing 14 different head movements including speaking, singing, nodding, shaking head, frowning, winking, etc.\n' +
+      '\n' +
+      'Our M2F-D dataset has a total duration of over 60 hours at 30 fps. As shown in Table 1, and surpasses existing audio-visual datasets both in duration and diversity.\n' +
+      '\n' +
+      '## 4 Media2Face Methods\n' +
+      '\n' +
+      '_Media2Face_ is a transformer-based latent diffusion model conditioning on multi-modal driving signals. It models the joint distribution of sequential head poses and facial expressions, i.e., full facial animation, and thus facilitates the natural synergy of poses and expressions. It also employs multi-conditioning guidance, enabling highly consistent co-speech facial animation synthesis with CLIP-guided stylization and image-based keyframe editing.\n' +
+      '\n' +
+      '### Facial Animation Latent Diffusion Models\n' +
+      '\n' +
+      'As described in Fig. 3, the expression latent code \\(\\mathbf{z}_{e}^{i}\\) and head pose \\(\\theta^{i}\\) are first extracted from each video frame \\(i\\). Then, we concatenate them to form a single-frame facial animation state, denoted by \\(\\mathbf{x}^{i}=[\\mathbf{z}_{e}^{i},\\theta^{i}]\\). The facial animation is thus formed by a sequence of states \\(\\mathbf{X}^{1:N}=[x^{i}]_{i=1}^{N}\\).\n' +
+      '\n' +
+      'In the diffusion model, generation is modeled as a Markov denoising process. Here, \\(\\mathbf{X}_{t}^{1:N}\\) is obtained by adding noise to the ground truth head motion code \\(\\mathbf{X}_{0}^{1:N}\\) over \\(t\\) steps. Our method models the distribution \\(p\\left(\\mathbf{X}_{0}^{1:N}|\\mathbf{X}_{t}^{1:N}\\right)\\) to facilitate a stepwise denoising process. Similar to the approach in MDM [59], we predict \\(\\mathbf{X}_{0}^{1:N}\\) directly. This prediction method allows us to introduce additional regularization terms to improve action consistency and smoothness.\n' +
+      '\n' +
+      'We employ large-scale pre-trained encoders to incorporate multi-modal conditions. The raw speech audio is encoded by the pre-trained Wav2Vec2 [4] and aligned to the length of the facial animation sequence by linear interpolation, resulting in audio feature \\(\\mathbf{A}^{1:N}\\). Besides, a text or an image serving as the prompt for talking style is encoded to CLIP latent code \\(\\mathbf{P}\\) by the pre-trained CLIP model [49]. Our Transformer-based denoiser learns to predict facial animation \\(\\mathbf{X}_{0}^{1:N}\\) conditioning on the concatenation of these multi-modal embeddings via the common style-aware cross-attention layers. At each time step, the denoising process can be formulated as:\n' +
+      '\n' +
+      '\\[\\hat{\\mathbf{X}}_{0}^{1:N}=\\mathcal{G}\\left(\\mathbf{X}_{t}^{1:N},t,\\mathbf{A}^{1:N},\\mathbf{P} \\right). \\tag{4}\\]\n' +
+      '\n' +
+      'To enable disentanglement of speech and prompt control, during training, two random masks are introduced for multi-conditioning classifier-free guidance [27]. Initially, the CLIP latent code \\(\\mathbf{P}\\) undergoes the first random mask, which brings both stylized and non-stylized co-speech denoisers and enables style control disentangled with speech signals. Then, this masked code is concatenated with the audio feature \\(\\mathbf{A}^{1:N}\\). A second phase of random masking is applied to the final concatenated code, which similarly brings both speech-driven and non-speech-driven denoisers and facilitates adjusting speech content consistency strength.\n' +
+      '\n' +
+      'TrainingWe employ the simple loss [26] as the main objective to train our models, which is defined as:\n' +
+      '\n' +
+      '\\[\\mathcal{L}_{\\text{simple}}=\\|\\mathbf{X}_{0}^{1:N}-\\hat{\\mathbf{X}}_{0}^{1:N}\\|_{2}^{2}. \\tag{5}\\]\n' +
+      '\n' +
+      'Besides, we introduce a velocity loss [14] to enforce the model to produce natural transitions between adjacent frames, which is formulated as:\n' +
+      '\n' +
+      '\\[\\mathcal{L}_{\\text{velocity}}=\\left\\|\\left(\\mathbf{X}_{0}^{2:N}-\\mathbf{X}_{0}^{1:N-1} \\right)-\\left(\\mathbf{\\hat{X}}_{0}^{2:N}-\\mathbf{\\hat{X}}_{0}^{1:N-1}\\right)\\right\\|_{2 }^{2}. \\tag{6}\\]\n' +
+      '\n' +
+      'Furthermore, a smooth loss [57] is employed to enforce smoothness and reduce abrupt transitions and discontinuities:\n' +
+      '\n' +
+      '\\[\\mathcal{L}_{\\text{smooth}}=\\left\\|\\mathbf{\\hat{X}}_{0}^{3:N}+\\mathbf{\\hat{X}}_{0}^{1 :N-2}-\\mathbf{\\hat{X}}_{0}^{2:N-1}\\right\\|_{2}^{2}. \\tag{7}\\]\n' +
+      '\n' +
+      'Overall, the denoiser is trained with the following objective:\n' +
+      '\n' +
+      '\\[\\mathcal{L}=\\lambda_{\\text{simple}}\\mathcal{L}_{\\text{simple}}+\\lambda_{ \\text{velocity}}\\mathcal{L}_{\\text{velocity}}+\\lambda_{\\text{smooth}}\\mathcal{L }_{\\text{smooth}}, \\tag{8}\\]\n' +
+      '\n' +
+      'where \\(\\lambda_{\\text{simple}}\\), \\(\\lambda_{\\text{velocity}}\\), and \\(\\lambda_{\\text{smooth}}\\) are hyper-parameters serving as loss weights to balance the contributions from these terms.\n' +
+      '\n' +
+      'InferenceDuring the denoising process, our model combines two types of guidance, the main speech audio and the additional text/image style guidance, with the classifier-free guidance technique [27]:\n' +
+      '\n' +
+      '\\[\\hat{\\mathbf{X}}_{0}^{1:N} =(1-\\mathbf{s}_{A}-\\mathbf{s}_{P})\\cdot\\mathcal{G}\\left(\\mathbf{X}_ {t}^{1:N},t\\right)\\] \\[+\\mathbf{s}_{A}\\cdot\\mathcal{G}\\left(\\mathbf{X}_{t}^{1:N},t,\\mathbf{A}^{1 :N}\\right)+\\mathbf{s}_{P}\\cdot\\mathcal{G}\\left(\\mathbf{X}_{t}^{1:N},t,\\mathbf{A}^{1:N },\\mathbf{P}\\right), \\tag{9}\\]\n' +
+      '\n' +
+      'where \\(\\mathbf{s}_{A}\\) and \\(\\mathbf{s}_{P}\\) are two strength factors to adjust speech and style guidance strength respectively. The last two terms provide both non-stylized and stylized predictions within the same speech inputs, which implies the disentangled style control beyond the speech content.\n' +
+      '\n' +
+      'Overlapped batching denoisingTo reduce the inference time for real-time applications, we employ _batching denoising_, a technique akin to the batching denoising step introduced in StreamDiffusion [33], and further extend it to _overlapped batching denoising_, to process exceedingly long audios in a single denoising pass, by segmenting audio into overlapped windows. The overlapped batching denoising approach transforms the traditionally multiple, autoregressive sequence generation tasks into a parallelizable endeavor. Within the confines of VRAM capacity, its processing time does not increase linearly with the length of the audio, thereby significantly enhancing the speed of head motion generation.\n' +
+      '\n' +
+      '### Conditional Facial Animation Editing\n' +
+      '\n' +
+      'Media2Face achieves fine-grained control of generation through keyframe editing and text/image guidance. As illustrated in Fig. 4, we use GNPFA and CLIP to extract the conditions from face images and text/image prompts and leverage classifier-free guidance to control the diffusion process.\n' +
+      '\n' +
+      'Figure 3: **Architecture of Media2Face.** Our model takes audio features and CLIP latent code as conditions and denoise the noised sequence of expression latent code together with head pose i.e. head motion code. The conditions are randomly masked and subjected to cross-attention with the noisy head motion code. At inference, we sample head motion codes by DDIM. We feed the expression latent code to the GNPFA decoder to extract the expression geometry, combined with a model template to produce facial animation enhanced by head pose parameters.\n' +
+      '\n' +
+      'Keyframe editingWe can modify the keyframes of the generated animation and smoothly integrate them with the corresponding lip movements using diffusion inpainting technique [42] in the temporal domain. Fig. 4 illustrates an example of modifying a keyframe retrieved from an image using GNPFA. Similarly, this ability can be generalized as _sequential composition_ in [53] to diffuse animations from different sources together. Please refer to our supplementary video.\n' +
+      '\n' +
+      'CLIP-guided style editingUtilizing an in-betweening technique in [3, 59], our approach enables the application of diverse style controls across different frames within an audio segment. By assigning distinct style prompts to individual frames and employing a gradient mask during each diffusion step, we seamlessly and naturally integrate the sampling results of various prompts. This methodology ensures a coherent transition of style influences throughout the audio sequence.\n' +
+      '\n' +
+      '## 5 Results\n' +
+      '\n' +
+      'In Fig. 8, we showcase multiple audio-driven animations as well as style-based generation results based on text and image prompts. Please refer to the supplementary video for more results.\n' +
+      '\n' +
+      '### Implementation Details\n' +
+      '\n' +
+      'For GNPFA, we follow Dreamface [76] to design our geometry VAE, vision encoders share the same architecture as the geometry encoder. Training of the geometry VAE and vision encoders take 10 days and 96 hours to converge respectively on Nvidia A6000 GPU, using an AdaBelief optimizer. GNPFA can inference on Nvidia RTX 3090 GPU at about 500 fps. For Media2Face, we employ an eight-layer transformer decoder for the denoiser, utilizing four attention heads. The feature dimension is 512, and the window size is \\(N=200\\) at 30 fps. During training, our models follow a cosine noise schedule with 500 noising steps. Media2Face is trained on Nvidia RTX 3090 GPU for 36 hours using an AdamW optimizer. We set \\(\\lambda_{\\text{smooth}}=0.01,\\lambda_{\\text{velocity}}=1,\\lambda_{\\text{simple}}=1\\). During inference time, we set \\(\\textbf{s}_{A}=2.5\\), \\(\\textbf{s}_{P}=1.5\\). We achieved over 300 fps offline and 30fps in real-time on Nvidia RTX 3090 GPU.\n' +
+      '\n' +
+      '### Comparisons\n' +
+      '\n' +
+      'We compare Media2Face with several state-of-the-art facial animation methods. We separate a two-hour segment from the M2F-D as the test set and keep it with a similar data structure as the training set. For 3D methods, we compared with FaceFormer [20], CodeTalker [70], FaceDiffuser [56] and EmoTalk [46] and use their pre-trained model as the baseline. We unify all results to the same FLAME topology for fair comparisons. We also compared the quality of generated head poses with SadTalker [78], a 2D talking face generation method that incorporates head movements.\n' +
+      '\n' +
+      '#### 5.2.1 Quantitative Comparisons\n' +
+      '\n' +
+      'To measure lip synchronization, we employ Lip Vertex Error (LVE) [50], calculating the maximum L2 error across all lip vertices for each frame. Upper Face Dynamics Deviation (FDD) [70] measures the diversity of expressions by comparing the standard deviation of each upper face motion over time between the synthesized and the ground truth. To evaluate the synchronization between audio and generated head pose, we utilize Beat Alignment (BA) [57, 78], which computes the synchronization of head pose beats between the generated and the ground truth. As shown in Table 2, our method surpasses existing methods in terms of lip accuracy, facial expression stylization, and the synthesis of rhythmic head movements.\n' +
+      '\n' +
+      '#### 5.2.2 Qualitative Comparisons\n' +
+      '\n' +
+      'We show our qualitative comparison in Fig. 7. Compared with emotion-blind methods, (FaceFormer, CodeTalker,\n' +
+      '\n' +
+      'Figure 4: **Application show case.** We can fine-tune the generated facial animation (_Row 2_) by 1. extracting key-frame expression latent codes through our expression encoder (_Row 3_), 2. providing per-frame style prompts through CLIP (_Row 4_, _Left_: happy, _Right_: Sad). The intensity and range of control can be adjusted using diffusion in-betweening techniques.\n' +
+      '\n' +
+      'FaceDiffuser), our method can generate not only more accurate lip movement but also micro-expressions under neutral conditions (eye blink, eyebrow gesture). Compared with emotion-aware methods, (EMOTE, EmoTalk), our method demonstrates a more vibrant and natural expression of emotions and facial details while maintaining lip shape accuracy. Notice that our method also generates head poses highly synchronized with the given conditions(raise the head in surprise and lower it in sadness).\n' +
+      '\n' +
+      '### Ablation study\n' +
+      '\n' +
+      'We conduct following ablation experiments to evaluate our key components:(1) _Ours w/o GNPFA_: We train Media2Face on linear blendshapes obtained from the GNPFA mapping network \\(\\mathcal{M}^{\\prime}\\). (2) _Ours w/o CFG_: We inference Media2Face without classifier-free guidance. As shown in Table 2, the removal of GNPFA leads to a significant degradation in LVE, validating the effectiveness of GNPFA on modeling accurate lip shape. Inference without CFG has bad performance on FDD since the model fails to generate stylized head motions. We also train Media2Face on 10%, 40%, 70% of M2F-D. As shown in Table 2, model performance on FDD and BA increases during dataset scaling up while that on LVE remains steady. This validates our hypothesis that while the model can learn precise lip-sync animation on small datasets, it requires learning from a large amount of rich-conditioned data to generate animation with realistic expressions, diverse emotions, and appropriate head movements.\n' +
+      '\n' +
+      '### User Study\n' +
+      '\n' +
+      'We conduct 30 diverse audio samples, including dialogues, speeches, and songs and invert 100 participants. We ensure fair comparisons by employing the same shader and template for all generated geometries. Participants ensure side-by-side animations with other methods, assessing Media2Face with three conditions: with a specific style prompt for each audio, with a neutral prompt, and without any prompts and head pose animation. Our model demonstrates superior preference ratings: over 90% for general cases, 80% without specific style prompts, and 70% in the absence of specific style prompts and head pose, underscoring the effectiveness of head pose generation and our style prompt.\n' +
+      '\n' +
+      '## 6 Conclusions\n' +
+      '\n' +
+      'In this paper, we present Media2Face, pushing the boundary of diffusion models for realistic co-speech facial animation synthesis with rich multi-modal conditionings.\n' +
+      '\n' +
+      'To enhance the diffusion models with high-quality facial animation data, we introduce GNPFA, a facial VAE with a latent neural representation of facial expressions and head poses, pre-trained on a wide array of facial scanning data. GNPFA is then utilized to extract high-quality expressions and head poses from a mass of accessible facial videos from various resources. It brings M2F-D, a large, diverse, and scan-level 3D facial animation dataset with abundant speech, emotion, and style annotations, over 60 hours. Finally, we train our Media2Face model in GNPFA latent space with M2F-D dataset. Media2Face integrates diverse media inputs as conditions including audio, text, and image, which flexibly control facial emotion and style while preserving high-quality lip-sync with speech. The experimental results demonstrate the effectiveness of Media2Face and showcase various related applications, such as reconstructing dialogue situations and multi-modality conditional editing. We believe Media2Face is a significant step towards realizing realistic human-centric AI virtual companions with strong emotional connection and resonance with us humans.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c} \\hline \\hline Methods & LVE(mm)\\(\\downarrow\\) & FDD(\\(\\times 10^{-5}\\)m)\\(\\downarrow\\) & BA \\(\\uparrow\\) \\\\ \\hline FaceFormer & 18.19 & 21.37 & N/A \\\\ CodeTalker & 16.74 & 21.95 & N/A \\\\ FaceDiffuser & 16.33 & 22.38 & N/A \\\\ EmoTalk & 14.61 & 17.84 & N/A \\\\ SadTalker & — & — & 0.219 \\\\ \\hline Ours w/o CFG & 10.67 & 16.69 & 0.166 \\\\ Ours w/o GNPFA & 14.89 & 12.81 & 0.198 \\\\ \\hline Ours w/ 10\\% data & 10.75 & 20.65 & 0.170 \\\\ Ours w/ 40\\% data & 10.55 & 18.32 & 0.208 \\\\ Ours w/ 70\\% data & **10.43** & 14.98 & 0.221 \\\\ \\hline\n' +
+      '**Ours** & 10.44 & **12.21** & **0.254** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 2: **Quantitative comparisons and evaluations**. Notice that the BA metric is not utilized for FaceFormer, CodeTalker, FaceDiffuser, and EmoTalk, as they do not generate head poses. Also, metrics related to vertices are not utilized for SadTalker due to its different facial topology.\n' +
+      '\n' +
+      'Figure 5: **User study result.** Note how our method has demonstrated overwhelming superiority in the singing cases, showcasing the model’s ability to generate rich emotions and rhythmic head movements.\n' +
+      '\n' +
+      'Figure 6: **Retargeting to various identities.** Thanks to GNPFA, we can further generate personalized and nuanced facial mesh, which can fit various identities across different genders, ages, and ethnicities. Note the differences in facial details among different identities, notably the different wrinkles.\n' +
+      '\n' +
+      'Figure 7: **Qualitative comparison.**_Top:_ Comparing with emotion-blind methods, we use a neutral prompt to feed to Media2Face. _Bottom:_ Comparing with emotion-aware methods. We utilize text prompts for Media2Face and assign corresponding labels to EMOTE. Notice that EmoTalk extracts emotional features from audio that cannot be manually assigned.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* [1] Simon Alexanderson, Rajmund Nagy, Jonas Beskow, and Gustav Eje Henter. Listen, denoise, action! audio-driven motion synthesis with diffusion models. _ACM Transactions on Graphics_, 42(4):1-20, July 2023.\n' +
+      '\n' +
+      'Figure 8: **Result gallery.** We generate vivid dialogue scenes (_Row 1,2_) through scripted textual descriptions. We synthesize stylized facial animations (_Row 3,4_) through image prompts, which can be emoji or even more abstract images. We also perform emotional singing in France, English and Japanese(_Row 5-7_). For more results, please refer to the supplementary video.\n' +
+      '\n' +
+      '* [2] Shivangi Aneja, Justus Thies, Angela Dai, and Matthias Niessner. Facetalk: Audio-driven motion diffusion for neural parametric head models, 2023.\n' +
+      '* [3] Tenglong Ao, Zeyi Zhang, and Libin Liu. Gesturedift-fulclip: Gesture diffusion model with clip latents. _ACM Trans. Graph._, 2023.\n' +
+      '* [4] Alexei Baevski, Henry Zhou, Abdelrahman Mohamed, and Michael Auli. wav2vec 2.0: a framework for self-supervised learning of speech representations. In _Proceedings of the 34th International Conference on Neural Information Processing Systems_, NIPS\'20, Red Hook, NY, USA, 2020. Curran Associates Inc. 2, 5\n' +
+      '* [5] Volker Blanz and Thomas Vetter. A morphable model for the synthesis of 3d faces. In _Proceedings of the 26th Annual Conference on Computer Graphics and Interactive Techniques_, SIGGRAPH \'99, page 187-194, USA, 1999. ACM Press/Addison-Wesley Publishing Co.\n' +
+      '* [6] James Booth, Epameinondas Antonakos, Stylianos Ploumpis, George Trigeorgis, Yannis Panagakis, and Stefanos Zafeiriou. 3d face morphable models" in-the-wild". In _Proceedings of the IEEE conference on computer vision and pattern recognition_, pages 48-57, 2017.\n' +
+      '* [7] Giorgos Bouritsas, Sergiy Bokhnyak, Stylianos Ploumpis, Stefanos Zafeiriou, and Michael Bronstein. Neural 3d morphable models: Spiral convolutional networks for 3d shape representation learning and generation. In _2019 IEEE/CVF International Conference on Computer Vision (ICCV)_, pages 7212-7221, 2019.\n' +
+      '* [8] Houwei Cao, David G Cooper, Michael K Kautmann, Ruben C Gur, Ani Nenkova, and Ragini Verma. Crema-d: Crowd-sourced emotional multimodal actors dataset. _IEEE transactions on affective computing_, 5(4):377-390, 2014.\n' +
+      '* [9] Yong Cao, Wen C. Tien, Petros Faloutsos, and Frederic Pighin. Expressive speech-driven facial animation. _ACM Trans. Graph._, 24(4):1283-1302, oct 2005.\n' +
+      '* [10] Peng Chen, Xiaobao Wei, Ming Lu, Yitong Zhu, Naiming Yao, Xingyu Xiao, and Hui Chen. Diffusiontalker: Personalization and acceleration for speech-driven 3d face diffuser, 2023.\n' +
+      '* [11] Zhixiang Chen and Tae-Kyun Kim. Learning feature aggregation for deep 3d morphable models. In _Proceedings of the IEEE/CVF conference on computer vision and pattern recognition_, pages 13164-13173, 2021.\n' +
+      '* [12] Byoungwon Choe and Hyeong-Seok Ko. Analysis and synthesis of facial expressions with hand-generated muscle actuation basis. In _ACM SIGGRAPH 2006 Courses_, pages 21-es. 2006.\n' +
+      '* [13] Zhaojie Chu, Kailing Guo, Xiaofen Xing, Yilin Lan, Bolun Cai, and Xiangmin Xu. Corttalk: Correlation between hierarchical speech and facial activity variances for 3d animation, 2023.\n' +
+      '* [14] Daniel Cudeiro, Timo Bolkart, Cassidy Laidlaw, Anurag Ranjan, and Michael J. Black. Capture, learning, and synthesis of 3d speaking styles. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_, June 2019.\n' +
+      '* [15] Radek Danecek, Kiran Chhatre, Shashank Tripathi, Yandong Wen, Michael Black, and Timo Bolkart. Emotional speech-driven animation with content-emotion disentanglement. In _SIGGRAPH Asia 2023 Conference Papers_, SA \'23, New York, NY, USA, 2023. Association for Computing Machinery.\n' +
+      '* [16] Pif Edwards, Chris Landreth, Eugene Fiume, and Karan Singh. Jali: an animator-centric viseme model for expressive lip synchronization. _ACM Transactions on graphics (TOG)_, 35(4):1-11, 2016.\n' +
+      '* [17] Bernhard Egger, William A. P. Smith, Ayush Tewari, Stefanie Wuhrer, Michael Zollhoefer, Thabo Beeler, Florian Bernard, Timo Bolkart, Adam Kortylewski, Sami Romdhani, Christian Theobalt, Volker Blanz, and Thomas Vetter. 3d morphable face models--past, present, and future. _ACM Trans. Graph._, 39(5), jun 2020.\n' +
+      '* [18] Paul Ekman and Wallace V Friesen. Facial action coding system. _Environmental Psychology & Nonverbal Behavior_, 1978.\n' +
+      '* [19] Tony Ezzat and Tomaso Poggio. Miketalk: A talking facial display based on morphing visemes. In _Proceedings Computer Animation\'98 (Cat. No. 98EX169)_, pages 96-102. IEEE, 1998.\n' +
+      '* [20] Yingruo Fan, Zhaojiang Lin, Jun Saito, Wenping Wang, and Taku Komura. Faceformer: Speech-driven 3d facial animation with transformers. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_, 2022.\n' +
+      '* [21] Yingruo Fan, Zhaojiang Lin, Jun Saito, Wenping Wang, and Taku Komura. Joint audio-text model for expressive speech-driven 3d facial animation. 5(1), may 2022.\n' +
+      '* 598, October 2010.\n' +
+      '* [23] Rinon Gal, Yuval Alaluf, Yuval Atzmon, Or Patashnik, Amit H. Bermano, Gal Chechik, and Daniel Cohen-Or. An image is worth one word: Personalizing text-to-image generation using textual inversion, 2022.\n' +
+      '* [24] Simon Giebenhain, Tobias Kirschstein, Markos Georgopoulos, Martin Runz, Lourdes Agapito, and Matthias Niessner. Learning neural parametric head models. In _Proc. IEEE Conf. on Computer Vision and Pattern Recognition (CVPR)_, 2023.\n' +
+      '* [25] Kazi Injamamul Haque and Zerrin Yumak. Facex-hubert: Text-less speech-driven e(x)pressive 3d facial animation synthesis using self-supervised speech representation learning, 2023.\n' +
+      '* [26] Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising diffusion probabilistic models, 2020.\n' +
+      '* [27] Jonathan Ho and Tim Salimans. Classifier-free diffusion guidance. In _NeurIPS 2021 Workshop on Deep Generative Models and Downstream Applications_, 2021.\n' +
+      '* [28] Dong-Yan Huang, Ellensi Chandra, Xiangting Yang, Ying Zhou, Huaiping Ming, Weisi Lin, Minghui Dong, and Haizhou Li. Visual speech emotion conversion using deep learning for 3d talking head. In _Proceedings of the Joint Workshop of the 4th Workshop on Affective Social Multimedia Computing and First Multi-Modal Affective Computing of Large-Scale Multimedia Data_, ASMMC-MMAC\'18, page 7-13, New York, NY, USA, 2018. Association for Computing Machinery.\n' +
+      '* [29] Patrik Huber, Guosheng Hu, Rafael Tena, Pouria Mortazavian, Willem P Koppen, William J Christmas, Matthias Ratsch, and Josef Kittler. A multiresolution 3d morphable face model and fitting framework. In _International conference on computer vision theory and applications_, volume 5, pages 79-86. SciTePress, 2016.\n' +
+      '* [30] Patrik Jonell, Taras Kucherenko, Gustav Eje Henter, and Jonas Beskow. Let\'s face it: Probabilistic multimodal interlocutor-aware generation of facial gestures in dyadic settings. In _Proceedings of the 20th ACM International Conference on Intelligent Virtual Agents_, IVA \'20, New York, NY, USA, 2020. Association for Computing Machinery.\n' +
+      '* [31] G.A. Kalberer and L. Van Gool. Face animation based on observed 3d speech dynamics. In _Proceedings Computer Animation 2001. Fourteenth Conference on Computer Animation (Cat. No.01TH8596)_, pages 20-251, 2001.\n' +
+      '* [32] Tero Karras, Timo Aila, Samuli Laine, Antti Herva, and Jaakko Lehtinen. Audio-driven facial animation by joint end-to-end learning of pose and emotion. _ACM Trans. Graph._, 36(4), jul 2017.\n' +
+      '* [33] Akio Kodaira, Chenfeng Xu, Toshiki Hazama, Takanori Yoshimoto, Kohei Ohno, Shogo Mitsuhori, Soichi Sugano, Hanying Cho, Zhijian Liu, and Kurt Keutzer. Streamdiffusion: A pipeline-level solution for real-time interactive generation. 2023.\n' +
+      '* [34] Paul Koppen, Zhen-Hua Feng, Josef Kittler, Muhammad Awais, William Christmas, Xiao-Jun Wu, and He-Feng Yin. Gaussian mixture 3d morphable face model. _Pattern Recogn._, 74(C):617-628, feb 2018.\n' +
+      '* [35] John P Lewis, Ken Anjyo, Taehyun Rhee, Mengjie Zhang, Frederic H Pighin, and Zhigang Deng. Practice and theory of blendshape facial models. _Eurographics (State of the Art Reports)_, 1(8):2, 2014.\n' +
+      '* [36] Jiaman Li, Zhengfei Kuang, Yajie Zhao, Mingming He, Karl Bladin, and Hao Li. Dynamic facial asset and rig generation from a single scan. _ACM Trans. Graph._, 39(6):215-1, 2020.\n' +
+      '* [37] Ruilong Li, Karl Bladin, Yajie Zhao, Chinmay Chinara, Owen Ingraham, Pengda Xiang, Xinglei Ren, Pratusha Prasad, Bipin Kishore, Jun Xing, and Hao Li. Learning formation of physically-based face attributes. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_, June 2020.\n' +
+      '* [38] Tianye Li, Timo Bolkart, Michael J. Black, Hao Li, and Javier Romero. Learning a model of facial shape and expression from 4d scans. _ACM Trans. Graph._, 36(6), nov 2017.\n' +
+      '* [39] Han Liang, Jiacheng Bao, Ruichi Zhang, Sihan Ren, Yuecheng Xu, Sibei Yang, Xin Chen, Jingyi Yu, and Lan Xu. Omg: Towards open-vocabulary motion generation via mixture of controllers. _arXiv preprint arXiv:2312.08985_, 2023.\n' +
+      '* ECCV 2022_, pages 612-630, Cham, 2022. Springer Nature Switzerland.\n' +
+      '* [41] Steven R Livingstone and Frank A Russo. The ryerson audio-visual database of emotional speech and song (ravdess): A dynamic, multimodal set of facial and vocal expressions in north american english. _PloS one_, 13(5):e0196391, 2018.\n' +
+      '* [42] Andreas Lugmayr, Martin Danelljan, Andres Romero, Fisher Yu, Radu Timofte, and Luc Van Gool. Repaint: Inpainting using denoising diffusion probabilistic models. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_, pages 11461-11471, June 2022.\n' +
+      '* [43] Juan F Montesinos, Venkatesh S Kadandale, and Gloria Haro. A cappella: Audio-visual singing voice separation. In _32nd British Machine Vision Conference, BMVC 2021_, 2021.\n' +
+      '* [44] Evonne Ng, Hanbyul Joo, Liwen Hu, Hao Li, Trevor Darrell, Angjoo Kanazawa, and Shiry Ginosar. Learning to listen: Modeling non-deterministic dyadic facial motion. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_, pages 20395-20405, June 2022.\n' +
+      '* [45] Ziqiao Peng, Yihao Luo, Yue Shi, Hao Xu, Xiangyu Zhu, Jun He, Hongyan Liu, and Zhaoxin Fan. Self-talk: A self-supervised commutative training diagram to comprehend 3d talking faces, 2023.\n' +
+      '* [46] Ziqiao Peng, Haoyu Wu, Zhenbo Song, Hao Xu, Xiangyu Zhu, Jun He, Hongyan Liu, and Zhaoxin Fan. Emotalk: Speech-driven emotional disentanglement for 3d face animation. In _Proceedings of the IEEE/CVF International Conference on Computer Vision_, pages 20687-20697, 2023.\n' +
+      '* [47] Hai Xuan Pham, Yuting Wang, and Vladimir Pavlovic. End-to-end learning for 3d facial animation from speech. In _Proceedings of the 20th ACM International Conference on Multimodal Interaction_, ICMI \'18, page 361-365, New York, NY, USA, 2018. Association for Computing Machinery.\n' +
+      '* [48] Dafei Qin, Jun Saito, Noam Aigerman, Thibault Groueix, and Taku Komura. Neural face rigging for animating and retargeting facial meshes in the wild. _arXiv preprint arXiv:2305.08296_, 2023.\n' +
+      '* [49] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, et al. Learning transferable visual models from natural language supervision. In _International conference on machine learning_, pages 8748-8763. PMLR, 2021.\n' +
+      '* [50] Alexander Richard, Michael Zollhofer, Yandong Wen, Fernando de la Torre, and Yaser Sheikh. Meshtalk: 3d face animation from speech using cross-modality disentanglement. In _Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)_, pages 1173-1182, October 2021.\n' +
+      '* [51] Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Bjorn Ommer. High-resolution image synthesis with latent diffusion models. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_, pages 10684-10695, June 2022.\n' +
+      '* [52] Tim Salimans and Jonathan Ho. Progressive distillation for fast sampling of diffusion models, 2022.\n' +
+      '* [53] Yonatan Shafir, Guy Tevet, Roy Kapon, and Amit H Bermano. Human motion diffusion as a generative prior. _arXiv preprint arXiv:2303.01418_, 2023.\n' +
+      '* [54] Il-Kyu Shin, A. Cengiz Oztireli, Hyeon-Joong Kim, Thabo Beeler, Markus Gross, and Soo-Mi Choi. Extraction and Transfer of Facial Expression Wrinkles for Facial Performance Enhancement. In John Keyser, Young J. Kim, and Peter Wonka, editors, _Pacific Graphics Short Papers_. The Eurographics Association, 2014.\n' +
+      '* [55] Jascha Sohl-Dickstein, Eric Weiss, Niru Maheswaranathan, and Surya Ganguli. Deep unsupervised learning using nonequilibrium thermodynamics. In Francis Bach and David Blei, editors, _Proceedings of the 32nd International Conference on Machine Learning_, volume 37 of _Proceedings of Machine Learning Research_, pages 2256-2265, Lille, France, 07-09 Jul 2015. PMLR.\n' +
+      '* [56] Stefan Stan, Kazi Injamamul Haque, and Zerrin Yumak. Facediffuser: Speech-driven 3d facial animation synthesis using diffusion. In _ACM SIGGRAPH Conference on Motion, Interaction and Games (MIG \'23), November 15-17, 2023, Rennes, France_, New York, NY, USA, 2023. ACM.\n' +
+      '* [57] Zhiyao Sun, Tian Lv, Sheng Ye, Matthieu Gaetan Lin, Jenny Sheng, Yu-Hui Wen, Minjing Yu, and Yong Jin Liu. Diffposetalk: Speech-driven stylistic 3d facial animation and head pose generation via diffusion models, 2023.\n' +
+      '* [58] Sarah Taylor, Taehwan Kim, Yisong Yue, Moshe Mahler, James Krahe, Anastasio Garcia Rodriguez, Jessica Hodgins, and Iain Matthews. A deep learning approach for generalized speech animation. _ACM Trans. Graph._, 36(4), jul 2017.\n' +
+      '* [59] Guy Tevet, Sigal Raab, Brian Gordon, Yonatan Shafir, Daniel Cohen-Or, and Amit H Bermano. Human motion diffusion model. 2022.\n' +
+      '* [60] Balamurugan Thambiraja, Sadegh Aliakbarian, Darren Cosker, and Justus Thies. 3diface: Diffusion-based speech-driven 3d facial animation and editing, 2023.\n' +
+      '* [61] Balamurugan Thambiraja, Ikhsanul Habibie, Sadegh Aliakbarian, Darren Cosker, Christian Theobalt, and Justus Thies. Imitator: Personalized speech-driven 3d facial animation. In _Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)_, pages 20621-20631, October 2023.\n' +
+      '\n' +
+      '- ECCV 2020_, pages 716-731, Cham, 2020. Springer International Publishing.\n' +
+      '* [63] Luan Tran, Feng Liu, and Xiaoming Liu. Towards high-fidelity nonlinear 3d face morphable model. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 1126-1135, 2019.\n' +
+      '* [64] Luan Tran and Xiaoming Liu. Nonlinear 3d face morphable model. In _Proceedings of the IEEE conference on computer vision and pattern recognition_, pages 7346-7355, 2018.\n' +
+      '* [65] Luan Tran and Xiaoming Liu. On learning 3d face morphable model from in-the-wild images. _IEEE transactions on pattern analysis and machine intelligence_, 43(1):157-171, 2019.\n' +
+      '* [66] Aaron Van Den Oord, Oriol Vinyals, et al. Neural discrete representation learning. _Advances in neural information processing systems_, 30, 2017.\n' +
+      '* [67] Monica Villanueva Aylagas, Hector Anadon Leon, Mattias Teye, and Konrad Tollmar. Voice2face: Audio-driven facial and tongue rig animations with cvaes. _Computer Graphics Forum_, 41(8):255-265, 2022.\n' +
+      '* ECCV 2020_, pages 700-717, Cham, 2020. Springer International Publishing.\n' +
+      '* [69] Cheng-hsin Wuu, Ningyuan Zheng, Scott Ardisson, Rohan Bali, Danielle Belko, Eric Brockmeyer, Lucas Evans, Timothy Godisart, Hyowon Ha, Xuhua Huang, et al. Multiface: A dataset for neural face rendering. _arXiv preprint arXiv:2207.11243_, 2022.\n' +
+      '* [70] Jinbo Xing, Menghan Xia, Yuechen Zhang, Xiaodong Cun, Jue Wang, and Tien-Tsin Wong. Codetalker: Speech-driven 3d facial animation with discrete motion prior. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 12780-12790, 2023.\n' +
+      '* [71] Ling Yang, Zhilong Zhang, Yang Song, Shenda Hong, Runsheng Xu, Yue Zhao, Wentao Zhang, Bin Cui, and Ming-Hsuan Yang. Diffusion models: A comprehensive survey of methods and applications. _ACM Comput. Surv._, 56(4), nov 2023.\n' +
+      '* [72] Tarun Yenamandra, Ayush Tewari, Florian Bernard, Hans-Peter Seidel, Mohamed Elgharib, Daniel Cremers, and Christian Theobalt. i3dmm: Deep implicit 3d morphable model of human heads. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 12803-12813, 2021.\n' +
+      '* [73] Hongwei Yi, Hualin Liang, Yifei Liu, Qiong Cao, Yandong Wen, Timo Bolkart, Dacheng Tao, and Michael J. Black. Generating holistic 3d human motion from speech, 2023.\n' +
+      '* [74] Hongwei Yi, Hualin Liang, Yifei Liu, Qiong Cao, Yandong Wen, Timo Bolkart, Dacheng Tao, and Michael J. Black. Generating holistic 3d human motion from speech. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_, pages 469-480, June 2023.\n' +
+      '* [75] Chenxu Zhang, Saifeng Ni, Zhipeng Fan, Hongbo Li, Ming Zeng, Madhukar Budagavi, and Xiaohu Guo. 3d talking face with personalized pose dynamics. _IEEE Transactions on Visualization and Computer Graphics_, 29(2):1438-1449, 2023.\n' +
+      '* [76] Longwen Zhang, Qiwei Qiu, Hongyang Lin, Qixuan Zhang, Cheng Shi, Wei Yang, Ye Shi, Sibei Yang, Lan Xu, and Jingyi Yu. Dreamface: Progressive generation of animatable 3d faces under text guidance. _arXiv preprint arXiv:2304.03117_, 2023.\n' +
+      '* [77] Longwen Zhang, Chuxiao Zeng, Qixuan Zhang, Hongyang Lin, Ruixiang Cao, Wei Yang, Lan Xu, and Jingyi Yu. Video-driven neural physically-based facial asset for production. volume 41, pages 1-16. ACM New York, NY, USA, 2022.\n' +
+      '* [78] Wenxuan Zhang, Xiaodong Cun, Xuan Wang, Yong Zhang, Xi Shen, Yu Guo, Ying Shan, and Fei Wang. Sadtalker: Learning realistic 3d motion coefficients for stylized audio-driven single image talking face animation, 2022.\n' +
+      '* [79] Zhimeng Zhang, Lincheng Li, Yu Ding, and Changjie Fan. Flow-guided one-shot talking face generation with a high-resolution audio-visual dataset. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, 2021.\n' +
+      '* [80] Mingwu Zheng, Hongyu Yang, Di Huang, and Liming Chen. Imface: A nonlinear 3d morphable face model with implicit neural representations. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 20343-20352, 2022.\n' +
+      '* [81] Yang Zhou, Zhan Xu, Chris Landreth, Evangelos Kalogerakis, Subhransu Maji, and Karan Singh. Visemenet: Audio-driven animator-centric speech animation. 37(4), jul 2018.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
