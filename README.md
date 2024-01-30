@@ -1,4 +1,4 @@
-[![send_newsletter](https://github.com/deep-diver/hf-daily-paper-newsletter/actions/workflows/newsletter.yml/badge.svg)](https://github.com/deep-diver/hf-daily-paper-newsletter/actions/workflows/newsletter.yml)
+[![collect_papers](https://github.com/deep-diver/hf-daily-paper-newsletter/actions/workflows/collect_papers.yml/badge.svg)](https://github.com/deep-diver/hf-daily-paper-newsletter/actions/workflows/collect_papers.yml) [![mov_to_gif](https://github.com/deep-diver/hf-daily-paper-newsletter/actions/workflows/mov_to_gif.yaml/badge.svg)](https://github.com/deep-diver/hf-daily-paper-newsletter/actions/workflows/mov_to_gif.yaml) [![translation-ko](https://github.com/deep-diver/hf-daily-paper-newsletter/actions/workflows/translation(ko).yaml/badge.svg)](https://github.com/deep-diver/hf-daily-paper-newsletter/actions/workflows/translation(ko).yaml) [![send_newsletter](https://github.com/deep-diver/hf-daily-paper-newsletter/actions/workflows/newsletter.yml/badge.svg)](https://github.com/deep-diver/hf-daily-paper-newsletter/actions/workflows/newsletter.yml)
 
 # Daily Newsletter for 🤗 Daily Papers 
 
