@@ -15,7 +15,7 @@ def parallel_job_split(i, client, arxiv_ids, args):
       python=args.dstack_python_version,
       commands=[
           'echo "Cloneing the arXiv translator repo..."',
-          f'git clone https://{args.github_username}:{args.github_token}@github.com/deep-diver/arxiv-translator.git',
+          f'git clone https://{args.github_username}:{args.github_token}@github.com/deep-diver/arxiv-translator.git -b modelv1',
           f'git clone https://{args.github_username}:{args.github_token}@github.com/{args.target_archive_github_repo}.git',
   
           'echo "Installing gh CLI..."',
@@ -27,7 +27,7 @@ def parallel_job_split(i, client, arxiv_ids, args):
           'gh auth login --with-token < GH_TOKEN.txt',
   
           'echo "Installing requirements..."',
-          'pip install nougat-ocr arxiv-dl kss',
+          'pip install nougat-ocr arxiv-dl kss parmap accelerate',
   
           'echo "Creating temporary directory for holding the paper..."',
           f'for arxiv_id in {arxiv_ids_str}; do mkdir -p papers/$arxiv_id; done',
@@ -39,7 +39,7 @@ def parallel_job_split(i, client, arxiv_ids, args):
           f'for arxiv_id in {arxiv_ids_str}; do PDF_FN=$(ls -1 papers/$arxiv_id/*.pdf | head -n 1); nougat $PDF_FN -o papers/$arxiv_id; done',
   
           'echo "Translation processing"...',
-          f'for arxiv_id in {arxiv_ids_str}; do PDF_FN=$(ls -1 papers/$arxiv_id/*.pdf | head -n 1); MMD_FN=$(echo $PDF_FN | sed "s/pdf/mmd/g"); python arxiv-translator/translate_mmd.py $MMD_FN; python arxiv-translator/ready_templates.py $MMD_FN arxiv-translator/assets/html_template.html papers/$arxiv_id; done',
+          f'for arxiv_id in {arxiv_ids_str}; do PDF_FN=$(ls -1 papers/$arxiv_id/*.pdf | head -n 1); MMD_FN=$(echo $PDF_FN | sed "s/pdf/mmd/g"); python arxiv-translator/translate_mmd.py --input-filename $MMD_FN --model-name {args.model_name} --hf-token {args.hf_token}; python arxiv-translator/ready_templates.py $MMD_FN arxiv-translator/assets/html_template.html papers/$arxiv_id; done',
   
           'echo "Git commit & push"...',
           f'cd {os.path.normpath(args.target_archive_github_repo).split(os.sep)[1]}',
@@ -157,6 +157,9 @@ if __name__ == "__main__":
   parser.add_argument('--target-archive-dir', type=str, default="translated-papers")
 
   parser.add_argument('--num-of-workers', type=int, default=4)
+  
+  parser.add_argument('--hf-token', type=str, default=None)
+  parser.add_argument('--model-name', type=str, default="nlp-with-deeplearning/enko-t5-small-v0")
   args = parser.parse_args()
   print(args)
   main(args)
