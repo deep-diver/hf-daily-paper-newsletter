@@ -34,3 +34,4 @@
 - [pix2gestalt: Amodal Segmentation by Synthesizing Wholes](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/11/2024-01-26+pix2gestalt%3A+Amodal+Segmentation+by+Synthesizing+Wholes.yaml) / 2024-01-26
 - [EAGLE: Speculative Sampling Requires Rethinking Feature Uncertainty](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/12/2024-01-29+EAGLE%3A+Speculative+Sampling+Requires+Rethinking+Feature+Uncertainty.yaml) / 2024-01-29
 - [Learning Universal Predictors](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/12/2024-01-29+Learning+Universal+Predictors.yaml) / 2024-01-29
+- [Divide and Conquer: Language Models can Plan and Self-Correct for Compositional Text-to-Image Generation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/13/2024-01-30+Divide+and+Conquer%3A+Language+Models+can+Plan+and+Self-Correct+for+Compositional+Text-to-Image+Generation.yaml) / 2024-01-30

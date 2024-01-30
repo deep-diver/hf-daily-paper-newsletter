@@ -8,3 +8,4 @@
 - [Self-Rewarding Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/6/2024-01-19+Self-Rewarding+Language+Models.yaml) / 2024-01-19
 - [WARM: On the Benefits of Weight Averaged Reward Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/8/2024-01-23+WARM%3A+On+the+Benefits+of+Weight+Averaged+Reward+Models.yaml) / 2024-01-23
 - [Large-scale Reinforcement Learning for Diffusion Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/9/2024-01-24+Large-scale+Reinforcement+Learning+for+Diffusion+Models.yaml) / 2024-01-24
+- [SERL: A Software Suite for Sample-Efficient Robotic Reinforcement Learning](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/13/2024-01-30+SERL%3A+A+Software+Suite+for+Sample-Efficient+Robotic+Reinforcement+Learning.yaml) / 2024-01-30
