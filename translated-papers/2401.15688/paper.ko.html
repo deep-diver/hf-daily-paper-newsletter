@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '[MISSING_PAGE_FAIL:1]\n' +
+      '\n' +
+      '객체들, 속성들, 및 관계들을 포함하는 개념들, LLM 에이전트는 처음에 그것을 분해하며, 이는 개별 객체들의 추출, 그들의 연관된 속성들, 및 일관된 장면 레이아웃의 예측을 수반한다. 그런 다음 이러한 개별 객체는 독립적으로 정복될 수 있다. 그 후, 에이전트는 텍스트를 분석하여 추론을 수행하고, 이러한 고립된 객체를 구성하기 위해 도구를 계획하고 사용한다. 검증 및 인간 피드백 메커니즘은 최종적으로 에이전트에 통합되어 잠재적인 속성 오류를 추가로 수정하고 생성된 이미지를 정제한다. LLM 에이전트를 통해 개념 구성을 위한 도구로 튜닝 프리 멀티 컨셉 커스터마이징 모델과 레이아웃 투 이미지 생성 모델을 제안하고, 검증을 위해 에이전트와 상호작용할 수 있는 도구로 로컬 이미지 편집 방법을 제안한다. 장면 레이아웃은 다수의 객체들 간의 혼동을 방지하기 위해 이들 툴들 간의 이미지 생성 프로세스를 제어한다. 광범위한 실험을 통해 합성 텍스트 대 이미지 생성에 대한 접근법의 우수성을 입증한다: CompAgent는 오픈 월드 합성 T2I 생성을 위한 포괄적인 벤치마크인 T2I-CompBench에서 10% 이상의 개선을 달성한다. 다양한 관련 작업에 대한 확장도 잠재적인 애플리케이션에 대한 CompAgent의 유연성을 보여줍니다.\n' +
+      '\n' +
+      '**컴퓨팅 방법론 \\(\\rightarrow\\) 컴퓨터 비전; 이미지 조작.**\n' +
+      '\n' +
+      '추가 키 단어 및 구: 이미지 생성, 합성 텍스트 대 이미지 생성, 확산 모델, LLM 에이전트\n' +
+      '\n' +
+      '## 1. Introduction\n' +
+      '\n' +
+      '텍스트 대 이미지 생성의 최근 발전(Chang et al., 2023; Chen et al., 2023; Ramesh et al., 2022; Rombach et al., 2022; Saharia et al., 2022)은 언어 텍스트 입력에 기초하여 다양하고 고품질의 이미지를 생성하는 현저한 능력을 입증했다. 그러나, 최첨단 텍스트 대 이미지 모델조차도 복잡한 텍스트 프롬프트와 정확하게 정렬하는 이미지를 생성하지 못하는 경우가 많으며, 여기서 상이한 속성 또는 관계를 갖는 다수의 객체는 하나의 장면으로 구성된다(Chefer et al., 2023; Feng et al., 2023; Huang et al., 2023). 도 1에서 알 수 있는 바와 같다. 도 1에 도시된 바와 같이, 기존의 방법들은 이러한 복잡한 텍스트 프롬프트들이 주어진 생성된 이미지들 내에서 올바른 객체들, 속성들 또는 관계들을 생성할 수 없다.\n' +
+      '\n' +
+      '구도 텍스트 대 이미지 생성을 해결하려면 적어도 다음 세 가지 문제를 해결해야 한다: 1)_객체 유형 및 양_. 다수의 객체들의 존재로 인해, 생성된 이미지들은 부정확한 객체 유형들, 객체들의 누락들, 및 객체 양들의 불일치들과 같은 문제들을 피하면서 각각의 객체를 정확하게 통합해야 한다. 2) _Attribute binding_. 객체는 본질적으로 "색상", "모양" 또는 "질감"과 같은 독특한 속성을 가지고 있다. 이러한 객체 속성은 생성된 이미지 내에서 세심하게 보존되어 속성 정렬 오류 또는 누출과 같은 문제를 피해야 한다. 3) _Object relationships_. 다중 객체들 사이에는 "왼쪽", "오른쪽"과 같은 공간 관계 또는 "유지", "재생"과 같은 비공간 관계와 같은 상호 작용 관계가 있을 수 있다. 생성 프로세스는 결과 이미지 내에서 이러한 관계를 정밀도와 충실도로 캡슐화하고 전달해야 한다.\n' +
+      '\n' +
+      '기존의 텍스트-이미지 모델은 앞서 언급한 세 가지 문제를 해결할 수 있는 능력을 가지고 있지 않지만, 고유한 유형과 속성을 포함하여 단일 객체 생성에 능숙함을 보여준다. 이에 착안하여, 본 논문에서는 LLM(Large Language Model) 에이전트에 의해 조정된 합성 텍스트 대 이미지 생성을 위한 분할 정복의 원리에 기반을 둔 훈련 없는 접근 방법인 _CompAgent_를 제안한다. 기본 아이디어는 복잡한 텍스트 문장을 구성 요소 개별 객체로 분해하는 것으로, 처음에는 이러한 고립된 객체의 정확성을 보장한 다음 함께 구성하여 최종 이미지를 생성하는 것이다. 개요는 그림 2에 나와 있다.\n' +
+      '\n' +
+      '우리의 방법의 핵심은 LLM에 의해 구현된 AI 에이전트로 프레임워크의 "뇌" 역할을 하며 주로 다음 작업을 담당한다: 1) _Decomposition_. 에이전트는 복잡한 구성 문장을 분해하여 모든 객체와 연관된 속성을 추출하고 목록화한다. 동시에 장면의 레이아웃을 설계하여 경계 상자의 사양을 통해 객체의 위치를 정의한다. 텍스트 대 이미지 생성 모델은 각각의 개별 객체에 대한 이미지를 생성하기 위해 맞물린다. 2) _Planning and Tool use_. LLM 에이전트는 복잡한 텍스트 프롬프트에 따라 추론을 수행한 다음 객체 속성과 관계의 존재에 따라 결정되는 이미지 생성에 대한 전략적 접근법을 공식화한다. 그런 다음 외부 도구를 사용하여 이미지 생성 또는 편집을 수행합니다. 3) _Verification and Feedback_. LLM 또는 다른 시각적 모델의 시각 능력을 활용하여 에이전트는 생성된 이미지를 추가로 면밀히 조사하고 잠재적인 속성 오류를 식별 및 수정한다. 추가적으로, 인간 피드백은 장면 레이아웃 미세화에 매끄럽게 통합될 수 있고, 이에 의해 궁극적인 출력의 품질을 향상시킬 수 있다.\n' +
+      '\n' +
+      'LLM 에이전트에 의해 장면 레이아웃에 따라 다수의 개별 객체를 하나의 응집 이미지로 구성하기 위한 세 가지 도구를 소개한다. 첫 번째는 _tuning-free multi-concept customization_에 관한 것이다. 구체적으로, 다중 객체를 지원하기 위한 튜닝이 없는 단일 개념 커스터마이징 네트워크(Li et al., 2023)에 교차 어텐션 맵 편집 및 사전 학습된 ControlNet(Zhang et al., 2023)에 의한 공간 레이아웃 제약을 부과한다. 이전에 생성된 개별 객체의 이미지를 사용자가 지정한 피사체로 간주하여 맞춤형 이미지를 생성한다. 이러한 방식으로, 객체 속성들이 보장될 수 있다. 두 번째는 _layout-to-image_ 모델이다. 잠재 업데이트를 통해(Xie et al., 2023), 바운딩 박스 레이아웃을 조건으로 이미지들이 생성된다. 객체 유형 및 양에 대한 명세는 레이아웃 조건의 부과를 통해 실현 가능하게 되어 모델이 레이아웃 조건에 중점을 둘 수 있게 한다.\n' +
+      '\n' +
+      '도 2. **기존의 텍스트-이미지 생성 방법(a) 및 우리의 CompAgent(b)의 개요.** 기존의 방법은 단일 단계에서 텍스트 프롬프트로부터 이미지를 생성한다. 이에 비해 LLM 에이전트에 의해 안내된 CompAgent는 복잡한 텍스트 프롬프트를 개별 객체로 분할하여 별도로 정복하고 도구 라이브러리로 최종 이미지로 구성한다.\n' +
+      '\n' +
+      '객체 관계의 정확한 표현 그러나, 레이아웃-대-이미지 모델은 반드시 절대 정확도를 갖는 객체 속성들을 생성하지 않을 수 있다. 따라서 우리는 세 번째 도구인 _로컬 이미지 편집_을 추가로 제시한다. 에이전트는 생성된 이미지에서 속성 오류가 있는 객체를 검사하며, 이는 분할 모델을 통해 마스킹될 것이다[14]. 교차 주의 제어를 통해 이전 다중 개념 커스터마이징 네트워크를 통해 주제 중심 편집을 수행하여 잘못된 객체를 올바른 속성 대응물로 대체한다. 이 툴킷은 앞서 언급한 세 가지 도구 외에도 기존의 텍스트 대 이미지 생성 모델과 비전 언어 멀티모달 모델을 포함하여 간단한 텍스트 프롬프트를 처리하고 속성 정확성을 평가한다.\n' +
+      '\n' +
+      '우리의 주요 기여는 다음과 같이 요약할 수 있다.\n' +
+      '\n' +
+      '* 우리는 분할 및 정복 접근법을 통해 합성 텍스트 대 이미지 생성을 해결하기 위한 CompAgent를 제안한다. LLM 에이전트는 텍스트 대 이미지 생성에서 복잡한 사례를 해결하기 위해 전체 작업, 분해, 추론 및 전반적인 계획 수행, 도구 라이브러리 사용을 감독한다.\n' +
+      '* 공간 배치에 대한 전역적 및 지역적 배치 제어를 모두 채용함으로써, 속성 바인딩 문제를 해결하기 위한 튜닝 프리 멀티 개념 커스터마이징 모델을 제안한다. 또한 레이아웃-투-이미지 생성 방식이 객체 관계의 충실성을 보장할 수 있음을 관찰한다.\n' +
+      '* 본사의 LLM 에이전트에 검증 및 피드백 메커니즘을 소개한다. 설계된 로컬 이미지 편집 도구와 상호 작용함으로써 잠재적인 속성 오류를 수정하고 생성된 이미지를 더욱 정제할 수 있다.\n' +
+      '\n' +
+      '우리는 광범위한 객체 속성과 관계를 포함하는 합성 텍스트 대 이미지 생성을 위한 최근 T2I-CompBench 벤치마크 [15]에서 CompAgent를 평가한다. 정성적 및 정량적 결과 모두 본 연구의 방법의 우수성을 입증한다. 우리는 구성 텍스트 대 이미지 평가에 대한 메트릭에서 10% 이상의 개선을 달성했다. 또한, CompAgent는 다중 개념 맞춤형 이미지 생성, 참조 기반 이미지 편집, 객체 배치 등과 같은 다양한 관련 애플리케이션으로 유연하게 확장될 수 있다.\n' +
+      '\n' +
+      '##2. 관련업무\n' +
+      '\n' +
+      '텍스트-이미지 생성 확산 모델[13, 14]의 발전으로 텍스트-이미지 생성은 현저한 성공을 거두었다[12, 13, 15]. 이러한 모델은 일반적으로 매우 자연스럽고 사실적인 이미지를 생성할 수 있지만 이미지에 대한 텍스트의 제어 가능성을 보장할 수 없다. 따라서 제어 가능한 텍스트 대 이미지 생성을 위해 많은 후속 작업이 제안된다. ControlNet[12]는 Canny edge와 같은 다양한 컨디셔닝 입력으로 Stable Diffusion을 제어하고, [21]은 조건에 대해 스케치 이미지를 채택한다. 레이아웃-투-이미지 방법들[12, 13, 14, 15]은 객체들의 주어진 바운딩 박스들에 따라 이미지들을 합성한다. 그리고 일부 이미지 편집 방법[10, 11, 12, 13]은 사용자의 지시에 따라 이미지를 편집한다. 이러한 방법의 성공에도 불구하고, 이들은 여전히 이미지 생성을 위한 복잡한 텍스트 프롬프트를 처리하는 데 한계가 있다.\n' +
+      '\n' +
+      'LLM 에이전트Large 언어 모델(LLM)은 ChatGPT, GPT-4[14], Llama[15]와 같이 자연어 처리에서 인상적인 능력을 보여주었다. GPT-4V [13]에서 시력 능력의 관여는 또한 모델이 시각 데이터를 처리할 수 있게 한다. 최근 LLM은 복잡한 작업을 수행하기 위한 에이전트로 채택되기 시작했다. 이러한 작업 [14, 15, 16]은 시각적 상호작용, 음성 처리와 같은 작업에 도구를 사용하는 것을 배우기 위해 LLM을 적용하고, 보다 최근의 작업은 소프트웨어 개발 [13], 게임 [13], 또는 APP 사용 [13]과 같은 보다 인상적인 애플리케이션으로 확장되었다. 이들과 달리, 우리는 합성 텍스트-이미지 생성의 과제에 초점을 맞추고, 복잡한 텍스트 프롬프트 분석 및 방법 계획을 위해 LLM 에이전트를 활용한다.\n' +
+      '\n' +
+      '## 3. Method\n' +
+      '\n' +
+      'CompAgent의 개요는 그림 3에 나와 있다. LLM 에이전트는 전체 프레임워크를 조정한다. 복잡한 텍스트 프롬프트를 분해하고 텍스트 내의 속성을 분석하고 사용할 도구에 대한 계획을 설계합니다. 궁극적으로 구성 텍스트 대 이미지 생성에 내재된 문제를 해결하기 위한 도구를 호출한다.\n' +
+      '\n' +
+      '### LLM Agent\n' +
+      '\n' +
+      '우리의 LLM 에이전트 센터의 주요 책임은 검증 및 피드백 구현뿐만 아니라 분해, 계획, 도구 사용을 포함한 작업의 실행을 중심으로 한다.\n' +
+      '\n' +
+      '복잡한 텍스트 프롬프트 분해 입력 텍스트 프롬프트는 일반적으로 여러 개체를 포함하며, 각각은 고유한 속성을 특징으로 합니다. 이러한 객체들은 또한 특정 관계들로 서로 상호작용할 수 있다. 기존의 이미지 합성 모델은 이러한 모든 속성과 관계를 동시에 포착할 수 없어 입력된 텍스트와 일치하는 이미지를 정확하게 생성하기 어렵다.\n' +
+      '\n' +
+      '도전을 해결하기 위해 LLM 에이전트는 복잡한 텍스트를 분해한다. 텍스트 프롬프트에 포함된 개별 객체와 연관된 속성을 추출합니다. 그런 다음 텍스트 대 이미지 생성 모델을 사용하여 이러한 객체에 대한 여러 이미지를 생성한다. 하나의 객체만이 관여하기 때문에, 기존의 모델들은 전형적으로 속성들과 매칭되는 이미지들을 생성할 수 있다. 에이전트는 또한 캡션화된 경계 박스들로서 표현된 장면 레이아웃을 공식화하고, 여기서 각각의 전경 객체의 위치는 (x, y, 폭, 높이) 포맷으로 지정된다. 레이아웃은 별도의 객체를 함께 구성할 때 이미지 생성 프로세스를 안내합니다.\n' +
+      '\n' +
+      '도구 사용 언어 모델은 이미지 생성을 위한 능력이 없기 때문에, 이미지 생성을 위해 분리된 객체들을 함께 구성하기 위해 외부 도구들이 활용될 것이 요구된다:\n' +
+      '\n' +
+      '1) 튜닝 프리 멀티 콘셉트 커스터마이징. 개별 객체의 이전에 생성된 이미지를 대상 이미지로 간주하고, 입력된 텍스트 프롬프트에 따라 이러한 특정 객체를 특징으로 하는 이미지를 생성한다. 이러한 객체들에 대해, 각각의 정확한 속성들로 특징짓는 다수의 이미지들의 존재는 일반적으로 다중 개념 커스터마이징 모델이 객체 속성들의 충실도를 효과적으로 보장할 수 있음을 보장한다. 그러나 이 모델은 대상 이미지의 특징을 보존하는 데 과도하게 초점을 맞추는 경향이 있으므로 객체 관계와 같은 텍스트에서 다른 정보를 잠재적으로 간과할 수 있다. 따라서 이 도구는 속성 바인딩 문제를 효과적으로 해결할 수 있지만 관계를 보장할 수는 없다.\n' +
+      '\n' +
+      '2) 레이아웃-투-이미지 생성. 그것은 이전에 확립된 장면 레이아웃을 조건으로 하는 이미지들을 생성하고, 객체들의 타겟 이미지들을 활용하지 않는다. 객체 유형들 및 양들은 장면 레이아웃을 통해 특정될 수 있고, 이에 의해 객체들, 즉 객체 관계들을 넘어서는 정보에 대한 모델의 강화된 주의를 용이하게 한다. 결과적으로, 이러한 레이아웃-대-이미지 생성 툴은 객체 관계 문제를 잘 해결할 수 있지만, 레이아웃 안내만으로는 객체 속성을 보장하기에 충분하지 않다.\n' +
+      '\n' +
+      '3) 로컬 이미지 편집. 레이아웃-투-이미지 생성 모델은 정확한 속성을 갖는 객체를 일관되게 생성할 수 없기 때문에, 객체를 올바른 속성으로 대체하기 위해 로컬 이미지 편집 도구를 추가로 설계한다. 개별 객체의 이전에 생성된 이미지는 객체 교체를 위한 참조로 여기에서 활용된다. 이 도구는 에이전트의 검증 메커니즘과 상호 작용하여 수정해야 하는 객체를 협력적으로 결정한다.\n' +
+      '\n' +
+      '4) Text-to-image 생성. 기존의 텍스트-이미지 생성 모델은 분해 단계 동안 개별 객체 이미지를 생성하기 위해 활용된다. 또한 비구성 생성을 위한 간단한 텍스트 프롬프트가 제공된 이미지를 생성하는 도구로 사용됩니다.\n' +
+      '\n' +
+      '5) Vision-text multi-modal model. 이러한 모델의 시각적 질문 응답 능력을 활용하여 이미지 내 객체 속성이 검증 기능에 올바른지 여부를 평가한다.\n' +
+      '\n' +
+      '_Planning.__Planning.___ 도구에 의해 나타나는 다양한 숙련도에 비추어 볼 때, 도구 배포의 전략적 선택은 LLM 에이전트의 핵심 책임이다. 주로 입력된 텍스트 프롬프트를 분석한다. 텍스트가 주로 객체 속성을 중심으로 하고 관계가 비교적 간단하다면(공간 관계 "왼쪽", "오른쪽"과 같이) 사용자 정의 도구가 사용될 것이다. (순진한 "흰색" 눈색 속성과 같이) 속성이 단순한 동안 객체 관계가 포함된 경우 레이아웃 대 이미지 생성 도구가 적합하다. 텍스트가 속성과 관계를 모두 포함하는 경우, LLM 에이전트는 먼저 객체 관계를 나타내기 위해 레이아웃 대 이미지 모델을 사용한다. 그런 다음 비전-텍스트 멀티모달 모델을 활용하여 객체 속성의 정확성을 검증하고 로컬 이미지 편집 도구를 채택할지 여부를 결정한다. 단순한 속성이나 관계만을 갖는 단순한 텍스트 프롬프트의 경우 텍스트-이미지 생성 도구가 직접 활용될 것이다.\n' +
+      '\n' +
+      '_검증 및 피드백._____검증 및 피드백. 객체 속성을 정확하게 렌더링하는 데 있어 레이아웃 대 이미지 생성 도구의 잠재적 한계를 고려할 때 검증 과정이 필수적이다. GPT-4V[17], MiniGPT-4[17], LLVA[19]와 같은 기존의 비전 언어 다중 모달 모델을 사용하여 속성이 올바른지 여부를 질의한다. 일부 개체의 속성이 잘못된 경우 LLM 에이전트는 로컬 이미지 편집 도구를 호출하여 개체를 올바른 개체로 대체합니다.\n' +
+      '\n' +
+      '게다가, 복잡한 속성들 및 관계들과 함께 더 많은 수의 객체들을 갖는 너무 복잡한 텍스트 프롬프트들에 대해, 텍스트 및 디자인 장면 레이아웃을 자동으로 분해하기 위해 에이전트에만 의존하는 것은 반드시 전적으로 정확한 것은 아닐 수도 있다. 이러한 상황에서 인간의 피드백이 개입될 수 있다. 인간은 부적절한 객체 크기, 위치, 누락 또는 추가 객체와 같은 장면 레이아웃을 조정할 수 있다. 또한 계획 및 검증 오류를 수정할 수 있습니다. 레이아웃 형태의 휴먼 피드백을 도입하면 휴먼 노동 비용을 절감할 수 있다. 인간 피드백에 대한 프레임워크의 조정은 LLM 에이전트를 구성 생성에 더 유연하게 만든다.\n' +
+      '\n' +
+      '### 튜닝이 없는 멀티 컨셉 커스터마이징\n' +
+      '\n' +
+      '본 절에서는 튜닝 프리 멀티 콘셉트 커스터마이징 툴을 주로 소개합니다. 그 개요는 그림 4에 설명되어 있다. 튜닝 프리 커스터마이징 이미지 생성 모델을 트레이닝하는 것은 일반적으로 주제 표현 학습을 위한 대규모 사전 트레이닝을 필요로 한다. 현재 단일 개념 커스터마이징을 지원하는 튜닝 프리 메소드가 이미 있습니다. 이를 위해 기존의 단일 개념 커스터마이징 모델인 BLIP-Diffusion[19]을 기반으로 장면 레이아웃의 통합과 함께 여러 개념을 수용할 수 있는 기능을 확장한다. 놀랍게도, 우리는 객체 속성의 무결성을 유지하기 위해 대규모 업스트림 사전 훈련의 필요성을 제거하고 튜닝이 없는 다중 개념 커스터마이징 모델을 직접 구성한다.\n' +
+      '\n' +
+      '그림 3. **CompAgent.**의 프레임워크 복잡한 텍스트 프롬프트를 포함하는 입력이 주어지면 LLM 에이전트는 이미지 생성을 위한 외부 도구를 호출하기 위해 분해 및 계획 작업을 수행한다. 그런 다음 검증을 수행하거나 인간의 피드백을 포함하고 이미지 자체 보정을 위한 도구와 상호 작용한다. 최종 이미지 출력은 입력 텍스트 프롬프트로부터의 요건들을 잘 만족시킬 것이다.\n' +
+      '\n' +
+      '구체적으로 각 개념에 대해 BIIP-2 인코더와 멀티모달 인코더[11]를 사용하여 주제 프롬프트 임베딩을 추출한다. 정확한 객체 속성에 대한 포괄적인 이해를 얻기 위해 단일 개념에 해당하는 여러 이미지 내에 포함된 정보를 활용한다. 우리는 이러한 이미지에서 파생된 모든 임베딩을 수집하고 평균을 계산하여 후속 사용을 위한 최종 피사체 프롬프트 임베딩을 생성한다. 그것들은 텍스트 프롬프트 임베딩과 연결되고 이미지 생성을 위해 단일 개념 커스터마이징 모델 [11]의 U-Net으로 포워딩된다.\n' +
+      '\n' +
+      '그러나, 다수의 개념으로부터 직접 임베딩들을 집계하는 것은 이미지 생성 동안 상이한 객체들 간의 간섭을 쉽게 야기하여 개념 혼동의 문제를 야기할 수 있다. 이를 피하기 위해 장면 레이아웃을 활용하여 각 객체의 위치를 조절하여 간섭 위험을 완화한다. 우리는 두 가지 수준의 배치 제어를 사용합니다. - 전역 및 지역. 그림 1의 상단에서 볼 수 있듯이. 도 4를 참조하면, COCO 데이터셋(11)의 배경을 마스킹하고, 레이아웃-투-이미지 패러다임을 통해 ControlNet(22)을 학습한다. ControlNet은 잔차를 통해 U-Net을 제어하는 데 사용된다. 글로벌 수준에서 강력한 제어를 제공하여 여러 객체를 효과적으로 구별하여 혼란을 잘 방지합니다. 그러나, 전역적으로만 제어할 수 있을 뿐 각 개별 객체의 위치를 독립적으로 제어할 수 없다.\n' +
+      '\n' +
+      '개별 객체들의 로컬 레이아웃 제어를 위해, 교차-어텐션 맵이 생성된 이미지의 공간 레이아웃에 직접적으로 영향을 미친다는 사실에 의해 동기화된 장면 레이아웃에 따라 교차-어텐션 맵을 편집하는 것을 추가로 제안한다[14]. 구체적으로, 각 객체 단어와 속성 단어의 교차 주의 맵을 수집한다. 우리는 물체의 존재에 해당하는 영역에 양의 상수 \\(\\alpha^{+}\\)을 추가하고, 나머지 영역에는 음의 상수 \\(\\alpha^{-}\\)을 추가한다. ControlNet에 비해 크로스 어텐션 편집은 상당히 약한 레이아웃 제어를 실현하지만 각 객체의 위치를 독립적으로 제어할 수 있다. 따라서 ControlNet과 시너지적으로 통합되면 전체 이미지의 전체적인 레이아웃을 효과적으로 제어한다. 궁극적으로 레이아웃에 의해 안내되는 상이한 객체들은 서로 구별될 수 있고, 혼동 문제를 피하고 다중 개념 맞춤화를 달성할 수 있다.\n' +
+      '\n' +
+      '### Layout-to-Image Generation\n' +
+      '\n' +
+      '객체 관계를 보장하기 위해 장면 레이아웃에서 직접 이미지를 생성한다. 이전에 사용된 ControlNet 및 교차 주의 편집 접근법은 실제로 레이아웃 대 이미지 문제를 해결할 수 있지만 레이아웃에 너무 강한 제약을 부과하는 것이 특징이다. 일단 장면 레이아웃이 객체 관계의 정확한 묘사에서 벗어나면, 이러한 관계의 정확한 표현을 보장하는 것이 어려워진다. 따라서 레이아웃에서 이미지 생성을 위해 박스 제약 손실[23]을 백워딩하여 잠재 업데이트를 하는 전략을 활용한다. 레이아웃에 대한 비교적 느슨한 제어를 제공하여 객체 관계의 유연한 보증을 허용한다.\n' +
+      '\n' +
+      '### 로컬 이미지 편집\n' +
+      '\n' +
+      '잘못된 속성을 가진 객체를 수정하기 위해 그림 5와 같이 로컬 이미지 편집 도구를 소개한다. 검증을 위해 LLM 에이전트를 쿼리함으로써 어떤 객체 속성이 잘못되었는지 식별하고 수정이 필요하다. 접지 DINO[11]과 SAM[15]의 조합을 이용하여 객체를 분할한다. 결과적인 세그먼트화된 마스크는 이미지 편집을 위한 위치 안내를 제공하기 위해 교차-어텐션 편집에 사용된다. 편집이 필요한 영상은 DDIM 반전을 통해 잠재로 재변환되어 이후의 영상 생성 과정에 대한 초기 잠재의 역할을 한다. 올바른 속성을 특징으로 하는 객체를 특징으로 하는 이미지는 이미 이전에 생성되었다. 이러한 이미지는 텍스트 프롬프트와 함께 U-Net에 대한 조건부 입력 역할을 하는 이전 커스터마이징 모델과 유사한 방식으로 처리된다. 이미지 생성 과정은 일반적으로 이미지 DDIM 반전을 초기 잠재력으로 사용하여 이전 다중 개념 커스터마이징을 따른다. 분할 마스크는 교차 주의 편집을 위한 지침으로 사용되는 반면 ControlNet은 사용되지 않는다. 이러한 방식으로, 부정확한 속성을 갖는 객체들은 효과적으로 대체되고 교정될 수 있다.\n' +
+      '\n' +
+      '## 4. Results\n' +
+      '\n' +
+      '우리는 주로 구성 텍스트 프롬프트를 6개의 하위 범주로 나누는 최근 T2I-CompBench 벤치마크 [12]에 대한 실험을 수행한다. 정량적 비교를 위해,\n' +
+      '\n' +
+      '그림 4. **튜닝 프리 멀티 콘셉트 커스터마이징 툴의 도면.** 컨트롤넷 및 크로스 어텐션 편집이 장면 레이아웃을 제어합니다. 여러 이미지 개념의 임베딩과 텍스트 프롬프트는 함께 연결되어 이미지 생성을 위해 U-Net으로 전달된다.\n' +
+      '\n' +
+      '그림 5. **우리의 로컬 이미지 편집 툴의 도면.** 컨셉 이미지는 임베딩 추출을 위한 커스터마이징 네트워크로 전달되며, 마스킹된 세그멘테이션 맵은 이미지 생성 과정을 안내한다.\n' +
+      '\n' +
+      '그 설정을 따르고 속성 바인딩 평가를 위한 BLIP-VQA 메트릭, 공간 관계 평가를 위한 UniDet 기반 메트릭, 비공간 관계를 위한 CLIP 스코어 및 복잡한 프롬프트를 위한 3-in-1 메트릭을 활용한다. 또한 본지와 보충 자료 모두에 질적 결과를 포함한다.\n' +
+      '\n' +
+      '### Quantitative Comparison\n' +
+      '\n' +
+      '본 논문에서 제안한 CompAgent의 정량적 메트릭 결과를 Tab. 1에 나열하였다. 기존의 최신 텍스트-이미지 합성 방법 및 복잡한 텍스트 프롬프트를 위해 설계된 모델과 비교한다. 텍스트-이미지 생성을 위해 최근 Stable Diffusion[12] v1.4, v2 및 XL[13] 모델인 DALL-E 2[20], PixArt-\\(\\alpha\\)[3] 및 DALL-E 3[14]와 비교한다. 합성 텍스트-이미지 생성 방법의 경우 Composable Diffusion[15], StructureDiffusion[15], AttnMask-Control[16], GORS[17]와 비교하였다. TokenCompose[16], Attn-Exct[3], ECLIPSE[14]와 LMD[11]은 문장 내의 여러 객체에서 표적이 되므로 이를 비교하고자 한다.\n' +
+      '\n' +
+      '속성 바인딩은 기존의 방법에 비해 BLIP-VQA 메트릭이 16.02%, 16.51%, 8.72%로 PixArt-\\(\\alpha\\)에 비해 월등히 높은 성능을 보였다. 텍스트-이미지 생성에서 제어성을 위한 현재 최첨단 방법인 DALL-E 3에 비해, 본 논문에서 제안하는 방법은 성능 면에서 동등하게 성능을 수행한다. 색상 및 모양 속성에 대해서는 안정적인 확산 모델을 기반으로 한 CompAgent가 3.78% 및 4.83% 더 높다. 이는 CompAgent가 객체 유형 및 속성을 정확하게 생성할 수 있는 능력을 보여준다. 단일 단계 생성과 비교하여, 이러한 분할 및 정복 다중 단계 생성 방식의 우수성은 따라서 속성 바인딩에서 관찰될 수 있다. 객체 관계의 경우, CompAgent는 공간 및 비공간 관계 모두에서 탁월합니다. 대조적으로, 이전의 방법은 그러한 능력이 부족하거나 단일 유형의 관계만 처리하는 것으로 제한된다. 본 논문에서 제안하는 CompAgent는 속성 바인딩과 객체 관계 모두에 대한 기능으로 복잡한 텍스트 프롬프트를 잘 처리할 수 있으며, 48.63%의 3-in-1 메트릭을 달성하여 기존 방법을 7% 이상 능가한다. 정량적 결과는 우리의 방법이 구성 텍스트 대 이미지 생성과 관련된 문제를 효과적으로 해결한다는 것을 잘 보여준다.\n' +
+      '\n' +
+      '### Ablation Study\n' +
+      '\n' +
+      '우리는 프레임워크에서 LLM 제제의 효과를 분석하기 위해 이 섹션에서 절제 연구를 추가로 수행한다.\n' +
+      '\n' +
+      '_LLM 에이전트 계획 및 검증.__LLM 에이전트 계획 및 검증. 먼저 Tab. 2에서 LLM 에이전트의 계획 및 검증 메커니즘의 효과를 분석한다. 개별 객체 이미지를 활용하여 다중 개념 커스터마이징 도구가 속성 바인딩을 잘 수행함을 관찰할 수 있다. 그러나 ControlNet이 활용되기 때문에 커스터마이징 모델은 객체 관계를 표현하는 데 유연하지 않을 수 있으며, 이는 복잡한 구성에서의 제한된 메트릭 점수로 이어진다. 이에 비해, 레이아웃-대-이미지 생성 툴은 객체 관계를 갖는 이미지를 잘 생성할 수 있지만, 객체 속성의 정확성을 보장할 수 없다. LLM 에이전트는 복잡한 텍스트 프롬프트를 분석하고 사용하기에 가장 적합한 도구를 계획할 수 있습니다. 결과적으로 LLM 에이전트 계획은 구성 텍스트 대 이미지 생성을 위한 대부분의 상황을 해결하는 데 도움이 된다. LLM 에이전트의 검증 메커니즘은 특히 레이아웃 대 이미지 생성이 객체 속성을 처리할 수 없는 복잡한 구성에서 일부 속성 오류를 수정하는 데 도움이 되므로 2.21% 개선에 기여한다. 우리가 볼 수 있듯이, 우리의 LLM 에이전트는 계획과 검증을 통해 구성 텍스트 대 이미지 생성을 위한 도구를 잘 활용한다.\n' +
+      '\n' +
+      '우리는 그림 6에 시각화된 몇 가지 예를 제공한다. 우리가 볼 수 있듯이 LLM 에이전트는 가장 적합한 도구를 잘 계획하고 사용한다. 사용자 정의 도구는 객체 속성을 엄격하게 제한하기 위해 사용되며 레이아웃 대 이미지 도구는 객체 관계에 대한 레이아웃에 적절한 조정을 할 수 있다. 또한, 로컬 이미지 편집 도구는 부정확한 속성으로 객체를 수정하는 데 도움이 될 수 있다.\n' +
+      '\n' +
+      '_휴먼 피드백.__ 우리는 그림 1에 시각화된 몇 가지 예를 추가로 제공한다. 도 7을 참조하여 사람의 피드백의 효과를 나타낸다. 첫 번째 예에서는 객체 유형 및 속성이 정확하지만 유리 컵의 크기가 너무 큽니다. 장면 레이아웃을 수정하기 위해 인간 피드백을 수반함으로써, 그러한 문제가 해결될 수 있다. 두 번째 예로, 텍스트는 상당히 복잡하며 장면 레이아웃에 약간의 오류가 있습니다 - 핫도그 하나, 작은 테이블, 그리고 너무 작은 차입니다. 인간이 검사하고 수정하면 CompAgent가 정확한 이미지를 생성할 수 있습니다. 이는 세 번째 예에도 적용된다. 당사의 CompAgent는 인간의 피드백을 통합할 수 있어 보다 사실적인 이미지를 생성하고 보다 복잡한 텍스트 프롬프트를 처리할 수 있습니다.\n' +
+      '\n' +
+      '따라서 구성 텍스트 대 이미지 생성을 위한 우리의 방법의 우수한 능력은 추가로 입증될 수 있다.\n' +
+      '\n' +
+      '그런 다음 그림 1의 기존 텍스트 대 이미지 생성 방법 및 구성 텍스트 대 이미지 생성 방법과 정성적 비교를 제공한다. 11. 텍스트 "블랙 기타 및 브라운 앰프"에 대해, 기존의 방법들은 기타 및 앰프의 색상을 혼동하기 쉽다. 텍스트에 4개의 객체가 존재하는 두 번째 예에서, 정확한 객체 번호 또한 기존 메서드에 대해 보장될 수 없다. 세 번째 예제의 삼각형 선반과 마지막 예제의 파란색 싱크와 같은 일부 흔하지 않은 속성의 경우 기존 모델도 속성에 대해 실수하기 쉽습니다. 게다가, 다섯 번째 예에서, 대부분의 기존 방법들은 "왼쪽" 관계를 정확하게 표현할 수 없다. 당사의 CompAgent는 이러한 모든 텍스트 프롬프트에 대해 정확하게 생성합니다. 이는 구성 텍스트 대 이미지 생성 측면에서 기존 모델에 비해 본 방법의 우수성을 더욱 입증한다.\n' +
+      '\n' +
+      '## 5. Conclusion\n' +
+      '\n' +
+      '본 논문에서는 합성 텍스트 대 이미지 생성을 위한 훈련 없는 접근 방법인 CompAgent를 제안한다. LLM 에이전트는 인간의 피드백을 분해, 계획, 검증 및 참여함으로써 전체 시스템을 조정하고 외부 도구를 사용하여 주어진 복잡한 텍스트 프롬프트에 따라 충실하고 정확한 이미지를 생성한다. 광범위한 결과는 CompAgent가 합성 텍스트 대 이미지 생성에서 객체 유형 및 수량, 속성 바인딩 및 객체 관계 문제를 잘 해결한다는 것을 보여준다. 우리는 언어 모델에 의해 강화된 자율 에이전트의 미래와 텍스트 대 이미지 생성의 제어 가능성을 위한 중요한 단계로 CompAgent를 고려한다.\n' +
+      '\n' +
+      '도 6. **다양한 툴로부터 생성된 이미지를 보여주기 위한 CompAgent의 가시화된 예 및 LLM 에이전트가 툴을 어떻게 사용할 계획인지를 보여준다.** LLM 에이전트는 텍스트 프롬프트를 분석한다. 이 도구는 속성 바인딩을 해결하기 위해 사용자 정의 도구를 사용하고 객체 관계를 해결하기 위해 레이아웃 대 이미지 도구를 사용한다. 복잡한 구성을 위해 레이아웃-대-이미지 툴을 객체 관계에 사용하고, 로컬 이미지 편집 툴을 속성 보정에 사용한다.\n' +
+      '\n' +
+      '도 7. **인간 피드백의 효과를 보여주기 위한 가시화된 예.** 녹색 상자는 LLM 에이전트에 의해 잘 생성된다. 빨간색 상자는 몇 가지 문제가 있는 LLM 에이전트에 의해 생성된 상자로, 두 번째 행의 파란색 상자로 인간의 피드백을 통해 수정된다.\n' +
+      '\n' +
+      '그림 8: **속성 바인딩에 대한 우리의 방법의 가시화된 결과.**\n' +
+      '\n' +
+      '그림 10: **복잡한 구성에 대한 우리의 방법의 가시화된 결과.**\n' +
+      '\n' +
+      'Figure 9: **Visualized results of our method for object relationship.**\n' +
+      '\n' +
+      '[MISSING_PAGE_EMPTY:9]\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:10]\n' +
+      '\n' +
+      '대형 언어 모델의 언어 이해 능력이 향상됨에 따라 합성 텍스트 대 이미지 생성을 위한 CompAgent의 성능도 향상됨을 알 수 있다. GPT-4를 에이전트로 채택할 때 메트릭이 가장 높은 값에 도달합니다. GPT-4는 개별 객체들을 성공적으로 분해할 수 있을 뿐만 아니라, 바운딩 박스들의 형상들이 객체 타입들에 더 적합한 장면 레이아웃을 생성할 수 있기 때문이다. 한편, Llama-7B 모델을 에이전트로 사용하더라도 구성 텍스트 대 이미지 생성 메트릭은 기존 대부분의 방법보다 여전히 높다. 이것은 서로 다른 대규모 언어 모델에 걸쳐 CompAgent의 유연성을 보여줍니다.\n' +
+      '\n' +
+      '레이아웃 안내를 통한### 이미지 생성\n' +
+      '\n' +
+      '이미지에 여러 개의 개별 객체를 구성하기 위해 생성된 장면 레이아웃은 CompAgent 프레임워크에서 생성 프로세스를 안내한다. LostGAN[21], LAMA[11], TwFA[22], Stable Diffusion[14], GLIGEN[11] 및 GLIGEN+ BoxDiff[23] 등 다양한 레이아웃-대-이미지 생성 방법의 성능을 비교하고 그 결과를 Tab. 4에 나열하였다. CompAgent 프레임워크에서는 주로 잠재 업데이트, 교차 주의 편집 및 ControlNet의 세 가지 전략을 활용한다. 우리는 [23]에서 제안한 벤치마크에 대한 실험을 수행한다. 이를 위해 YOLOv4 [1]을 적용하여 객체를 검출하고, AP, AP\\({}_{50}\\) 및 AP\\({}_{75}\\)을 포함하는 YOLO 점수를 구하여 레이아웃-대-이미지 성능의 정밀도를 평가한다.\n' +
+      '\n' +
+      '바운딩 박스를 통한 영상 생성 제어에만 크로스 어텐션 편집을 활용함으로써 얻어진 YOLO 점수는 Stable Diffusion보다 약간 높은 0.06에 불과하여 상당히 낮음을 알 수 있다. 이는 크로스 어텐션 맵을 편집하는 것이 레이아웃 안내를 제공할 수 있지만, 이미지 생성을 정확하게 제어하기에는 여전히 부족하다는 것을 보여준다. 훈련된 컨트롤넷을 활용하는 것이 훨씬 더 효과적이며 GLIGEN보다 4.1% 높은 0.338 AP를 달성한다. 그러나 ControlNet은 객체 수준이 아닌 글로벌 제어만 제공할 수 있다. ControlNet과 교차 주의 편집을 결합한 후 YOLO 점수는 GLIGEN + BoxDiff보다 10.6% 높은 0.508에 도달한다. 이것은 우리의 디자인이 물체의 위치를 더 정확하게 제어할 수 있음을 보여준다. 이는 다수의 객체들의 혼동을 잘 방지하므로, 속성 바인딩 문제에 적합하다. 그러나, 이러한 방식으로 장면 레이아웃에 대한 의존도가 너무 강하여, 올바른 객체 관계를 생성하는데 부적절하다. 대신, 잠재 업데이트는 장면 레이아웃을 잘 따를 수 있고, 또한 한편 유연할 수 있다. 따라서 객체 관계 이슈에 잠재 업데이트 전략을 활용한다.\n' +
+      '\n' +
+      '### Qualitative Comparison\n' +
+      '\n' +
+      '그런 다음 그림 1의 기존 최첨단 텍스트 대 이미지 생성 방법과 보다 시각화된 비교를 제공한다. 12. 기존 방법은 다음과 같은 오류가 발생하기 쉽다. 1) 속성 혼동. 예를 들어, 텍스트 "파란색 배낭과 빨간색 책"에 대해, 기존 모델들은 배낭과 빨간색 책의 색상을 혼동하거나, 빨간색 부분이 있는 배낭을 생성하기 쉽다. 2) 공통 속성 또는 시나리오에 의해 제약된다. 예를 들어, 두 번째 예제의 경우, 기존 모델은 갈색 싱크가 아니라 실제로 더 흔하기 때문에 흰색 싱크를 생성하는 경향이 있다. 세 번째 예에서, 기존의 방법들은 또한 필요한 객체들 및 속성들을 무시하면서, 공동 거실 시나리오를 생성하는 경향이 있다. 3) 잘못된 관계. 예를 들어, "왼쪽" 관계는 다섯 번째 예에서 올바르게 표현될 수 없다. 이에 비해, 본 논문에서 제안하는 CompAgent는 이러한 문제를 잘 회피하여 입력 텍스트에 대한 설명과 보다 정확하게 일치하는 이미지를 생성한다.\n' +
+      '\n' +
+      '또한 그림 1의 기존 구성 텍스트 대 이미지 생성 방법과 시각화된 비교를 제공한다. 13. 기존의 합성 텍스트-이미지 방법들 역시 상기 언급된 문제들을 해결할 수 없음을 관찰할 수 있다. 그 결과, 정확한 객체 유형 및 수량, 객체 속성 및 관계를 보장할 수 없다. CompAgent는 이러한 예제에 대해 동등하게 잘 작동합니다.\n' +
+      '\n' +
+      '보다 시각화된 예가 그림 1에 나와 있다. 도 14를 참조하면, 도 15 및 도 1을 참조하여 설명한다. 16. 이러한 예들은 구성 텍스트-이미지 생성 문제를 해결하기 위한 우리의 CompAgent의 우수한 능력을 추가로 입증한다.\n' +
+      '\n' +
+      '## 부록 D 확장 기타 작업\n' +
+      '\n' +
+      '컴팩트 에이전트는 합성 텍스트-이미지 생성 작업 외에도 LLM 에이전트와 툴킷의 도움으로 다른 관련 이미지 생성 작업에도 유연하게 확장할 수 있다. 우리는 주로 다중 개념 커스터마이징, 이미지 편집 및 객체 배치 작업에 대해 소개한다.\n' +
+      '\n' +
+      '### Multi-Concept Customization\n' +
+      '\n' +
+      '먼저 주어진 주제를 포함하는 입력 텍스트 프롬프트에 따라 이미지를 생성하는 다중 개념 커스터마이징 작업을 수행한다. 드림부스[15], 커스텀 확산[13] 및 콘스2[11]를 포함한 기존의 최첨단 커스텀화 방법과 비교한다. 비교 결과는 그림 1에 나와 있다. 17. DreamBooth 및 Custom Diffusion은 해당 객체 또는 이들의 올바른 속성을 생성할 수 없음을 알 수 있다. 예를 들어 첫 번째 예에서 드림부스는 이미지에서 사용을 생성하지 않으며 사용자 정의 확산 이미지에서 객체 속성이 올바르지 않습니다. 두 번째 예에서는 사용자 정의 확산이 컵을 생성하지 않는 반면 드림부스는 잘못된 색상으로 컵을 생성합니다. 콘 2는 그들보다 더 좋은 성능을 보여주며, 빨간색 책과 노란색으로 정확한 이미지를 생성합니다. 그러나, 공통 속성에 의해서도 제한된다. 예를 들어, 제2 예에서 소에 대한 올바른 색상을 생성하지 않으며, 이는 제3 예에서 자동차에도 적용된다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l r r r} \\hline \\hline Methods & AP \\(\\uparrow\\) & AP\\({}_{50}\\) \\(\\uparrow\\) & AP\\({}_{75}\\) \\(\\uparrow\\) \\\\ \\hline LostGAN & 0.053 & 0.089 & 0.056 \\\\ LAMA & 0.102 & 0.153 & 0.117 \\\\ TwFA & 0.106 & 0.147 & 0.126 \\\\ Stable Diffusion & 0.028 & 0.092 & 0.011 \\\\ GLIGEN & 0.297 & 0.458 & 0.339 \\\\ GLIGEN + BoxDiff & 0.402 & 0.620 & 0.462 \\\\ \\hline latent updating & 0.224 & 0.468 & 0.178 \\\\ cross-attention editing & 0.060 & 0.190 & 0.021 \\\\ ControlNet & 0.338 & 0.521 & 0.339 \\\\ ControlNet + cross-attention editing & **0.508** & **0.778** & **0.534** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 4. **레이아웃-대-이미지 생성에 대한 평가**. 우리는 YOLO 점수를 채택하여 이미지와 레이아웃의 일치성을 평가한다.\n' +
+      '\n' +
+      '게다가, 네 번째 예에서, 콘스 2는 고양이와 개의 특징을 혼동하고, 따라서 두 개의 개와 이미지를 생성한다. 이에 비해 본 논문에서 제안하는 CompAgent는 피사체 특징을 정확하게 포착하고 객체 혼동 문제를 회피하여 멀티컨셉 커스터마이징 작업을 더 잘 처리한다. 이러한 이전 방법은 모두 튜닝 기반이지만 CompAgent는 튜닝이 없습니다. 따라서 CompAgent는 보다 효율적으로 커스터마이징 작업을 정확하게 처리할 수 있다.\n' +
+      '\n' +
+      '### 로컬 이미지 편집\n' +
+      '\n' +
+      '그런 다음 로컬 이미지 편집 실험을 수행하고 페인트별 예제 방법과 비교한다[23]. 페인트 바이 예제는 로컬 이미지 편집 작업을 수행할 수 있지만, 객체 속성을 정확하게 잡을 수 없음을 알 수 있다. 예를 들어, 자동차 예제의 경우, 페인트별 생성 이미지의 전면 윈도우 색상이 파란색으로 바뀝니다. 컴퓨터-데스크 예제의 경우, 페인트-별 예는 테이블의 색상을 편집하지 않으며, 미러-싱크 예제의 경우, 페인트-별 예는 또한 테이블의 색상을 수정하지 않습니다.\n' +
+      '\n' +
+      '도. 12. **우리의 접근법과 기존의 최첨단 텍스트-이미지 생성 방법 간의 질적 비교.**그림 13: **우리의 접근법과 기존의 합성 텍스트-이미지 생성 방법 간의 질적 비교.**\n' +
+      '\n' +
+      '그림 16: **복잡한 구성에 대한 우리의 방법의 가시화된 결과.**\n' +
+      '\n' +
+      '그림 14: **속성 바인딩에 대한 우리의 방법의 가시화된 결과.**\n' +
+      '\n' +
+      'Figure 15: **Visualized results of our method for object relationship.**\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:15]\n' +
+      '\n' +
+      '* Chang et al. (2023) Huijwen Chang, Han Zhang, Jarred Barber, AJ Maschinot, Jose Lezama, Lu Jiang, Ming-Hsuan Yang, Kevin Murphy, William T Freeman, Michael Rubinstein, et al. 2023. Muse: masked Generative Transformers를 통한 텍스트-투-이미지 생성 arXiv preprint arXiv:2301.00704_(2023).\n' +
+      '* Chierz et al. (2023) Hila Chierz, Yuval Allaf, Yael Vinker, Lior Wolf, and Daniel Cohen-Or. 2023. Attend-and-excise: text-to-image 확산 모델들에 대한 Attention-based semantic guidance. _ ACM Transactions on Graphics_ (2023).\n' +
+      '* Chen et al. (2023) Junosheng Chen, Jiencheng Yu, Chongjian Ge, Lewei Yao, Enze Xie, Yue Wu, Zhonglao Wang, James Kwok, Ping Liu, Harchuan Lu, et al. 2023. Pix++: Fast-F Training of Diffusion Transformer for Photorealistic Text-to-Image Synthesis. _ arXiv preprint arXiv:2310.00426_(2023).\n' +
+      '* Chen et al.(2024) Ming-Chong Chen, Iro Laina, and Andrea Vedaldi. 2024. 교차 주의 안내로 훈련 없는 레이아웃 제어. In _Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision_.\n' +
+      '* Chen et al. (2023) Xi Chen, Langhua Huang, Yu Liu, Yujun Shen, Deli Zhao, and Hengshuang Zhao. 2023. Anydoor: Zero-shot object-level image customization. _ arXiv preprint arXiv:2307.09814_(2023).\n' +
+      '* Davidsiwal and Nichol (2021) Prafulla Davidsiwal and Alexander Nichol. 2021. 확산 모델들이 gans 이미지 합성을 beat. _ 신경 정보 처리 시스템들_(2021)의 진보들.\n' +
+      '* Famael et al. (2023) Meta-Fundamental AI Research Diplomacy Team (FAIR). Anton Bakhtin, Noam Brown, Emily Dinan, Gabriele Farina, Colin Flaherty, Daniel Fried, Andrew Goff, Jonathan Gray, Hengyuan Hu, et al. 2022. Human-level play in the game of Diplomacy by combining language models with strategic reasoning. _ Science_(2022).\n' +
+      '* Feng et al. (2023) Weii Feng, Xuehai He, Tsu-Jui Fu, Varun Jampani, Arjun Reddy Akula, Pradyumna Narayana, Sugato Basu, Xin Eric Wang, and William Yang Wang. 2023. 합성 텍스트-이미지 합성을 위한 훈련-자유 구조 확산 안내. _International Conference on Learning Representations_.\n' +
+      '* Hertz et al. (2023) Amir Hertz, Ron Mokady, Jay Tenenbaum, Kfir Aberman, Yael Pritch, and Daniel Cohen-Or. 2023. Cross-Attention Control을 이용한 Prompt-to-Prompt 이미지 편집. _International Conference on Learning Representations_.\n' +
+      '* Ho et al. (2020) Jonathan Ho, Ajay Jain, and Pieter Abbeel. 2020. 디노이징 확산 확률 모델. _ 신경 정보 처리 시스템들_(2020)에서의 발전들.\n' +
+      '* Huang et al. (2023) Kaiyi Huang, Rajve Sun, Emre Xie, Zhengu Li, and Xihui Liu. 2023. I2s-compbench: Open-world compositional text-to-image 생성을 위한 포괄적인 벤치마크 _ 신경 정보 처리 시스템_(2023)에서의 발전.\n' +
+      '* Kirillov et al. (2023) Alexander Kirillov, Eric Mintun, Nikhila Ravi, Hanzi Mao, Chloe Rolland, Laura Gustafson, Tete Xiao, Spencer Whitehead, Alexander C Berg, Wan-Yen Lo, et al. 2023. Segment anything. In _Proceedings of the IEEE/CVF International Conference on Computer Vision_.\n' +
+      '* Kurni et al. (2023) Nupur Kumari, Bingliang Zhang, Richard Zhang, Eli Shechtmann, and Jun-Yan Zhu. 2023. 텍스트-이미지 확산의 다중 개념 맞춤화. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_.\n' +
+      '* Li 등(2023a) Dongru Li, Junnan Li, and Steven CH Hoi. 2023a. Blip-diffusion: 제어 가능한 텍스트 대 이미지 생성 및 편집을 위한 사전 훈련된 피사체 표현. _ arXiv preprint arXiv:2305.14720_(2023).\n' +
+      '* Li et al. (2023b) Junnan Li, Dongru Li, Silvio Savarese, and Steven Hoi. 2023b. Blip-2: 냉동 이미지 인코더 및 대형 언어 모델을 사용한 부트스트래핑 언어 이미지 사전 훈련.\n' +
+      '\n' +
+      '도. 19: **객체 배치를 위한 우리의 방법의 가시화된 결과들**\n' +
+      '\n' +
+      '도. 18: **Visualized results of our method for local image editing.**_arXiv preprint arXiv:2301.12597_ (2023).\n' +
+      '* Li et al. (2021) Yuheng Li, Haofin Liu, Qingyang Wu, Fangzhou Mu, Jianwei Yang, Jianfeng Gao, Chunyuan Li, and Yong Jee Lee. 2023c: Gligen: Open-set grounded text-to-image generation. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_.\n' +
+      '* Li et al. (2021) Zejian Li, Jingyu Wu, Imanuel Koh, Yongchuan Tang, and Lingyun Sun. 2021. 지역성 인식 마스크 적응을 갖는 레이아웃으로부터의 이미지 합성. In _Proceedings of the CVF/CT International Conference on Computer Vision_.\n' +
+      '* Lian et al. (2023) Long Lian, Boyi Li, Adam Yala, and Trevor Darrell. 2023. LIM-grounded Diffusion: 대용량 데이터셋을 이용한 텍스트-이미지 확산 모델의 신속한 이해 향상 arXiv preprint arXiv:2305.1365_(2023).\n' +
+      '* Lin et al. (2014) Tsung-Yi Lin, Michael Maire, Serge Belongie, James Hays, Pietro Perona, Deva Ramanan, Piotr Dollar, and C Lawrence Zitnick. 2014. Microsoft coco: context in common objects. 컴퓨터 비전에 관한 유럽 회의.\n' +
+      '* Liu et al. (2023b) Haofin Liu, Chunyuan Li, Qingyang Wu, and Yong Jae Lee. 2023b. 시각적 지시 조율 신경 정보 처리 시스템_(2023b)에서의 발전.\n' +
+      '* Liu et al.(2022) Nan Liu, Shuang Li, Yilun Du, Antonio Torralba, and Joshua B Tenenbaum. 2022. 합성가능한 확산 모델들을 갖는 합성 시각적 생성. 유럽 컴퓨터 비전 회의에서.\n' +
+      '* Liu et al. (2023) Shliong Liu, Zhyong Zeng, Tianhe Ren, Feng Li, Hao Zhang, Jie Yang, Chunyuan Li, Jianwei Yang, Hang Su, Jun Zhu, et al. 2023c: Grounding dinco: Marrying dino with grounded pre-training for open-set object detection. _ arXiv preprint arXiv:2303.05499_(2023).\n' +
+      '* Lin et al. (2023) Zhayong Lin, Yinan He, Wenjian Wang, Weiyan Wang, Yi Wang, Shoufa Chen, Qing-long Zhang, Yang Yang, Qingyun Li, Jiahao Yu, et al. 2023a. 인터섹트: 언어를 넘어 챗봇과 상호작용하여 시각 중심적 과제를 해결한다. _ arXiv preprint arXiv:2305.05662_(2023).\n' +
+      '* Liu et al. (2023) Zhiheng Liu, Tife Zhang, Yujun Shen, Kecheng Zheng, Kai Zhu, Ruili Feng, Yu Liu, Deil Zhao, Jingren Zhou, and Yang Cao. 2023d : 콘콘 2 : 다수의 피사체를 갖는 사용자화 가능한 이미지 합성. _ arXiv preprint arXiv:2305.19327_(2023).\n' +
+      '* Zong et al. (2023) Ozpan J. 2023. GIFT-T Technical Report. _ arXiv preprint arXiv:2304.08774_(2023).\n' +
+      '* Parmazar et al. (2023) Gaurav Parmazar, Krishna Kumar Singh, Richard Zhang, Yiyun Li, Jingwan Lu, and Jun-Yan Zhu. 2023. 제로-샷 이미지-이미지 변환. In _ACM SIGGRAPH 2023 Conference Proceedings_.\n' +
+      '* Patel et al. (2023) Maitre Patel, Changhoon Kim, Sheng Cheng, Chitta Baral, and Yezhou Yang. 2023. ECLIPSE: 이미지 생성을 위한 자원-효율적인 텍스트-대-이미지 Prior. _ arXiv preprint arXiv:2312.04653_(2023).\n' +
+      '* Pogl et al. (2023) Dostriol Pogl, Zion English, Kylee Lacey, Andreas Blattmann, Tim Dockhorn, Jonas Muller, Joe Penna, and Robin Romback. 2023. Ssdl: 고해상도 영상 합성을 위한 잠재 확산 모델 개선 arXiv preprint arXiv:2307.01952_(2023).\n' +
+      '* Qian et al. (2023) Chen Qian, Xin Cong, Cheng Yang, Weizen Chen, Yusheng Su, Juyuan Xu, Zhiyun Liu, and Maosong Sun. 2023. 소프트웨어 개발을 위한 통신 에이전트_ arXiv preprint arXiv:2307.07974_(2023).\n' +
+      '* Ramesh et al. (2022) Aditya Ramesh, Pratilla Dhariwal, Alex Nichol, Casey Chu, and Mark Chen. 2022. 클립 래턴트를 갖는 계층적 텍스트-조건부 이미지 생성_ arXiv preprint arXiv:2202.04612_(2022).\n' +
+      '* Bombach et al. (2022) Robin Bombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Bjorn Ommer. 2022. 잠재 확산 모델을 이용한 고해상도 영상 합성. In _Proceedings of the IEEE/CVF conference on computer vision and pattern recognition_.\n' +
+      '* Ruiz et al. (2023) Natani Ruiz, Yuanzhen Li, Varun Jampani, Yael Pitch, Michael Rubinstein, and Kfir Aherman. 2023. 드림본: 피사체 중심 생성을 위한 텍스트-이미지 확산 모델을 미세 조정한다. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_.\n' +
+      '* Saharia et al. (2022) Chiuwan Saharia, William Chan, Surakhh Savenna, Lala Li, Jay Whang, Emily L Denton, Kamyar Chasemjour, Raphael Gontijo Lopes, Burcu Karagol Ayan, Tim Salimans et al. 2022. Photorealistic text-to-image diffusion models with deep language understanding. _ 신경 정보 처리 시스템_(2022)의 발전.\n' +
+      '* Shen et al. (2023) Yongqing Shen, Katia Song, Xu Tan, Dongheng Li, Weiming Lu, and Yueting Zhuang. 2023. Hugginggspdf: ai task with chatpdt and its friends in huggingface. _ 신경 정보 처리 시스템_(2023)에서의 발전.\n' +
+      '*Sun and Wu(2021) Wei Sun and Tianfu Wu. 2021. 제어 가능한 이미지 합성을 위한 학습 레이아웃 및 스타일 재구성 가능한 간스_ IEEE transaction on pattern analysis and machine intelligence_ (2021).\n' +
+      '* Touwron et al. (2023) Hugo Touwron, Thibaut Lavrii, Gantier Iacacard, Xavier Martinet, Marie-Anne Lachaux, Timothe Larcuix, Baptis Roziere, Naman Goyal, Eric Hambro, Faisal Azhar, et al. 2023a. IMAM: 개방적이고 효율적인 기초 언어 모델들 _ arXiv preprint arXiv:2302.13971_(2023).\n' +
+      '* Touwron et al. (2023) Hugo Touwron, Louis Martin, Kevin Stone, Peter Albert, Amjad Almahairi, Yasmine Babaei, Nikolay Bashlyakov, Soumya Batra, Prajayil Bhargava, Shruti Bhosale, et al. 2023b. Imam: 2개의 개방형 변조 및 미세 조정된 채팅 모델. _ arXiv preprint arXiv:2307.09288_(2023).\n' +
+      '* Vyvov et al.(2023) Andrey Vyov, Kfir Aherman, and Daniel Cohen-Or. 2023. 스케치-유도 텍스트-이미지 확산 모델. In _ACM SIGGRAPH 2023 Conference Proceedings_.\n' +
+      '* Wang et al. (2023a) Ruichen Wang, Zekang Chen, Chen Chen, Jian Ma, Haonan Lu, 및 Xiaodong Lin. 2023a. 확산 모델의 주의 지도 제어를 이용한 합성 텍스트-이미지 합성. _ arXiv preprint arXiv:2308.19921_(2023).\n' +
+      '* Wang et al. (2023b) Zirui Wang, Zhihuo Shu, Zheng Ding, Yilin Wang, Zhuowen Tu. 2023b. TokenCompose: Token-level Supervision을 이용한 Grounding Diffusion arXiv preprint arXiv:2312.03628_(2023b).\n' +
+      '* Xie et al. (2023) Jinheng Xie, Yuexiang Li, Yawen Huang, Haofuo Liu, Wentan Zhang, Yefeng Zheng, and Mike Zheng Shen. 2023b. Rodiff: 훈련 없는 박스 제약 확산과 함께 텍스트 대 이미지 합성. In _Proceedings of the IEEE/CVF International Conference on Computer Vision_.\n' +
+      '* Shi et al.(2023a) Binxin Wang, Shuyang Gu, Bo Zhang, Ting Zhang, Xuejin Chen, Xiaoyan Sun, Dong Chen, and Fang Wen. 2023a. 예제에 따라 그림 그리기: 확산 모델을 사용한 예제 기반 이미지 편집 In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_.\n' +
+      '* Yang et al. (2023b) Hui Yang, Sifu Yue, and Yunzhong He. 2023b. 온라인 의사결정 벤치마크와 추가 의견을 위한 자동GIFT. _ arXiv preprint arXiv:2306.0222_(2023b).\n' +
+      '* Yang et al. (2023) Zhen규안 Yang, Linje Li, Kevin Lin, Jianfeng Wang, Chuny-Ching Lin, Zichen Liu, and Lijun Wang. 2023b. lmms의 새벽: gpt-tv(sion)를 이용한 예비 탐사 arXiv preprint arXiv:2309.11724_(2023).\n' +
+      '* Yang et al. (2020) Zuong Yang, Daqing Liu, Chaoyang Wang, Tezo Tang, and Dacheng Tao. 2020. 복잡한 장면 생성을 위한 모델링 영상 합성. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_.\n' +
+      '* Yang et al. (2023c) Zhao Yang, Jiauxuan Liu, Yucheng Han, Xin Chen, Zebiao Huang, Bin Fu, and Gang Yu. 2023c. AppAgent: 스마트폰 사용자로서의 멀티모달 에이전트. _ arXiv preprint arXiv:2312.13717_(2023c).\n' +
+      '* Zhang et al. (2023) Lvmin Zhang, Anyi Rao, and Maneesh Agrawawala. 2023. 텍스트 대 이미지 확산 모델에 조건부 제어를 추가하는 단계. In _Proceedings of the IEEE/CVF International Conference on Computer Vision_.\n' +
+      '* Zhu et al. (2023) Deyza Zhu, Jun Chen, Xiaozuan Shen, Xiang Li, and Mohamed Elhoseiny. 2023. 미니펫-4: 고급 대형 언어 모델로 비젼-언어 이해력 향상. _ arXiv preprint arXiv:2304.10592_(2023).\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>

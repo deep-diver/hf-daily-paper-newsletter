@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# OOD 일반화를 위한 비전 언어 모델 파이닝의 함정 극복\n' +
+      '\n' +
+      ' 유항장\n' +
+      '\n' +
+      '애플에서 인턴을 하면서 일을 했다.\n' +
+      '\n' +
+      'Hanlin Goh\n' +
+      '\n' +
+      '(주)원난양기술대학교 2애플\n' +
+      '\n' +
+      '{zang0012}@ntu.edu.sg {hanlin,jsusskind,chen-huang}@apple.com\n' +
+      '\n' +
+      'Josh Susskind\n' +
+      '\n' +
+      '2Apple Inc.\n' +
+      '\n' +
+      '{zang0012}@ntu.edu.sg {hanlin,jsusskind,chen-huang}@apple.com\n' +
+      '\n' +
+      'Chen Huang\n' +
+      '\n' +
+      '22\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      '기존의 시각 언어 모델은 다양한 시각 영역 및 작업에 대해 강력한 일반화를 나타낸다. 그러나 이러한 모델은 주로 닫힌 집합 방식으로 제로 샷 인식을 수행하므로 설계에 따라 오픈 도메인 시각적 개념을 처리하는데 어려움을 겪는다. 신속한 학습과 같은 최근의 미세 조정 방법은 분포 내(ID) 및 분포 외(OOD) 샘플 간의 구별을 연구할 뿐만 아니라 ID 및 OOD 정확도 모두에서 약간의 개선을 보여준다. 본 논문에서는 먼저 비전 언어 모델이 충분한 미세 조정 후 적절한 정규화 없이 주어진 데이터 세트에서 알려진 클래스를 과도하게 적합시키는 경향이 있으며 알려지지 않은 클래스에 대한 성능이 저하된다는 것을 입증한다. 그런 다음 우리는 미세 조정 모델의 OOD GENeralization을 개선하는 데 중점을 두고 이 함정을 해결하기 위한 새로운 접근 방식 OGEN을 제안한다. 구체적으로, 알려지지 않은 클래스의 클래스 이름만을 사용하여 OOD 피쳐를 합성하기 위해 클래스 조건 피쳐 생성기가 도입된다. 이러한 합성된 특징들은 알려지지 않은 것에 대한 유용한 지식을 제공할 것이고, 공동으로 최적화될 때 ID와 OOD 데이터 사이의 결정 경계를 정규화하는 것을 도울 것이다. 마찬가지로 중요한 것은 관절 최적화 동안 특징 생성 모델을 정규화하는 적응형 자기 증류 메커니즘, 즉 모델 상태 간에 지식을 적응적으로 전달하여 과적합을 방지하는 것이다. 실험은 우리의 방법이 다양한 환경에서 OOD 일반화 성능에서 설득력 있는 이득을 얻을 수 있음을 검증한다.\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      'CLIP(Radford et al., 2021)와 같은 대규모 사전 훈련된 비전 언어 모델은 현실 세계의 다양한 시각적 영역 및 작업에 대한 유망한 일반화 가능성을 보여준다. 그러나, 이들의 제로-샷 인-분포(zero-shot in-distribution, ID) 성능은 일부 다운스트림 데이터 세트에 대해 제한될 수 있다. 또한, 입력 이미지를 미리 정의된 클래스들의 세트에 매칭시키기 위해 폐쇄-세트 방식(_i.e._)에서의 제로-샷 평가로 인해, 비전-언어 모델들은 종종 신규 클래스들로부터 아웃-오디션(OOD) 샘플들을 다루기 위해 고군분투한다. 이러한 단점은 OOD 탐지 및/또는 새로운 클래스와 볼 수 있는 클래스 모두의 정확한 식별을 종종 요구하는 오픈 도메인에서 주요 안전 위험을 생성한다.\n' +
+      '\n' +
+      '최근의 몇몇 연구들은 단순한 소프트맥스 스케일링(Ming et al., 2022) 또는 여분의 텍스트 생성기(Esmaeilpour et al., 2022)에 의해 기존의 비전 언어 모델들의 _zero-shot_ OOD 검출 성능을 개선하려고 시도한다. 또는, Fort et al.(2021)은 먼저 ID 데이터셋 상에서 CLIP 모델 _finetuned_의 가능성을 보여준다. 신분증 및 OOD 정확도는 미세 조정 후 향상됩니다. 신속한 학습(Zhou et al., 2022; 20) 또는 어댑터 튜닝(Zhang et al., 2022)과 같은 파라미터-효율적인 미세조정 방법들은 무거운 훈련 없이 유사한 이점들을 예시한다.\n' +
+      '\n' +
+      '이전의 미세 조정 방법의 성공에도 불구하고, 우리는 광범위한 벤치마킹에서 ID 데이터 세트에 대한 미세 조정이 과적합되기 쉽다는 것을 발견했다(그림). 1(b)). 보다 구체적으로, 우리는 충분한 미세 조정 후 모델이 적절한 정규화 없이 주어진 데이터 세트에서 알려져 있는 클래스를 과도하게 적합시키는 경향이 있으며 알려지지 않은 클래스에 대한 일반화가 열등하다는 것을 관찰했다. 불행히도 이러한 함정을 해결하기 위한 명시적 규칙화 메커니즘은 문헌에서 탐구되지 않았으며 조기 중단과 같은 단순 규칙화 전략은 불충분한 것으로 판단된다. 도 1의 (b)를 참조하면, 알려진 수업 성과와 알려지지 않은 수업 성과 사이의 트레이드오프가 좋은 초기 모델 체크포인트를 찾기 어렵다.\n' +
+      '\n' +
+      '효과적인 모델 정규화의 주요 과제 중 하나는 미지수에 대한 누락된 지식이다. 이러한 지식은 OOD 데이터에 대한 과신 예측을 피하기 위해 실제로 유용한 감독 신호를 제공할 수 있다. 본 논문에서는 1) 미지 클래스에 대한 이미지 특징 합성 및 2) 효과적인 모델 정규화를 갖는 미지 인식 미세 조정 알고리즘을 제안한다. 최적화된 모델의 ID 성능을 해치지 않으면서 OOD 일반화를 개선하는 것이 목표이다. 알 수 없는 피쳐를 합성하기 위해 클래스 조건 피쳐 생성기를 소개합니다. _ 즉, 알 수 없는 클래스의 이름만 있으면 이미지 피쳐를 생성합니다. 이는 CLIP의 잘 정렬된 이미지 텍스트 피쳐 공간에 의해 가능하게 된다. 특징 생성기는 알려지지 않은 클래스에 대해 "외삽 편향"을 갖는 경량 주의 모듈로 구현된다. 그것은 "알 수 없는 미지"로 잘 일반화되어 열린 도메인에서 시각적 클래스의 복잡한 분포를 모델링할 수 있다. 그리고 결합 최적화를 위해 ID와 합성된 OOD 데이터를 모두 사용하여 더 잘 정규화된 결정 경계를 만든다. 또 다른 기여는 관절 최적화 동안 과적합을 더욱 줄이기 위해 특징 생성기를 정규화하는 적응형 자가 증류 메커니즘이다. 이 아이디어는 현재 에포크(학생 모델, 종종 더 많은 과적합을 갖는)에서 최적화를 안내하기 위해 (과적합을 덜 갖는) 역사 훈련 에포크로부터 특징 생성기의 적응적인 교사 모델을 찾는 것이다.\n' +
+      '\n' +
+      '우리의 전체적인 접근법 OGEN은 CLIP-유사 모델들에 대한 상이한 미세조정 방법들 _예를 들어, (Zhou et al., 2022; Jia et al., 2022; Jia et al., 2022)에 적용가능하다. OGEN은 데이터 집합 내 일반화(base-to-new class) 일반화 및 교차 데이터 집합 일반화 두 가지 설정에서 OOD 일반화 성능(최대 절대 18.77%)을 일관되게 향상시키는 것으로 나타났다. 요약하자면, 우리의 주요 기여는 다음과 같습니다.\n' +
+      '\n' +
+      '* 비전 언어 모델에 대한 미세 조정 방법(신속한 학습 기반)의 함정을 공개하는 OOD 일반화에 대한 첫 번째 _comprehensive_ 연구를 제공한다.\n' +
+      '* 효과적인 정규화를 위해 OOD 데이터를 합성하는 클래스 조건 특징 생성기.\n' +
+      '* 오버피팅을 더욱 줄이기 위해 피처 생성기에 적응 자가 증류합니다.\n' +
+      '\n' +
+      '##2 관련 업무\n' +
+      '\n' +
+      '**Vision-Language Models.** ViLT(Kim et al., 2021) 및 PaLI(Chen et al., 2023)와 같은 최근의 대규모 비전-언어 모델들은 단지 현저한 성능으로 멀티모달 다운스트림 태스크들에 대한 이미지-및-텍스트 특징들을 소비한다. CLIP(Radford et al., 2021) 및 ALIGN(Jia et al., 2021)에서 사용되는 또 다른 인기 패러다임은 이미지 및 텍스트 인코더를 대조적으로 정렬한다. 이러한 대조 모델은 대규모 웹 규모의 이미지 텍스트 쌍에 대해 훈련되며, 또한 다양한 범위에 대한 강력한 적응성을 보여준다.\n' +
+      '\n' +
+      '그림 1: **(a) 다양한 다운스트림 작업에 대해 비전 언어 모델 CLIP를 미세 조정할 때 OOD 일반화를 연구한다. 우리는 한 데이터 세트에 ID 대 ID가 있는 데이터 세트 내 일반화를 모두 고려한다. OOD(또는 공지 vs. 미지) 클래스 분할은 각각 미세 조정 및 평가를 위해, 그리고 보다 도전적인 교차 데이터 세트 일반화 설정을 위해 사용된다. 부록 A의 문제 정의에 대한 더 많은 설명 (b) 데이터 집합 내 일반화의 예: 우리는 세 가지 데이터 집합(부록 B에서 더 많은)에서 CLIP를 충분히 길게(200 epochs) 미세화하는 신속한 학습 방법 CoOp(Zhou et al., 2022)의 학습 곡선을 보여준다. 분명히 CoOp는 미지수에 주목할만한 정확도로 각 데이터 세트의 알려져 있는 클래스에 적합한다. 제안된 방법 OGEN은 효과적인 정규화를 통해 이러한 과적합을 크게 줄인다.\n' +
+      '\n' +
+      '시맨틱 세분화(Zang et al., 2022; Ghiasi et al., 2021) 및 비디오 분류(Qian et al., 2022)와 같은 다운스트림 태스크들. 수많은 후속 작업(Li et al., 2022; Zhou et al., 2022)은 데이터 효율성 또는 일반화에서 CLIP 유사 모델을 개선하는 것을 목표로 한다. 그러나 일부 태스크에 대한 제로샷 성능은 기존 비전 언어 모델에 대해 여전히 제한될 수 있다. Hu et al. (2023)은 서로 다른 종류의 오류를 범한다는 것을 발견했는데, 예를 들어, PaLI는 꼬리 시각적 개념에서 오류가 있는 반면 CLIP는 일반적인 개념에서 오류가 있을 수 있다. 이 논문은 주로 미세 조정 CLIP 모델의 일반화를 연구하고 개선하지만, 우리의 접근법은 모델 진단이므로 다른 비전 언어 모델에도 적용할 수 있다.\n' +
+      '\n' +
+      '**핀튜닝 방법**은 제로샷 대응물에 비해 비전 언어 모델의 다운스트림 성능을 개선하기 위해 연구되었다. Fort et al.(2021)은 관심 데이터 세트에 대한 CLIP 모델을 미세 조정한 후 ID 및 OOD 일반화 성능이 모두 향상될 것임을 보여주었다. 더 많은 매개변수 효율적인 미세 조정 방법이 최근 몇 년 동안 대중화되었다. 특히, 프롬프트 학습은 시각적(Jia et al., 2022), 텍스트적(Zhou et al., 2022; Yao et al., 2023; Wang et al., 2023; Shu et al., 2023; Khattak et al., 2023) 또는 멀티모달 Zang et al.(2022); Khattak et al.(2023) 프롬프트에 초점을 맞추고, 어댑터 튜닝(Zhang et al., 2022)은 모델 백본이 동결된 상태로 특징 표현을 최적화한다. 본 논문에서는 최근 핀튜닝 방법의 과적합 문제를 먼저 밝히고, 과적합 방지를 위한 새로운 정규화 방법을 제안한다. 우리의 접근법은 미세 조정 연구와 직교하며 다양한 미세 조정 기준선에 대해 일관된 이득을 보여준다.\n' +
+      '\n' +
+      '**이상치 합성**은 OOD 데이터가 없는 경우 모델 정규화에 효과적임을 입증한다. 이전의 방법들은 이상치 이미지들을 합성하기 위해 GANs(Lee et al., 2018)에 의존한다. VOS(Du et al., 2022)와 같은 보다 최근의 방법들은 더 큰 유연성을 허용하는 가상 특징들을 직접 합성한다. Tao et al. (2023)은 VOS에서 특징 분포에 대한 제한적인 가우시안 가정 없이 비모수적 이상치 합성을 제안한다. 본 논문에서는 CLIP 프레임워크와 동일한 포맷을 가지므로 멀티모달 정규화를 용이하게 하는 새로운 특징 합성 방법을 제시한다. 구체적으로, 알려지지 않은 클래스의 이름이 주어지면, 우리는 그것의 예제 특징들을 일반화 가능한 방식으로 합성한다.\n' +
+      '\n' +
+      '**모델 증류** 기술은 교사 모델에서 학생 모델, _예를 들어, 큰 모델에서 효율적인 대응물(Hinton et al., 2015)로 또는 약하게 증강된 모델에서 강하게 증강된 모델(Sohn et al., 2020)로 지식을 전달한다. 여기에서 우리는 보이지 않는 클래스에 대한 과적합을 줄이고 초기에서 현재 에포크(_i.e._, 자가 증류)로 지식을 증류하는 것을 제안한다. 구체적으로, 평균 교사(Tarvainen and Valpola, 2017)를 적절한 교사 커리큘럼을 갖춘 적응형 지역화 교사로 확장한다. 비전 언어 영역에서, 우리의 접근법은 증류로부터 더 작은 모델들(Li 등, 2023)로 또는 다양한 다운스트림 작업들(Gu 등, 2022; Dai 등, 2022; Mal 등, 2022)로 구별된다. 우리의 접근법은 또한 개선된 멀티모달 _pretraining_(Dong et al., 2023; Li et al., 2021; Zhong et al., 2022)를 위한 최근의 증류 프레임워크에 직교(및 적용가능)한다.\n' +
+      '\n' +
+      '## 3 Methodology\n' +
+      '\n' +
+      '### Preliminaries\n' +
+      '\n' +
+      '**CLIP**(Radford et al., 2021)는 우리가 주로 본 논문에서 연구하는 비전 언어 모델이지만, 우리의 연구는 다른 인기 있는 모델에도 적용 가능하다. CLIP는 이미지 인코더\\(\\phi\\)와 텍스트 인코더\\(\\psi\\)으로 구성되며, 이미지 및 텍스트 입력을 관절 특징 공간으로 매핑한다. CLIP 훈련은 이미지 및 텍스트 모달리티의 특징 유사성을 최대화하여 정렬하는 것을 목표로 한다. 클래스 \\(\\mathbf{Y}=\\{\\mathbf{y}_{1},\\mathbf{y}_{2},...,\\mathbf{y}_{C}\\})에 속하는 입력 이미지 \\(\\mathbf{x}\\)이 주어지면, 이미지 인코더 \\(\\phi\\)은 먼저 이미지 피쳐 \\(\\mathbf{z}=f_{\\phi}(\\mathbf{x})\\in\\mathbb{R}^{d}\\을 추출한다. 대응하는 텍스트 특징들 \\(\\mathbf{w}_{c\\in\\{1,...,C\\}})을 얻기 위해, 주어진 모든 클래스 이름들은 고정된 프롬프트 템플릿 {a photo of a [CLASS]}에 공급될 수 있고, 텍스트 설명 \\(\\mathbf{A}\\)은 텍스트 임베딩 \\(\\mathbf{W}=f_{\\psi}(\\mathbf{A})\\in\\mathbbb{R}^{d\\times C}\\)(hence\\(\\mathbf{w}_{c}=\\mathbf{W}_{c,c}\\)에 추가로 인코딩된다. 상기 이미지-텍스트 정렬은 코사인 특징 유사도에 기초하여 최적화된다:\n' +
+      '\n' +
+      '[p(y=c\\mid\\mathbf{x})=\\frac{\\exp\\left(\\cos\\left(\\mathbf{w}_{c},\\mathbf{z}\\right)/\\tau\\right)}{\\sum_{i=1}^{C}\\exp\\left(\\cos\\left(\\mathbf{w}_{i},\\mathbf{z}\\right)/\\tau\\right)}, \\tag{1}\\tau\\right)}, \\tag{1}\\tau\\right}, \\tag\\tau\\tau\\tau\\tau\\tau\\tau\\tau\\tau\\tau\\tau\\tau\\tau\\tau\\tau\\tau\\tau\\tau\\tau\\tau\\tau\\tau\\tau\\tau\\tau\\tau\\tau\\tau\\tau\\tau\\tau\\tau\\tau\\tau\\tau\\tau\\tau\\tau\\tau\n' +
+      '\n' +
+      '여기서 \\(\\tau\\)는 온도이다. 더 큰 코사인 점수는 종종 그들의 기본 의미론에서 더 강한 이미지-텍스트 정렬을 나타낸다.\n' +
+      '\n' +
+      '최근 CoOp(Zhou et al., 2022)와 같은 신속한 학습 방법은 다운스트림 태스크에 대한 효율적인 모델 미세 조정을 위해 앞서 언급한 고정된 프롬프트를 학습 가능한 프롬프트 \\(\\mathbf{V}=[\\mathbf{v}_{1},\\mathbf{v}_{2},\\ldots,\\mathbf{v}_{L}]\\in\\mathbb{R}^{d\\times L}\\으로 대체한다. 그리고 CLIP의 텍스트 인코더\\(\\psi\\)는 학습한 프롬프트\\(\\mathbf{V}\\)(\\(\\mathbf{Y}\\)와 함께 \\(\\hat{\\mathbf{W}}=f_{\\psi}([\\mathbf{V},\\mathbf{Y}])\\in\\mathbb{R}^{d\\times C}\\)로 변환할 수 있다. 주\\(\\mathbf{V}\\)는 각 다운스트림 태스크에서 태스크별 손실을 이용하여 학습된다. CLIP의 이미지 인코더\\(\\phi\\)와 텍스트 인코더\\(\\psi\\)는 빠른 학습 동안 동결 상태로 유지된다.\n' +
+      '\n' +
+      '### 클래스-조건부 특징 생성기\n' +
+      '\n' +
+      '도 1에 도시된 바와 같다. 1(b)에서, "prompt-tuned" CLIP 모델은 다운스트림 태스크로부터 알려진 클래스들(_aka_base class \\(\\mathbf{Y}^{b}=\\{\\mathbf{y}_{1},\\mathbf{y}_{2},...,\\mathbf{y}_{C}}\\}\\)에 과적합하는 경향이 있는 반면, 미지의 클래스들(_aka_ new class \\(\\mathbf{Y}^{n}|=C_{n}\\)에 대한 OOD 일반화(|\\mathbf{Y}^{n}|=C_{n}\\)는 악화될 것이다. 과적합을 줄이기 위해 모델 정규화 전략을 선택할 수 있으며, 이는 미지수에 대한 누락된 지식을 겪을 수 있다. 또한, 미지의 클래스의 잠재수는 \\(C_{n}\\)이고 \\(C_{n}\\gg C_{b}\\)이다. 따라서 효과적인 정규화를 위해 복잡한 분포를 모델링하는 것은 매우 어렵다.\n' +
+      '\n' +
+      '여기에서 우리는 알려지지 않은 데이터의 방대한 공간에 대한 감독 신호를 제공하기 위해 클래스 조건 방식으로 알려지지 않은 것에 대한 지식을 얻기 위한 한 걸음을 내딛는다. 텍스트 설명 또는 _any_ 미지의 클래스의 클래스 이름이 주어지면, 레이블이 지정된 인스턴스를 보지 않고 클래스 예제 _features_를 합성하는 것을 목표로 한다(Fig). 2(a)), CLIP의 잘 정렬된 이미지-텍스트 특징 공간들을 레버리지한다. 그런 다음 이러한 합성된 이미지 특징은 알려진 클래스와 알려지지 않은 클래스 사이의 정규화된 결정 경계를 학습하는 것을 용이하게 하여 향상된 OOD 일반화 능력으로 이어질 것이다.\n' +
+      '\n' +
+      '초기 실험에서, 클래스 이름에서 OOD 이미지 특징을 직접 생성하는 것은 전자의 높은 비선형 및 고차원 특성으로 인해 어렵다는 것을 발견했다. 이것은 매니폴드 임베딩들이 전형적으로 비선형이고, 더 비판적으로, 분포 도메인의 일부가 트레이닝에서 완전히 보이지 않는 (Abbe et al., 2023)에서 OOD 일반화의 강한 경우들에서 유사하게 관찰된다. 이러한 극단적인 분포 이동 하에서 성공적인 학습은 암기가 보이지 않는 영역에서 무효화되기 때문에 해결책을 외삽하는 것으로 입증된다. 알려지지 않은 것에 대한 "외삽 편향"에 이어서, 우리는 특징 합성 문제를 더 쉬운 것으로 재구성한다 - 보이는 데이터의 가장 유사한 클래스인 _e.g._에서 외삽하여 _cat_ 및 _bear_와 같은 유사한 훈련 클래스의 특징을 외삽함으로써 알려지지 않은 클래스 _raccoson_의 특징을 생성한다.\n' +
+      '\n' +
+      '즉시 학습을 위해 열린 집합(\\hat{\\mathbf{Y}^{n}\\)에서 학습한 프롬프트와 미지의 [CLASS]가 주어졌을 때, CLIP의 텍스트 인코더(\\psi\\)를 통해 해당 텍스트 특징(\\hat{\\mathbf{w}^{n}\\in\\mathbb{R}^{d}\\)을 먼저 얻는다. 그리고 알려진 클래스(\\hat{\\mathbf{W}}^{b}\\in\\mathbbb{R}^{d\\times C_{b}\\)의 전체 텍스트 특징 집합으로부터 kNN 클래스(\\hat{\\mathbff{w}}^{n}\\)를 찾아내고, 그 결과 \\(\\hat{\\mathbff{W}}}^{b}\\in\\mathbbb{R}^{d\\times K}\\(|R|=K\\)의 이웃집합이 된다. 각 kNN 클래스로부터 랜덤하게 하나의 클래스 예제만을 샘플링하고, 이미지 인코더(\\phi\\)로부터 텍스트 정렬 이미지 특징을 얻어, 동일한 수의 \\(K\\) 이미지 특징 벡터 \\(\\mathbf{Z}^{b}_{R}\\in\\mathbb{R}^{d\\times K}\\)로 이어진다. 우리의 목표는 kNN의 알려진 클래스의 텍스트 특징(\\hat{\\mathbf{w}}^{n},\\hat{\\mathbf{W}}^{b}_{R},\\mathbf{Z}^{b}_{R})에 조건화된 미지의 이미지 특징과 보조 텍스트/이미지 특징(\\hat{\\mathbf{w}}^{n},\\mathbf{Z}^{b}_{R})을 합성할 수 있는 클래스 조건 특징 생성기\\(f_{\\theta}(\\hat{\\mathbf{w}}}^{n},\\hat{\\mathbf{W}}^{b}_{R},\\mathbf{Z}^{b}_{R})를 훈련하는 것이다. 2(b).\n' +
+      '\n' +
+      '**Remarks.** 의 의미적으로 유사한 kNN 클래스\\(\\hat{\\mathbf{W}}^{b}_{R}\\)로부터 kNN 클래스\\(\\hat{\\mathbf{W}}^{b}}_{R}\\)을 검색하기 위해 클래스 쌍의 텍스트 특징(이미지 특징이 아님) 사이의 코사인 유사도 점수를 사용한다. 그리고 kNN 검색을 수행한다.\n' +
+      '\n' +
+      '그림 2: **(a) OOD 일반화를 개선하기 위해 이미지 특징을 직접 합성하여 알려지지 않은 클래스에 대한 지식을 얻을 것을 제안한다. 이는 특징 공간에서 알려진 클래스와 알려지지 않은 클래스 사이의 보다 신뢰할 수 있는 결정 경계를 학습하는 데 도움이 된다. (b) 알려진 자질과 합성된 알려지지 않은 자질을 구별하는 것에 기반한 프롬프트 학습(클래스 조건 특징 생성기 \\(\\theta\\), 텍스트에서 세부 사항을 참조) (c) 경량 주의 모듈을 이용한 \\(\\theta\\)의 구현.**\n' +
+      '\n' +
+      '프로세스는 다음과 같이 형식적으로 정의될 수 있다:\n' +
+      '\n' +
+      '\\\\\\underset{R\\subset\\{1,\\dots,C_{b}};|R|=K}{\\arg\\max}\\sum_{i\\in R}\\cos\\left(\\hat{\\mathbf{w}}^{n},\\hat{\\mathbf{w}}_{i}}^{b}\\right),\\where\\\\hat{\\mathbf{w}}_{i}}^{b}=\\hat{\\mathbf{w}}_{:,i}^{b}. \\tag{2}\\t}\n' +
+      '\n' +
+      '또 다른 측면에서, 우리의 경험적 연구는 각 kNN 클래스에서 샘플링된 하나의 무작위 예제가 새로운 특징 생성을 지원하기에 충분하다는 것을 보여준다. 이러한 무작위성은 새로운 클래스에 대한 합성된 특징의 다양성을 장려한다.\n' +
+      '\n' +
+      '**클래스당 외삽.**tuple \\((\\hat{\\mathbf{W}}_{R}^{b},\\mathbf{Z}_{R}^{b})\\)은 각각 \\(K\\)개의 텍스트 및 이미지 특징 벡터로 구성된다. 미지의 클래스(텍스트 특징(\\hat{\\mathbf{w}}^{n}\\)에 대한 간단한 특징 합성 방법 중 하나는 텍스트 특징(\\hat{\\mathbf{w}}^{n}\\)과의 유사성 개념을 기반으로 각 이미지 특징 벡터를 \\(\\hat{\\mathbf{w}}^{n}\\)으로 외삽하는 것이다. 이러한 방법으로 우리는 미지의 클래스와 각 알려진 클래스의 유사성을 \\(R\\) 뿐만 아니라 다른 모든 클래스 간 유사성을 효과적으로 고려할 수 있다. 요약하면, 우리의 "클래스당 외삽" 체계의 매트릭스 형태는 다음과 같이 주어진다.\n' +
+      '\n' +
+      '\\texttt{LN}(\\mathbf{Z}_{R}^{b}+\\hat{\\mathbf{Z}^{n})\\in\\mathbbb{R}^{d\\times K},\\\\hat{\\mathbf{Z}^{n}=\\texttt{MHCA}(\\hat{\\mathbf{w}}^{n}\\cdot\\mathbff{1}_{K}^{\\top},\\hat{\\mathbf{Z}_{R}^{b},\\tag{3}\\mathbbb{R}^{b}\\texttt{MHCA}(\\hat{\\mathbf{w}}^{n}\\cdot\\mathbf{1}_{K}^{b},\\tag{3}\\mathbbb{R}^{b}\\texttt{MHCA}(\\hat{\\mathbf{W}_{R}^{b},\\mathbf{Z}_{R}^{b\n' +
+      '\n' +
+      '여기서 \\(\\hat{\\mathbf{Z}}^{n}\\)은 알려진 각 클래스를 외삽할 때 학습된 특징 잔차이다. LN은 레이어 정규화를 나타낸다. 명백하게, 우리의 특징 생성기\\(\\hat{\\theta}\\)는 하나의 MHCA 층과 하나의 LN 층만으로 가볍다. 단순성은 발전기 설계의 "외삽 편향"으로 인해 이점이 있습니다.\n' +
+      '\n' +
+      '마지막으로, 합성된 특징(\\(\\mathbf{Z}^{n}\\)을 이용하여 빠른 학습을 정규화하고 알려진 특징(C_{b}\\)과 알려지지 않은 특징(C_{n}\\)의 관절 판별을 수행한다. Eq.에서 이미지-텍스트 정렬을 최대화하는 목적입니다. (1)은 이제:\n' +
+      '\n' +
+      '(p(y=c\\mid\\mathbf{Z}^{n})=\\frac{1}\\sum_{k}\\frac{\\exp\\left(\\hat{\\mathbf{w}}_{c},\\mathbf{z}_{k}^{n}\\right)/\\tau\\right}{\\sum_{i=1}^{C_{b}+C_{n}}\\exp\\left(\\cos\\left(\\hat{\\mathbf{w}}_{i},\\mathbf{z}^{n}\\right)/\\tau\\right)},\\forall c\\in\\{1,\\dots,C_{b}+C_{n}\\tau\\right),\\tag{4}\\tau\\right,\\c\\tot,C_{b}+C_{n}\\c\\tot,C_{b}+C_{n}\\c\\tot,C_{b}+C_{n}\\c\\tot,C_{b}\n' +
+      '\n' +
+      '여기서 \\(\\hat{\\mathbf{w}}_{c}=[\\hat{\\mathbf{W}}^{b},\\hat{\\mathbf{W}}^{n}]_{:,c}\\) 및 \\(\\mathbf{z}_{k}^{n}=\\mathbf{Z}_{:,k}^{n}\\). 주목할 것은, "클래스당 외삽" 기법 하에서, 우리는 동일한 미지의 클래스에 대해 \\(K\\) 이미지 특징들을 합성했다. 우리는 식에서 코사인 특징 유사성 점수를 계산할 때 점수 수준에서 간단히 집계한다. (4).\n' +
+      '\n' +
+      '** 합동으로 외삽하는 것은 새로운 기능 합성을 위한 보다 협력적인 접근법이다. 이름 힌트로서, 우리는 kNN으로 알려진 모든 클래스 특징들(\\hat{\\mathbf{W}}_{R}^{b},\\mathbf{Z}_{R}^{b})으로부터 \\(\\hat{\\mathbf{w}}^{n}\\)에 대한 교차 주의력을 기반으로 _single_ 이미지 특징 벡터\\(\\mathbf{z}^{n}\\)을 추론한다:\n' +
+      '\n' +
+      '\\texttt{LN}(\\texttt{FFN}(\\hat{\\mathbf{w}}^{n})+\\hat{\\mathbf{z}^{n})\\in\\mathbbb{R}^{d},\\\\hat{\\mathbf{z}^{n}=\\texttt{MHCA}(\\hat{\\mathbf{w}}^{n},\\hat{\\mathbf{W}}_{R}^{b},\\mathbf{Z}_{R}^{b}}\\in\\mathbbb{R}^{d},\\tag{5}\\hat{\\mathbf{z}^{n}}\\texttt{MHCA}(\\hat{\\mathbf{w}}^{b},\\hat{\\mathbf{Z}_{R}^{b}},\\tag{5}\\hat{\\mathbf{z}^{n}}\\texttt{MHCA}(\\hat{\\mathbf{\n' +
+      '\n' +
+      '여기서 \\(\\hat{\\mathbf{z}}^{n}\\)은 잔차 이미지 특징 벡터이고, 텍스트 특징 \\(\\hat{\\mathbf{w}}^{n}\\)은 2-계층 완전 연결 피드-포워드 네트워크 FFN을 통해 이미지 특징 공간으로 투영된다. 주\\(\\texttt{FFN}(\\hat{\\mathbf{w}}^{n})\\)은 kNN 영상특징의 가중치 평균인 \\(\\mathbf{Z}_{R}^{b}\\)에서 직접 탐색된 앵커점으로 대체될 수 있다. 그러나 검색은 어려운 문제 그 자체이며 명시적인 텍스트 대 이미지 피쳐 매핑을 학습하는 것이 실험에서 일관되게 더 잘 작동한다. 도. 도 2의 (c)는 전체 네트워크 아키텍처, 및 Eq.에서의 목적 함수를 요약한다. (4)는 다음과 같이 업데이트될 수 있다:\n' +
+      '\n' +
+      'p(y=c\\mid\\mathbf{z}^{n})=\\frac{\\exp\\left(\\cos\\left(\\hat{\\mathbf{w}}_{c},\\mathbf{z}^{n}}}\\tau\\right)}{\\sum_{i=1}^{C_{b}+C_{n}}\\exp\\left(\\cos\\left(\\hat{\\mathbf{w}}_{i},\\mathbf{z}^{n}\\right)/\\tau\\right)},\\forall c\\in\\{1,\\dots,C_{b}+C_{n}\\tau\\right},\\tag{6}\\tot,C_{b}+C_{n}}\\cot\\tot,C_{b}+C_{n}}\\exp\\left(\\hat{\\mathbf{w}}_{i},\\mathbf{z}^{n}\\tau\\right)},\\forall c\\\n' +
+      '\n' +
+      '**Remarks.** 우리의 절제 연구(표 4)는 "공동으로 외삽"(**우리의 디폴트 접근법**)이 공동 최적화를 위한 유용한 알려지지 않은 특징들을 합성하는데 있어서 "클래스당 외삽"보다 낫다는 것을 보여준다. 우리는 다운스트림 태스크들의 트레이닝 세트로부터 "알려진" 및 "알려지지 않은" 클래스 분할을 사용하여 클래스-조건부 피쳐 생성기를 트레이닝한다. 도. 도 3은 충실한 이미지 특징 합성과 함께 테스트 중에 "알 수 없는 미지"로 일반화하는 우리의 특징 생성기의 능력을 보여준다.\n' +
+      '\n' +
+      '### Adaptive Self-Distillation\n' +
+      '\n' +
+      '알려진 기능과 합성된 알려지지 않은 기능을 모두 최적화하면 일반적으로 OOD 일반화가 향상되고 종종 ID 성능도 향상된다. 그러나 이는 특히 긴 미세 조정 런에서 ID-OOD 성능 트레이드오프에도 영향을 미칠 수 있는 최적화 역학을 고려하지 않는다. 무화과 가져가 예를 들어, 1(b)이다. 적절한 정규화가 없으면 CoOp 기준선은 초기 에포크에서 차선책 ID 성능 또는 포화 ID 성능을 달성하지만 나중에 OOD 성능(_i.e._, 오버피팅)을 감소시킨다. 이 문제를 해결하기 위해 최적화 역학을 정규화하여 과적합을 더욱 줄이는 적응형 자기 증류 방법을 소개한다.\n' +
+      '\n' +
+      '보다 구체적으로, 우리는 이전의 에포크들(_i.e._, 종종 덜 오버피팅을 갖는 교사 모델)로부터의 모델 체크포인트들을 사용하여 현재의 에포크(_i.e._, 종종 더 많은 오버피팅을 갖는 학생 모델)에서의 최적화를 안내한다. 즉시 학습하는 동안 CLIP 모델이 동결되기 때문에, 여기서 우리가 고려하는 "모델"은 합성된 OOD 특징이 조인트 ID-OOD 최적화에 영향을 미칠 피처 생성기 \\(\\theta\\)이다. 따라서 우리는 최종 예측 확률(Eq) 간의 일관성을 시행한다. (4) 또는 (6)) 교사 모델 \\(p^{T}\\)과 학생 모델 \\(p^{S}\\)에 의해 유도된 평균 제곱 오차 MSE\\((p^{T},p^{S})\\. 이상적으로는 ID 성능을 유지하면서 OOD 성능 저하를 방지하는 데 도움이 됩니다.\n' +
+      '\n' +
+      '자기 증류 방법의 핵심은 교사 모델\\(\\theta^{T}\\)의 선택이다. 명백히, 역사적 시대에 하나의 단일 모델 체크포인트로 \\(\\theta^{T}\\)을 선택하는 것은 ID와 OOD 성능 사이에 좋은 균형을 맞출 것 같지 않다. 평균 교사(MT)(타바이넨과 발폴라, 2017)는 현재 시간\\(t\\)(Eq)까지 과거 검문소에서 지수 이동 평균(EMA)을 계산하는 더 나은 대안이다. (7)). 본 논문에서는 마지막 (m_{t}\\) 체크포인트를 이용하여 지역 시간 윈도우 \\([t-m_{t},t]\\) 내에서만 EMA를 계산하는 두 가지 방법으로 MT를 확장시키는 적응형 지역 평균 교사 (ALMT)를 제안한다. 이는 적합하지 않은 초기 검문소에서 교사의 ID 수행에 미치는 부정적인 영향을 방지합니다. 2) 윈도우 크기 \\(m_{t}\\)는 미세조정의 초기 단계에서 \\(m_{t}\\)이 작도록 시간 적응적이며, (underfit checkpoints를 배제하는 것과 같은 목적으로) ID 성능이 향상되지만 과적합이 적은 오래된 체크포인트를 커버하기 위해 \\(m_{t}\\)이 점진적으로 증가한다. 이러한 교육과정은 식에 요약되어 있다. (8) 이하와 같이:\n' +
+      '\n' +
+      '~{}\\theta^{T}_{i}=\\alpha\\theta^{T}_{i}+(1-\\alpha)\\theta_{i},~{}~{for~{}i=\\{1,\\ldots,t\\}, \\tag{7}\\]\\[\\textbf{ALMT}_{t}:~{}\\textbf{MT}_{[t-m_{t},t}},~{}m_{t}=\\left|\\left(1+\\cos\\left(\\frac{t_{\\max}+t}{t_{\\max}\\pi\\right)\\cdot\\frac{1}{2}(m_{\\max}+t_{\\min}\\pi\\right)\\cdot\\frac{1}{2}(m_{\\max}+t_{\\min}\\pi\\right)\n' +
+      '\n' +
+      '여기서 \\(m_{\\max}=9,m_{\\min}=2\\), \\(t_{\\max}\\)은 최대 미세 조정 에폭 수이며, 윈도우 크기 \\(m_{t}\\)는 코사인 스케줄에 따라 증가한다. 주의할 점은 ALMT 방법은 과거의 \\(m_{t}\\) 체크포인트의 큐를 유지하고 매 시간 \\(t\\)마다 EMA를 재계산해야 하며, 두 방법 모두 \\(\\theta_{i}\\)의 작은 모델 크기와 \\(m_{t}\\in\\{2,\\ldots,9\\}\\)의 작은 윈도우 크기 덕분에 저렴하다.\n' +
+      '\n' +
+      '## 4 Experiments\n' +
+      '\n' +
+      '우리는 (Zhou et al., 2022) (the more details in Appendix A): 1) ID (base)에서 OOD (new) class로 일반화하는 두 가지 설정 하에서 OOD 일반화를 평가한다 (base and new class split is used for finetuning and evaluation. 2) 미세 조정을 위한 하나의 ID 데이터 세트와 OOD 평가를 위한 다른 데이터 세트로 교차 데이터 세트 일반화. 십자가\n' +
+      '\n' +
+      '도 3: **joint extrapolation** 방식(Eq.)을 기반으로 이미지 특징 합성을 시각화. (5))는 Flowers102 데이터세트 상에 있다. 특징 생성기는 알려지지 않은 클래스에 대해 훈련되지 않았지만 실제 클래스(회색 십자가)에 가까운 충실한 이미지 특징(빨간 삼각형)을 합성할 수 있다. 이는 kNN 클래스 예제에서 보이지 않는 인스턴스(kNN 클래스당 랜덤한 인스턴스만 사용됨)를 외삽함으로써 달성되며, 꽃의 모양과 질감과 같은 관련 패턴을 효과적으로 결합한다.\n' +
+      '\n' +
+      'Dataset 설정은 ImageNet(Deng et al., 2009)의 일반 객체 분류에서 EuroSAT(Helber et al., 2019)의 위성 영상 인식으로 도메인 및 클래스 증가 분포 이동, _e.g._가 모두 있을 것이기 때문에 더 어렵다.\n' +
+      '\n' +
+      '**Datasets.** 두 설정 모두 11개의 데이터셋을 사용한다: ImageNet(Deng et al., 2009), Caltech101(Fei-Fei et al., 2004), OxfordPets(Parkhi et al., 2012), StanfordCars(Krause et al., 2013), Flowers102(Nilsback & Zisserman, 2008), Food101(Bossard et al., 2014), FGVC-Aircraft(Maji et al., 2013), SUN397(Xiao et al., 2010), UCF101(Soomro et al., 2012), DTD(Cimpoi et al., 2014) 및 EuroSAT(Helber et al., 2019).\n' +
+      '\n' +
+      '**Baselines.** finetuning을 위해, 우리는 신속한 학습 접근법 CoOp(Zhou et al., 2022), CoCoOp(Zhou et al., 2022), VPT(Jia et al., 2022) 및 최첨단 방법 SHIP(Wang et al., 2023), KgCoOp(Yao et al., 2023), MaPLe(Khattak et al., 2023) 및 PromptSRC(Khattak et al., 2023)를 고려한다. 각 기준선에 대해, 우리는 OOD GEN-alization 개선된 버전을 얻기 위해 우리의 방법(더빙된 OGEN)을 적용한다. 공정성을 위해 CLIP(Radford et al., 2021)의 프롬프트 길이, 비전 백본(_i.e._, ViT-B/16) 및 트레인/테스트 데이터 분할을 포함한 각 기준선의 동일한 구현 세부 사항을 사용한다. 보고된 결과는 3개의 무작위 씨앗에 대한 평균이다.\n' +
+      '\n' +
+      '베이스에서 새로운 클래스로의 일반화\n' +
+      '\n' +
+      '기본-새로운 일반화 설정은 하나의 데이터 세트에서 기본과 새로운 클래스 분할이 서로 결합되지 않기 때문에 엄격하게 클래스-증가적 분포 이동을 생성한다. 모든 프롬프트 학습자는 기본 클래스에 대해 교육을 받고 기본 클래스와 새로운 클래스에 대해 별도로 테스트하여 ID와 OOD 성능 간의 상충 관계를 평가한다. 여기서 우리는 (Xian et al., 2017)을 따라 이러한 절충을 정량화하기 위해 기저의 조화 평균과 새로운 클래스 정확도를 보고한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l l|c c c|c c|c c c|c c c|c c c} \\hline \\hline  & & \\multicolumn{2}{c|}{CoOp} & \\multicolumn{2}{c|}{CoCoOp} & \\multicolumn{2}{c|}{VPT} & \\multicolumn{2}{c|}{SHIP} & \\multicolumn{2}{c|}{KgCoOp} & \\multicolumn{2}{c|}{MoPLe} & \\multicolumn{2}{c}{PromptSRC} \\\\  & & & & & & & & & & & & & & & & & & \\\\ \\hline \\multirow{2}{*}{Avg across 11 datasets} & Base & 82.69 & **83.47** & **80.47** & 79.86 & 82.51 & **82.52** & 80.03 & **80.79** & **80.73** & **81.34** & 82.8 & **82.40** & **84.26** & 84.17 \\\\  & New & 63.22 & **69.54** & 11.69 & **73.35** & 69.01 & **70.61** & 73.69 & **76.14** & 73.60 & **75.68** & 75.14 & **76.37** & 76.10 & **76.56** \\\\  & \\(\\Delta\\) & +63.2 & +63.2 & +1.66 & +1.60 & +2.45 & +2.45 & +2.08 & +1.23 & +4.76 & +7.66 \\\\  & \\(\\Pi\\) & 71.66 & **75.87** & 75.83 & **76.47** & 75.16 & 76.10 & 76.73 & **78.40** & 77.00 & **78.40** & 78.55 & **79.27** & 79.99 & **80.34** \\\\ \\hline \\multirow{2}{*}{ImageNet} & Base & 76.47 & 76.40 & 75.98 & 76.50 & 75.96 & 75.50 & 75.87 & 76.14 & 75.83 & 75.88 & 76.66 & 77.02 & 77.60 & 77.50 \\\\  & New & 67.88 & 68.50 & 70.43 & 76.32 & 67.52 & 66.95 & 71.18 & 69.76 & 79.03 & 70.54 & 70.73 & 70.73 & 70.79 \\\\  & \\(\\Pi\\) & 71.92 & 72.70 & 73.10 & 73.23 & 71.38 & 71.18 & 72.79 & 73.58 & 72.78 & 73.32 & 74.74 & 73.74 & 74.01 & 74.09 \\\\ \\hline \\multirow{2}{*}{Caltech101} & Base & 98.00 & 96.67 & 97.96 & 96.67 & 97.50 & 96.63 & 97.55 & 98.09 & 97.72 & 98.52 & 97.74 & 98.37 & 98.10 & 98.32 \\\\  & New & 89.81 & 92.61 & 93.81 & 94.79 & 94.10 & 92.46 & 95.20 & 92.56 & 94.93 & 94.92 & 94.36 & 94.54 & 94.03 & 94.76 \\\\  & \\(\\Pi\\) & 93.73 & 94.95 & 95.84 & 97.52 & 97.57 & 94.30 & 96.36 & 96.65 & 96.03 & 96.27 & 96.02 & 96.42 & 96.02 & 96.50 \\\\ \\hline \\multirow{2}{*}{OxfordPets} & Base & 93.67 & 95.18 & 95.20 & 96.49 & 96.05 & 96.05 & 95.37 & 96.93 & 94.65 & 95.91 & 95.43 & 95.11 & 95.33 & 95.96 \\\\  & New & 93.52 & 96.45 & 97.69 & 97.68 & 95.64 & 98.64 & 97.87 & 97.33 & 97.16 & 97.65 & 97.76 & 97.39 & 97.30 & 97.48 \\\\  & \\(\\Pi\\) & 94.47 & 95.81 & 94.37 & 97.19 & 95.44 & 96.11 & 97.14 & 96.18 & 96.77 & 96.58 & 96.47 & 96.50 & 96.71 \\\\ \\hline \\multirow{2}{*}{Stanford} & Base & 78.12 & 78.65 & 70.49 & 89.66 & 75.00 & 72.43 & 68.57 & 68.63 & 71.76 & 78.16 & 72.94 & 73.63 & 78.22 & 77.59 \\\\  & New & 60.60 & 65.23 & 73.92 & 64.23 & 63.65 & 67.57 & 73.90 & 73.54 & 75.59 & 74.00 & 74.30 & 74.97 & 73.17 \\\\  & \\(\\Pi\\) & 68.13 & 71.35 & 72.01 & 71.50 & 68.74 & 79.96 & 71.14 & 71.88 & 73.36 & 73.84 & 73.47 & 73.96 & 76.58 & 76.38 \\\\ \\hline \\multirow{2}{*}{Flowers102} & Base & 97.60 & 97.38 & 94.87 & 93.95 & 96.89 & 89.03 & 94.02 & 94.67 & 95.00 & 98.33 & 95.92 & 96.52 & 98.07 & 97.34 \\\\  & New & 95.67 & 67.70 & 71.75 & 20.08 & 90.15 & 74.40 & 76.49 & 74.73 & 74.75 & 72.66 & 74.66 & 75.07 & 77.67 \\\\  & \\(\\Pi\\) & 74.06 & 79.87 & 81.71 & 81.57 & 81.29 & 81.09 & 83.06 & 84.61 & 83.65 & 83.98 & 82.56 & 84.06 & 85.95 & 86.39 \\\\ \\hline \\multirow{2}{*}{Food101} & Base & 83.83 & 89.91 & 90.70 & 91.17 & 88.89 & 95.01 & 90.54 & 91.07 & 90.50 & 90.80 & 90.71 & 91.02 & 90.67 & 90.69 \\\\  & New & 82.86 & 72.62 & 91.29 & 91.67 & 88.95 & 88.53 & 91.03 & 92.79 & 91.02 & 92.01 & 92.05 & 92.02 & 91.53 & 91.68 \\\\  & H & 85.19 & 88.21 & 90.99 & 91.42 & 88.91 & 89.99 & 90.78 & 91.92 & 91.09 & 91.38Table 1 summarizes the results on 11 datasets. On average, our OGEN method consistently improves the new class accuracy for all the prompt learning baselines. CoOp is particularly interesting since its default learning schedule (200 epochs) is much longer than that of CoCoOp and VPT (10 epochs). Without proper regularization, CoOp inevitably shows more serious overfitting to the base classes (82.69% on average) with low performance on new classes (63.22%) after long training runs. Our OGEN is especially useful in this case, significantly improving the average new class accuracy of CoOp from 63.22% to 69.54%. As also visualized in Appendix C - Fig. 6(a), the new class generalization sees notable gains on 3 datasets -- DTD for texture classification, EuroSAT for satellite image recognition and UCF101 for action recognition, which all demonstrate large inter-class variations. This validates the superior generalizability of OGEN, thanks to its capability of OOD feature synthesis and regularization. OGEN also improves the average base class accuracy of CoOp from 82.69% to 83.47%. Specifically, OGEN improves on 6 datasets with negligible performance drop on other 5, see Fig. 6(b). The gains on base classes can be attributed to 1) the joint discrimination of known and unknown classes and 2) our adaptive self-distillation method that strikes a good ID-OOD performance tradeoff.\n' +
+      '\n' +
+      '훈련 일정이 상당히 짧은 CoCoOp 및 VPT의 경우 CoOp보다 더 높지만 기본 정확도가 낮은 훨씬 적은 과적합으로 고통받는다. 이것은 우리의 OGEN이 과적합을 해결할 수 있는 잠재력을 최대한 발휘할 수 없게 만든다. 즉, OGEN-CoCoOp와 OGEN-VPT 모두 유사한 기본 클래스 정확도를 달성하면서 평균 새로운 클래스 정확도를 개선할 수 있음을 발견했다. 우리는 더 많은 ID-OOD 성능 균형을 허용하는 더 긴 최적화 일정이 주어질 때 기본 정확도를 더 향상시킬 가능성이 있다.\n' +
+      '\n' +
+      '최첨단 방법 중 SHIP(+CoOp)와 PromptSRC는 각각 특징 합성 및 자기 규칙화의 유사한 기술을 사용하는 OGEN 접근법과 관련이 있다. 표 1은 OGEN이 정규화와 OOD 특징 합성 사이의 시너지 효과를 탐색함으로써 SHIP와 PromptSRC 모두의 새로운 클래스 일반화를 개선할 수 있음을 보여준다. OGEN은 또한 KgCoOp 및 MaPLe에 대한 평균 염기 및 새로운 등급 정확도를 일관되게 개선한다. 도. 도 5는 KgCoOp를 사용하여 이러한 방법이 여전히 과적합(다양한 기술에 의해 어느 정도 감소됨에도 불구하고)으로 고통받는 방법과 우리의 OGEN이 베이스 및 새로운 클래스 모두의 학습 곡선을 개선하는 방법을 예시한다. 다른 방법은 다른 수의 에폭에 대해 훈련되므로 다시 다른 수준의 과적합을 갖는다는 점에 주목할 필요가 있다. OGEN은 긴 학습 스케줄(보다 심각한 과적합)을 갖는 SHIP(200 에폭) 및 KgCoOp(100 에폭)에 비해 일반화를 더 향상시킨다. 우리의 이득은 짧은 훈련 런으로 MaPLe(5 에폭)와 PromptSRC(20 에폭)보다 작지만, 더 긴 런으로 훈련될 때 더 큰 이득이 예상된다.\n' +
+      '\n' +
+      '### Cross-Dataset Generalization\n' +
+      '\n' +
+      '표 2는 ImageNet에서 10개의 타겟 데이터셋까지의 일반화 성능을 보여준다. 우리는 각각 길고 짧은 훈련 실행을 갖는 대표적인 CoOp 및 CoCoOp 기준선을 고려한다. 표에서 볼 수 있듯이, 우리의 OGEN은 경쟁력 있는 소스 데이터세트 성능으로 일반화 성능(기준선 및 대상 데이터세트 전반에 걸쳐)을 균일하게 개선한다. 특히 이미지넷에서 분산 이동이 큰 저성능 데이터세트 DTD, EuroSAT, UCF101에서 개선점이 크다. 이것은 우리의 OOD 기능 생성 모듈의 이점을 강조한다. OGEN은 또한 ImageNet과 유사한 클래스(예: 다른 개 품종)를 포함하는 옥스퍼드펫과 같은 고성능 데이터 세트에 대해 합리적인 이득을 얻음으로써 접근법의 보편성을 보여준다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c c c c c c c c} \\hline \\hline  & \\multicolumn{3}{c}{Source} & \\multicolumn{6}{c}{Target} \\\\ \\cline{3-13}  & \\multicolumn{1}{c}{\\multirow{-2}{*}{\\(\\mathbf\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:9]\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* Abbe et al. (2023) Emmanuel Abbe, Samy Bengio, Aryo Lotfi, and Kevin Rizk. 보이지 않는 논리 추론과 학위 과정에 대한 일반화. 2023년 _ICML_에서\n' +
+      '* Bossard et al. (2014) Lukas Bossard, Matthieu Guillaumin, and Luc Van Gool. 푸드-101 채굴 랜덤 포레스트가 있는 차별적 구성 요소. 2014년 _ECCV_에서.\n' +
+      '* Chen et al. (2023) Xi Chen, Xiao Wang, Soravit Changpinyo, AJ Piergiovanni, Piotr Padlewski, Daniel Salz, Sebastian Alexander Goodman, Adam Grycner, Basil Mustafa, Lucas Beyer, Alexander Kolesnikov, Joan Puigecerver, Nan Ding, Keran Rong, Hassan Akbari, Gaurav Mishra, Linting Xue, Ashish Thapliyal, James Bradbury, Weicheng Kuo, Mojtaba Seyedhosseini, Chao Jia, Burcu Karagol Ayan, Carlos Riquelme, Andreas Steiner, Anelia Angelova, Xiaohua Zhai, Neil Houlsby, Radu Soricut. PaLI: 공동으로 스케일링된 다국어 언어-이미지 모델. 2023년 _ICLR_에서\n' +
+      '* Cimpoi et al. (2014) Mircea Cimpoi, Subhransu Maji, Iasonas Kokkinos, Sammy Mohamed, and Andrea Vedaldi. 야생에서 질감을 묘사하고 있습니다. 2014년 _CVPR_에서.\n' +
+      '* Dai et al. (2022) Wenliang Dai, Lu Hou, Lifeng Shang, Xin Jiang, Qun Liu, and Pascale Fung. 비전 언어 지식 증류를 통해 CLIP에서 멀티모달 생성을 가능하게 합니다. 2022년 _ACL_에서\n' +
+      '* Deng et al. (2009) Jia Deng, Wei Dong, Richard Socher, Li-Jia Li, Kai Li, 및 Li Fei-Fei. ImageNet: 대규모 계층 이미지 데이터베이스. 2009년 _CVPR_에서.\n' +
+      '* Dong et al. (2023) Xiaoyi Dong, Jianmin Bao, Yinglin Zheng, Ting Zhang, Dongdong Chen, Hao Yang, Ming Zeng, Weiming Zhang, Lu Yuan, Dong Chen, Fang Wen, and Nenghai Yu. MaskCLIP: Masked self-distillation은 대조적인 언어-이미지 사전 훈련을 진행한다. _CVPR_, 2023.\n' +
+      '* Du et al. (2022) Xuefeng Du, Zhaoning Wang, Mu Cai, and Yixuan Li. Vos: 가상 이상치 합성에 의해 당신이 모르는 것을 배우는 것. 2022년 _ICLR_에서\n' +
+      '* Esmaeilpour et al. (2022) Sepideh Esmaeilpour, Bing Liu, Eric Robertson, and Lei Shu. 사전 훈련된 모델 클립을 기반으로 한 제로 샷 아웃-오브-분포 검출. 2022년 _AAAI_에서.\n' +
+      '* Fei-Fei et al.(2004) Li Fei-Fei, Rob Fergus, and Pietro Perona. 몇 가지 훈련 사례로부터 생성적 시각적 모델을 학습: 101개의 객체 범주에 대해 점진적 베이지안 접근법을 테스트했다. 2004년 _CVPR 워크숍에서.\n' +
+      '* Fort et al. (2021) Stanislav Fort, Jie Jessie Ren, and Balaji Lakshminarayanan. 배포 외 탐지의 한계를 탐색합니다. 2021년 _NeurIPS_에서.\n' +
+      '* Ghiasi et al. (2021) Golnaz Ghiasi, Xiuye Gu, Yin Cui, and Tsung-Yi Lin. 개방 어휘 이미지 분할 _ arXiv preprint arXiv:2112.12143_, 2021.\n' +
+      '* Gu et al. (2022) Xiuye Gu, Tsung-Yi Lin, Weicheng Kuo, and Yin Cui. 시각 및 언어 지식 증류를 통한 개방형 어휘 객체 감지. 2022년 _ICLR_에서\n' +
+      '* Helber et al. (2019) Patrick Helber, Benjamin Bischke, Andreas Dengel, and Damian Borth. Eurosat: 토지 이용 및 토지 피복 분류를 위한 새로운 데이터 세트 및 딥 러닝 벤치마크. _ IEEE J. Sel. 위 애플 지구 옵스 Remote Sens._ 2019년\n' +
+      '* Hinton et al. (2015) 제프리 Hinton, Oriol Vinyals, and Jeff Dean. 상기 지식을 신경망에 증류하는 단계; _ arXiv preprint arXiv:1503.02531_, 2015.\n' +
+      '* Hu et al. (2023) Hexiang Hu, Yi Luan, Yang Chen, Urvashi Khandelwal, Mandar Joshi, Kenton Lee, Kristina Toutanova, and Ming-Wei Chang. 개방 도메인 시각 엔티티 인식: 수백만 개의 위키피디아 엔티티를 인식하기 위한 _ arXiv preprint arXiv:2302.11154_, 2023.\n' +
+      '* Jia et al. (2021) Chao Jia, Yinfei Yang, Ye Xia, Yi-Ting Chen, Zarana Parekh, Hieu Pham, Quoc Le, Yun-Hsuan Sung, Zhen Li, and Tom Duerig. 시끄러운 텍스트 감독으로 시각 및 시각 언어 표현 학습을 확장합니다. 2021년 _ICML_에서.\n' +
+      '* Jia et al. (2022) Menglin Jia, Luming Tang, Bor-Chun Chen, Claire Cardie, Serge Belongie, Bharath Hariharan, and Ser-Nam Lim. 시각적 프롬프트 튜닝입니다. 2022년 _ECCV_에서.\n' +
+      '\n' +
+      '* Khattak et al. (2023a) Muhammad Uzair Khattak, Hanoona Rasheed, Muhammad Maaz, Salman Khan, and Fahad Shahbaz Khan. MaPLe: 멀티모달 프롬프트 학습. _CVPR_, 2023a.\n' +
+      '* Khattak et al. (2023b) Muhammad Uzair Khattak, Syed Talal Wasim, Muzammal Naseer, Salman Khan, Ming-Hsuan Yang, and Fahad Shahbaz Khan. 자기 조절 프롬프트: 잊지 않고 기초 모델 적응. _ICCV_, 2023b에서.\n' +
+      '*Kim et al. (2021) Wonjae Kim, Bokyeong Son, and Ildoo Kim. Vilt: 컨볼루션 또는 영역 감독이 없는 비전-언어 변환기. 2021년 _ICML_에서.\n' +
+      '* Krause et al. (2013) Jonathan Krause, Michael Stark, Jia Deng, and Li Fei-Fei. 세밀한 분류를 위한 3d 객체 표현. 2013년 _ICCV 워크숍에서.\n' +
+      '* Lee et al. (2018) Kimin Lee, Honglak Lee, Kibok Lee, and Jinwoo Shin. 분포 외 샘플을 탐지하기 위한 신뢰 보정 분류기 훈련 2018년 _ICLR_에서.\n' +
+      '* Li et al. (2021) Junnan Li, Ramprasaath R. 셀바라주, 아킬레스시 디팍 곶마레, 샤피크 조티, 카임잉 시옹그, 스티븐 호이 퓨즈 전에 정렬: 모멘텀 증류로 시각 및 언어 표현 학습. 2021년 _NeurIPS_에서.\n' +
+      '* Li et al. (2023) Xuanlin Li, Yunhao Fang, Minghua Liu, Zhan Ling, Zhuowen Tu, and Hao Su. 유통 외 일반화 가능성으로 대형 비전 언어 모델을 증류합니다. _ICCV_, 2023.\n' +
+      '* Li et al. (2022) Yangguang Li, Feng Liang, Lichen Zhao, Yufeng Cui, Wanli Ouyang, Jing Shao, Fengwei Yu, and Junjie Yan. 감독은 어디에나 존재한다: 데이터 효율적인 대조적 언어-이미지 사전 훈련 패러다임. 2022년 _ICLR_에서\n' +
+      '* Maji et al. (2013) Subhransu Maji, Esa Rahtu, Juho Kannala, Matthew Blaschko, and Andrea Vedaldi. 항공기의 세밀한 시각 분류 arXiv preprint arXiv:1306.5151_, 2013.\n' +
+      '* Mal et al.(2022) Z. Mal, G. Luo, J. Gao, L. 이영 천성호 왕창우 후 계층적 시각 언어 지식 증류를 사용한 개방형 어휘 1단계 탐지. 2022년 _CVPR_에서.\n' +
+      '* Ming et al. (2022) Yifei Ming, Ziyang Cai, Jiuxiang Gu, Yiyou Sun, Wei Li, and Yixuan Li. 비전 언어 표현으로 유통 외 탐지를 탐구합니다. 2022년 _NeurIPS_에서.\n' +
+      '* Nilsback & Zisserman (2008) 마리아-엘레나 Nilsback and Andrew Zisserman. 많은 클래스에 걸쳐 자동으로 꽃 분류를 수행합니다. 2008년 _ICVGIP_에서.\n' +
+      '* Parkhi et al. (2012) Omkar M Parkhi, Andrea Vedaldi, Andrew Zisserman, and CV Jawahar. 고양이와 개 2012년 _CVPR_에서.\n' +
+      '* Qian et al. (2022) Rui Qian, Yeqing Li, Zheng Xu, Ming-Hsuan Yang, Serge Belongie, and Yin Cui. 사전 훈련된 시각 및 언어 모델을 통한 멀티모달 오픈 어휘 비디오 분류. _ ArXiv:2207.07646_, 2022.\n' +
+      '* Radford et al. (2021) Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, et al. Learning transferable visual models from natural language supervision. 2021년 _ICML_에서.\n' +
+      '* Schuhmann et al. (2021) Christoph Schuhmann, Richard Vencu, Romain Beaumont, Robert Kaczmarczyk, Clayton Mullis, Aarush Katta, Theo Coombes, Jenia Jitsev, and Aran Komatuszaki. LAION-400M: 클립 필터링된 4억 개의 이미지-텍스트 쌍들의 오픈 데이터세트 _ arXiv preprint arXiv:2111.02114_, 2021.\n' +
+      '* Shu et al. (2023) Yang Shu, Xingzhuo Guo, Jialong Wu, Ximei Wang, Jianmin Wang, and Mingsheng Long. 클리푸드: 클립을 아웃 오브 배포로 일반화하는 중입니다. 2023년 _ICML_에서\n' +
+      '* Sohn et al. (2020) Kihyuk Sohn, David Berthelot, Nicholas Carlini, Zizhao Zhang, Han Zhang, Colin A Raffel, Ekin Dogus Cubuk, Alexey Kurakin, and Chun-Liang Li. Fixmatch: 일관성과 자신감으로 준지도 학습을 단순화합니다. 2020년 _NeurIPS_에서.\n' +
+      '* Soomro et al. (2012) Khurram Soomro, Amir Roshan Zamir, and Mubarak Shah. Ucf101: 야생의 비디오로부터 101개의 인간 행동 클래스의 데이터세트. _ arXiv preprint arXiv:1212.0402_, 2012.\n' +
+      '* Szegedy et al. (2015)* Tao et al. (2023) Leitian Tao, Xuefeng Du, Jerry Zhu, and Yixuan Li. 비모수 특이치 합성입니다. 2023년 _ICLR_에서\n' +
+      '* Tarvainen & Valpola (2017) Antti Tarvainen and Harri Valpola. 평균적인 교사들은 더 나은 역할 모델이다: 가중치 평균 일관성 목표는 반지도 딥러닝 결과를 향상시킨다. 2017년 _NeurIPS_에서.\n' +
+      '* Wang et al. (2023) Zhengbo Wang, Jian Liang, Ran He, Nan Xu, Zilei Wang, 및 Tieniu Tan. 합성된 프롬프트로 클립에 대한 제로 샷 일반화를 개선합니다. _ICCV_, 2023.\n' +
+      '* Xian et al. (2017) Yongqin Xian, Bernt Schiele, and Zeynep Akata. 제로샷 학습 - 좋은 것, 나쁜 것, 못생긴 것. 2017년 _CVPR_에서.\n' +
+      '* Xiao et al. (2010) Jianxiong Xiao, James Hays, Krista A Ehinger, Aude Oliva, and Antonio Torralba. 태양 데이터베이스: 수도원에서 동물원에 이르는 대규모 장면 인식. 2010년 _CVPR_에서.\n' +
+      '* Yao et al. (2023) Hantao Yao, Rui Zhang, and Changsheng Xu. 지식 유도 컨텍스트 최적화를 통한 시각적 언어 프롬프트 튜닝 _CVPR_, 2023.\n' +
+      '* Zang et al. (2022a) Yuhang Zang, Wei Li, Kaiyang Zhou, Chen Huang, and Chen Change Loy. 조건부 매칭이 있는 개방형 어휘 해독기. _ECCV_, 2022a.\n' +
+      '* Zang et al. (2022b) Yuhang Zang, Wei Li, Kaiyang Zhou, Chen Huang, and Chen Change Loy. 통합된 시각과 언어 즉각적인 학습. _ arXiv preprint arXiv:2210.07225_, 2022b.\n' +
+      '* Zhang et al. (2022) Renrui Zhang, Zhang Wei, Rongyao Fang, Peng Gao, Kunchang Li, Jifeng Dai, Yu Jiao Qiao, 및 Hongsheng Li. 팁 어댑터: 적은 샷 분류를 위해 클립을 훈련 없이 적용할 수 있습니다. 2022년 _ECCV_에서.\n' +
+      '* Zhong et al. (2022) Yiwu Zhong, Jianwei Yang, Pengchuan Zhang, Chunyuan Li, Noel Codella, Liunian Harold Li, Luowei Zhou, Xiyang Dai, Lu Yuan, Yin Li, et al. Regionclip: Region-based language-image pretraining. 2022년 _CVPR_에서.\n' +
+      '* Zhou et al. (2022a) Kaiyang Zhou, Jingkang Yang, Chen Change Loy, Ziwei Liu. 시각 언어 모델에 대한 프롬프트 학습. _ IJCV_, 2022a.\n' +
+      '* Zhou et al. (2022b) Kaiyang Zhou, Jingkang Yang, Chen Change Loy, Ziwei Liu. 비전 언어 모델에 대한 조건부 프롬프트 학습. _CVPR_, 2022b에서.\n' +
+      '\n' +
+      '## 부록 문제 정의에 대한 언급\n' +
+      '\n' +
+      '이 논문의 초점은 CLIP 미세조정의 OOD 일반화의 행동을 이해하고 개선하는 것이다. 도 1에 도시된 바와 같다. 본 논문의 1(a)는 OOD 일반화를 평가하기 전에 CLIP 모델을 다양한 다운스트림 작업에서 미세 조정할 수 있다. 두 가지 설정이 고려된다: 1) 데이터 세트 내에서 하나의 데이터 세트가 ID(베이스) 대 ID(베이스)를 갖는 일반화. OOD(new) class splitits for finetuning and evaluation; 2) cross-dataset generalizedization with one ID dataset for finetuning and other OOD dataset for evaluation.\n' +
+      '\n' +
+      '주 CLIP는 막대한 양의 데이터에 대해 사전 훈련되며, 이는 필연적으로 평가를 위해 일부 "OOD" 데이터와 클래스가 겹칠 수 있다. 또한, 데이터세트 쌍이 클래스 분류학에서 유사한 카테고리를 포함할 수 있는 교차 데이터세트 일반화 설정 하에서 큐레이트된 ID와 OOD 데이터 자체 사이에 잠재적인 클래스 중첩이 있을 수 있다. 따라서 대규모 사전 훈련된 CLIP 모델에 대한 일반화된 OOD 일반화 테스트를 더 고려한다. 즉, 클래스 중복이 발생할 때마다 도메인-증가적 분포 이동이 우리의 평가에서 고려되고, 그렇지 않으면 엄격한 클래스-증가적 분포 이동 하에서 평가한다.\n' +
+      '\n' +
+      '도 4: CoOp(Zhou et al., 2022) 방법을 갖는 긴 피네튜닝 런들(200 epochs)의 보다 예시적인 학습 곡선들. 데이터 집합 내 일반화 설정에서 CoOp는 일반적으로 알려진 클래스를 적합시키고 알려지지 않은 클래스에 대한 정확도를 낮춘다. 클래스 조건 특징 생성기는 미지 인식 최적화를 위해 OOD 특징을 생성함으로써 오버피팅을 줄이는 풀 메소드 OGEN에서 핵심적인 역할을 한다. 우리의 적응형 자기 증류 방법은 최적화 역학을 정규화하여 과적합을 더욱 줄인다.\n' +
+      '\n' +
+      '도 5: KgCoOp(Yao et al., 2023) 대 긴 미세조정 실행(100 epochs)의 학습 곡선. OGEN-KgCoOp 법(데이터세트 내 일반화 설정) KgCoOp에서 사용되는 과적합 저감 기술에도 불구하고 여전히 어느 정도 과적합에 시달리고 있다. OGEN이 기본 클래스와 새로운 클래스의 학습 곡선을 종종 개선하는 방법을 참조하십시오.\n' +
+      '\n' +
+      '## 부록 B Overfit with CLIP Finetuning: 더 많은 예\n' +
+      '\n' +
+      '도. 도 4는 CLIP를 긴 스케줄로 미세화하는 프롬프트 학습 방법 CoOp(Zhou et al., 2022)의 더 많은 학습 곡선을 도시한다. 분명히, CoOp는 알려지지 않은 클래스에 대한 일반화 성능이 감소하는 고려된 모든 데이터 세트에 오버핏을 제공한다. 제안된 OGEN 방법(클래스 조건 특징 생성기와 적응 자기 증류)의 두 구성 요소는 과적합을 해결하는 데 유용하다는 것을 발견했다. 우리의 특징 생성기는 다음과 같은 알려지지 않은 인식 최적화 및 정규화를 위해 OOD 특징을 생성함으로써 중요한 역할을 하는 것으로 관찰된다.\n' +
+      '\n' +
+      '도. 도 5는 최신 방법 중 하나인 KgCoOp(Yao et al., 2023)의 예시적인 학습 곡선을 도시한다. 이 방법은 기본적으로 비교적 긴 미세 조정 런(100 에폭)을 갖는다. 우리는 KgCoOp가 과적합 환원 성분이 있지만 여전히 어느 정도 과적합에 시달리고 있음을 알 수 있다. 우리의 OGEN은 KgCoOp와의 과적합을 더욱 완화하여 기본 및 새로운 클래스의 학습 곡선을 개선할 수 있다.\n' +
+      '\n' +
+      '## 부록 C 데이터 세트별 시각화 결과\n' +
+      '\n' +
+      '도. 6은 11개의 데이터 세트에 대해 기본 클래스와 새로운 클래스 모두에서 CoOp와 OGEN-CoOp 사이의 성능 격차를 분해한다. 각 데이터 세트에서 기본에서 새로운 클래스 일반화 설정이 고려됩니다.\n' +
+      '\n' +
+      '## 부록 D 특징 합성 vs. 리플레이 기반 방법\n' +
+      '\n' +
+      '우리의 클래스 조건 특징 생성기의 목표는 OOD 도메인에서 알려지지 않은 클래스 데이터의 방대한 공간과 복잡한 분포를 모델링하는 것이다. 여기서 우리는 합성된 OOD 특징이 미지의 데이터의 실제 세계를 얼마나 잘 나타낼 수 있는지 조사한다. 구체적으로, 대규모 LAION-400M 데이터셋(Schuhmann et al., 2021)에서 실제 OOD 데이터를 샘플링하고 샘플링된 데이터를 사용하여 리플레이 방법의 사용을 탐구한다. 합성된 OOD 특징을 실제 OOD 데이터와 비교하여 다운스트림 태스크의 정규화 훈련에 대한 기여도를 비교한다.\n' +
+      '\n' +
+      '**실험 상세.** CoOp(Zhou et al., 2022)가 11개의 다운스트림 데이터 세트 각각에 대한 CLIP 미세조정 기준선인 베이스 투 뉴 클래스 일반화 설정 하에서 실험한다. OGEN-boosted CoOp 변종과 replay-boosted CoOp 변종 간의 공정한 비교를 위해, 우리는 항상 OOD 데이터 소스(합성 vs. replay)의 유일한 차이를 갖는 ALMT를 사용한다.\n' +
+      '\n' +
+      '**재생 데이터의 샘플링**\n' +
+      '\n' +
+      '* 클래스 필터링: 각 다운스트림 태스크에 대한 OOD 데이터의 좋은 프록시 역할을 보장하기 위해 LAION-400M, _i.e._에서 이미지-텍스트-쌍을 샘플링할 때 클래스 필터링을 수행해야 하며, 고려된 데이터 세트에서 "알려진" 클래스와 의미적으로 가까운 이미지-텍스트-쌍을 필터링한다. CLIP를 사용하여 코사인 유사도를 계산합니다.\n' +
+      '\n' +
+      '그림 6: 긴 학습 스케줄(200 에포크)로 인해 과적합으로 고통받는 CoOp 기준선에 우리의 OGEN 접근법이 적용될 때 **베이스 대 새로운 클래스 일반화**. OGEN은 과적합을 크게 극복하고 **(a)**는 때때로 큰 마진만큼 11개의 모든 데이터 세트에 대한 새로운 클래스에 대한 OOD 일반화를 개선한다. **(b)**와 동시에 OGEN은 대부분의 데이터 세트에서 기본 클래스 정확도를 개선할 수 있으며 일부 다른 데이터 세트에서는 약간의 정확도만 떨어진다.\n' +
+      '\n' +
+      '질의 텍스트의 텍스트 특징과 알려진 클래스 이름 사이에 질의 텍스트를 삽입한 후 최대 유사도 점수가 0.82보다 높은 질의 텍스트를 삭제한다. 합성된 특징은 알려진 클래스로부터 추출된 질의 클래스와 클래스 조건적 방식으로 생성되기 때문에 OOD가 보장된다.\n' +
+      '* 샘플링 전략: 클래스 필터링이 있는 경우 LAION-400M에서 재생 데이터를 검색하기 위해 랜덤 데이터 샘플링과 하드 샘플 마이닝을 모두 고려한다. 하드 샘플 마이닝을 위해 먼저 위에서 언급한 최대 유사성 점수의 관점에서 충분히 큰 풀(무작위 샘플링)의 쿼리 텍스트를 순위를 매긴다. 그런 다음 상위 유사 쿼리 텍스트를 선택하고 해당 이미지를 하드 리플레이 데이터로 사용한다(하드 네거티브 샘플링의 하드 네거티브와 유사).\n' +
+      '* 샘플링 데이터 크기: LAION-400M에서 많은 양의 이미지 텍스트 쌍을 감안할 때, 우리는 각 다운스트림 데이터 세트에 대한 합성 OOD 데이터의 크기보다 리플레이 데이터(랜덤 또는 하드)의 데이터 크기를 1~12배 더 증가시킨다. 특징 생성기는 고려된 데이터 세트의 훈련 세트의 "알 수 없는" 클래스 분할과 동일한 양의 OOD 특징을 합성한다.\n' +
+      '\n' +
+      '**도 7의 관찰.**\n' +
+      '\n' +
+      '* 더 나은 성능은 일반적으로 리플레이를 위해 더 많은 실제 OOD 데이터를 사용함으로써 획득되며, 성능은 하드 마이닝된 리플레이 데이터로 더 빠르게 성장한다. 충분한 리플레이 데이터가 사용될 때, 성능은 합성된 OOD 특징의 성능을 능가할 수 있다. 이는 정규화를 훈련하기 위해 크고 다양한 OOD 데이터를 샘플링하는 것의 이점을 보여준다.\n' +
+      '* 그러나, 우리의 특징 합성 접근법은 리플레이 기반 방법들보다 훨씬 더 데이터 효율적이다. 이러한 장점의 주요 이유는 피처 생성기가 실제 샘플과 비교하여 결정 경계를 더 잘 정규화하기 위해 하드 OOD 샘플을 생성할 가능성이 더 높기 때문이다. 우리의 경우, 1) 특징 생성기 자체는 다운스트림 데이터세트에 대해 트레이닝되어, 당면한 작업에 더 잘 적응하는 데이터세트-특정 OOD 특징들을 합성할 수 있다. 2) kNN 알려진 클래스 특징들로부터 OOD 특징들을 추론하는 것을 기억한다. 이는 알려진 클래스와 합성된 특징 사이에 필연적으로 공유되는 정보가 있음을 시사하며, 후자의 경도를 더욱 증가시킨다. 한편, 별도의 도메인에서 샘플링된 실제 OOD 데이터에 대해서는 전술한 두 가지 요인이 모두 누락되어 학습 정규화에 있어 데이터 비효율성에 기여한다. 실제 OOD 데이터는 다운스트림 데이터세트(_e.g._, Caltech101)와 분포적으로 유사할 때 가장 유용하므로 반-하드 네거티브로 작용할 수 있다. 그렇지 않으면, 데이터 효율성은 DTD와 같이 분포적으로 먼 데이터 세트에 OOD 데이터를 재생할 때 상당한 감소를 볼 것이다. On\n' +
+      '\n' +
+      '그림 7: **OOD 특징 합성은 실제 OOD 데이터를 재생하는 것보다 훨씬 더 효율적인 데이터이다. 실제 OOD 데이터는 합성 데이터보다 여러 배 더 다양한 데이터 규모인 _i.e._를 갖는 LAION-400M 데이터 세트에서 샘플링된다. 여기에서 우리는 기반에서 새로운 클래스 일반화를 위해 CoOp 기준선을 사용하고 기반과 새로운 정확도의 조화 평균을 측정한다. (a) OOD 특징 합성을 갖는 OGEN은 하드 샘플 마이닝 및 랜덤 샘플링 전략을 갖는 리플레이 방법과 비교할 때 11개의 데이터 세트에서 평균적으로 약 3.5배 및 7.5배 데이터 효율의 이득을 생성한다는 것을 알 수 있다(상세 내용은 텍스트를 참조). (b-c) 상기 재생된 OOD 샘플들은, 데이터가 비효율적이음에도 불구하고, 그들이 준-하드 네거티브들로서 작용하도록 다운스트림 데이터세트(_e.g._, Caltech101)와 더 가까운 의미론적 또는 데이터 분포를 가질 때 더 도움이 된다. 질감 데이터베이스인 분포적으로 다른 DTD에 대해서는 훨씬 덜 유용합니다. 반면에 OGEN은 데이터 세트별 OOD 기능 합성의 이점을 얻으며, 이는 종종 교육을 위한 데이터 효율성을 높이기 위해 하드 네거티브를 제공한다.**\n' +
+      '\n' +
+      '평균(11개의 데이터 세트에서) 우리의 특징 합성 방법은 하드 마이닝과 랜덤 샘플링을 사용한 리플레이 방법보다 각각 약 3.5배와 7.5배 더 효율적인 데이터이다.\n' +
+      '\n' +
+      '**요약.** 재생 기반 방법들은 큰 데이터 크기로 잘 수행되지만, (재생 데이터를 유지하기 위해) 큰 메모리 비용뿐만 아니라 낮은 데이터 효율로 인해 어려움을 겪는다. 클래스 조건 피쳐 생성기는 즉시 하드 OOD 피쳐를 합성하여 이러한 문제를 방지합니다. 당사의 기능 생성기는 가볍고 계산 비용만 적게 듭니다. GPU에서의 실행 시간은 0.019초로 CLIP의 특징 추출 단계(텍스트 인코더: 0.046초, 이미지 인코더: 1.016초)보다 상당히 작다. 한 가지 유망한 미래 방향은 데이터 효율성과 다양성의 각각의 이점을 활용하는 것을 목표로 하는 특징 합성 방법과 재생 방법의 조합이다.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
