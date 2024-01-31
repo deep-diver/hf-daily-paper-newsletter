@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# 텍스트 확산 모델을 위한 전이 학습\n' +
+      '\n' +
+      'Kehang Han\\({}^{1}\\), Kathleen Kenealy\\({}^{1}\\), Aditya Barua\\({}^{2}\\), Noah Fiedel\\({}^{1}\\), Noah Constant\\({}^{1}\\)\n' +
+      '\n' +
+      'Google DeepMind\\({}^{1}\\)Google DeepMind\\({}^{2}\\)Google DeepMind\\({}^{1}\\)Google DeepMind\\({}^{2}\\)Google DeepMind\\({}^{1}\\)Google DeepMind\\({}^{2}\\)\n' +
+      '\n' +
+      '{kehanghan, kkenealy, adityabarua, nfiedel, nconstant}@google.com\n' +
+      '\n' +
+      'Equal contribution.\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      '본 논문에서는 LLM(Large Language Model)의 학습 및 배치를 위한 AR(Autoregressive) 복호화를 대체할 _text diffusion_의 가능성을 탐색한다. 우리는 특히 미리 훈련된 AR 모델들이 우리가 "AR2Diff"라고 부르는 경량 적응 절차를 통해 텍스트 확산 모델로 변환될 수 있는지 여부에 관심이 있다. 우리는 텍스트 확산 모델을 훈련하기 위한 강력한 기준 설정을 설정하는 것으로 시작한다. 여러 아키텍처와 사전 훈련 목표에 걸쳐 비교해보면, 프리픽스 LM 대물렌즈로 디코더 전용 모델을 훈련하는 것이 여러 작업에서 가장 좋거나 거의 최고임을 알 수 있다. 이를 바탕으로 텍스트 확산 모델에 대한 다양한 전이 학습 설정을 테스트한다. 기계 번역에서 텍스트 확산이 표준 AR 접근 방식보다 성능이 낮다는 것을 발견했다. 그러나 코드 합성 및 추출 QA에서, 우리는 처음부터 훈련된 확산 모델이 많은 경우에 AR 모델보다 우수하다는 것을 발견한다. 또한 확산 디코딩을 사용하기 위해 AR2Diff-적응 AR 모델의 품질 향상을 관찰한다. 이러한 결과는 텍스트 확산이 상대적으로 불완전하고 긴 텍스트 생성을 위한 AR 디코딩보다 상당히 빠를 수 있다는 점을 감안할 때 유망하다.\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      '최근, 대형 언어 모델(LLM)은 규모, 능력 및 인기도 면에서 브라운 등(2020); Chowdhery 등(2022), 요약, 코드 블록 또는 심층 설명 OpenAI(2023); Anil 등(2023)과 같은 긴 형식의 텍스트를 생성하는 데 점점 더 많이 사용되고 있다. 우리가 아는 한, 모든 인기 있는 LLM은 _autoregressive_ (AR) - 텍스트 순서로 한 번에 하나의 토큰을 생성하는 것으로, 각각은 지금까지 생성된 시퀀스를 조건으로 한다. AR 세대는 잘 이해되고 고도로 최적화되었지만 엄격한 좌우 인수분해는 과도하게 제한될 수 있다. 토큰-바이-토큰을 생성하는 것은 본질적으로 비효율적이며, 특히 긴 그러나 예측가능한 텍스트의 스팬(예를 들어, 콘텍스트로부터 일련 번호를 한 번에 한 자리씩 복사하는 것)에서 더욱 그러하다. 또한, 이러한 엄격한 순서는 구성을 계획하기 위한 이상적인 스캐폴드를 제공하지 않을 수 있다. 인간 작가들은 일반적으로 작업을 개요, 초안, 수정 및 교정하며 기계가 유사한 반복 접근법의 이점을 얻을 수 있다는 것은 그럴듯해 보인다.1\n' +
+      '\n' +
+      '각주 1: Wei et al.(2022)을 프롬프트하는 "Chain of thought"는 모델들이 원하는 출력을 생성하기 전에 추론하거나 초안을 작성하는 메커니즘을 제공한다. 그러나 최종 출력은 여전히 자동으로 생성됩니다.\n' +
+      '\n' +
+      '대안으로서, 다수의 시퀀스 위치를 병렬로 생성하거나, "거친" 초기 생성으로 점진적 편집을 하는 많은 _non-AR_ 디코딩 방법이 제안되어 있다(섹션 SS2 참조). 이들 중 몇몇은 특정 작업에 대해 유망한 결과를 보여주었다. 예를 들어, SUNDAE의 _text diffusion_ approach Savinov et al. (2022)는 2\\(\\times\\) 이상의 디코딩을 더 빠르게 하면서 기계 번역 상에서 AR baseline과 유사한 품질을 달성한다.\n' +
+      '\n' +
+      '그러나 긍정적인 발견에도 불구하고 비AR 기술은 견인력을 얻는 데 실패했으며 대규모 언어 모델의 공간에서는 사용되지 않고 있다. 우리는 이것이 고전적인 AR 방법 이면의 관성, 비표준 훈련 손실 및 디코딩 방법을 사용하여 대규모 모델을 처음부터 튜닝하고 훈련하는 높은 비용과 위험 때문일 수 있다고 의심한다.\n' +
+      '\n' +
+      '이러한 진입 비용을 낮추고 규모 면에서 보다 효율적인 텍스트 생성으로의 전환을 완화하기 위해 본 논문에서는 기존의 사전 훈련된 AR 모델 체크포인트를 적용하여 비AR 생성을 수행할 수 있는 가능성을 조사한다. 우리는 SUNDAE 텍스트 확산의 단순화된 버전을 표준 비AR 구현으로 사용하므로 이 경량 적응 프로세스를 **AR2Diff(AR to Diffusion)**라고 한다.\n' +
+      '\n' +
+      '보다 구체적으로, 우리는 모델이 감독되지 않은 데이터에 사전 훈련되고 다양한 다운스트림 작업에 적용되는 인기 있는 전이 학습 환경에서 규모에서 경쟁하는 텍스트 확산 방법의 능력을 테스트하는 데 관심이 있다. 다양한 모델 아키텍처, 작업 및 전이 학습 설정에서 텍스트 확산을 AR 기준선에 비교하는 일련의 실험을 수행합니다.\n' +
+      '\n' +
+      '우리의 주요 기여는 (1) 텍스트 확산을 사용하여 사전 훈련되고 미세 조정된 언어 모델이 여러 다운스트림 작업에서 자기 회귀 모델과 경쟁적일 수 있음을 보여주고, (2) 사전 훈련된 AR 모델이 경량 적응을 통해 확산 모델로 변환될 수 있음을 보여준다.\n' +
+      '\n' +
+      '##2 관련 업무\n' +
+      '\n' +
+      '이전 연구는 텍스트 생성 Gu et al.(2018); Lee et al.(2018); Stern et al.(2019); Ghazvininejad et al.(2019)에 대한 광범위한 비자동회귀 방법을 탐구했다. 최근 몇 년간 확산 모델 Sohl-Dickstein et al. (2015)은 _image_ generation Rombach et al. (2021); Ramesh et al. (2022); Saharia et al. (2022). 최근 많은 노력들이 확산 방법들을 _text_ generation Savinov et al. (2022); Li et al. (2022); Reid et al. (2023); Chen et al. (2023); Strudel et al. (2022); Dieleman et al. (2022); Zheng et al. (2023); Lin et al. (2023); Gong et al. (2023); Yuan et al. (2023); Wu et al. (2023)에 적용했지만, 아직 큰 언어 모델들의 공간에서 채택된 것은 없다.\n' +
+      '\n' +
+      '유망하지만 텍스트 확산 기술은 스케일 또는 멀티태스크 전이 학습 설정에서 대부분 테스트되지 않았지만, 이 방향의 최근 작업에 대해서는 Lin et al.(2023) 및 Ye et al.(2023)을 참조한다. 또한, 이러한 방법이 새로운 확산 모델을 처음부터 훈련해야 하는지 또는 AR 모델이 확산 모델에 효율적으로 적응할 수 있는지 여부는 불분명하다. 우리는 섹션 SS4에서 이러한 질문을 경험적으로 탐구한다.\n' +
+      '\n' +
+      '이전 작업의 한 라인은 비-AR 방법이 "AR 증류 Kim and Rush (2016); Gu et al. (2018); Saharia et al. (2020); Gu and Kong (2021)--기존 AR 모델의 예측을 통해 생성된 은 데이터에 대해 비-AR 모델을 처음부터 트레이닝하는 것"으로부터 이익을 얻는다는 것을 보여준다. AR 증류는 둘 다 기존 AR 모델을 활용한다는 점에서 AR2Diff 적응과 유사하다. 그러나 이 방법은 AR 검문소에서 직접 확산 모델을 초기화하고 금 데이터를 훈련한다는 점에서 다르다. 대규모 AR 모델 훈련에 대한 최근의 상당한 투자를 감안할 때, 우리는 기존 체크포인트의 경량 적응이 처음부터 비표준 모델 훈련에 비해 유망한 방향이라고 믿는다.\n' +
+      '\n' +
+      '최근 Lin et al.(2023)은 텍스트 확산 인코더-디코더 모델을 사전 훈련하고 다운스트림 작업에서 이를 미세 조정하는 좋은 결과를 보여준다. 우리의 연구와 마찬가지로, 이것은 규모에서 텍스트 확산 모델을 사전 훈련하는 것의 효과를 검증한다.\n' +
+      '\n' +
+      '보다 최근에, "재매개변수화된 이산 확산 모델" Zheng et al.(2023), Ye et al.(2023)에 기초하여, 큰 AR 모델들(최대 10B 파라미터들)을 태스크-특정 미세-조정 동안 텍스트 확산 모델들로 변환할 가능성을 보여준다 - 그들의 "확산 적응". 이 작업은 텍스트 확산이 규모 면에서 실용적일 수 있음을 입증하는 우리의 목표를 공유한다. 본 연구는 RDM과 달리 SUNDAE에 기반을 두고, (ii) 처음부터 기본값으로 사전 훈련된 확산 모델을 포함하고, (iii) 확산 사전 훈련에 대한 서로 다른 아키텍처와 목표를 비교하고, (iv) 사전 훈련 동안 적응을 테스트하는 것(우리의 AR2Diff\\({}_{N}\\)과 \\(N>0\\))이 미세 조정 동안에만 적용되는 것(우리의 AR2Diff\\({}_{0}\\)이 다르다.\n' +
+      '\n' +
+      '##3 평가 작업\n' +
+      '\n' +
+      '우리는 세 가지 다운스트림 작업을 실험한다. 먼저, 기계 번역은 생성 모델, 특히 비-AR 모델에 대한 작업에서 평가하는데 널리 사용되기 때문에 **WMT14 프랑스-영어 번역**Bojar 등(2014)을 사용한다.\n' +
+      '\n' +
+      '둘째, 인기 있는 **SQuAD 질문 응답 태스크**Rajpurkar 등(2016)에 대해 평가한다. 추출형 QA 작업으로 개방형 생성이 필요하지 않으며 대부분의 목표는 상당히 짧고 종종 몇 단어만 길다. 텍스트 확산 모델은 짧은 출력으로 작업에 대한 속도 향상을 제공하지 않지만(섹션 SS4.7 참조), 텍스트_이해_ 작업에 대한 품질을 테스트하는 것이 여전히 중요하다고 느낀다. 이는 사전 훈련된 확산 모델이 언어 이해의 효과적인 일반적인 기초가 될 수 있는지 여부를 확립하는 데 도움이 될 수 있으며, 우리의 연구 결과가 NLP의 전이 학습에 대한 문헌 내에서 해석될 수 있음을 보장한다.\n' +
+      '\n' +
+      '마지막으로, 간단한 파이썬 프로그래밍 작업에 대한 풀 솔루션을 생성하기 위해 모델을 필요로 하는 최근의 벤치마크인 **Mostly Basic Python Problems (MBPP)**Austin et al.(2021)에 대해 평가한다. 이 작업은 알고리즘, 코딩 스타일, 변수 이름 등의 선택에 따라 주어진 작업에 대한 많은 작업 솔루션이 있기 때문에 상당히 개방형이다. 개방형 자연어 생성에 비해 이 벤치마크는 생성된 코드를 실행하고 관련 테스트 사례를 통과하는지 평가할 수 있기 때문에 명확하고 의미 있는 자동 평가 메트릭을 가지고 있다. 실험에서 채택하는 PaLM Chowdhery et al.(2022) 어휘를 사용하여 토큰화할 때, 중앙값 목표 길이는 \\(59\\) 토큰이고 90번째 백분위수는 \\(150\\) 토큰이다.\n' +
+      '\n' +
+      '각주 1: [https://www.tensorflow.org/](https://www.tensorflow.org/)\n' +
+      '\n' +
+      '각주 2: 우리는 SUNDAE의 온도\\(1.0\\)와 반대로 온도\\(0.0\\)(argmax)을 사용하여 \\(l_{1}\\)에서 샘플을 채취했는데, 이는 WMT14의 초기 절제에서 가장 잘 수행되었으며, 온도는 \\(\\{0.0,0.1,1.0\\}\\)이었다.\n' +
+      '\n' +
+      '## 4 Experiments\n' +
+      '\n' +
+      '### Diffusion implementation\n' +
+      '\n' +
+      '우리의 확산 구현은 SUNDAE Savinov et al.(2022)을 따른다. 보다 구체적으로, T5X Roberts et al. (2022) 라이브러리에서 구현된 바와 같이 표준 트랜스포머 Vaswani et al. (2017) 아키텍쳐(엔코더-디코더 또는 디코더-전용)를 사용한다. SUNDAE가 표면 토큰 공간에서 이산 확산을 수행함에 따라, 디코더 입력 및 출력은 표준 AR 모델에 따라 토큰이다. 이러한 구현 선택을 통해 상대적으로 사소한 변경으로 자기회귀 LLM 교육을 위한 기존 프레임워크를 재사용할 수 있다. 그 결과, 사전 훈련된 AR 모델 체크포인트를 사용하여 쉽게 실험할 수 있고 텍스트 확산을 수행하기 위해 이를 적용할 수 있다.\n' +
+      '\n' +
+      '훈련은 SUNDAE\\(L^{(1:2)}\\) 손실을 이용하는데, 이는 "unrolled denoising"의 한 단계를 통합함으로써 모델이 목표물을 향해 단일 단계 예측을 더 정교하게 할 수 있도록 장려한다. 보다 구체적으로, 타겟 시퀀스 \\(x\\)에 대해, 우리는 랜덤하게 토큰의 비율(균일한 분포로부터 샘플링)을 손상시켜 \\(x^{c}\\)을 생성하고, 이를 디노이징 모델에 입력으로 전달하여 로짓 \\(l_{1}\\)을 생성한다. "로짓 손실" \\(L^{(1)}\\)은 \\(l_{1}\\)과 \\(x\\) 사이의 교차 엔트로피이다. "Unrolled logits"는 \\(l_{1}\\)에서 2를 샘플링하고 이 토큰들을 입력으로 다시 잡음 제거 모델에 전달하여 \\(l_{2}\\)을 생성한다. "unrolled logits loss" \\(L^{(2)}\\)는 \\(l_{2}\\)과 \\(x\\) 사이의 교차 엔트로피이다. 전체 손실에는 \\(L^{(1)}+L^{(2)}\\)을 사용한다.\n' +
+      '\n' +
+      '각주 2: 우리는 SUNDAE의 온도\\(1.0\\)와 반대로 온도\\(0.0\\)(argmax)을 사용하여 \\(l_{1}\\)에서 샘플을 채취했는데, 이는 WMT14의 초기 절제에서 가장 잘 수행되었으며, 온도는 \\(\\{0.0,0.1,1.0\\}\\)이었다.\n' +
+      '\n' +
+      '추론을 위해 저온 샘플링(\\(\\tau=0.2\\)), 디코딩(\\(N\\) 샘플을 병렬로 사용(기본값으로 \\(N=8\\))하는 SUNDAE를 따르고, 확산의 마지막 단계에서 디코더 입력과 출력 로짓 사이의 교차 엔트로피(cross-entropy)를 "모델 점수"로 재순위화한다. 우리는 기본적으로 \\(10\\) 확산 디코딩 단계들을 사용한다; 따라서 타겟이 \\(10\\) 토큰보다 긴 태스크들에서, 우리의 확산 모델들은 AR 모델보다 더 적은 디코딩 단계들을 사용한다.3 이러한 선택들은 섹션 SS4.6에서 제거된다.\n' +
+      '\n' +
+      '각주 3: AR 모델들이 후속 디코딩 단계들(인과적 주의 마스크에 감사함)을 위해 이전 시퀀스 위치들로부터 활성화들을 캐싱하고 재사용할 수 있기 때문에, 이들은 다른 인자들이 일정하게 유지될 때, 단계당 상당히 적은 FLOP들을 사용한다. 우리는 속도 대 속도의 전체 그림을 제시하지 않는다. 여기서 텍스트 확산 모델의 품질 절충안입니다. 이전 연구는 텍스트 확산이 캐싱이 가능한 Savinov et al.(2022)과 AR 추론과 비교하더라도 속도와 품질에 대해 경쟁적일 수 있음을 보여주었다. 우리는 여기서 \\(10\\) 단계의 확산이 실용적인 가치를 가질 만큼 충분히 빠르고 품질에 초점을 맞춘다고 가정한다.\n' +
+      '\n' +
+      '단순화를 위해 우리는 SUNDAE의 목표 길이 예측 모듈을 포기하고 대신 모델이 훈련 중에 관찰된 패딩 토큰의 존재를 통해 시퀀스 길이를 종단 간 예측하는 것을 학습하도록 선택한다. 결과적으로, 우리의 텍스트 확산 모델은 트랜스포머(인코더)-디코더 내의 파라미터를 넘어서는 추가적인 파라미터를 갖지 않는다.\n' +
+      '\n' +
+      '객관적, 건축적 선택\n' +
+      '\n' +
+      '텍스트 확산에 대한 이전 작업은 단일 작업 설정, 즉 무조건적인 텍스트 생성에 대한 훈련 및 평가 또는 기계 번역과 같은 최종 작업에 대한 처음부터 훈련에 초점을 맞추었다.4 대조적으로, 우리는 _transfer learning_ 설정에서 텍스트 확산을 평가하고 큰 모델을 사전 훈련하고 광범위한 다운스트림 작업에 적용하는 것을 목표로 한다. 첫 번째 단계로, 추가 실험의 공간을 줄이기 위해 먼저 모델 아키텍처를 식별하고 텍스트 확산에 적합한 사전 훈련 목표를 찾습니다.\n' +
+      '\n' +
+      '각주 4: Ye et al. (2023)은 다수의 태스크들에 걸친 확산을 위해 사전 훈련된 AR 모델들을 적응시키지만, 특정 태스크들에 적응될 수 있는 범용 확산 모델을 사전 훈련시키는 것을 탐색하지 않는다.\n' +
+      '\n' +
+      'AR 텍스트-텍스트 모델 Raffel 등(2020)에 대한 전이 학습에 대한 T5 연구는 인코더-디코더 아키텍처와 "스팬 손상" 목표를 사용하여 입력에서 다중-토큰 스팬을 마스킹하고 이를 타겟에서 재구성할 것을 권장한다. 이에 비해, 많은 후속 LLM들은 표준 LM 대물 브라운 등(2020); Chowdhery 등(2022)과 함께 디코더 전용 아키텍처에 수렴하였다. 확산에 가장 적합한 설정을 설정하기 위해 아키텍처의 네 가지 조합(**인코더-디코더** 대 **디코더-전용**)을 모두 테스트한다. 그리고 객관적(**span corruption** vs. **prefix LM**) 도 1.5에 도시된 바와 같이,\n' +
+      '\n' +
+      '각주 5: 우리는 인코더-디코더 아키텍처와 호환되기 때문에 표준 인과적 LM 목적보다는 "접두사 LM" 목적을 선택하고, 사과 대 사과 비교 Tay 등(2023)에서 인과적 LM을 능가하는 것으로 나타났다.\n' +
+      '\n' +
+      '우리는 mC4 Xue et al.(2021)의 80% 다국어 웹 크롤 데이터와 "The Stack" Kocetkov et al.(2022)의 20% 파이썬 코드로 구성된 동일한 사전 훈련 혼합물에서 각 모델을 훈련한다. 모든 모델은 T5 베이스 크기 트랜스포머 구조와 프리트레인 구조를 사용하여 128\\(128\\) 크기의 배치와 1024\\(1024\\) 길이의 배치에서 백만 단계를 수행한다. 그런 다음 WMT14 En-Fr, SQuAD 및 MBPP(총 12개의 미세 조정 모델을 생성)에서 각 모델을 별도로 미세 조정하고 모든 작업에 걸쳐 평가한다. 우리는 모든 작업에서 \\(128\\)의 미세 조정 배치 크기와 \\(0.001\\)의 일정한 학습률을 사용한다. 우리는 WMT14 En-Fr의 경우 \\(500\\)K 스텝, SQuAD의 경우 \\(250\\)K 스텝을 미세 조정하며, 매 \\(1{,}000\\) 스텝마다 체크포인트를 취한다. 더 작은 데이터 세트 크기로 인해 MBPP의 경우, 매 단계(50\\)마다 체크포인트를 사용하여 \\(5{,}000\\) 단계를 미세 조정한다. 모든 경우에 과적합의 명확한 증거가 관찰되면 미세 조정을 종료한다. 우리는 PaLM(Chowdhery et al., 2022)의 \\(256\\)K 토큰 SentencePiece 어휘를 재사용한다. 디코더 전용 모델은 임베딩 매개 변수를 포함하여 대략 \\(280\\)M 매개 변수를 갖는 반면, 인코더-디코더 모델은 대략 \\(590\\)M 매개 변수를 갖는다.\n' +
+      '\n' +
+      '표 1의 결과는 디코더 전용 모델이 더 낮은 매개변수 카운트에도 불구하고 세 가지 작업 모두에서 가장 잘 수행됨을 보여준다. 이 장점은 특히 코드 합성(MBPP)에서 명확하며, 여기서 인코더-디코더 모델은 모델\\(80\\)을 샘플링하고 이들 후보의 _any_가 통과하면 올바른 것으로 스코어링되는 허용 "Pass@80" 메트릭에서도 테스트 세트의 문제를 해결하지 못한다. Tay et al.(2023)에 따르면, 우리는 더 긴 연속 스팬을 생성하기 위해 모델을 사전 훈련하는 것이 긴 일관성 생성을 필요로 하는 MBPP와 같은 다운스트림 작업에 대해 더 잘 일치하는 목표라고 의심한다.\n' +
+      '\n' +
+      '사전 훈련 목표에 대한 우리의 연구 결과는 Prefix LM이 WMT와 MBPP에서 가장 잘 수행하는 반면 Span Corruption은 SQuAD에서 가장 잘 수행하므로 덜 결정적이다. 이를 염두에 두고 후속 실험을 위해 "디코더 전용 + 프리픽스 LM"을 선택하는데, 이 설정은 LLM 훈련에 점점 더 표준화되고 상대적으로 잘(최상 또는 차선) 수행되기 때문이다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l l c c c} \\hline \\hline  & **Pretraining** & **WMT14 En-Fr** & **SQuAD** & **MBPP** \\\\\n' +
+      '**Architecture** & **Objective** & **(BLEU)** & **(F1)** & **(Pass@80 \\%)** \\\\ \\hline Encoder-Decoder & Prefix LM & 27.6 & 75.8 & 0.0 \\\\ Decoder-only & Prefix LM & **29.8** & 77.4 & **12.2** \\\\ Encoder-Decoder & Span Corruption & 28.7 & 78.2 & 0.0 \\\\ Decoder-only & Span Corruption & 29.1 & **80.6** & 11.1 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 1: 모델 아키텍처 및 사전 훈련 목표에 걸친 세 가지 작업에 대한 확산 모델 성능. 디코더 전용 아키텍처는 더 적은 수의 매개 변수를 사용함에도 불구하고 세 가지 작업 모두에서 인코더-디코더를 능가합니다.\n' +
+      '\n' +
+      '그림 1: 목표 및 모델 아키텍처 사전 훈련. <X> 및 <Y> 기호는 마스킹된 스팬을 나타내는 고유한 센티넬 토큰이다. 주목할 점은, 스팬 손상 입력/타겟을 생성하기 위해 적용되는 "마스킹 잡음"은 타겟 토큰들의 서브세트를 랜덤하게 손상시키는 "확산 잡음"으로부터 독립적이다. 손실은 대상 토큰에서만 계산됩니다. 디코더 전용 설정에서, 입력 토큰들은 언롤링된 로짓 입력(\\(l_{2}\\))을 컴퓨팅할 때 동결된다.\n' +
+      '\n' +
+      '우리의 모든 임무에 걸쳐.\n' +
+      '\n' +
+      '### 전이 학습 기준\n' +
+      '\n' +
+      '우리는 이제 모델 척도에 걸쳐 다양한 전이 학습 전략을 테스트하는 것으로 돌아간다. 핵심 기준선으로서 AR 모델과 확산 모델을 Base(\\(280\\)M), Large(\\(270\\)M), XL(\\(1.7\\)B) 크기에서 사전 훈련한다. 이들 모두는 디코더 전용 아키텍처 및 프리픽스 LM 대물렌즈를 사용하고, 이전 섹션(\\(80\\)% 다국어 웹 페이지 및 \\(20\\)% 파이썬 코드)으로부터 동일한 사전 트레이닝 혼합물 상에서 트레이닝한다. 이전과 같이 배치 크기\\(128\\)와 서열 길이\\(1024\\)으로 \\(1\\)M 단계에 대해 사전 훈련한다. 참고로, 확산 모델은 양방향 주의를 사용하여 모든 서열 위치를 병렬로 수정할 수 있지만 그렇지 않으면 AR 대응물과 아키텍처적으로 동일하다.\n' +
+      '\n' +
+      'AR 기준선의 경우 추론 시간에 T5에 이어 SQuAD에 대한 그리디 디코딩을 사용하고, Austin 등(2021)에 이어 MBPP에 대한 온도 샘플링을 사용한다. WMT의 경우, 확산 모델에 대한 빔 탐색의 사용을 조사하지 않았기 때문에 보다 공정한 비교를 위해 더 일반적으로 사용되는 빔 탐색과는 대조적으로 탐욕 디코딩을 사용한다; 이 방향으로 작업을 위해 Reid et al.(2023)을 참조한다.\n' +
+      '\n' +
+      '그런 다음 세 가지 작업 각각에 대해 이 모델 각각을 별도로 미세 조정합니다. 결과는 표 2에 나와 있으며 섹션 SS4.5에서 논의된다.\n' +
+      '\n' +
+      '### AR2Diff: AR에서 확산으로의 적응\n' +
+      '\n' +
+      '순수 AR 및 순수 확산 훈련 외에도 사전 훈련된 AR 모델을 훈련 후 확산 모델에 적용하기 위한 "AR2Diff" 방법을 탐구한다. 먼저, 확산 훈련 과정을 이용하여 AR 체크포인트를 직접 미세 조정함으로써 양방향 주의 집중을 가능하게 하고 SUNDAE 확산 훈련 손실을 이용하여 실험한다. 우리는 이 방법을 AR2Diff0이라고 하고, 우리의 기준 AR 모델 체크포인트를 미세 조정을 위한 시작점으로 사용한다.\n' +
+      '\n' +
+      '또한 그림 2와 같이 확산 모델 _before_fine-tuning으로 추가 단계에 대한 모델을 사전 훈련하는 실험을 한다. 사전 훈련된 AR 체크포인트로 시작하여 확산 훈련을 사용하여 추가 단계에 대한 사전 훈련을 계속한 다음 각 평가 작업에 대해 개별적으로 미세 조정(여전히 확산)한다. 이 방법을 AR2Diff\\({}_{N}\\)이라고 한다.\n' +
+      '\n' +
+      '### Core results\n' +
+      '\n' +
+      'AR2Diff를 모델 크기에 따른 자기회귀 및 확산 기준선과 비교한 결과는 표 2에 나와 있다.\n' +
+      '\n' +
+      'WMT14 En-Fr에서 AR 베이스라인은 모델 크기에 걸쳐 가장 좋은 성능을 보인다.6 우리의 관찰된 확산과 AR 사이의 간격은 Savinov et al.(2022)보다 크며, 여기서 SUNDAE 텍스트 확산은 AR 베이스라인의 \\(1\\) BLEU 포인트와 함께 온다. 차이는 (i) 미세 조정 전에 미리 훈련하는 전이 학습 설정을 사용하는 것, (ii) SUNDAE의 길이 예측 모듈을 사용하지 않는 것, (iii) 추론 시간에 더 적은 수의 후보를 샘플링하는 것(\\(8\\) vs. \\ (16\\)).\n' +
+      '\n' +
+      '각주 6: 우리는 우리의 베이스 AR 베이스라인 저성능(\\(32.27\\ vs. \\ (37.5\\))는 동일한 프리픽스 LM 대물렌즈로 트레이닝된 베이스 사이즈 디코더 전용 모델인 Raffel 등(2020)으로부터의 유사한 베이스라인이다. 이는 사전 훈련 데이터, 모델 아키텍처, 미세 조정 절차 및/또는 추론 설정(예: 그리디 디코딩의 사용)의 차이에서 비롯될 수 있다.\n' +
+      '\n' +
+      '흥미롭게도 베이스 크기 AR2Diff에서는 WMT에 이점이 없지만 Large 및 XL 크기에서는 AR2Diff가 순수 확산 기준선에 비해 상당한 이득을 전달하며 이 이득은 적응 길이에 따라 증가한다. 이는 AR2Diff가 자원 절약 방법(처음부터 확산 모델을 사전 훈련하지 않기 위해 AR 체크포인트를 평균화)뿐만 아니라 혼합 목적 훈련을 통해 더 강력한 확산 모델을 달성하는 수단으로 가치가 있을 수 있음을 시사한다.\n' +
+      '\n' +
+      'SQuAD 질문 응답에서, 우리의 확산 베이스라인은 베이스 및 라지 사이즈(Base: \\(68.1\\~77.4\\), 라지:)에서 AR 베이스라인보다 우수하다.\n' +
+      '\n' +
+      '그림 2: AR2Diff 방법의 그림. 1) 인과적 주의력으로 AR 디코더를 프리트레인한다. 2) 양방향 주의를 갖는 확산 모델로서 프리트레이닝을 계속한다. 3) End Task에 대한 확산 모델로서 Fine-tune.\n' +
+      '\n' +
+      '(78.4\\!\\rightarrow\\!80.6\\) XL 크기(\\(84.1\\!\\!\\)에서는 성능이 떨어지지만 XL 크기(\\(84.1\\!\\!\\)에서는 성능이 떨어지지만 XL 크기(\\(84.1\\!\\!\\!\\)에서는 성능이 떨어지지만 XL 크기(\\(84.1\\!\\!\\!\\!\\)에서는 성능이 떨어지지만 XL 크기(\\(84.1\\!\\!\\!\\!\\)에서는 성능이 떨어지지만 XL 크기(\\(84.1\\!\\!\\!\\!\\)에서는 성능이 떨어지지만 XL 크기(\\(84.1\\!\\!\\!\\)에서는 성능이 떨어지지만 XL 크기(\\(84.1\\!\\!\\!\\!\\)에서는 성능이 떨어지지만 XL 크기(\\(84.1\\!\\!\\!\\)에서는 성능이 떨어지지만 XL 크기(\\)(84.1\\!\\!\\!\\)에서는 성능이 떨어지지만 XL 크기(\\)(84.1\\!\\!\\!\\)에서는 성능이 떨어지지만 XL 크기(\\)(84.1\\!\\!\\!\\)에서는 성능이 떨어지지만 우회전(AR2Diff\\({}_{0}\\))은 미세조정(AR2Diff\\({}_{N}\\))시 확산에만 적응하는 반면, 미세조정(AR2Diff\\({}_{N}\\))시 확산에만 적응하는 것이 대부분의 크기에서 AR 기준선을 능가하고 단조롭게 개선된다.\n' +
+      '\n' +
+      '각주 7: WMT 상에서, 이러한 스코어들은 유사한 베이스라인(\\(85.4\\))을 사용하여 Raffel 등(2020)에 의해 보고된 결과들 아래에 있다. 각주 6을 참조하십시오.\n' +
+      '\n' +
+      'MBPP 코드 합성에서 확산은 가장 큰 XL 크기(\\(15.5\\!\\rightarrow\\!18.8\\)를 포함하여 세 가지 모델 중 두 가지 모델 크기에 대해 AR 기준선보다 우수하다. 다른 작업과 마찬가지로 AR2Diff는 미세 조정 전에 적응이 길어질수록 향상되는 경향이 있다.\n' +
+      '\n' +
+      '### Ablations\n' +
+      '\n' +
+      '지금까지 우리의 결과는 예제("num_samples")당 무작위로 샘플링된 \\(8\\)의 디코더 입력에 대한 잡음 제거의 \\(10\\) 단계("num_steps")를 실행함으로써 확산 추론을 수행했다. 참고, 모델 점수가 가장 높은 출력만 평가에 사용됩니다. 표 3은 num_steps\\(\\in\\{5,\\,10,\\,20\\}\\)과 num_samples\\(\\in\\{4,\\,8,\\,16\\}\\)을 변화시킨 결과이다. MBPP 코드 합성 작업에서 Savinov et al. (2022)에 따라 증가 단계와 샘플이 성능을 향상시킨다는 것을 알 수 있다. 노이즈 단계를 증가시키는 것이 특히 도움이 되지만(\\(5.5\\!\\rightarrow\\!16.7\\)), 비용면에서 더 느린 추론. SQuAD에서 이러한 모수의 효과는 더 미미합니다. 보다 일반적으로, 우리는 추가적인 단계들 및 샘플들이 상대적으로 덜 특정한 MBPP와 같은 긴 형태의 텍스트 생성 작업들(예를 들어, 상이한 스타일들에서 많은 정답들을 인정하는 것)에 도움이 될 수 있다고 의심한다. 이에 비해, SQuAD 타겟은 전형적으로 짧고, 입력으로부터의 스팬으로 제한된다.\n' +
+      '\n' +
+      '### 추론 속도 분석\n' +
+      '\n' +
+      '확산 언어 모델은 AR 모델에 비해 긴 텍스트 생성의 추론 서비스 비용을 줄일 가능성이 있다. 여기서 우리는 추론 속도에 대한 몇 가지 예비 결과를 정량적으로 보여준다. 우리는 AR 및 확산 모델로 동일한 길이의 시퀀스를 디코딩하고 대응하는 벽-시계 시간을 측정한다. 확산 모델의 경우, WMT, SQuAD 및 MBPP 작업에 대한 기본 평가 설정과 일치하는 \\(10\\) 확산 단계를 기본 사례로 사용한다.\n' +
+      '\n' +
+      '우리는 생성 시 추론 속도 향상을 위해 확산을 사용하는 것의 증가하는 이점을 관찰한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l l c c c} \\hline \\hline  & \\multicolumn{2}{c}{**WMT14 En-Fr**} & \\multicolumn{1}{c}{**SQuAD**} & \\multicolumn{1}{c}{**MBPP**} \\\\\n' +
+      '**Method** & **Size** & **(BLEU)** & **(F1)** & **(Pass@80 \\%)** \\\\ \\hline Autoregressive & Base & **33.27** & 68.11 & 5.5 \\\\ Diffusion & Base & 29.83 & **77.41** & **12.2** \\\\ AR2Diff\\({}_{0}\\) & Base & 29.62 & 64.77 & 1.1 \\\\ AR2Diff\\({}_{10,000}\\) & Base & 29.41 & 68.12 & 4.4 \\\\ AR2Diff\\({}_{100,000}\\) & Base & 29.92 & 71.87 & 7.7 \\\\ \\hline Autoregressive & Large & **34.92** & 78.43 & **15.5** \\\\ Diffusion & Large & 29.36 & 80.56 & 12.2 \\\\ AR2Diff\\({}_{0}\\) & Large & 31.14 & 77.82 & 3.3 \\\\ AR2Diff\\({}_{10,000}\\) & Large & 31.97 & 79.62 & 8.8 \\\\ AR2Diff\\({}_{100,000}\\) & Large & 32.20 & **80.71** & 10.0 \\\\ \\hline Autoregressive & XL & **35.48** & **84.08** & 15.5 \\\\ Diffusion & XL & 29.30 & 82.78 & **18.8** \\\\ AR2Diff\\({}_{0}\\) & XL & 32.36 & 80.95 & 6.6 \\\\ AR2Diff\\({}_{10,000}\\) & XL & 32.39 & 80.71 & 11.1 \\\\ AR2Diff\\({}_{100,000}\\) & XL & 32.55 & 83.54 & 15.5 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 2: 세 가지 작업과 세 가지 크기에 걸쳐 다양한 모델의 성능, (i) AR 기준선, (ii) 확산 기준선 및 (iii) 확산을 사용하여 미세 조정 전에 \\(N\\) 단계에 대한 확산 훈련을 통해 미리 훈련된 AR 기준선을 적응시키는 AR2Diff 모델과 \\(N\\in\\{0,\\,10\\text{K},\\,100\\text{K}\\}\\}을 비교한다.\n' +
+      '\n' +
+      '그림 3: 디코딩 시퀀스 길이를 변화시킴으로써, 우리는 자기회귀 디코딩 대 자기회귀 디코딩의 추론 시간을 측정한다. 확산 해독\n' +
+      '\n' +
+      '는 긴 것을 특징으로 하는 반도체 소자. 도 3은 디코딩 시퀀스 길이가 \\(500\\) 토큰(예를 들어, MBPP 태스크)에서 \\(4\\), \\(000\\) 토큰으로 증가함에 따라, 확산에 의해 얻어지는 속도 향상( \\(10\\) 단계를 사용)이 \\(10\\times\\)에서 \\(30\\times\\)으로 증가함을 보여준다.\n' +
+      '\n' +
+      '단일 AR 디코딩 단계(생성된 토큰당\\(14\\)ms)는 우리의 구현에서 단일 확산 단계(디노이징 단계당\\(179\\)ms)보다 여전히 훨씬 빠르다. 이는 확산 모델이 AR 추론을 최적화하기 위해 널리 사용되는 키-값 캐싱이 부족하기 때문일 수 있다. 캐싱 또는 기타 효율성 최적화가 확산의 속도 이득을 더욱 확장할 수 있는지 여부는 향후 연구에 흥미로운 질문이다.\n' +
+      '\n' +
+      '## Acknowledgments\n' +
+      '\n' +
+      '우리는 이전 초안에 대한 도움된 논평에 대해 시자신에게 감사한다.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* Anil et al.(2015) Rohan Anil, Andrew M. Dai, Orhan Firat, Dmitry Lepikhin, Alexandre Passos, Siamak Shakeri, Emanuel Taropa, Paige Bailey, Zhifeng Chen, Eric Chu, Sebastian Ruder, Yi Tay, Kefan Xiao, Yuanzhong Xu, Yujing Zhang, Gusterick Liu, Jachary Magioni, Jazary Bradbury, Siddhartha Brahma, Wenjan Li, Wenjan Li, Jenjan Li, Janjan Li, Janjan, Janjan, Janjanjan, Janjanjanjanjanjanjanjanjanjanjanjanjanjanjanjanjanjanjanjanjanjanjanjanjanjanjanjanjanjanjanjanjanjanjanjanjanjanjanjanjanjanjanjanjanjanjanjanjanjan 그래서 다니엘 손, 사이먼 토쿠민, 다샤 발터, 비제이 바수데반, 키란 보드라할리, 셰지 왕, 피동 왕, 지루이 왕, 타오 왕, 존 위팅, 유화이 우, 켈빈 슈, 윤한 슈, 린팅 슈, 펑청 인, 지아후이 유, 차오 장, 스티븐 정, 세정, 웨이캉 저우, 데니 저우, 슬라브 페트로프, 용희 우. 2023. 팜 2 기술 보고서\n' +
+      '* Austin et al. (2021) Jacob Austin, Augustus Odena, Maxwell Nye, Maarten Bosma, Henryk Michalewski, David Dohan, Ellen Jiang, Carrie Cai, Michael Terry, Quoc Le, and Charles Sutton. 2021. 대규모 언어 모델과의 프로그램 합성.\n' +
+      '* Bojar et al. (2014) Ondrej Bojar, Christian Buck, Christian Federmann, Barry Haddow, Philipp Koehn, Johannes Leveling, Christof Monz, Pavel Pecina, Matt Post, Herve Saint-Amand, Radu Soricut, Lucia Specia, and Ales Tambyna. 2014. 통계 기계 번역에 대한 2014년 워크숍의 결과. _Proceedings of the Nth Workshop on Statistical Machine Translation_, pages 12-58, Baltimore, USA. 컴퓨터 언어학과의 연관성\n' +
+      '* Brown et al. (2020) Tom B. Brown, Benjamin Mann, Nick Ryder, Melanie Subbiah, Jared Kaplan, Prafulla Dhariwal, Arvind Neelakantan, Pranav Shyam, Girish Sastry, Amanda Askell, Sandhini Agarwal, Ariel Herbert-Voss, Gretchen Krueger, Tom Henighan, Rewon Child, Aditya Ramesh, Daniel M. 지글러, 제프리 우, 클레멘스 윈터, 크리스토퍼 헤세, 마크 첸, 에릭 시글러, 마테우스 리트윈, 스콧 그레이, 벤자민 체스, 잭 클락, 크리스토퍼 버너, 샘 맥캔들시, 알렉 래드포드, 일리아 서츠키버, 다리오 아모데이. 2020. 언어 모델은 소수의 학습자이다.\n' +
+      '* Chen et al. (2023) Ting Chen, Ruixiang Zhang, and Geoffrey Hinton. 2023년\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c} \\hline \\hline  & & & \\begin{tabular}{c} **SQuAD** \\\\ **(F1)** \\\\ \\end{tabular} &\n' +
+      '\\begin{tabular}{c} **MBPP** \\\\ **(Pass@80 \\%)** \\\\ \\end{tabular} \\\\ \\hline Autoregressive & - & - & 68.11 & 5.5 \\\\ \\hline Diffusion & 5 & 8 & 77.41 & 5.5 \\\\ Diffusion & 10 & 8 & 77.41 & 12.2 \\\\ Diffusion & 20 & 8 & **77.72** & **16.7** \\\\ \\hline Diffusion & 10 & 4 & **77.51** & 11.1 \\\\ Diffusion & 10 & 8 & 77.41 & 12.2 \\\\ Diffusion & 10 & 16 & 77.13 & **13.3** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 3: 확산 추론 하이퍼파라미터들(num_steps) 및 num_samples에 대한 블레이션들. 단계 및 샘플의 증가는 MBPP에 대한 명확한 이득으로 이어지며, 이는 긴 형식의 코드 합성을 필요로 하는 반면 SQuAD 추출 QA에 대한 영향은 미미하다.\n' +
+      '\n' +
+      '아날로그 비트: 자기-조절을 갖는 확산 모델들을 사용하여 이산 데이터를 생성한다. 제11회 국제 학습 표상 회의에서 SS1이 인용했다.\n' +
+      '* A. Chowdhery, S. 나랑, J 데블린, M. Bosma, G. Mishra, A. Roberts, P. Barham, H. W. Chung, C. Sutton, S. 게르만, P. 슈, K. 시상 Tsyvashchenko, J. Maynez, A. Rao, P. Barnes, Y. 테이남 셰이저, V Orbakharan, E. Reif, N. Du B. Hutchinson R. 교황, J 브래드베리, J 오스틴, M. 이사드, G. 구아리, P. 음, T. 듀크 A. 레브스카야 S. 게마왓 데브, H. 미칼레우스키, X 가르시아, V 미즈라 로빈슨 L. Fedus, D. Zhou, D. Ippolito, D. Lu, H. Lim, B. Zoph, A. Spiridonov, R. 세파시 D. 도한 S. 아그라왈 오메닉, A. M. 다이, T. 산카라나라야나 필라이 펠랏, A. 루코위츠, E. 모레이라, R. 오진우 폴로조프 이지환 주영우 왕병태 디아즈오 피라트 카타스타, 제이웨이, 케이. 마이어-헬스턴, D. 엑, J. 딘, S. 페트로프, N. Fiedel (2022)Palm: 경로를 갖는 스케일링 언어 모델링. 인용: SS1.\n' +
+      '* S. 엘 데일먼 Sartran, A. Roshannai, N. 사비노프 가닌, P. H. Richemond, A. Doucet, R. 스트루델, C. 다이어, C. 더칸, C. 호소른, R. 레블론드, W Grathwohl 및 J. Adler(2022)는 범주형 데이터에 대한 연속 확산이다. 인용: SS1.\n' +
+      '* M. 가즈비닌자드, 오. 리비 류, L. Zettlemoyer (2019)Mask-predict: 조건부 마스킹 언어 모델의 병렬 디코딩. In Proceedings of the 2019 Conference on Empirical Methods in Natural Language Processing and the 9th International Joint Conference on Natural Language Processing (EMNLP-IJCNLP), Hong Kong, China, pp. 6112-6121. Cited by: SS1.\n' +
+      '* S. 공민 이정봉 우, L. Kong(2023)Diffuseq: 확산 모델을 사용한 시퀀스 대 시퀀스 텍스트 생성. 인용: SS1.\n' +
+      '* J. Gu, J. Bradbury, C. Xiong, V. O.K. Li, and R. Socher(2018) Non-autoregressive neural machine translation. 학습 표상에 대한 국제 회의: SS1에 의해 인용됩니다.\n' +
+      '* J. Gu and X. 콩(2021) 완전 비자기회귀 신경망 번역: 무역의 속임수. In Findings of the Association for Computational Linguistics: ACL-IJCNLP 2021, Online, pp.120-133. Cited by: SS1.\n' +
+      '*Y. Kim and A. M. Rush (2016)Sequence-level knowledge distillation. In Proceedings of the 2016 Conference on Empirical Methods in Natural Language Processing, Austin, Texas, pp. 1317-1327. Cited by: SS1.\n' +
+      '* D. K. Koetkov, R. 이림 벤 알랄, J. 리, C. 모우, C. 모우 페란디스, Y. 제르나이트 미첼 휴즈, T 울프, D. 바다나우, L. von Werra, and H. de Vries (2022) the stack: 3 tb of permissively licensed source code. 인용: SS1.\n' +
+      '* J. Lee, E. Mansimov, and K. Cho (2018) deterministic non-autoregressive neural sequence modeling by iterative refinement. In Proceedings of the 2018 Conference on Empirical Methods in Natural Language Processing, pp. 1173-1182. Cited by: SS1.\n' +
+      '* X. L. Li, J. Thickstun, I. Gulrajani, P. Liang, and T. 하시모토(2022)확산-LM은 제어가능한 텍스트 생성을 개선한다. 신경 정보 처리 시스템의 발전, 인용: SS1.\n' +
+      '*Z. 임영식 공영 선태호 우진 판철린 두안, W. 확산 언어 모델을 갖는 첸(2023) 텍스트 생성: 연속 단락 디노이즈를 갖는 사전 훈련 접근법. 인용: SS1.\n' +
+      '* O. L. Raffel, N. Shazeer, A. Roberts, K. 이승환 나랑만 마테나 주원 Li, P. J. Liu(2020)는 통합된 텍스트-텍스트 변환기를 사용하여 전이 학습의 한계를 탐구한다. Journal of Machine Learning Research21(140), pp. 1-67. Cited by: SS1.\n' +
+      '* P. Rajpurkar, J. Zhang, K. Lopyrev, and P. Liang(2016)SQuAD: 100,000+문항의 기계이해에 관한 것이다. In Proceedings of the 2016 Conference on Empirical Methods in Natural Language Processing, Austin, Texas, pp. 2383-2392. Cited by: SS1.\n' +
+      '* A. Ramesh, P. Dhariwal, A. Nichol, C. Chu, M. Chen (2022) 계층적 텍스트 조건 이미지 생성과 클립 래턴트 인용: SS1.\n' +
+      '* M. 리드, V Josua Hellendoorn, and G. Neubig (2023)DiffusER: Diffusion via edit-based reconstruction. 제11회 국제 학습 표상 회의에서 SS1이 인용했다.\n' +
+      '* A. Roberts, H. W. Chung, A. Levskaya, G. Mishra, J. Bradbury, D. Andor, S. 나랑, B. 레스터, C. 개프니, A. 모히우딘, C. 호소른, A. 루코위츠, A. 살시아누, M. 반 지, J. 오스틴, S. 굿맨 L. 발디니 소아레스, H. Hu, S. Tsyvashchenko, A. Chowdhery, J. Bastings, J. Bulian, X. 가르시아, J.니, A.첸, K. 케닐리, J. H. 클라크, S. D. Garrette, J. Lee-Thorp, C. Raffel, N. 샤이저 리터, M 보즈마, A. 파소스, J. 마이틴-셰퍼드, N. 피델 오메닉, B. 새타, R 세파시, A. 스피리도노프, 조슈아 뉴란, 안드레아 게스문도 2022. t5x 및 seqio로 모델 및 데이터를 스케일링하는 단계; _ arXiv preprint arXiv:2203.17189_.\n' +
+      '* Rombach et al. (2021) Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Bjorn Ommer. 2021. 잠재 확산 모델을 이용한 고해상도 영상 합성_ CoRR_, abs/2112.10752.\n' +
+      '* Saharia et al. (2022) Chitwan Saharia, William Chan, Saurabh Saxena, Lala Li, Jay Hwang, Emily Denton, Seyed Kamyar Seyed Ghasemipour, Raphael Gontijo-Lopes, Burcu Karagol Ayan, Tim Salimans, Jonathan Ho, David J. Fleet, and Mohammad Norouzi. 2022. 심층 언어 이해를 갖는 광실사 텍스트-이미지 확산 모델. In _Advances in Neural Information Processing Systems_.\n' +
+      '* Saharia et al. (2020) Chitwan Saharia, William Chan, Saurabh Saxena, and Mohammad Norouzi. 2020. non-autoregressive machine translation with latent alignment. _Proceedings of the 2020 Conference on Empirical Methods in Natural Language Processing (EMNLP)_, pages 1098-1108, Online. 컴퓨터 언어학과의 연관성\n' +
+      '* Savinov et al. (2022) Nikolay Savinov, Junyoung Chung, Mikolaj Binkowski, Erich Elsen, and Aaron van den Oord. 2022. 텍스트 생성을 위한 스텝-풀링된 디노이징 오토인코더. _International Conference on Learning Representations_.\n' +
+      '* Sohl-Dickstein et al. (2015) Jascha Sohl-Dickstein, Eric Weiss, Niru Maheswaranathan, and Surya Ganguli. 2015. 비평형 열역학을 이용한 심층 비지도 학습. 제32회 머신러닝 국제회의_Proceedings of the 32nd International Conference on Machine Learning_, vol 37 of Machine Learning Research_, pages 2256-2265, Lille, France. PMLR\n' +
+      '* Stern et al. (2019) Mitchell Stern, William Chan, Jamie Kiros, and Jakob Uszkoreit. 2019. 삽입 트랜스포머: 삽입 동작을 통한 유연한 시퀀스 생성. 제36회 머신러닝 국제회의_Proceedings of the 36th International Conference on Machine Learning_, vol 97 of _Proceedings of Machine Learning Research_, pages 5976-5985. PMLR.\n' +
+      '* Strudel et al. (2022) Robin Strudel, Corentin Tallec, Florent Altche, Yilun Du, Yaroslav Ganin, Arthur Mensch, Will Grathwohl, Nikolay Savinov, Sander Dieleman, Laurent Sifre, and Remi Leblond. 2022. 텍스트 생성을 위한 자기-조건 임베딩 확산.\n' +
+      '* Tay et al. (2023) Yi Tay, Mostafa Dehghani, Vinh Q. 트란, 하비에르 가르시아, 제이슨 웨이, 셰지 왕, 형원 정, 다라 바리, 탈 슈스터, 스티븐 정, 데니 저우, 닐 홀스비, 도널드 메츨러 등이다. 2023. UL2: 언어 학습 패러다임 통합. _The Eleventh International Conference on Learning Representations_.\n' +
+      '* Vaswani et al. (2017) Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Lukasz Kaiser, and Illia Polosukhin. 2017년, 집중만 하면 돼 In _Advances in Neural Information Processing Systems_, volume 30. Curran Associates, Inc.\n' +
+      '* Wei et al. (2022) Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, brian ichter, Fei Xia, Ed H. Chi, Quoc V Le, and Denny Zhou. 2022. 사고 유발의 사슬은 큰 언어 모델에서 추론을 이끌어낸다. In _Advances in Neural Information Processing Systems_.\n' +
+      '* Wu et al. (2023) Tong Wu, Zhihao Fan, Xiao Liu, Yeyun Gong, Yelong Shen, Jian Jiao, Hai-Tao Zheng, Juntao Li, Zhongyu Wei, Jian Guo, Nan Duan, and Weizhu Chen. 2023. Ar-확산: 텍스트 생성을 위한 자동 회귀 확산 모델.\n' +
+      '* Xue et al. (2021) Linting Xue, Noah Constant, Adam Roberts, Mihir Kale, Rami Al-Rfou, Aditya Siddhant, Aditya Barua, and Colin Raffel. 2021. mT5: 대량 다국어 사전 훈련된 텍스트-텍스트 변환기. _Proceedings of the 2021 of the North American chapter of the Computational Linguistics Association: Human Language Technologies_, pages 483-498, Online. 컴퓨터 언어학과의 연관성\n' +
+      '* Ye et al. (2023) Jiasheng Ye, Zaixiang Zheng, Yu Bao, Lihua Qian, and Quanquan Gu. 2023. 확산 언어 모델들은 스케일링 및 명령어-피네튜닝으로 많은 태스크들을 수행할 수 있다.\n' +
+      '* Yuan et al. (2023) Hongyi Yuan, Zheng Yuan, Chuanqi Tan, Fei Huang, and Songfang Huang. 2023. Seqdiffuseq: 인코더-디코더 트랜스포머를 구비한 텍스트 확산.\n' +
+      '* Zheng et al. (2023) Lin Zheng, Jianbo Yuan, Lei Yu, and Lingpeng Kong. 2023. 텍스트 생성을 위한 재매개변수화된 이산 확산 모델.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
