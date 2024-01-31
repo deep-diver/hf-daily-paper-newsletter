@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# MouSi: Poly-Visual-Expert Vision-anguage Models\n' +
+      '\n' +
+      ' 샤오란 판\\({}^{*}\\), 타오지\\({}^{*}\\), 창하오장\\({}^{*}\\), 슈오리\\({}^{*}\\), 센지진\\({}^{*}\\),\n' +
+      '\n' +
+      '시루이 송, 정케 왕, 보양 홍, 루첸\n' +
+      '\n' +
+      '구동정, 명장, 케이황\n' +
+      '\n' +
+      '루정, 정시, 유하오주, 시한두, 준지예, 항옌\n' +
+      '\n' +
+      '도구이\\({}^{\\dagger}\\), 치장\\({}^{\\dagger}\\), 십생추, 선징황, 주촨우, 유강강\n' +
+      '\n' +
+      '등가 기여도.대응: {tgui, qz}@fudan.edu.cn\n' +
+      '\n' +
+      '푸단 NLP Lab & 푸단 Vision & Learning Lab\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      '현재의 대형 비전 언어 모델들(VLM)은 종종 단일 시각적 컴포넌트의 불충분한 능력들 및 과도하게 긴 시각적 토큰들과 같은 도전들에 직면한다. 이러한 이슈들은 복잡한 시각적 정보와 지나치게 맥락적인 정보를 정확하게 해석하는 데 모델의 효과를 제한할 수 있다. 이러한 문제를 해결하는 것은 VLM의 성능과 적용 가능성을 높이는 데 중요하다. 본 논문은 영상-텍스트 매칭, OCR, 영상 분할 등의 숙련자를 포함한 개별 시각적 인코더의 능력을 상승시키기 위해 앙상블 전문가 기법을 사용하는 것을 제안한다. 이 기술은 이미지 인코더와 미리 훈련된 LLM 사이의 격차를 좁히면서 서로 다른 시각적 전문가의 출력 처리를 통합하기 위해 융합 네트워크를 도입한다. 또한, 긴 이미지 특징 시퀀스로 인한 위치 인코딩의 낭비를 완화하기 위해 다양한 위치 인코딩 방식을 탐색하여 위치 오버플로우 및 길이 제한 문제를 효과적으로 해결한다. 예를 들어, 이 기법은 SAM과 같은 모델의 위치 점유율을 실질적인 4096에서 보다 효율적이고 관리 가능한 64 또는 심지어 1로 크게 감소시킨다. 실험 결과는 다수의 전문가가 있는 VLM이 고립된 시각적 인코더보다 일관되게 우수한 성능을 나타내고 더 많은 전문가가 통합됨에 따라 상당한 성능 향상을 표시함을 보여준다.\n' +
+      '\n' +
+      '우리는 이 보고서에 사용된 훈련 코드를 공개 소스로 제공했습니다. 이 모든 리소스는 프로젝트 웹 사이트1에서 찾을 수 있습니다.\n' +
+      '\n' +
+      '각주 1: [https://github.com/FudanNNLLAB/MouSi](https://github.com/FudanNNLLAB/MouSi)\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      '현재 대규모 비전 언어 모델(VLMs)은 이미지 캡션[1], 시각적 질문 응답[2], 시각적 접지[3], 자율 에이전트[4; 5]와 같이 공동 시각적 및 언어적 인식을 필요로 하는 작업에서 상당한 잠재력을 보여준다. VLM은 다양한 시각 관련 작업에 권한을 부여하기 위해 인지 기반 모델로서 대형 언어 모델(LLM)을 활용하는 반면, CLIP[6]과 같은 **하나의 시각 구성요소**는 일반적으로 추가적인 시각 인식을 제공하는 보조 모듈로서 기능한다. 그러나 개별 시각 모델의 인식 능력은 계산과 같은 단순 작업에서도 여전히 뒤쳐져 있다. [8, 9, 10]. 이러한 격차는 언어 데이터를 처리하는 것처럼 시각적 정보를 효과적으로 처리하고 이해하는 이러한 모델의 능력에 상당한 한계를 강조한다. 척추동물 시각 시스템의 작동에 따라, 각각의 기능 유닛이 상이한 시각 양태들을 병렬로 인코딩하는 상태에서, 망막 신경절 세포들은 뇌에 별개의 특징들을 전송한다[11]. 이 생물학적 메커니즘은 다양한 시각적 정보가 다양한 인식 채널에 의해 병렬로 인코딩되어야 하는 모델 구조를 제안한다.**\n' +
+      '\n' +
+      '이를 위해 커뮤니티는 비전 처리에 대한 고유한 접근 방식으로 각 모델이 시각적 콘텐츠를 이해하는 데 다르게 기여한다는 것을 확인했다[12]. CLIP는 대조적인 학습 접근법으로 이미지를 텍스트 설명과 정렬하는 데 탁월하여 강력한 의미론적 이해[6]를 제공한다. DINOv2는 이미지 레벨과 패치 레벨 모두에서 자체 지도 학습 패러다임을 통해 라벨링된 데이터에 의존하지 않고 견고하고 안정화된 특징 추출에서 상당한 발전을 제공한다[13]. LayoutLMv3의 문서 AI 과제 전문화는 시각적 텍스트 처리의 힘을 보여준다[14].[15]. 도미트 방법(DeiT[16], CLIP, MAE[17], Dino[18])으로 미리 훈련된 다양한 시각적 토큰화기를 경험적으로 조사했으며 CLIP가 더 많은 의미를 포착할 수 있는 반면 다른 모델은 세밀한 인식에서 우수하다는 것을 관찰했다. 그러나 OpenCompass2에 의해 구성된 멀티모달 리더보드에서 모든 오픈 소스 VLM의 비주얼 인코더는 미리 훈련된 CLIP 인코더 패밀리를 기반으로 한다. 많은 연구자들이 CLIP 인코더의 단점인 이미지(19)의 기본적인 공간 요소조차 안정적으로 포착할 수 없는 점, 객체 환각(20)에 시달리는 점 등을 지적하였다. 이러한 다양한 비전 모델의 뚜렷한 역량과 한계에 비추어 볼 때, 핵심 질문이 등장한다: **여러 시각 전문가의 장점을 어떻게 접목시켜 시너지 효과를 발휘하여 전반적인 성능을 향상시킬 수 있을까?\n' +
+      '\n' +
+      '각주 2: [https://rank.opencompass.org.cn/leaderboard-multimodal](https://rank.opencompass.org.cn/leaderboard-multimodal)\n' +
+      '\n' +
+      '생물학에서 영감을 얻어, 우리는 다시각 전문가 관점을 취하고 척추동물 시각 시스템이 작동하는 방식과 유사한 새로운 모델을 설계한다. 결과적으로, 다중 시각 전문가와 VLM을 개발하는 과정에서 (1) 다중 시각 전문가가 효과적인지 여부, (2) 다중 전문가를 더 잘 통합하는 방법, (3) 다중 시각 전문가와 LLM의 최대 길이를 초과하는 것을 피하는 방법 등 세 가지 문제가 주요 관심사이다.\n' +
+      '\n' +
+      '다중 시각 전문가가 VLM에 효과적인지 확인하기 위해 CLIP, DINOv2, LayoutLMv3, Convnext[21], SAM 및 MAE를 포함하여 잘 알려진 6명의 전문가로 구성된 후보 풀을 구성한다. LLaVA-1.5를 기본 설정으로 사용하여 11개의 벤치마크에서 단일 전문가, 이중 전문가 조합 및 삼중 전문가 조합을 조사했다. 결과는 그림 1과 같이 시각적 전문가가 증가함에 따라 VLM이 더 풍부한 시각적 정보(더 많은 시각적 채널 때문에)를 획득하고, 멀티모달 능력의 상한이 전반적으로 개선됨을 나타낸다.\n' +
+      '\n' +
+      '그림 1: 왼쪽: InstructBLIP, Qwen-VL-Chat 및 LLaVA-1.5-7B를 비교하면 다시각 전문가 **MouSi**는 광범위한 9개의 벤치마크에서 SoTA를 달성한다. 오른쪽: 9개의 벤치마크 데이터 세트에 대해 전문가 수가 다른 최상의 모델의 성능. 전체적으로 3인 전문가가 2인 전문가보다 낫고, 1인 전문가보다 차례로 낫다.\n' +
+      '\n' +
+      '기존의 단일 시각 채널 VLM에서 시각 신호를 전송하는 방법은 MLP 프로젝션 네트워크[22; 23] 또는 Q-이전 네트워크[24; 25] 중 하나이다. 다중 전문가의 다중 채널 신호 전송을 수용하기 위해 다중 전문가 융합 네트워크에 대한 두 가지 방법을 별도로 수정했다. 또한 제안된 방법은 전송 효율을 높이기 위해 다중 패치-원-토큰(multi-patch-one-token)으로 국부적인 시각 정보를 압축하고, VLM의 후속 처리에 따른 2차 계산 비용을 감소시킨다.\n' +
+      '\n' +
+      '위치 인식 VLM에서 비전 토큰은 엄청난 양의 위치 임베딩을 소비한다. MAE 전문가와 함께 VQA에서 단회전 멀티모달 대화를 예로 들면, 비전 토큰의 수(약 4096개)가 텍스트 토큰의 수(약 8.7개)보다 500배 이상 많다. 시각 전문가들이 이미 위치 인코딩을 가지고 있다는 사실에 영감을 받아, 우리는 각 시각 토큰에 VLM 위치 임베딩을 개별적으로 다시 할당하는 것이 중복적이라고 믿는다. 따라서, 우리는 위치 인코딩 폐기물의 문제를 효과적으로 해결하기 위해 서로 다른 위치 인코딩 방식을 탐구한다. 결과는 두 가지 방식(모든 패치에 대해 하나의 위치를 공유하고 2D 위치 인코딩(행 플러스 열)이 위치 소비를 줄일 수 있는 반면(CLIP의 경우 사용된 PE가 576에서 24 또는 심지어 1로 떨어짐) 성능이 여전히 비슷하다는 것을 보여준다.\n' +
+      '\n' +
+      '우리의 기여는 다음과 같이 요약할 수 있다:\n' +
+      '\n' +
+      '* 우리는 VLM의 전반적인 능력을 향상시키기 위해 다양한 시각적 인코더의 장점을 상승적으로 결합하는 다중-시각-전문가 VLM을 소개한다.\n' +
+      '* 다중 패치-단일-토큰 투영 및 효율적인 위치 인코딩 솔루션을 제안함으로써 VLM에서 비전 토큰 오버플로우의 문제를 해결한다.\n' +
+      '* 다양한 전문가 조합을 실험함으로써, 우리의 결과는 멀티모달 태스크에서 향상된 성능(+1.53과 공정한 비교)을 입증한다.\n' +
+      '\n' +
+      '## 2 Architecture\n' +
+      '\n' +
+      '### The Overview\n' +
+      '\n' +
+      '사용자가 원추형 꽃차례에 바람 수분 이미지를 업로드하고 "어떤 원뿔이 꽃가루를 만드는가?"를 묻는 경우 CLIP 전문가, SAM 전문가 및 LayoutLM 전문가의 인코딩을 통해 이미지를 순차적으로 처리하여 3세트의 시각적 표현을 생성한다. 이어서, 폴리\n' +
+      '\n' +
+      '도 2: MouSi 모델 구조의 개요. 다비전 전문가 MouSi 모델은 다양한 유형과 역량을 갖춘 시각 전문가의 통합을 지원한다.\n' +
+      '\n' +
+      '전문가 융합 네트워크는 다중 채널 시각적 정보를 압축하고 MouSi에 대한 비전 입력 토큰에 다중 모드 정렬한다. 사용자의 질문은 LLMs의 임베딩 계층에 의해 텍스트 토큰으로 처리된다. 마지막으로, MouSi는 시각 언어 질문을 이해하기 위한 VQA 기능과 이미지에서 답변 텍스트를 인식하기 위한 OCR 기능을 사용하여 정답 "수컷 원뿔이 꽃가루를 만든다."를 생성한다.\n' +
+      '\n' +
+      '상기 과제를 달성하기 위해, 우리는 세 가지 기본 구성요소로 구성된 MouSi를 제안한다:\n' +
+      '\n' +
+      '1. 풀에서 선택된 전문가들을 조합하는 멀티 전문가 비주얼 인코더;\n' +
+      '2. 단순 투영 융합 방식 또는 Q-Former 융합 방식[26]으로 구현되는, 폴리-전문가 융합 네트워크;\n' +
+      '3. 미리 훈련된 오픈 소스 LLM(예를 들어, _Vicuna v1.5_).\n' +
+      '\n' +
+      '그림 2는 MouSi 아키텍처의 개요를 보여준다. VLM(Vision-Language Model)의 핵심은 일반적으로 대규모 텍스트 말뭉치에서 미리 훈련된 LLM이다. 시각 신호를 인식하기 위해 시각 인코더와 시각 언어 연결 레이어를 채택하여 시각 특징을 별도로 추출하여 LLM의 의미 공간에 정렬한다.\n' +
+      '\n' +
+      'VLM은 인터리브된 텍스트와 이미지 세그먼트로 구성된 시퀀스를 입력으로서 \\(X=(\\dots,T_{1},I_{1},T_{2},I_{2},\\dots)\\)으로 표현하며, 여기서 텍스트 조각 \\(T\\)은 LLM의 토큰화기와 임베딩 레이어에 의해 처리되고 이미지 세그먼트 \\(I\\)은 비전 인코더에 공급된다. 비전 인코더의 보편성과 일반화 가능성을 보장하기 위해 미리 훈련된 매개변수를 동결하는 것이 일반적인 관행이다. 본 논문에서는 VLM에서 비주얼 인코더의 설계를 재고하고, 앙상블된 전문가들에 의해 그 성능을 향상시키는 것을 목표로 한다.\n' +
+      '\n' +
+      '### 멀티 전문가 비전 인코더\n' +
+      '\n' +
+      '광범위한 조사 후 CLIP[6], DINOv2[13], LayoutLMv3[14], Convnext[21], SAM[27], MAE[17] 등 다양한 도메인에 숙련된 6개의 비전 인코더를 선택한다. 표 1과 같이 입력 해상도, 은닉 크기, 모델 유형, 모델 크기, 사전 훈련 과제, 훈련 방법 등에서 서로 큰 차이를 보인다.\n' +
+      '\n' +
+      '클라이플란은 대조적 학습을 통해 이미지-텍스트 정렬을 한다. 그것은 인터넷에서 조달된 400M 노이즈 이미지-텍스트 쌍으로 구성된 대규모 데이터 세트에서 사전 훈련된다. CLIP의 비전 인코더는 300M 파라미터를 갖는 비전 트랜스포머(ViT)이다. 입력 해상도는 336\\(\\times\\)336으로 고정되며 특징 치수는 1024.3이다.\n' +
+      '\n' +
+      '각주 3: [https://huggingface.co/openai/clip-vit-large-patch14-336](https://huggingface.co/openai/clip-vit-large-patch14-336)\n' +
+      '\n' +
+      'DINOv2는 훈련 라벨이 필요 없이 보다 강력한 교사 네트워크의 행동을 모방하도록 학생 네트워크를 훈련시킨다. 자가 지도 사전 훈련에는 학생 네트워크와 교사 네트워크의 CLS 토큰을 제한하는 이미지 레벨 객체와 마스킹된 입력의 추출된 표현에 적용되는 패치 레벨 객체 두 가지 목적 함수가 사용된다. DINOv2 비전 인코더는 1.1B 파라미터를 갖는 비전 트랜스포머(ViT)이다. 입력 영상은 224\\(\\times\\)224 해상도로 전처리되고 은닉 차원은 15364이다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l r r r r r r r} \\hline \\hline \\multirow{2}{*}{**Expert**} & \\multirow{2}{*}{**Res.**} & \\multirow{2}{*}{**Param.**} & \\multirow{2}{*}{**d\\_hid**} & \\multirow{2}{*}{**\\#Patch**} & \\multirow{2}{*}{**Type**} & \\multicolumn{2}{c}{**Pre-training**} & \\\\ \\cline{5-8}  & & & & & & **Tasks** & **Images** \\\\ \\hline CLIP & 336 & 300M & 1024 & 576 & ViT & Image-Text Matching & 400M \\\\ DINOv2 & 224 & 1.1B & 1536 & 256 & ViT & DINO+iBOT+SwAV & 142M \\\\ LayoutLMv3 & 224 & 368M & 1024 & 196 & ViT & Document OCR & 11M \\\\ ConvNeXt & 384 & 200M & 768 & 1024 & CNN & Image Classification & 2B \\\\ SAM & 1024 & 637M & 1280 & 4096 & ViT & Image Segmentation & 11M \\\\ MAE & 224 & 630M & 1280 & 256 & ViT & Patch-level Denoising & 1.3M \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 1: 사전 훈련된 시각 전문가 6명의 비교. **Res.**는 이미지 해상도를 나타내고, **d\\_hid**는 히든 차원을 나타내고, **Param.**는 파라미터의 개수를 나타낸다.\n' +
+      '\n' +
+      'LayoutLMv3는 통합된 텍스트 및 이미지 마스킹으로 문서 AI를 위한 멀티모달 트랜스포머를 사전 훈련한다. 단순 통합 아키텍처 및 교육 목표는 LayoutLMv3를 텍스트 중심 및 이미지 중심 문서 AI 작업에 대한 범용 모델로 만든다. LayoutLMv3 비전 인코더는 368M 파라미터를 갖는 ViT 아키텍처이다. 입력 영상은 먼저 224\\(\\times\\)224의 해상도로 전처리된 후 1024차원 패치 임베딩으로 인코딩된다.5\n' +
+      '\n' +
+      '각주 5: [https://huggingface.co/microsoft/layoutlmv3-large](https://huggingface.co/microsoft/layoutlmv3-large)\n' +
+      '\n' +
+      'Convnetis는 ConvNeXt에 FCMAE(fully convolutional masked autoencoder framework)와 GRN(global response normalization) 계층을 도입한 ConvNet(ConvNet)이다. ConvNeXt는 ImageNet-22K 데이터 세트에서 사전 훈련을 받았으며, 다양한 인식 벤치마크에서 순수한 ConvNet의 성능을 크게 향상시켰다. 저희가 사용한 ConvNeXt 비전 인코더는 200M 파라미터를 가지고 있습니다. 입력 해상도는 384\\(\\times\\)384이고 특징 치수는 768.6이다.\n' +
+      '\n' +
+      '각주 6: [https://huggingface.co/lion/CLIP-convnext_large_d_320.lion2B-s298-b131K-ft-soup](https://huggingface.co/lion/CLIP-convnext_large_d_320.lion2B-s298-b131K-ft-soup]\n' +
+      '\n' +
+      'Samis는 1100만 개의 이미지와 10억 개 이상의 마스크로 구성된 대규모 분할 데이터 세트에 대해 훈련되었으며 인상적인 제로 샷 일반화를 달성했다. 이는 텍스트 또는 포인트와 같은 상이한 유형의 프롬프트를 갖는 이미지로부터 객체 마스크를 효율적으로 예측하도록 설계된다. SAM은 또한 ViT를 637M 파라미터를 갖는 비전 인코더로 채택한다. 입력 해상도와 은닉 차원은 각각 1024\\(\\times\\)1024와 1280으로 모두 더 크다.\n' +
+      '\n' +
+      '각주 7: [https://huggingface.co/facebook/sam-vit-huge](https://huggingface.co/facebook/sam-vit-huge)\n' +
+      '\n' +
+      '부분 관측치(패치의 25%)만 주어진 원래 이미지를 재구성하는 것을 MaEaims. MAE와 페어링된 ViT-Huge 인코더는 87.8%의 정확도로 ImageNet-1K 데이터 세트에서 당시 새로운 기록을 달성했으며 매우 일반화되었다. MAE 비전 인코더는 630M 파라미터를 가지며, 입력 해상도와 은닉 차원은 1024\\(\\times\\)1024와 1280.8이다.\n' +
+      '\n' +
+      '각주 8: [https://huggingface.co/facebook/vit-mae-huge](https://huggingface.co/facebook/vit-mae-huge)\n' +
+      '\n' +
+      '입력 시퀀스에서 이미지\\(I\\)와 비전 전문가 인코더\\(e_{i}(\\cdot)\\)가 주어지면, 우리는 이미지 패치의 표현 벡터를 얻을 수 있다:\n' +
+      '\n' +
+      '\\[\\mathbf{v}_{1}^{i},\\mathbf{v}_{2}^{i},\\dots,\\mathbf{v}_{n}^{i}=e_{i}(I). \\tag{1}\\]\n' +
+      '\n' +
+      '3명의 전문가(\\(e_{i}(\\cdot)\\in\\mathbb{R}^{n_{i}\\times d_{i}\\), \\(e_{j}(\\cdot)\\in\\mathbb{R}^{n_{j}\\times d_{j}\\), \\(e_{k}(\\cdot)\\in\\mathbb{R}^{n_{k}}\\), \\(V_{I}\\)는 3개의 출력 시퀀스의 연결이다.\n' +
+      '\n' +
+      '\\mathbf{v}_{i}(I)\\oplus e_{i}(I)\\oplus e_{i}(I)\\oplus e_{i}(I)\\\\[[\\mathbf{v}_{1}^{i},\\dots,\\mathbf{v}_{n_{i}}}^{i},\\mathbf{v}_{1}^{j},\\dots,\\mathbf{v}_{n_{j}}^{j},\\mathbf{v}_{1}^{k},\\dots,\\mathbf{v}_{n_{k}}^{k}]\\tag{2}\\dots,\\mathbf{v}_{n_{k}}^{k}]\\tag{2}\\dots,\\mathbf{v}_{n_{k}}}^{i},\\mathbf{v}_{n_{j}}}^{i},\\mathbf\n' +
+      '\n' +
+      '각 전문가가 다른 숫자(\\(n_{i}\\) 대 \\ (n_{j}\\) vs. \\ (n_{k}\\)) 및 차원((\\(d_{i}\\ vs. \\ (d_{j}\\) vs. \\ (d_{k}\\))의 표현으로, 우리는 다중 전문가 융합 네트워크에서 이러한 차이를 다룰 것이다. 또한 전문가의 순서가 결과에 영향을 미칠 수 있으며, 이는 절제 실험에서 구체적으로 평가한다(섹션 3.2.2).\n' +
+      '\n' +
+      '### 폴리 전문가 융합 네트워크\n' +
+      '\n' +
+      '출력 시퀀스의 차원과 수는 종종 다른 시각적 전문가에 대해 다르기 때문에, 프로세싱을 통합하기 위해 융합 네트워크가 설계될 필요가 있다. LLaVA[7]와 BLIP[28]에 이어 MLP 프로젝션 융합 네트워크와 Q-Former 융합 네트워크를 각각 제안한다.\n' +
+      '\n' +
+      'MLP projection은 2-layer (\\(d_{in}\\to d_{hidden}\\to d_{out}\\)) 다층 퍼셉트론 네트워크이다. 프로세싱을 단순화하고 여러 전문가들 간의 지식을 공유하기 위해 은닉 차원(\\(d_{hidden}\\))과 출력 차원(\\(d_{out}\\))을 LLM의 차원(\\(d_{model}\\))과 동일하게 설정하고, 두 번째 계층 네트워크(\\(\\mathrm{MLP}^{(2)}:d_{hidden}\\to d_{out}\\)) 파라미터를 모든 전문가들 간에 공유한다. 특정 전문가\\(e_{i}(\\cdot)\\)가 주어지면, 첫 번째 레이어 네트워크는 \\(MLP_{i}^{(1)}:d_{i}\\to d_{hidden}\\)으로 정의된다.\n' +
+      '\n' +
+      '\\mathrm{MLP}^{(2)}\\left(\\mathrm{MLP}_{i}^{(1)}\\left(e_{i}(I)\\right)\\oplus\\mathrm{MLP}_{j}^{(1)}\\left(e_{j}(I)\\right)\\oplus\\mathrm{MLP}_{k}^{(1)}\\left(e_{k}(I)\\right)}\\left(e_{k}(I)\\right)\\tag{3}\\prus\\mathrm{MLP}_{j}^{(1)}\\left(e_{k}(I)\\right)\\prus\\mathrm{MLP}_{k}^{(1)}\\left(e_{k}(I)\\right)\\tag{3}\\prus\\mathrm{MLP}_{k}^{(1)}\\left(e_{k}(I)\\right)\\tag{3}\\prus\\mathrm{MLP\n' +
+      '\n' +
+      '실제로 다수의 전문가가 많은 수의 비전 토큰을 출력하는데, 이는 VLM의 계산 비용 및 메모리 사용량을 증가시킬 뿐만 아니라 추론 시 최대 길이 제한을 초과하는 경향이 있다. 따라서 각 전문가가 출력하는 토큰의 수를 비례적으로 줄이기 위해 **멀티패치-원토큰** 프로젝션을 제안한다. 이미지 신호들은 로컬 또는 희소 특성들을 갖기 때문에, 이웃 패치들을 표현하기 위해 하나의 토큰을 사용하는 것이 타당하다. 예를 들어, m배(\\(\\mathrm{MLP}^{(1)}:d_{in}\\times m\\to d_{hidden}\\)), 그리고 그 은닉층 출력 벡터 \\(\\mathbf{h}_{1}^{i},\\mathbf{h}_{2}^{i},\\dots\\)는 다음과 같이 정의된다.\n' +
+      '\n' +
+      '{bmatrix}\\mathbf{v}_{1}^{i}=\\mathrm{MLP}^{(1)\\bmatrix}\\mathbf{v}_{2}^{i}\\mathbf{v}_{m}^{i}\\end{bmatrix}\\right),\\quad\\mathbf{h}_{2}^{i}=\\mathrm{MLP}^{(1)}\\left(\\begin{bmatrix}\\mathbf{v}_{m+1}^{i}\\mathbf{v}_{m+2}^{i}\\mathbf{v}_{m+2}^{i}\\mathbf{v}_{m+2}^{i}\\mathbf{v}_{i}\\mathbf{v}_{m+2}^{i}\\mathbf{v}_{m+2}^{i}\\mathbf{v}_{m+2}^{i}\\mathbf\n' +
+      '\n' +
+      '여기서 \\([\\vdots]\\) 표기법은 벡터 차원에 대한 연접을 나타낸다. 최종 비전 토큰 수는 원본의 \\(\\frac{1}{m}\\)으로 줄어든다. 실제로 \\(m\\)은 일반적으로 2에서 8로 설정되며, 이는 일반적으로 다운스트림 작업에서 성능을 잃지 않으면서 비용을 절감한다. \\(m\\)이 너무 크게 설정되면 이미지의 정보가 손실될 수 있습니다.\n' +
+      '\n' +
+      'Q-이전의 네트워크는 훈련가능한 쿼리링 트랜스포머 모듈이며, 동결 이미지 인코더와 미리 훈련된 LLM 사이의 갭을 브리지하기 위해 제안되었다. 입력 이미지 해상도와 무관하게 비전 인코더에서 고정된 수의 출력 피쳐를 추출합니다. 우리는 Q-전자의 입력으로 설정된 수의 학습 가능한 쿼리 임베딩을 생성한다. 질의는 자기 주의 계층을 통해 상호 작용하고, 교차 주의 계층을 통해 동결 이미지 특징 \\(e_{i}(I)\\과 상호 작용한다. 마지막 레이어의 출력 쿼리는 LLM의 입력 레이어에 투영된다. BLIP-2에서 미리 학습된 매개변수를 초기화로 사용하여 수렴을 가속화하고 두 번째 계층 MLP 네트워크와 유사하게 모든 전문가 간에 매개변수를 공유한다. 질의 임베딩의 차원은 768과 같으므로, 각 전문가에 대해 추가적인 선형 변환(\\(W_{i}\\in\\mathbb{R}^{d_{i}\\times 768}\\))을 추가한다.\n' +
+      '\n' +
+      '[V_{I}=\\mathrm{Q\\text{-}Former}\\left(W_{i}\\left(e_{i}(I)\\right)\\oplus W_{j}\\left(e_{j}(I)\\right)\\oplus W_{k}\\left(e_{k}(I)\\right)\\right)\\tag{5}\\tag{5}\\tag{6}\\tag{6}\\tag{6}\\tag{6}\\tag{6}\\tag{6}\\tag{6}\\tag{6}\\tag{6}\\tag{6}\\tag{6}\\tag{6}\\tag{6}\\tag{6}\\tag{6}\\tag{6}\\tag{6}\\tag{6}\\tag{6}\\tag{6}\\tag{6}\\tag{6}\\tag{6}\\tag{6}\\tag{6}\\tag{6}\\\n' +
+      '\n' +
+      '섹션 3.2.1의 절제 연구는 MLP 융합 네트워크가 더 적은 매개변수를 가지고 사전 훈련되지 않았음에도 불구하고 Q-이전보다 더 잘 융합된다는 것을 보여준다.\n' +
+      '\n' +
+      '다양한 위치 암호화 기법\n' +
+      '\n' +
+      'Q-Former에서 \\(m\\)-패치-원-토큰 연산이나 적은 수의 질의를 정의함으로써 비전 토큰의 비중을 줄일 수 있었지만, 비전 토큰에 의한 위치 임베딩의 점유는 추론 과정에서 과소평가되어서는 안 된다. 시각 전문가들이 이미 위치 인코딩(예를 들어, ViT[29]의 2D 위치 인코딩)을 가지고 있다는 사실에 영감을 받아, 우리는 각각의 시각 토큰에 VLM 위치 임베딩을 개별적으로 다시 할당하는 것이 중복적이라고 생각한다. 도 4에 도시된 바와 같이, 본 보고서는 위치 임베딩(PE)의 할당을 개선하기 위한 네 가지 위치 인코딩 방식을 탐구한다:\n' +
+      '\n' +
+      '그림 3: 두 가지 유형의 다중 전문가 융합 네트워크의 예. 우리는 MLP 방법이 시각적 정보를 "2-패치-1-토큰"으로 압축하는 방법과 Q-이전 방법이 3개의 훈련 가능한 쿼리로 정보를 압축하는 방법을 보여준다. 색 기울기가 있는 모듈은 지식을 전달하기 위해 여러 전문가 간에 매개변수를 공유하는 것을 나타낸다.\n' +
+      '\n' +
+      '1. 각 패치(_original_)에 대한 별도의 위치 벡터;\n' +
+      '2. 이미지의 모든 비전 토큰은 PE(_share-all_);\n' +
+      '3. 동일한 행의 비전 토큰(_share-by-row_)에 의해 공유되는 하나의 PE;\n' +
+      '4. 동일한 행의 비전 토큰에 의해 공유되는 하나의 PE, 및 학습 가능한 열 PE의 세트(_share-by-row&col_).\n' +
+      '\n' +
+      '4가지 방법 중 _share-all_는 원래의 \\(O(N^{2})\\) PE 비용을 \\(O(1)\\)으로 줄일 수 있고, _share-by-row_와 _share-by-row&col_는 PE 비용을 \\(O(N)\\)으로 줄일 수 있다. 그들 모두는 최대 길이 외 문제를 상당히 완화할 수 있지만 문제는 **VLM 성능에 얼마나 영향을 미치는가?** 섹션 3.2.3에서 절제 결과를 보고한다.\n' +
+      '\n' +
+      '## 3 Experiments\n' +
+      '\n' +
+      '### Main Results\n' +
+      '\n' +
+      '우리 실험의 주요 초점은 단일 전문가, 이중 전문가 및 삼중 전문가 앙상블에 대한 탐사를 수행하는 것이다. LLaVA-1.5[22]에 이어 훈련 파이프라인은 두 단계로 구성된다. 1단계 또는 사전 훈련 단계에서는 텍스트 전용 LLM과 다중 전문가 인코더를 동결하고 폴리비주얼 융합 네트워크를 처음부터 훈련하여 둘 다의 표현 공간을 정렬한다. 대규모 취약 감독(노이즈 포함) 데이터셋에 대한 훈련 후 텍스트 전용 LLM은 이미 멀티모달 입력과 이해가 가능하다. 2단계 또는 미세 조정 단계에서는 LLM을 동결 해제하고 다양하고 고품질 감독 미세 조정(SFT) 데이터 세트에 대한 폴리-시각 융합 네트워크와 함께 추가로 훈련한다. 데이터 세트의 구성 및 두 단계에 대한 훈련 구성은 다음과 같이 자세히 설명되어 있다.\n' +
+      '\n' +
+      '데이터 세트.사전 훈련 단계에서 LAION-CC-SBU 컬렉션에서 \\(\\sim\\)558K 이미지 텍스트 쌍으로 구성된 LCS-558K 데이터 세트를 BLIP 생성 캡션으로 주석을 달았다. 미세 조정 단계에서는 VQA, OCR, 지역 수준 VQA, 시각적 대화 및 언어 대화 데이터를 포함하는 10개의 다양하고 고품질 SFT 데이터 세트를 혼합했다. 훈련 비용을 줄이고 효율성을 높이기 위해 LLaVA-1.5와 동일한 전처리 전략을 채택하여 궁극적으로 \\(\\sim\\)665K SFT 샘플을 얻었다. 모든 데이터 분할은 함께 연결되고 동일한 확률로 샘플링된다. VQA\\({}^{\\text{\\textregistered}2}\\)[32]; GQA[33]; SQA\\({}^{\\text{1}}\\) : ScienceQA-IMG[34]; VQA\\({}^{\\text{T}}\\) : TextVQA[35]; POPE[20]; MMB&MMBCN: MMBench&MMBBench-Chinese _dev_ 결과[36]; SEED\\({}^{\\text{1}}\\) : SEED-Bench-IMG[37]; MM-Vet[38]; SQA\\({}^{\\text{1}}\\) : ScienceQA-IMG[34]; VQA\\({}^{\\text{T}}\\) : TextVQA[35]; POPE[20]; MMB&MMBCN: MMBench&MMBBench-Chinese _dev_ 결과[36]; SEED\\({}^{\\text{1}}\\) : SEED-Bench-IMG[ 자세한 통계 정보는 부록 A에서 확인할 수 있다.\n' +
+      '\n' +
+      '하이퍼파라미터.주요 결과에 대해, 우리는 모든 훈련 하이퍼파라미터를 LLaVA 시리즈 [7; 22]와 대략 동일하게 유지한다. 본 논문에서는 부록 B에서 하이퍼파라미터에 대한 상세한 설명을 제시한다. MLP 융합 네트워크의 경우 훈련 및 추론을 위한 최대 길이를 초과하지 않도록 \\(m\\)-패치-1-토큰으로 \\(m\\)을 1에서 16까지 설정한다. Q-Former 융합 네트워크의 경우 MLP 융합 네트워크의 출력 수와 일치하도록 전문가당 쿼리 수를 설정했다. Q-Former 융합 네트워크의 파라미터는 BLIP-2의 사전 훈련 파라미터를 이용하여 초기화된다[26].\n' +
+      '\n' +
+      '도 4: 네 개의 위치 부호화 방식들의 다이어그램. \\(\\oplus\\) 연산자는 행 위치 임베딩과 열 위치 임베딩을 합한 것을 나타낸다.\n' +
+      '\n' +
+      '1.1 단일 비전 전문가\n' +
+      '\n' +
+      '표 2는 6개의 VLM 모두의 성능을 단일 비전 전문가와 비교한다. CLIP 전문가는 **all** 9 벤치마크에서 최고의 성능을 달성하여 VLM을 위한 비전 인코더의 지배적인 선택이 된 이유를 충분히 설명한다. 전문가들의 서로 다른 속성을 비교해 보면, CLIP는 매개변수 수 측면에서 5위, 해상도 측면에서 3위, 사전 훈련 데이터 크기에서 2위를 차지했으며, 절대적 선두를 가진 것은 없었다. 따라서 본 논문에서는 이미지-텍스트 매칭 사전학습이 멀티모달 정렬 능력을 가지고 있다는 장점을 가지고 있다고 추측한다. 전반적으로, 6명의 전문가의 성능 순위는 대략 CLIP\\(>\\)ConvNeXt\\(>\\)DINOv2\\(>\\)SAM\\(>\\)MAE\\(>\\)LayoutLMv3이다. 또한, LayoutLMv3은 영상 분할에서 OCR과 SAM에서 논란의 여지가 없는 전문가이지만 VLM에서 단일 시각적 인코더로서 성능이 좋지 않다. 자연스러운 질문은 다중 전문가 융합이 전문 분야에서 그들의 능력을 활성화할 수 있는지 여부이다.\n' +
+      '\n' +
+      '###### 3.1.2 이중 비전 전문가\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l r r r r r r r r r r} \\hline \\hline Model & Param. & VQA\\({}^{\\text{V2}}\\) & GQA & SQA\\({}^{\\text{I}}\\) & VQA\\({}^{\\text{T}}\\) & POPE & MMB & MMB\\({}^{\\text{CN}}\\) & SEED\\({}^{\\text{I}}\\) & MM-Vet & Avg. \\\\ \\hline \\multicolumn{10}{c}{_Single Expert_} \\\\ CLIP & 7.3B & **78.5** & **62.0** & **66.8** & **58.2** & **85.9** & **63.0** & **57.4** & **66.2** & **30.5** & **63.2** \\\\ DINOv2 & 8.1B & 74.9 & 61.7 & 66.1 & 46.2 & 84.6 & 57.9 & 48.7 & 63.4 & 23.4 & 58.5 \\\\ LayoutLMv3 & 7.4B & 44.9 & 40.0 & 62.8 & 43.6 & 59.1 & 29.0 & 19.8 & 34.8 & 11.8 & 38.4 \\\\ ConvNeXt & 7.2B & 75.1 & 60.5 & 65.0 & 56.3 & 85.6 & 63.3 & 55.0 & 61.5 & 26.0 & 60.9 \\\\ SAM & 7.6B & 64.7 & 55.8 & 63.9 & 44.1 & 82.0 & 43.7 & 33.9 & 51.9 & 17.7 & 50.9 \\\\ MAE & 7.6B & 62.0 & 53.2 & 63.3 & 44.5 & 79.7 & 41.6 & 33.0 & 49.4 & 16.5 & 49.2 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 2: **9개의 벤치마크에 대한 6명의 비전 전문가의 비교.** Param은 파라미터의 수를 나타낸다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l r r r r r r r r r r} \\hline \\hline Model & Param. & VQA\\({}^{\\text{V2}}\\) & GQA & SQA\\({}^{\\text{I}}\\) & VQA\\({}^{\\text{T}}\\) & POPE & MMB & MMB\\({}^{\\text{CN}}\\) & SEED\\({}^{\\text{I}}\\) & MM-Vet & Avg. \\\\ \\hline \\multicolumn{10}{c}{_Double Experts_} \\\\ DINOv2+CLIP & 8.4B & 79.0 & **63.1** & 69.8 & 57.7 & **86.4** & 67.0 & **60.5** & **66.9** & 32.0 & **64.7** \\\\ \\(\\Delta\\)DINOv2 & 4.1 & 1.5 & 3.7 & 11.5 & 1.8 & 9.1 & 11.8 & 3.5 & 8.6 & \\\\ \\(\\Delta\\)CLIP & 0.5 & 1.1 & 3.0 & 0.5 & 0.5 & **4.0** & 3.1 & 0.7 & 1.5 & \\\\ \\hline LayoutLMv3+CLIP & 7.7B & **79.2** & 62.4 & 68.5 & **58.9** & 86.1 & **67.0** & 59.9 & 66.8 & **33.0** & 64.6 \\\\ \\(\\Delta\\)LayoutLMv3 & 34.3 & 22.4 & 5.7 & 15.3 & 27.0 & 38.0 & 40.1 & 32.0 & 21.2 & \\\\ \\(\\Delta\\)CLIP & 0.7 & 0.4 & 1.7 & 0.7 & 0.2 & **4.0** & 2.5 & 0.6 & 2.5 & \\\\ \\hline ConvNeXt+CLIP & 7.5B & 78.7 & 61.9 & 69.9 & 57.8 & 86.1 & 65.5 & 59.2 & 66.1 & 32.1 & 64.1 \\\\ \\(\\Delta\\)ConvNeXt & 3.6 & 1.4 & 4.9 & 1.5 & 0.5 & 2.2 & 4.2 & **4.6** & 6.1 & \\\\ \\(\\Delta\\)CLIP & 0.2 & 0.1 & 3.1 & 0.4 & 0.2 & 2.5 & 1.8 & 0.1 & 1.6 & \\\\ \\hline SAM+CLIP & 7.9B & 75.4 & 60.5 & **71.6** & 53.4 & 85.4 & 65.4 & 57.5 & 62.0 & 29.1 & 62.3 \\\\ \\(\\Delta\\)SAM & 10.7 & 4.7 & 7.7 & 9.3 & 3.4 & 21.7 & 23.6 & 10.1 & 11.4 & \\\\ \\(\\Delta\\)CLIP & 3.1 & 1.5 & 4.8 & 4.8 & 0.5 & 2.4 & 0.1 & 4.2 & 1.4 & \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 3: 상이한 이중 전문가 방법의 성능 비교. \\(\\Delta\\)로 표시된 행은 단일 전문가 방법과 비교된다. 여기서 **blue cells**는 **double-expert** 모델이 더 우수함을 나타내고, **red cells**는 **single-expert** 모델이 더 우수함을 나타낸다.\n' +
+      '\n' +
+      '현재의 주류 오픈 소스 VLM은 하나의 시각적 인코더, 즉 단일 시각적 채널만을 갖는다. 그러나 멀티모달 태스크는 다양하며, 서로 다른 태스크는 서로 다른 시각적 신호를 필요로 한다. 이 하위 섹션에서는 이중 채널, 즉 이중 시각적 전문가가 다양한 작업에서 단일 전문가를 능가할 수 있는지 여부를 조사한다. 가장 강력한 CLIP 전문가와 다른 전문가를 결합하여 총 4개의 이중 전문가 조합을 구성합니다.\n' +
+      '\n' +
+      '표 3은 9개의 벤치마크에 대한 이중 전문가 비전 인코더의 성능을 보여주며, 각 단일 전문가에 비해 각 단일 전문가가 속해 있다(양수는 이중 전문가가 단일 전문가보다 우수하다는 것을 나타낸다). 그 결과 "DINOV2+CLIP" 전문가, "LayoutLMv3+CLIP" 전문가, "ConvNeXt+CLIP 전문가" 3개의 이중 전문가 인코더가 거의 모든 경우(23/27) 임의의 단일 인코더를 능가하는 것으로 나타났다. 결과는 두 개의 비주얼 채널이 멀티모달 능력 측면에서 단일 비주얼 채널을 능가하는 것으로 나타나 멀티 전문가 협업이 실현 가능하다는 것을 보여준다. "SAM+CLIP" 조합의 경우 이중 전문가가 2/9 벤치마크에서 단일 전문가를 능가하고 나머지 7 벤치마크에서 단일 전문가(구체적으로 CLIP)에 뒤처지는 등 결과가 놀랍다. 주요 원인은 SAM이 CLIP보다 훨씬 더 많은 신호를 인코딩하기 때문일 수 있다(4096개의 패치 대 576개의 패치). 및 융합 네트워크는 큰 정보 압축 비율을 필요로 한다. 이 시점에서 가장 효율적인 CLIP 채널도 압축되어 성능이 저하된다. SAM과 같은 방대한 패치를 가진 전문가를 위한 보다 효율적인 시각 정보 전달 네트워크를 개발할 필요가 있다.\n' +
+      '\n' +
+      '이중 전문가 방법 간의 성능을 비교한 결과, 가장 우수한 단일 전문가와 두 번째로 우수한 단일 전문가인 ConvNeXt+CLIP의 앙상블이 아닌 가장 우수한 이중 전문가가 DINOV2+CLIP인 것으로 나타났다. 단일 전문가로서의 우수한 성과가 앙상블될 때 반드시 최적성을 의미하는 것은 아님을 나타낸다. ConvNeXt와 CLIP는 훈련 방법과 훈련 말뭉치가 상당히 겹쳐서 유사한 시각적 정보를 추출하는 반면, 자가 감독 DINOV2와 약 감독 CLIP는 상호 보완하여 더 효과적인 앙상블을 생성한다. 더 나아가 단일 전문가로서 최악을 기록한 LayoutLMv3가 CLIP와 협업할 때 상당한 향상을 보여 4개의 벤치마크에서 최고를 기록하고 DINOV2+CLIP 바로 뒤에 전체적으로 순위를 매기는 것을 언급할 필요가 있다. 정보가 압축된 SAM조차 사이언스QA-IMG 벤치마크에서 최고 성능을 달성했다. 따라서 다양한 시각적 전문가 CLIP와 짝을 이룰 때 다른 전문가가 추가 시각적 정보를 캡처하는 데 중점을 두어 성능을 더욱 향상시킬 수 있다고 결론지을 수 있다.\n' +
+      '\n' +
+      '###### 3.1.3 트리플 비전 전문가\n' +
+      '\n' +
+      '이중 전문가 인코더를 기반으로 3가지 전문가 조합을 추가로 구성한다. 표 4에 나타난 바와 같이, 3-전문가 접근법은 LLAVA-1.5의 데이터 크기에서 2-전문가와 비교하여 4/6 사례에서 승리한다. 가장 성능이 좋은 3-전문가는 LayoutLMv3+DINOV2+CLIP이고, 다음으로 ConvNeXt+LayoutLMv3+CLIP이며, 마지막으로 ConvNeXt+DINOV2+CLIP이다. 이 중 모델 LayoutLMv3+DINOV2+CLIP가 가장 많은 매개 변수를 가지고 있어 88억 명에 달한다. 우리는 삼중 전문가 방법의 성능을 제한하는 주된 이유는 불충분한 데이터 양이라고 의심한다. 우리는 MouSi를 더 큰(1647K) 증강 데이터로 훈련하고 섹션 3.4에서 더 중요한 성능 향상을 관찰한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l r r r r r r r r r r r} \\hline \\hline Model & Param. & VQA\\({}^{\\text{\\tiny{2}}}\\) & GQA & SQA\\({}^{\\text{\\tiny{1}}}\\) & VQA\\({}^{\\text{\\tiny{T}}}\\) & POPE & MMB & MMB\\({}^{\\text{\\tiny{CN}}}\\) & SEED\\({}^{\\text{\\tiny{J}}}\\) & MM-Vet & Avg. \\\\ \\hline \\multicolumn{11}{c}{_Triple Experts_} \\\\ \\hline ConvNeXt+LayoutLMv3+CLIP & 7.9B & 78.5 & 63.3 & **70.2** & 58.0 & **87.3** & 66.8 & 58.9 & 66.0 & 32.2 & 64.6 \\\\ \\(\\Delta\\)ConvNeXt+CLIP & & 0.2 & 1.4 & 0.3 & 0.2 & 1.2 & 1.3 & 0.3 & 0.1 & 0.1 & 0.1 \\\\ \\(\\Delta\\)LayoutLMv3+CLIP & 0.7 & 0.9 & 0.9 & 1.7 & 1.2 & 0.2 & 1.0 & 0.8 & 0.8 & 0.8 \\\\ \\hline ConvNeXt+DINOV2+CLIP & 8.6B & 78.6 & 63.2 & 69.2 & 57.8 & 86.5 & 66.6 & 58.9 & 67.1 & 32.9 & 64.5 \\\\ \\(\\Delta\\)ConvNeXt+CLIP & & 0.1 & 1.3 & 0.7 & 0.0 & 0.4 & 1.1 & 0.3 & 1.0 & 0.8 & \\\\ \\(\\Delta\\)DINOV2+CLIP & & 0.4 & 0.1 & 0.6 & 0.1 & 0.1 & 0.4 & 1.6 & 0.2 & 0.9 & \\\\ \\hline LayoutLMv3+DINOV2+CLIP & 8.8B & **79.1** & **63.6** & 69.0 & **58.4** & 86.5 & **67.4** & **60.0** & **67.5** & **33.6** & **65.0** \\\\ \\(\\Delta\\)LayoutLMv3+CLIP & & 0.1 & 1.2 & 0.5 & 0.5 & 0.4 & 0.4 & **0.1** & 0.7 & 0.6 & \\\\ \\(\\Delta\\)DINOV2+CLIP & & 0.1 & 0.5 & 0.8 & 0.7 & 0.1 & 0.4 & 0.5 & 0.6 & 1.6 & \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 4: 상이한 삼중-전문가 방법의 성능 비교. 이 때 \\(\\Delta\\)로 표시된 행은 이중 전문가 방법과 비교된다. 여기서 **파란색 셀**은 **트리플-전문가** 모델이 더 낫고 **빨간색 셀**은 **더블-전문가** 모델이 더 낫다는 것을 나타낸다.\n' +
+      '\n' +
+      '### Ablation Study\n' +
+      '\n' +
+      '융합방법의 효과 3.2.1 융합방법 효과\n' +
+      '\n' +
+      'MLP 프로젝션과 Q-Former 네트워크는 비전과 언어를 연결하는 두 가지 주류 방법이다. _ 특히 다중 전문가 융합의 맥락에서 시각적 신호를 보다 효과적으로 전달할 수 있는 것은 핵심 문제이다. 표 5는 "DINOV2 & CLIP" 및 "ConvNeXt & CLIP"를 포함한 세 가지 이중 전문가 조합에 대해 MLP 및 Q-전이를 각각 사용하는 성능을 나타낸다. 결과는 MLP가 더 적은 매개변수를 가지고 대신 무작위로 직접 초기화되는 Q-전이와 같은 사전 훈련된 매개변수를 사용하지 않음에도 불구하고 **모든** 사례에서 Q-전이를 훨씬 능가한다는 것을 보여준다. 그것은 우리가 다중 시각 전문가 설정과 함께 LLaVA에서 간단한 연결을 선호해야 함을 시사한다.\n' +
+      '\n' +
+      '전문가 주문의 효과 3.2.2\n' +
+      '\n' +
+      'LLM의 자기 회귀 및 위치 인식 특성으로 인해 시각 전문가가 정확히 동일하더라도 다른 순서만으로도 최종 출력에 영향을 미칠 수 있다. <표 6>은 이중 전문가 간의 순서 교환 효과를 제시하고 있다. 그룹 "DINOV2 & CLIP" 및 "ConvNeXt & CLIP"의 스왑 결과는 순서가 일부 벤치마크에서 이익(22개 중 7개), 다른 벤치마크에서 손실(22개 중 15개)과 함께 성능에 약간의 변동을 일으킬 수 있음을 나타낸다. 일반적으로 CLIP를 나중에 배치하면 전반적인 성능이 향상됩니다. CLIP가 가장 효과적인 단일 전문가이고 나중에 배치된 전문가가 세대에 더 가깝기 때문에 후자의 위치 전문가가 반응에 약간 더 큰 영향을 미칠 것으로 추측한다. 이러한 현상은 한쪽 눈이 우세안이고 다른 한쪽 눈이 비우세안인 인간과 같은 양안시 유기체의 특성과도 일치한다. 뇌는 전형적으로 시각 정보를 프로세싱할 때 지배적인 눈으로부터의 입력을 선호한다[39].\n' +
+      '\n' +
+      '서로 다른 위치 부호화 기법의 효과 3.2.3\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c c c c c} \\hline \\hline Model & Param. & VQA\\({}^{\\text{v2}}\\) & GQA & SQA\\({}^{\\text{I}}\\) & VQA\\({}^{\\text{T}}\\) & POPE & MMB & MMB\\({}^{\\text{CN}}\\) & SEED\\({}^{\\text{I}}\\) & MM-Vet \\\\ \\hline \\multicolumn{10}{c}{_Effect of the Order of Experts_} \\\\ DINOV2\\(\\rightarrow\\)CLIP & 8.4B & 79.0 & 63.1 & **69.8** & 57.7 & **86.4** & 67.0 & **60.5** & 66.9 & **32.0** \\\\ CLIP\\(\\rightarrow\\)DINOV2 & 8.4B & **79.6** & **63.9** & 69.2 & **59.1** & 86.4 & **67.5** & 59.4 & **67.0** & 31.8 \\\\ \\hline ConvNeXt\\(\\rightarrow\\)CLIP & 7.5B & **78.7** & **61.9** & **69.9** & **57.8** & 86.1 & 65.5 & **59.2** & **66.1** & **32.1** \\\\ CLIP\\(\\rightarrow\\)ConvNeXt & 7.5B & 78.0 & 61.9 & 68.7 & 57.4 & **86.9** & **66.0** & 58.1 & 65.4 & 30.6 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 6: 상이한 전문가 오더의 성능 비교. 우리는 "DINOV2+CLIP"와 "ConvNext+CLIP"의 전문가 순서를 교환한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c c c c c c} \\hline \\hline Model & Param. & VQA\\({}^{\\text{v2}}\\) & GQA & SQA\\({}^{\\text{I}}\\) & VQA\\({}^{\\text{T}}\\) & POPE & MMB & MMB\\({}^{\\text{CN}}\\) & SEED\\({}^{\\text{I}}\\) & MM-Vet \\\\ \\hline \\multicolumn{10}{c}{_Different Positional Encoding Schemes_} \\\\ Origin & 78.5 & 62.0 & 66.8 & 58.2 & 85.9 & 64.3 & 58.3 & 66.2 & 30.5 & 63.4 \\\\ Share-all & 79.0 & 62.4 & **68.4** & **58.4** & 86.3 & **67.4** & 58.2 & 65.7 & 31.7 & **64.2** \\\\ Share-by-row & 75.0 & 57.2 & 63.4 & 51.7 & 86.1 & 46.4 & 43.4 & 55.6 & **31.9** & 56.7 \\\\ Share-by-row\\&col & **79.0** & **62.6** & 68.3 & 58.1 & **86.3** & 66.0 & **58.8** & **66.2** & 30.6 & 64.0 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 7: **9개의 벤치마크에 대한 4개의 위치 부호화 방식의 비교.**\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c c c c c c} \\hline \\hline Model & Param. & VQA\\({}^{\\text{v2}}\\) & GQA & SQA\\({}^{\\text{I}}\\) & VQA\\({}^{\\text{T}}\\) & POPE & MMB & MMB\\({}^{\\text{CN}}\\) & SEED\\({}^{\\text{I}}\\) & MM-Vet \\\\ \\hline \\multicolumn{10}{c}{_Effect of Fusion Methods_} \\\\ DINOV2+CLIP+MLP & 8.4B & **79.0** & **63.1** & **69.8** & **57.7** & **86.4** & **67.0** & **60.5** & **66.9** & **32.0** \\\\ DINOV2+CLIP+Q-Former & 8.5B & 60.4 & 50.9 & 66.7 & 45.1 & 45.2 & 52.7 & 44.8 & 51.8 & 20.5 \\\\ \\hline ConvNeXt+CLIP+MLP & 7.5B & **78.7** & **61.9** & **69.9** & **57.8** & **86.1** & **65.5** & **59.2** & **66.1** & **32.1** \\\\ ConvNeXt+CLIP+Q-Former & 7.6B & 65.8 & 52.6 & 68.7 & 45.6 & 77.0 & 59.7 & 49.8 & 53.2 & 22.1 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 5: 상이한 폴리-전문가 융합 방법의 성능 비교.\n' +
+      '\n' +
+      '이 하위 섹션은 섹션 2.4에서 도입된 VLM의 4가지 위치 인코딩 방식을 비교한다. 표 7은 공유-올이 가장 많은 PE를 절약할 뿐만 아니라 CLIP 위에서 평균 성능을 0.8 향상하는 4가지 접근법의 결과를 보여준다. 2차원 위치 코딩(share-by-row&col)은 평균 0.6의 성능을 향상시키지만, 행 공유는 시각적 부호화기 자체의 위치 정보를 손상시키기 때문에 모델의 성능을 저하시킨다. 실험 결과는 이미 위치 정보가 있는 각 비전 토큰에 LLM 위치 인코딩을 재할당하는 것이 중복된다는 추측을 검증한다.\n' +
+      '\n' +
+      '### Analysis\n' +
+      '\n' +
+      '여러 시각적 인코더 중에서 분석 가치가 있는 한 가지 질문은 모델의 출력에 대한 다양한 전문가의 기여이다. 어텐션 메커니즘은 트랜스포머 네트워크에서 일반적으로 사용되는 해석 도구이다. 여기서는 3-전문가 인코더를 예로 들어 MMB-영어와 MMB-중국어의 두 가지 다국어 벤치마크에 걸쳐 각 전문가의 평균 기여도를 분석한다. 한 표본의 기여도는 각 전문가의 표현에 대한 출력 토큰의 평균 주의력이다. 전체 데이터 세트에 대한 평균화는 전체 평균 기여도를 산출한다.\n' +
+      '\n' +
+      '표 8은 출력에 대한 텍스트 프롬프트, 레이아웃LMv3, DINOv2 및 CLIP의 개별 기여도를 보여준다. 결과는 텍스트 프롬프트가 답변에 기여하는 바가 시각적 전문가에 비해 상당히 높다는 것을 나타낸다. 역시. 첫째, 텍스트 프롬프트는 VLM 응답의 형식을 정의하여 출력 중 프롬프트에 주의를 기울여야 하며, 둘째, 텍스트는 이미지보다 정보 밀도가 높기 때문에 일반적으로 텍스트에 대한 평균 주의력이 더 높다. 3명의 시각 전문가를 비교한 결과, 내림차순으로 CLIP, DINOv2, LayoutLMv3의 기여도가 나타났으며, CLIP는 여전히 지배적인 눈 또는 일차적인 시각 채널의 특성을 보여준다. DINOv2의 기여도는 CLIP의 약 20%인 반면, LayoutLM의 기여도는 CLIP의 1%에 불과하다.\n' +
+      '\n' +
+      '다음과 같은 자연스러운 질문은 기여도가 매우 낮은 시각적 채널의 존재를 감안할 때 그들이 모델의 일부가 되어야 할 필요성이 있는가 하는 것이다. 그림 5는 삼중 전문가 레이아웃LMv3+DINOv2+CLIP 모델에 대한 섭동 실험을 보여준다. 대응하는 전문가의 출력 토큰은 답변을 생성할 때 완전히 마스킹되어 현재 전문가가 출력에 미치는 영향을 탐색한다. Case 1에서, 사용자는 MouSi에게 "사진 속의 개는 어디 있나요?"라는 간단한 질문을 한다. 어느 시각 전문가의 출력 신호가 마스킹되더라도, 나머지 두 시각 채널은 위치 질문에 "위"에 정확하게 대답하기에 충분하다. CLIP 전문가가 더 자세한 내용을 제공할 경우\n' +
+      '\n' +
+      '그림 5: 삼중 전문가 LayoutLMv3+DINOv2+CLIP 모델에 대한 섭동 실험, 특정 섭동은 해당 비전 전문가의 모든 출력을 가리는 것이다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c} \\hline \\hline Benchmark & Text Prompt & LayoutLMv3 & DINOv2 & CLIP \\\\ \\hline MMB & 61.1\\% & 0.14\\% & 2.76\\% & 11.1\\% \\\\ MMB\\({}^{\\text{CN}}\\) & 58.8\\% & 0.16\\% & 2.92\\% & 10.7\\% \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 8: 각 시각 전문가에 대한 무시의 산출물의 평균 주의 확률(%) 할당. 사용된 모델은 "LayoutLMv3+DINOv2+CLIP" 트리플 전문가 비주얼 인코더이다.\n' +
+      '\n' +
+      '단지 "테이블" 대신에 "우드넨 테이블"을 출력하는 것과 같이 존재한다. Case 2의 경우, 사용자는 MouSi에게 "사진에 강아지가 몇 마리 있나요? 어떤 색깔인가요?"라고 묻는데, 섭동 결과는 함께 일하는 전문가 3명만이 질문에 정확하게 대답할 수 있다는 것을 보여준다. 한 전문가의 부재는 오답을 초래하며, 이는 다시각 전문가 VLM의 다중 시각적 채널에 의해 캡처된 정보의 차이를 보여준다. 일부 멀티모달 태스크는 단일 채널(즉, 단일 전문가 VLM)이 갖지 않는 다중 채널의 시너지에 의존한다.\n' +
+      '\n' +
+      '### Data Enhancement\n' +
+      '\n' +
+      '다시각 전문가 VLM의 아키텍처와 효율성을 종합적으로 탐색한 후, 우리는 다시각 전문가 VLM의 성능의 상한선을 탐색하기 위해 LLaVA-1.5의 데이터를 추가로 확장했다.\n' +
+      '\n' +
+      '사전 훈련 단계에서 120만 개의 사전 훈련 데이터를 사용하여 LLaVA-1.5의 원래 558K 데이터를 대체했으며 GPT4v에 의해 100K 데이터가 생성되었으며 나머지 데이터는 558K 이미지가 포함되지만 고품질 캡션이 있는 감독 훈련된 이미지 캡셔너가 생성했다. SFT 단계에서 665K SFT 데이터를 1647K로 확장했다. 자세한 통계 정보는 부록 A에서 찾을 수 있으며, 데이터 향상 결과를 위해 모든 훈련 하이퍼파라미터를 주요 결과와 대략 동일하게 유지한다. 또한 데이터 크기의 증가에 따라 반복횟수가 달라진다.\n' +
+      '\n' +
+      '표 9는 9개의 벤치마크에서 데이터 개선 후 LLaVA-1.5(즉, 단일 CLIP 전문가), LLaVA-1.5 및 MouSi(3중 전문가 "LayoutLM+ConvNeXt+CLIP 포함)에 대한 결과를 보고한다. 결과는 데이터 향상을 통해 다중 시각 전문가 VLM이 단일 전문가 VLM에 비해 성능(7/9)을 더욱 향상시킬 수 있음을 보여준다. 평균 성능은 1.0 향상되었지만 매개변수 수는 300M만 증가했다. 데이터 증강의 효과를 비교하면 단일 전문가 접근법이 4.4, 삼중 전문가 방법이 3.9 향상되었음을 알 수 있으며, 이는 다중 시각적 전문가 VLM의 잠재력이 아직 완전히 활용되지 않았으며 더 많은 데이터가 VLM의 능력을 크게 향상시킬 수 있음을 확인시켜준다. 마지막으로, 주류 VLM에 비해 MouSi는 벤치마크 9개 중 8개에서 가장 우수한 성능을 발휘하면서 나머지 하나에서 두 번째로 우수한 성능을 발휘하여 강력한 멀티모달 어시스턴트 기능을 발휘한다.\n' +
+      '\n' +
+      '##4 사례연구\n' +
+      '\n' +
+      '그림 6은 복합 이미지 캡션, 시각적 텍스트 생성, 세계 지식으로 추론하는 OCR 해석, 시각적 수학 문제 해결, 복합 계수 및 시각적 접지를 포함한 7가지 작업에 대한 MouSi의 사례 연구를 보여준다. MouSi는 다양한 멀티모달 지시를 성공적으로 따를 수 있어 인간과의 유연한 상호 작용을 가능하게 한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c c c c c c} \\hline \\hline Model & Param. & VQA\\({}^{\\text{v2}}\\) & GQA & SOA\\({}^{\\text{I}}\\) & VQA\\({}^{\\text{T}}\\) & POPE & MMB & MMB\\({}^{\\text{CN}}\\) & SEED\\({}^{\\text{I}}\\) & MM-Vet & Avg. \\\\ \\hline \\hline \\multicolumn{11}{c}{_Baselines_} \\\\ InstructBLIP[40] & 8.0B & – & 49.2 & 60.5 & 50.1 & – & 36.0 & 23.7 & 53.4 & 26.2 \\\\ Qwen-VL-Chat[24] & 9.6B & 78.2 & 57.5 & 68.2 & **61.5** & – & 60.6 & 56.7 & 58.2 & – \\\\ BLIP-[26] & 14.1B & 41.0 & 41.0 & 61.0 & 42.5 & 85.3 & – & – & 46.4 & 22.4 \\\\ Shikra[41] & 7.3B & 77.4 & – & – & – & – & 58.8 & – & – & – \\\\ PandaGPT[42] & 13B & – & – & – & – & – & 45.4 & 32.0 & 47.6 & 19.6 \\\\ mPLUG-Owl2[43] & 8.2B & – & – & – & – & – & 66.5 & 59.5 & 64.5 & 35.7 \\\\ Emu2-chat[44] & 37B & – & – & – & – & – & 62.4 & 44.2 & 68.9 & 31.0 \\\\ \\hline \\multicolumn{11}{c}{_Default Data_} \\\\ CLIP (LLaVA-1.5[22]) & 7.3B & 78.5 & 62.0 & 66.8 & 58.2 & 85.9 & 64.3 & 58.3 & 66.2 & 30.5 & 63.1 \\\\ ConvNeXt+LayoutLv3+CLIP & 7.9B & 78.5 & **63.3** & 70.2 & 58.0 & **87.3** & 66.8 & 58.9 & 66.0 & 32.2 & 64.6 \\\\ \\multicolumn{11}{c}{_Data Enhancement_} \\\\ CLIP & 7.3B & 80.8 & 62.7 & 81.9 & 60.7 & 85.5 & **69.2** & 61.7 & 69.8 & 35.6 & 67.5 \\\\ LayoutLv3+ConvNeXt+CLIP & 7.9B & **80.9** & 62.6 & **84.3** & 61.3 & 86.3 & 68.8 & **63.7** & **70.1** & **38.4** & **68.5** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 9: 9개의 벤치마크에 대한 데이터 향상 효과. **Param.**는 파라미터의 개수를 나타낸다.\n' +
+      '\n' +
+      '## 5 관련 업무\n' +
+      '\n' +
+      'VLM(Vision-Language Models)은 언어적 처리와 시각적 처리의 융합을 나타내며, 다양한 응용 분야에서 유망한 결과를 보여주었다. VisualGPT[45]와 같은 초기 모델은 이미지 캡션에서 기초적인 작업을 제공했으며 BLIP 시리즈[28; 26]는 시각적 질문 답변을 포함하도록 기능을 확장했다. 플라밍고[46]와 Kosmos-1[47]은 이미지 텍스트 프레임워크 내에서 효과적인 다중 모드 이해도를 보여주었다. LLaVA[7] 및 MiniGPT-4[48]과 같은LLaMA 적응은 비전 인코더와 LLM을 연결하기 위해 프로젝션 레이어를 사용한다. CoGVLM[23]은 시각적 토큰을 전문으로 하는 시각적 전문가를 구축하기 위해 매개변수를 두 배 가까이 복제했지만 위치 인코딩에 대한 우리의 탐색과 유사하게 원래 접근 방식이 아닌 공유별로 사용했다. Qwen-VL 및 BLIP 시리즈[24; 25]는 텍스트 및 이미지를 브리지하기 위해 Q-이전 네트워크를 사용한다.\n' +
+      '\n' +
+      '비주얼 인코딩 전문가 비전 언어 모델의 성공은 시각적 인코딩에 능숙하게 의존하므로, 각각의 도메인 전문 지식을 가진 비전 인코더의 선별된 선택은 전체적 시각적 이해에 중요하다. [6]에 의한 CLIP 모델은 이미지와 텍스트를 정렬하기 위해 대조적 학습을 채택하여 의미론적 이미지 이해를 효과적으로 촉진한다. Meta사의 Dinov2[13]\n' +
+      '\n' +
+      '그림 6: 마우시에 의해 생성된 정성적 예.\n' +
+      '\n' +
+      '학생-교사 네트워크 패러다임을 통해 자가 지도 학습을 발전시켜 강력한 ViT 프레임워크로 공간 이해를 발전시킨다. 반면 마이크로소프트의 LayoutLMv3[14]는 ViT 모델에서 워드-패치 정렬을 강화하여 문서 AI에 능숙한 멀티모달 트랜스포머를 제시한다. Convnext [21]은 ImageNet-22K 데이터로 미세 조정된 FCMAE 프레임워크 및 GRN 레이어로 ConvNets의 효능을 재도입한다. [27]에 의한 Segment Anything 모델(SAM)은 ViT 인프라에서 제로 샷 일반화를 챔피언으로 하기 위해 방대한 데이터 세트에 대해 훈련된 탁월한 세분화 능력을 보여줍니다. MAE[17]은 높은 충실도로 이미지를 재구성하는 놀라운 자기 감독 기능을 보여주었다. 그러나 이러한 인코더, 특히 CLIP는 [19]에서 입증된 바와 같이 공간 지향에 대한 투쟁과 객체 환각에 대한 [20]의 발견을 강조하는 한계를 가지고 있다. 더욱이, [15]는 CLIP와 같은 완전/약하게 감독된 인코더에서 더 많은 의미론을 주목하면서 역량의 분할을 인식한 반면, 다른 것들은 세밀한 인식에서 탁월하다.\n' +
+      '\n' +
+      'Multi-Modal Large Language Model(MLLM)은 ImageBind-LLM[49] 및 PandaGPT[42]와 같은 모델이 오디오 및 비디오를 포함한 더 풍부한 모달리티 입력을 통합하는 등 빠르게 진화하고 있다. 또한 영역 수준 구문 분석[41], 텍스트 대 이미지 생성[50], 3D 이해[51]에 대한 초점이 증가하고 있다. 이러한 모델은 MLLM이 다양한 작업에서 의미 있는 성능을 달성할 수 있음을 보여준다. MouSi는 다중 시각 전문가 VLM으로서 우리의 미래 작업이 될 다중 모달 전문가 모델에 쉽게 적응한다.\n' +
+      '\n' +
+      '## 6 Conclusion\n' +
+      '\n' +
+      '본 논문에서는 생물학적 시각 처리의 복잡하고 다차원적인 특성을 밀접하게 반영하는 새로운 다중 시각 시스템을 제안함으로써 시각 언어 모델(VLMs)의 경계를 푸시한다. 다양한 비주얼 인코더의 고유한 속성을 활용하여 본 시스템은 그들의 장점을 통합하여 VLM에 대한 멀티모달 이해를 풍부하게 한다. 또한, 다중 패치-단일-토큰 투영(multi-patch-single-token projection)과 위치 임베딩 최적화(position embedding)와 같은 기법을 도입하여 언어 모델에 시각 정보를 효율적으로 통합하는 문제를 해결한다. 이는 일반적으로 VLM에 부담을 주는 비전 토큰의 오버플로우를 관리할 수 있을 뿐만 아니라, 모델의 의미적, 공간적 추론 능력을 유지할 수 있으며, 벤치마크에 걸친 엄격한 실험을 통해, 본 논문에서 제안하는 폴리비주얼 접근 방식이 VLM의 성능을 크게 향상시켜 정확성과 이해의 깊이에서 기존 모델을 능가한다는 것을 증명한다. 이러한 결과는 전문가 인코더의 잘 통합된 조립이 복잡한 멀티모달 입력을 처리하는 데 상당한 개선을 초래할 수 있다는 우리의 가설을 뒷받침한다.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* [1] Agrawal, H., K. Desai, Y. Wang, et al. Nocaps: Novel object captioning at scale. In _Proceedings of the IEEE/CVF international conference on computer vision_, pages 8948-8957. 2019.\n' +
+      '* [2] Antol, S., A. Agrawal, J. Lu, et al. Vqa: Visual question answering. In _Proceedings of the IEEE international conference on computer vision_, pages 2425-2433. 2015.\n' +
+      '* [3] Yu, L., P. Poirson, S. Yang, et al. Modeling context in referring expressions. In _Computer Vision-ECCV 2016: 14th European Conference, Amsterdam, The Netherlands, October 11-14, 2016, Proceedings, Part II 14_, pages 69-85. Springer, 2016.\n' +
+      '* [4] Durante, Z., Q. Huang, N. Wake, et al. Agent ai: Surveying the horizons of multimodal interaction. _arXiv preprint arXiv:2401.03568_, 2024.\n' +
+      '* [5] Xi, Z., W. Chen, X. Guo, et al. The rise and potential of large language model based agents: A survey. _arXiv preprint arXiv:2309.07864_, 2023.\n' +
+      '* [6] Radford, A., J. W. Kim, C. Hallacy, et al. Learning transferable visual models from natural language supervision. In _International conference on machine learning_, pages 8748-8763. PMLR, 2021.\n' +
+      '* [7] Liu, H., C. Li, Q. Wu, et al. Visual instruction tuning. In _NeurIPS_. 2023.\n' +
+      '* [8] Yamada, Y., Y. Tang, I. Yildirim. When are lemons purple? the concept association bias of clip. _arXiv preprint arXiv:2212.12043_, 2022.\n' +
+      '\n' +
+      '* [9] Thrush, T., R. Jiang, M. Bartolo, et al. Winoground: Probing vision and language models for visio-linguistic compositionality. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 5238-5248. 2022.\n' +
+      '* [10] Yuksekgonul, M., F. Bianchi, P. Kalluri, et al. When and why vision-language models behave like bags-of-words, and what to do about it? In _The Eleventh International Conference on Learning Representations_. 2022.\n' +
+      '* [11] Baden, T., P. Berens, K. Franke, et al. The functional diversity of retinal ganglion cells in the mouse. _Nature_, 529(7586):345-350, 2016.\n' +
+      '* [12] Chen, F.-L., D.-Z. Zhang, M.-L. Han, et al. Vlp: A survey on vision-language pre-training. _Machine Intelligence Research_, 20(1):38-56, 2023.\n' +
+      '* [13] Oquab, M., T. Darcet, T. Moutakanni, et al. Dinov2: Learning robust visual features without supervision. _arXiv preprint arXiv:2304.07193_, 2023.\n' +
+      '* [14] Huang, Y., T. Lv, L. Cui, et al. Layoutlmv3: Pre-training for document ai with unified text and image masking, 2022.\n' +
+      '* [15] Wang, G., Y. Ge, X. Ding, et al. What makes for good visual tokenizers for large language models? _arXiv preprint arXiv:2305.12223_, 2023.\n' +
+      '* [16] Touvron, H., M. Cord, M. Douze, et al. Training data-efficient image transformers & distillation through attention. In _International conference on machine learning_, pages 10347-10357. PMLR, 2021.\n' +
+      '* [17] He, K., X. Chen, S. Xie, et al. Masked autoencoders are scalable vision learners, 2021.\n' +
+      '* [18] Caron, M., H. Touvron, I. Misra, et al. Emerging properties in self-supervised vision transformers. In _Proceedings of the IEEE/CVF international conference on computer vision_, pages 9650-9660. 2021.\n' +
+      '* [19] Kamath, A., J. Hessel, K.-W. Chang. What\'s up" with vision-language models? investigating their struggle with spatial reasoning. _arXiv preprint arXiv:2310.19785_, 2023.\n' +
+      '* [20] Li, Y., Y. Du, K. Zhou, et al. Evaluating object hallucination in large vision-language models. _arXiv preprint arXiv:2305.10355_, 2023.\n' +
+      '* [21] Woo, S., S. Debnath, R. Hu, et al. Convnext v2: Co-designing and scaling convnets with masked autoencoders. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 16133-16142. 2023.\n' +
+      '* [22] Liu, H., C. Li, Y. Li, et al. Improved baselines with visual instruction tuning, 2023.\n' +
+      '* [23] Wang, W., Q. Lv, W. Yu, et al. Cogvlm: Visual expert for pretrained language models. _arXiv preprint arXiv:2311.03079_, 2023.\n' +
+      '* [24] Bai, J., S. Bai, S. Yang, et al. Qwen-vl: A frontier large vision-language model with versatile abilities. _arXiv preprint arXiv:2308.12966_, 2023.\n' +
+      '* [25] Dai, W., J. Li, D. Li, et al. Instructblip: Towards general-purpose vision-language models with instruction tuning. arxiv 2023. _arXiv preprint arXiv:2305.06500_.\n' +
+      '* [26] Li, J., D. Li, S. Savarese, et al. Blip-2: Bootstrapping language-image pre-training with frozen image encoders and large language models. _arXiv preprint arXiv:2301.12597_, 2023.\n' +
+      '* [27] Kirillov, A., E. Mintun, N. Ravi, et al. Segment anything. _arXiv preprint arXiv:2304.02643_, 2023.\n' +
+      '* [28] Li, J., D. Li, C. Xiong, et al. Blip: Bootstrapping language-image pre-training for unified vision-language understanding and generation. In _International Conference on Machine Learning_, pages 12888-12900. PMLR, 2022.\n' +
+      '\n' +
+      '* [29] Wang, Z., J.-C. Liu. Translating math formula images to latex sequences using deep neural networks with sequence-level training, 2019.\n' +
+      '* [30] Gurari, D., Q. Li, A. J. Stangl, et al. Vizwiz grand challenge: Answering visual questions from blind people. In _Proceedings of the IEEE conference on computer vision and pattern recognition_, pages 3608-3617. 2018.\n' +
+      '* [31] Fu, C., P. Chen, Y. Shen, et al. A comprehensive evaluation benchmark for multimodal large language models. _CoRR, abs/2306.13394_, 2023.\n' +
+      '* [32] Goyal, Y., T. Khot, D. Summers-Stay, et al. Making the v in vqa matter: Elevating the role of image understanding in visual question answering. In _Proceedings of the IEEE conference on computer vision and pattern recognition_, pages 6904-6913. 2017.\n' +
+      '* [33] Hudson, D. A., C. D. Manning. Gqa: A new dataset for real-world visual reasoning and compositional question answering. In _Proceedings of the IEEE/CVF conference on computer vision and pattern recognition_, pages 6700-6709. 2019.\n' +
+      '* [34] Lu, P., S. Mishra, T. Xia, et al. Learn to explain: Multimodal reasoning via thought chains for science question answering. _Advances in Neural Information Processing Systems_, 35:2507-2521, 2022.\n' +
+      '* [35] Singh, A., V. Natarajan, M. Shah, et al. Towards vqa models that can read. In _Proceedings of the IEEE/CVF conference on computer vision and pattern recognition_, pages 8317-8326. 2019.\n' +
+      '* [36] Liu, Y., H. Duan, Y. Zhang, et al. Mmbench: Is your multi-modal model an all-around player? _arXiv preprint arXiv:2307.06281_, 2023.\n' +
+      '* [37] Li, B., R. Wang, G. Wang, et al. Seed-bench: Benchmarking multimodal llms with generative comprehension. _arXiv preprint arXiv:2307.16125_, 2023.\n' +
+      '* [38] Yu, W., Z. Yang, L. Li, et al. Mm-vet: Evaluating large multimodal models for integrated capabilities. _arXiv preprint arXiv:2308.02490_, 2023.\n' +
+      '* [39] Miller, K. D., J. B. Keller, M. P. Stryker. Ocular dominance column development: analysis and simulation. _Science_, 245(4918):605-615, 1989.\n' +
+      '* [40] Dai, W., J. Li, D. Li, et al. Instructblip: Towards general-purpose vision-language models with instruction tuning. arxiv 2023. _arXiv preprint arXiv:2305.06500_, 2023.\n' +
+      '* [41] Chen, K., Z. Zhang, W. Zeng, et al. Shikra: Unleashing multimodal llm\'s referential dialogue magic. _arXiv preprint arXiv:2306.15195_, 2023.\n' +
+      '* [42] Su, Y., T. Lan, H. Li, et al. Pandagpt: One model to instruction-follow them all. _arXiv preprint arXiv:2305.16355_, 2023.\n' +
+      '* [43] Ye, Q., H. Xu, J. Ye, et al. mplug-owl2: Revolutionizing multi-modal large language model with modality collaboration, 2023.\n' +
+      '* [44] Sun, Q., Y. Cui, X. Zhang, et al. Generative multimodal models are in-context learners, 2023.\n' +
+      '* [45] Chen, J., H. Guo, K. Yi, et al. Visualgpt: Data-efficient adaptation of pretrained language models for image captioning. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 18030-18040. 2022.\n' +
+      '* [46] Alayrac, J.-B., J. Donahue, P. Luc, et al. Flamingo: a visual language model for few-shot learning. _Advances in Neural Information Processing Systems_, 35:23716-23736, 2022.\n' +
+      '* [47] Huang, S., L. Dong, W. Wang, et al. Language is not all you need: Aligning perception with language models. _arXiv preprint arXiv:2302.14045_, 2023.\n' +
+      '* [48] Zhu, D., J. Chen, X. Shen, et al. Minigpt-4: Enhancing vision-language understanding with advanced large language models. _arXiv preprint arXiv:2304.10592_, 2023.\n' +
+      '\n' +
+      '* [49] Han, J., R. Zhang, W. Shao, et al. Imagebind-lfm: Multi-modality instruction tuning. _arXiv preprint arXiv:2309.03905_, 2023.\n' +
+      '* [50] Wen, S., G. Fang, R. Zhang, et al. Improving compositional text-to-image generation with large vision-language models. _arXiv preprint arXiv:2310.06311_, 2023.\n' +
+      '* [51] Xu, R., X. Wang, T. Wang, et al. Pointllm: Empowering large language models to understand point clouds. _arXiv preprint arXiv:2308.16911_, 2023.\n' +
+      '* [52] Chen, L., J. Li, X. Dong, et al. Sharegpt4v: Improving large multi-modal models with better captions. _arXiv preprint arXiv:2311.12793_, 2023.\n' +
+      '* [53] Wang, J., L. Meng, Z. Weng, et al. To see is to believe: Prompting gpt-4v for better visual instruction tuning. _arXiv preprint arXiv:2311.07574_, 2023.\n' +
+      '\n' +
+      'Datasets\n' +
+      '\n' +
+      '사전 훈련 단계 동안 LAION-CC-SBU에서 조달한 LLaVA-1.5에 사용된 동일한 LCS-558K 데이터 세트를 사용했다. 데이터 강화 데이터 세트의 경우 더 긴 텍스트 설명으로 구별되는 ShareGPT4V[52]의 사전 훈련된 데이터 세트를 통합했다.\n' +
+      '\n' +
+      '후속 미세 단계에서 약 665K 샘플을 포함하는 기본 데이터 세트에 대해 LLaVA-1.5와 동일한 명령어 기반 미세 조정 데이터를 활용했다. 향상된 데이터가 있는 데이터 세트의 경우 ShareGPT4V, LVIS-INSTRUCT4V[53] 및 CogVLIM-SFT-311K-CN[23]과 같은 소스에서 파생된 최종 단계에서 추가 데이터를 도입했다.\n' +
+      '\n' +
+      '사전 훈련 및 미세 데이터 세트의 세부 사항은 표 10에 자세히 설명되어 있다.\n' +
+      '\n' +
+      '## 부록 B 하이퍼파라미터\n' +
+      '\n' +
+      '우리는 원래의 LLaVA-1.5와 동일한 하이퍼파라미터 세트를 사용한다. 시각적 언어 정렬 사전 트레이닝 및 시각적 명령어 튜닝을 위한 트레이닝 하이퍼파라미터는 표 11에 나와 있다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c|l l} \\hline \\hline Default pretrain data & Size & Enhanced pretrain data & Size \\\\ \\hline LCS-558K & 558K & ShareGPT4V & 1200K \\\\ \\hline \\hline Default finetune data & Size & Enhanced finetune data & Size \\\\ \\hline LLaVA & 158K & ShareGPT4V-cap100k & 100K \\\\ ShareGPT & 40K & ShareGPT4V-mix-665k & 665K \\\\ VQAv2 & 83K & LVIS-INSTRUCT4V-220k & 220K \\\\ GQA & 72K & CogVLM-SFT-311K-CN & 150K \\\\ OCRVQA & 80K & VG & 86K \\\\ A-OKVQA & 50K & OCRVQA & 80K \\\\ TextCaps & 22K & GQA & 72K \\\\ RefCOCO & 30K & VQAv2 & 60K \\\\ VG & 86K & docvqa & 44K \\\\ OKVQA & 9K & stvqa & 30K \\\\  & & fminqa & 23K \\\\  & & textvqa & 21K \\\\  & & coco-cn & 20K \\\\  & & ScienceQA & 10K \\\\  & & flickr8k-cn & 8K \\\\  & & chinese-food & 1K \\\\ \\hline Total & 665K & Total & 1647K \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 10: 우리 모델의 프리트레인 및 파인튠 단계에 대한 기본 데이터 및 향상된 데이터.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c} \\hline \\hline Hyperparameter & Pretrain & Finetune \\\\ \\hline batch size & 256 & 128 \\\\ lr & 1e-3 & 2e-5 \\\\ lr schedule & & cosine decay \\\\ lr warmup ratio & 0.03 \\\\ weight decay & 0 \\\\ epoch & 1 \\\\ optimizer & AdamW \\\\ DeepSpeed stage & 2 & 3 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 11: 우리 모델의 프리트레인 및 피네튠의 하이퍼파라미터.\n' +
+      '\n' +
+      '[MISSING_PAGE_EMPTY:19]\n' +
+      '\n' +
+      '그림 8: 무시에 의해 생성된 정성적 중국 사례.\n' +
+      '\n' +
+      '그림 9: 무시에 의해 생성된 정성적 중국 사례.\n' +
+      '\n' +
+      '그림 10: 무시에 의해 생성된 정성적 중국 사례.\n' +
+      '\n' +
+      '그림 11: 무시에 의해 생성된 정성적 중국 사례.\n' +
+      '\n' +
+      '그림 12: 무시에 의해 생성된 정성적 중국 사례.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
