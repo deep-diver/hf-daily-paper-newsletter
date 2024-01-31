@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# ReGAL: 일반화 가능한 추상화 발견을 위한 리팩토링 프로그램\n' +
+      '\n' +
+      ' 엘리아스 스텐겔 에스킨\n' +
+      '\n' +
+      'Archiki Prasad\n' +
+      '\n' +
+      'Mohit Bansal\n' +
+      '\n' +
+      '동등한 기여도 \\({}^{1}\\)UNC 성당 언덕. 대응: Elias Stengel-Eskin \\(<\\)esteng@cs.unc.edu\\(>\\)\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      '대규모 언어 모델(LLM)은 프로그램 합성에 점점 더 많이 사용되고 있지만, 유용한 추상화를 개발하는 데 필요한 글로벌 뷰가 부족하다. 그들은 일반적으로 한 번에 하나씩 프로그램을 예측하며 종종 동일한 기능을 반복한다. 처음부터 중복 코드를 생성하는 것은 비효율적이고 오류가 발생하기 쉽습니다. 이를 해결하기 위해 본 논문에서는 R**efactoring for **G**eneralizable **A**bstraction **L**earning(ReGAL)을 제안한다. R**efactoring for **R**efactoring for **G**eneralizable **A**bstraction **L**earning(ReGAL)은 코드 _refactorization_를 통해 _reusable_ function의 라이브러리를 학습하기 위한 그래디언트-프리 방법, 즉 코드의 실행 출력을 변경하지 않고 코드를 재구성하는 방법을 제안한다. ReGAL은 기존의 프로그램들의 작은 세트로부터 학습하고, 실행을 통해 그것의 추상화를 반복적으로 검증하고 정제한다. ReGAL에 의해 발견된 공유 함수 라이브러리는 다양한 도메인에서 프로그램을 보다 쉽게 예측할 수 있게 한다. 세 가지 데이터 세트(LOGO 그래픽 생성, 날짜 추론 및 마인크래프트 기반 텍스트 게임인 TextCraft)에서 오픈 소스 및 독점 LLM은 모두 ReGAL 기능으로 프로그램을 예측할 때 정확도가 향상된다. CodeLlama-13B의 경우, ReGAL은 그래픽에서 \\(11.5\\%\\), 날짜 이해에서 \\(26.1\\%\\), TextCraft에서 \\(8.1\\%\\)의 절대 정확도가 3개의 도메인 중 2개에서 GPT-3.5보다 향상되었다. 분석 결과 자주 사용되는 서브루틴과 환경 역학.1을 캡슐화하는 ReGAL의 추상화가 나타났다.\n' +
+      '\n' +
+      '각주 1: [https://github.com/esteng/regal_program_learning]에서 사용 가능한 코드(https://github.com/esteng/regal_program_learning)\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      '주어진 질의에 대한 실행가능 프로그램을 생성하기 위해 큰 언어 모델(LLM)을 사용함으로써 증가하는 태스크들의 범위가 해결될 수 있다; 이러한 패러다임은 컴퓨터 비전(Suris et al., 2023; Gupta et al., 2018; Cho et al., 2023), 로봇 공학(An et al., 2022; Singh et al., 2023), 도구 사용(Schick et al., 2023; Lu et al., 2023; Qin et al., 2023), 및 일반적인 추론(Lyu et al., 2023). 이 모든 경우에, 전체 프로그램 생성 프레임워크는 동일하다: 개별 쿼리는 (지시 프롬프트와 함께) LLM에 주어지며, LLM은 실행될 때 원하는 결과를 산출하는 프로그램을 생성한다. 결정적으로, 각 프로그램은 _independently_(도 1에 도시된 바와 같이) 생성된다. 다른 쿼리 또는 프로그램에 대한 참조 없이, _primitive_ 연산, 즉 도메인 언어의 내장 연산으로 구성된다. 이 접근법은 크게 두 가지 제한 사항과 관련된 제한 사항을 가지고 있다.\n' +
+      '\n' +
+      '**1) Reusability의 부족**: 각 프로그램은 주어진 예를 해결하기 위해 일회성 스크립트로 설계되지만 다른 예에 의해 재사용되지 않는다. 이는 중복성을 증가시키고 불필요한 오류를 초래할 수 있다: 공유 서브루틴을 필요로 하는 두 가지 예에 대해, 모델은 한 예에서 서브루틴을 올바르게 생성하고 다른 예에서 오류를 범할 수 있다. 예를 들어, 도. 1(상단) "원시 전용" 모델은 이전에 비아곤을 생성했지만 잘못된 내부 각도(40.5)를 사용합니다. 반면에 ReGAL의 draw_small_ggon() 함수는 올바르게 실행된다.\n' +
+      '\n' +
+      '**2) 추상화의 부족**: 공유 추상화는 기술에 대해 모델에 더 쉽게 접근할 수 있게 함으로써 정확도를 향상시킬 수 있다. 프리미티브로부터 단독으로 생성할 때, 모델은 쿼리를 해석하고 쿼리에서 다수의 프리미티브로의 올바른 매핑을 생성해야 하며, 더 많은 추론이 필요하다. 모델의 _overall_ 태스크는 처음부터 추론하는 대신 라이브러리에서 함수 이름을 선택하기 때문에 해석 가능한 추상화를 사용할 때 더 쉬워진다. 인 것을 특징으로 하는 반도체 소자의 제조 방법. 도 1의 (하단) 추상화들로 증강된 모델은 서브-쿼리 _"작은 9 gon"_에서 draw_small_9gon()을 매칭할 수 있다; 태스크의 이 부분이 단순화된 상태에서, 모델은 나머지 코드에 대해 올바르게 이유하는 반면, 프리미티브-전용 모델은 루프에 형상을 올바르게 임베딩하지 못한다.\n' +
+      '\n' +
+      '그림 1: 원시 전용 프로그램을 검증 및 저장되는 추상화로 리팩토링하여 ReGAL 열차. 이러한 추상화는 두 가지 이점을 갖는다: **재사용성**: 동일한 코드를 여러 번 다시 쓰는 것은 오류로 이어지며; **추상화**: ReGAL은 질의와 추상화 사이의 매칭을 허용함으로써 예측을 더 용이하게 한다.\n' +
+      '\n' +
+      '두 제한 모두 모델이 각 예를 개별적으로 볼 때 글로벌 컨텍스트_의 결여로 추적될 수 있으므로 재사용 가능한 추상화를 개발하기 위한 메커니즘이 부족하다. 이는 인간이 코드를 작성하는 방식과 크게 다르다: 일반적으로 개발자는 일회성 솔루션으로 개별 작업을 해결하기 시작할 수 있지만, 관련 문제에 대해 공유 추상화 및 코드 스니펫의 라이브러리를 빠르게 개발하기 시작하여 코드의 중복성을 줄이고 효율성과 가독성을 촉진한다(McConnell, 2004; Downey, 2012). 게다가, 기능들은 검증될 수 있다: 일단 우리가 기능을 테스트하면, 우리는 미래에 그것에 의존할 수 있다 - 끊임없이 변하는 일회성 코드 스니펫들을 위해 하기 더 어려운 것. 이러한 추상화 및 검증은 코드 합성 과정이 여러 예제 과정에서 이루어지는 경우에만 합리적이다. 즉, 일회성 과제 하나로 제시하면 일회성 대본을 작성하지 않을 이유가 없다.\n' +
+      '\n' +
+      '추상화는 많은 이점을 제공하지만 특정 예에 맞춘 기능이 일반화 가능성을 잃는 과잉 적합의 위험과 함께 제공된다. 예를 들어, draw_ggon_snowflake()와 같은 함수는 하나의 예와 완벽하게 일치할 수 있지만 일반화에 실패한다. 반대로, draw_small_ggon()은 다양한 컨텍스트에서 적용 가능한 보다 다재다능한 기능이다. 원시 연산을 사용하여 새로운 프로그램을 생성하는 능력은 서브루틴을 재사용 가능한 추상화(O\'Donnell, 2015)로 인코딩함으로써 얻는 이점과 균형을 이룰 필요가 있다. 유연성과 효율성 사이의 유사한 균형은 언어(O\'Donnell, 2015; Yang, 2016), 생물학(Futuyma & Moreno, 1988), 제조(Flynn & Jacobs, 1987), 프로그래밍(Ellis et al., 2021) 등 다양한 영역에서 나타난다. LLM 기반 프로그램 합성에서 이러한 균형을 맞추기 위해, 우리는 **G**eneralizable **A**bstraction **L**earning(ReGAL)을 위한 **Re**factoring을 제안한다. ReGAL은 지나치게 구체적이거나 잘못된 프로그램이 개선되거나 제거되도록 프로그램을 리팩토링할 뿐만 아니라 추상화를 검증, 수정 및 프루닝함으로써 추상화를 반복적으로 개선한다. ReGAL은 프리미티브 연산(즉, _primitive program_)을 사용하는 프로그램의 작은 집합과 실행 환경(예를 들어, 파이썬)이라는 두 가지 핵심 요소에 의존한다. 중요하게도, 우리는 ReGAL이 인간 주석을 요구하지 않고 LLM 생성 프로그램에서 학습할 수 있음을 보여준다.\n' +
+      '\n' +
+      'ReGAL은 익숙한 열차 테스트 패러다임을 따른다: ReGAL의 모듈식 훈련 단계 동안(Fig. 참조). 2) 그것은 유용한 추상화들의 라이브러리를 생성하기 위해 (_쿼리, 프로그램_) 예시들의 작은 세트를 반복적으로 재인덱싱한다. ReGAL은 LLM을 사용하여 예제들의 배치에 대한 도우미 함수들을 작성하는데, 이는 예상된 결과에 대해 검증된다; 성공적인 도우미 함수들이 라이브러리에 추가되고 리팩토링된 프로그램은 함수의 사용의 예로서 기능한다. ReGAL은 오류를 수정하고 디버깅하기 위해 성공 피드백을 고려할 수 있으며, 도우미 기능을 주기적으로 편집하여 보다 일반화할 수 있도록 하거나 더 일반화할 수 없는 경우 과도하게 특정한 자두 기능을 만든다. 훈련은 프로그램을 리팩터하기 위해 냉동 LLM에 의존하는 그래디언트 프리이다. 테스트 단계에서 LLM 에이전트는 테스트 쿼리에 대한 프로그램을 예측하는 작업을 수행합니다. 에이전트는 ReGAL의 도우미 기능 라이브러리와 사용 방법에 대한 데모를 이용할 수 있습니다.\n' +
+      '\n' +
+      'ReGAL의 광범위한 적용 가능성을 검증하기 위해 프로그램 유도 작업인 LOGO(Ellis et al., 2021; Wong et al., 2021), LLMs(Suzgun et al., 2022)에 도전하는 것으로 알려진 날짜 추론 작업(Srivastava et al., 2022) 및 마인크래프트 객체를 제작하기 위한 텍스트 기반 게임인 TextCraft(Prasad et al., 2023)의 세 가지 다양한 데이터 세트에 대해 테스트하였다. 이러한 작업들에 걸쳐, ReGAL은 프리미티브 프로그램들(즉, ReGAL의 추상화가 없는 프로그램들)을 예측하는 기준선보다 다양한 LLM들, 특히 오픈 소스 LLM들로부터 예측된 프로그램들의 정확도를 상당히 향상시킨다. 예를 들어, CodeLlama-13B (Roziere et al., 2023)의 정확도는 LOGO, Date 및 TextCraft에서 각각 \\(11.5\\%\\), \\(26.1\\%\\) 및 \\(8.1\\%\\) 증가하여 GPT-3.5 (cf. Sec. 5)와 같은 더 큰 모델을 능가한다. 섹에서 도 6을 참조하면, ReGAL의 추상화가 예제 전반에 걸쳐 재사용 가능하고, 핵심 도메인 기능을 캡슐화하며, ReGAL을 효과적으로 만드는 기능을 추가로 강조하는 오류 분석을 포함한다. Sec. 6.3은 ReGAL이 최소한의 훈련 예제를 통해 기준선 이상으로 개선되어 \\(50\\%\\) 감소된 훈련 세트에서도 주요 개선을 얻을 수 있음을 보여준다.\n' +
+      '\n' +
+      '##2 관련 업무\n' +
+      '\n' +
+      '프로그램 유도.프로그램 유도는 출력들에 대한 입력들의 기호적이고 프로그램적인 맵핑을 학습하는 것을 포함한다. 인간은 이러한 종류의 "규칙-학습"에 능숙하다(Marcus et al., 1999; Furnkranz et al., 2012). ReGAL은 입력들을 출력들에 맵핑하는 데 사용될 수 있는 일반적인 함수들의 세트, 즉 프로그램 인덕션의 형태를 학습하는 것을 목표로 한다. Ellis et al.(2021) present DreamCoder, the method for combining program induction and synthesis that using wake-sleep Bayesian learning method to learn programs. Wong et al.(2021)은 관절 모델의 일부로서 정렬 모델을 사용하여 언어를 통합하기 위해 이 작업을 확장한다. Ellis et al. (2021)과 마찬가지로 Grand et al. (2023)은 유사한 기호 검색 절차를 채택하지만, 추상화를 문서화하기 위해 LLM을 사용한다. 이러한 과거 작업의 라인에 의해 사용된 심볼 검색 절차는 도메인 언어가 \\(\\lambda\\)-calculus(Lake et al., 2015; Ellis et al., 2021; Wong et al., 2021; Grand et al., 2023)라고 가정하는 검색을 위한 데이터 구조에 의존해 왔으며, 이는 일반적으로 소프트웨어 개발에 사용되지 않는다. 대조적으로, ReGAL은 LLM 기반 검색 절차를 사용하여 개발자가 더 일반적으로 사용하고 사전 훈련 데이터에서 더 잘 표현되는 파이썬과 같은 더 유연한 언어를 사용할 수 있다.\n' +
+      '\n' +
+      'LLM에 의한 프로그램 합성 및 도구 사용(Schick et al., 2023; Mialon et al., 2023)은 LLM이 외부 도구(예: 계산기, 검색 기능 등)에 대한 API 호출을 생성하는 프로그램 합성 또는 시맨틱 파싱의 형태를 지칭한다. 이 공식은 추론 작업(Lyu et al., 2023; Chen et al., 2022)뿐만 아니라 컴퓨터 비전(Suris et al., 2023; Gupta and Kembhavi, 2023; Cho et al., 2023), 요약(Saha et al., 2022), 및 로봇 공학(Ahn et al., 2022; Singh et al., 2023; Huang et al., 2022; 2023)과 같은 다른 도메인에도 적용되었다. 과거의 작업은 예시로부터 도구를 유도하려고 시도했다. Cai et al.(2023)은 BigBench(Srivastava et al., 2022)로부터 추론 작업을 위해 LLM을 사용하여 도구를 유도한다; 우리의 작업과 달리, 그들의 시스템은 작업당 하나의 도구를 생성한다. 이는 동질 추론 작업(예: 단어 알파벳 정렬)에 이점을 제공할 수 있지만, 우리가 탐구하는 것과 같은 이질적인 작업은 여러 기능을 필요로 한다. 이와 유사한 결과로, Yuan et al. (2023)과 Qian et al. (2023)은 검색 기반 구문 분석을 포함하는 LLM 기반 프레임워크를 사용하여 시각 및 수학 작업을 위한 여러 도구를 유도한다. 다른 도메인에 초점을 맞추는 것 외에도, 우리는 ReGAL의 성능을 오픈 소스 LLM(둘 다 GPT-3.5와 같은 독점 모델만 고려)에 강조하면서 효율성에 중점을 둔다. 우리는 또한 리팩토링에 대한 초점을 달리하며, 리팩토링 모델에 제공하는 정보의 양에서: Yuan et al.(2023) 및 Qian et al.(2023)과 달리, 도메인 특정 안내 없이 모델이 어떤 추상화를 구축하는지 대신 조사하고, 모델이 생성하기를 원하는 도구의 종류에 대한 맥락 내 예를 제공하지 않는다.\n' +
+      '\n' +
+      'Induction in Interactive Domains.Wang et al.(2023)은 또한 마인크래프트 도메인에서 기능을 유도하지만, 그들의 기능은 하나의 반복에 기초하여 작성되고 저장된다. 대조적으로, 우리의 작업은 그룹에서 프로그램을 재구성하고 훈련 과정에 걸쳐 테스트하고 정제하여 여러 영역에서 일반화를 보여준다. 다른 선행 작업은 구체화된 도메인에서 계획을 위한 추상화 라이브러리를 학습한다(Wong et al., 2023; Majumder et al., 2023). 우리는 유사한 동기를 공유하지만 ReGAL은 PDDL 연산자(Wong et al., 2023)나 인과적 텍스트 피드백(Majumder et al., 2023) 대신 실행 가능한 프로그램을 생성하는 공간에서 동작한다. 마찬가지로, 우리의 작업은 LLM 기반 작업 분해(Khot et al., 2023; Prasad et al., 2023)에서 이전의 노력과 일치하며, 여기서 기술은 여러 작업 인스턴스에 걸쳐 재사용된다. 그러나 이러한 접근 방식은 수동으로 원자 기술을 식별하고 LLM이 처음부터 기술을 반복적으로 실행해야 한다. 이에 반해 ReGAL은 이러한 추상화를 자동으로 발견하고 헬퍼 기능을 통해 재사용하는 방법을 제공한다.\n' +
+      '\n' +
+      '## 3 Methodology\n' +
+      '\n' +
+      '이 섹션에서는 본 방법의 전체 파이프라인에 대해 설명한다: **G**eneralizable **A**bstraction **L**earning(ReGAL). ReGAL은 추상화(즉, 헬퍼 함수)가 학습되는 _training_ 또는 유도 단계와 테스트 쿼리를 위한 프로그램을 생성하기 위해 추상화가 사용되는 _testing_ 또는 합성 단계의 두 단계로 구성된다. 훈련하는 동안 그림 1에 나와 있다. 2, ReGAL은 후보 헬퍼 함수를 생성하고, 이들의 정확성을 검증하며, 비효율적인 헬퍼 함수의 편집 및 프루닝을 통해 디버깅함으로써 재사용 가능한 추상화를 발견한다.\n' +
+      '\n' +
+      '쿼리(q\\)와 골드 프리미티브 프로그램(p\\)에 대한 일련의 시연들이 주어지면, 먼저 Sec. 3.1에서 설명한 쿼리 유사도에 기반한 예제들을 클러스터링하기 위해 데이터를 전처리한다. 학습 단계는 프리미티브 프로그램들을 일괄적으로 리팩토링하여 추상화(Sec. 3.2)를 구축하고, 테스트 단계는 학습된 추상화들을 프리미티브 연산과 함께 융합하는 프로그램을 생성함으로써 새로운 질의를 해결한다(Sec. 3.3). 우리는 모든 교육 프롬프트에 GPT-3.5를 사용합니다. 테스트 시간에는 자유롭게 사용할 수 있는 오픈 소스 LLM에 초점을 맞춰 다양한 LLM을 실험합니다.\n' +
+      '\n' +
+      '### Preprocessing\n' +
+      '\n' +
+      '학습 전에, 우리는 질의와 프로그램 \\((q,p)\\)을 (선택적으로) 댓글을 추가하고, 관련 배치로 클러스터링하고, 근사 난이도별로 정렬하여 전처리한다.\n' +
+      '\n' +
+      '주석을 추가합니다. 선택적으로 주석을 추가하여 쿼리를 원시 프로그램에 정렬하여 모델이 올바른 추상화를 생성할 수 있습니다. 우리는 각 \\((q,p)\\)쌍을 GPT-3.5에 독립적으로 제시하며, 모델에게 \\(q\\)에 기초하여 \\(p\\)의 주석을 묻는 프롬프트와 함께 주석 코드가 동일한 결과로 실행되는지 확인한다.\n' +
+      '\n' +
+      '클러스터링 데이터.예들 간에 _shared_인 추상화를 형성하기 위해 리팩토링 LLM은 다중 인스턴스 범위를 필요로 한다. 즉, 한 번에 관련된 \\((q,p)\\) 튜플의 배치를 받아야 한다. 우리는 질의의 임베딩을 이용하여 예제들을 클러스터링하여 이를 구현한다. 구체적으로, OpenAI의 Ada 임베딩 모델(OpenAI, 2022)을 이용하여 각 질의를 임베딩하고, Scikit-Learn(Pedregosa et al., 2011)을 통해 구현된 Ward의 응집 클러스터링 알고리즘(Ward Jr, 1963)을 이용하여 계층적 클러스터링을 수행한다. 이것은 우리가 위상학적으로 \\(k\\) 관련 예제의 배치로 분류하고 그룹화하는 관련 예제의 트리를 제공하며, 여기서 \\(k\\)은 하이퍼파라미터이다(모든 하이퍼파라미터 값에 대해 부록 C 참조).\n' +
+      '\n' +
+      '교육과정.직관적으로, 더 짧고 쉬운 프로그램은 더 단단하고 더 구성적인 프로그램에서 재사용할 수 있는 추상화를 포함해야 하므로, 우리는 예를 교육과정으로 분류한다(Bengio et al., 2009). 난이도 근사화를 위해 질의의 평균 길이(토큰 단위)를 기준으로 배치를 정렬합니다. 전처리 세부사항은 부록 A.1을 참조하십시오.\n' +
+      '\n' +
+      '### Training\n' +
+      '\n' +
+      'ReGAL의 학습 데이터는 질의와 원시 프로그램의 쌍으로 구성된다. 훈련 단계는 1) _Code Bank_ (\\(C\\)): 훈련 중에 추상화된 헬퍼 함수의 라이브러리 및 2) _Demo Bank_ (\\(D\\)): 사용되는 함수의 예이다. 도 1에 도시된 바와 같다. 도 2에서, 훈련 단계는 LLM이 질의들 및 프리미티브 프로그램들의 배치를 입력으로서 수신한 다음 추상화될 수 있는 헬퍼 함수들을 제안하는 반복 프로세스이다(단계 1). 각 배치에 대해, 후보 헬퍼 함수는 (단계 2a)에서 발생하는 리팩토링된 프로그램의 정확성에 기초하여 평가된다. 검증 후, 실패한 예들이 두 번째 배치로 분리되고 재시도된다(단계 2b). 결과 코드 뱅크의 품질을 향상시키기 위해, 우리는 패스 레이트(단위 테스트 이상)와 비효과적인 도우미 기능을 개선하기 위해 일정 개수의 배치 후에 도우미 기능을 주기적으로 편집한다(단계 3). 훈련이 끝나면, 결과 라이브러리인 코드 뱅크\\(C\\)는 테스트 중에 추가 사용을 위해 저장되며, 헬퍼 함수를 사용한 리팩터 프로그램인 데모 뱅크\\(D\\)의 성공적인 시연과 함께 저장된다. 트레이닝 프로세스는 다수의 에폭에 걸쳐 반복될 수 있음에 유의한다. 아래에서는 각 단계를 자세히 설명하며 전체 알고리즘은 알고리즘 1에 자세히 설명되어 있다.\n' +
+      '\n' +
+      '단계 (1): 리팩토링 예(refactorBatch). 리팩토링 프로세스의 메인 모듈은 (있는 경우) 코드 뱅크에서 예들의 배치, 명령어들의 세트, 및 현재 헬퍼 기능들의 세트를 입력으로서 취한다. 새로운 도우미 함수(\\(H^{new}\\)에 대한 리팩토링 LLM과 적절한 경우 도우미들을 사용하는 각 프로그램의 리팩토링 버전에 대한 리팩토링을 유도한다.\n' +
+      '\n' +
+      '단계(2a): 검증(검증) 오류 유입을 방지하기 위해 LLM에서 생성된 헬퍼 기능과 리팩터 프로그램을 실행한 후 그 결과를 원본과 비교하여 \\(\\hat{p}(0)=p()\\인지 판단함으로써 검증해야 한다. 리팩토링된 프로그램 \\((q,\\hat{p})\\)은 에이전트(cf. Sec. 3.3)에 의해 향후 사용을 위한 시연으로 저장된다. 확인을 통과하면. 확인을 통과한 도우미 기능만 \\(C\\)에 추가됩니다. 또한 오류로 이어지는 기존 기능 및 프루닝 기능을 개선하는 편집코드뱅크() 및 프루닝코드뱅크()에서 중요한 역할을 하기 때문에 검증에 실패한 프로그램의 레코드를 저장한다.\n' +
+      '\n' +
+      '단계 (2b): 피드백 기반 재시도(재시도).프로그램이 검증을 통과하지 못할 경우, 우리는 선택적으로 리팩토링 프로세스를 재시도한다. 후속 프롬프트에서는 실패한 프로그램과 해당 도우미 기능을 제공합니다. 또한 실행으로 인한 환경 피드백(즉, 출력 또는 오류 메시지 생성)을 포함한다. 2, 리팩토링 LLM은 실패한 각 프로그램의 새로운 버전을 생성한다. 이 버전들은 검증되고, 그들의 도우미들은 정확하다면 \\(C\\)에 추가된다.\n' +
+      '\n' +
+      '각주 2: 우리는 LOGO에 대한 출력이 이미지이므로 포함하지 않는다.\n' +
+      '\n' +
+      '단계 (3a): 코드 뱅크 편집(editCodeBank).검증() 모듈로부터, 일부 도우미 함수들은 잘못된 추상화를 포함하기 때문에 모든 단위 테스트를 통과하지 못한다; 예를 들어, draw_triangle()과 같은 함수는 작은 크기에 대해 하드코딩된 값으로 시작하여 중간 삼각형에서 실패할 수 있다. 이러한 함수를 갱신하기 위해 LLM 통과 및 실패 단위 테스트를 보여주는 \\(D\\)의 각 함수에 대한 프롬프트를 구성하고 함수에 대한 편집을 제안하도록 요청하며, 이는 모든 반복 편집마다 한 번 발생하며, 여기서 편집은 하이퍼파라미터이다. 편집 후 더 많은 단위 테스트를 통과하면 함수를 교체합니다.\n' +
+      '\n' +
+      '단계 (3b): 프루닝 코드 뱅크(pruning Code Bank). 이 모듈에서는 대부분의 단위 테스트에서 실패하고 편집을 통해 더 이상 개선될 수 없는 \\(C\\)에 추가된 프루닝 도우미 기능을 수행한다. 각 기능에 대해, 우리는 기능을 사용하는 프로그램의 성공률을 기반으로 점수를 도출한다; 우리는 기능이 가지치기(모든 도메인에 의해 공유됨)되는 임계값을 아래에 설정한다. 자세한 내용은 부록 A.2를 참조하십시오.\n' +
+      '\n' +
+      '우리는 디브 세트를 사용하여 부록 C에 보고된 하이퍼파라미터 값을 선택한다. 모든 프롬프트는 부록 D에서 찾을 수 있다.\n' +
+      '\n' +
+      '### Testing\n' +
+      '\n' +
+      '테스트 시간에, 우리는 한 번에 하나씩 테스트 예제에 대한 예측을 하는 프로그램 합성 - 또는 시맨틱 파싱 - _agent_를 전개한다. 학습된 도구와 관련된 작업과 달리\n' +
+      '\n' +
+      '도 2: ReGAL은 수정된 프로그램들 및 도우미 기능들의 세트를 개발하기 위해 프리미티브 프로그램들의 배치를 리팩토링함으로써 시작한다(**Stage 1**). 그런 다음 환경 피드백에 따라 실패한 프로그램을 선택적으로 재시도하는 리팩토링된 프로그램의 결과를 확인합니다. 유용한 도우미 기능은 데모 뱅크(**Stage 2**)에 추가된 예제 사용과 함께 코드 뱅크에 추가됩니다. 주기적으로 코드 뱅크의 기능을 개선하기 위해 코드 뱅크를 편집하고 가지치기한다(**단계 3**). 테스트 시간에 ReGAL 에이전트는 코드 뱅크, 데모 뱅크 및 나머지 원본 프로그램에 액세스할 수 있습니다. 더 많은 수의 원본 프로그램에 액세스할 수 있는 기준 에이전트와 비교됩니다.\n' +
+      '\n' +
+      '(Yuan et al., 2023; Qian et al., 2023; Wong et al., 2023), 우리는 블랙-박스 LLM(GPT-3.5) 이외에, 다양한 오픈-소스 LLM을 탐색한다. 시맨틱 파싱 및 인-컨텍스트 학습에서의 효과적인 전략들(Shin and Van Durme, 2022; Roy et al., 2022; Bogin et al., 2023; Liu et al., 2022; Yasunaga et al., 2023)에 이어서, 각각의 테스트 예제에 대해, 에이전트는 트레이닝 코퍼스로부터 검색된 인-컨텍스트 학습(ICL) 예제와 함께 프롬프트를 구성하고, 테스트 쿼리가 뒤따른다. 예제는 트레이닝 쿼리들과 테스트 쿼리 사이의 벡터 유사성을 사용하여 트레이닝 데이터로부터 검색된다. 부록 A.3에 자세한 내용이 나와 있습니다.\n' +
+      '\n' +
+      '**ReGAL-augmented Agent.** 우리의 에이전트는 _training data_ 및 _code bank_에 접근할 수 있을 뿐만 아니라 _demo bank_에서 리팩토된 프로그램의 예를 가지고 있다. ICL 예산(모든 실험에 대한 10개의 예제)은 원시 훈련 예제와 리팩토링된 것들 사이에서 분할된다.3 이러한 시연들 외에도, 증강 에이전트는 코드 뱅크로부터 최대 20개의 관련 도우미 함수들을 검색하며, 여기서 관련성은 질의와 함수 이름 및 설명 사이의 유사성에 의해 측정된다. 이러한 도우미 기능은 프롬프트에 연결됩니다. 최종 입력은 명령어, 검색된 도우미 기능, 혼합된 ICL 예제 및 테스트 쿼리를 포함하는 프롬프트이다. 모델이 헬퍼 기능을 사용하도록 장려하기 위해, 먼저 쿼리에 기초하여 어떤 기능이 관련될 수 있는지에 대해 모델을 _think_로 질문한 다음 코드.4를 생성하는 ReAct-style 프롬프트(Yao et al., 2023)를 포함한다.\n' +
+      '\n' +
+      '각주 3: 모든 테스트 쿼리가 도우미 함수에 의해 처리될 수 있는 것은 아니므로 ICL 예제로 일부 원시 프로그램을 유지할 필요가 있음을 발견했다. 우리는 원시 프로그램과 리팩터 프로그램의 비율을 하이퍼파라미터로 취급한다.\n' +
+      '\n' +
+      '각주 4: 이러한 추가적인 "생각" 진술 없이, 우리는 증강 에이전트가 어떠한 도우미 기능도 거의 사용하지 않는다는 것을 발견했다.\n' +
+      '\n' +
+      '##4 실험 설정\n' +
+      '\n' +
+      '### Datasets\n' +
+      '\n' +
+      '우리는 LOGO, 날짜 이해 및 TextCraft의 세 가지 데이터 세트를 탐색한다. 이러한 데이터 세트를 통한 공통 스레드는 LLM에 도전적이지만 단일 함수로 해결할 수 있는 정렬과 같은 문제와 달리 여러 도우미 기능을 요구하는 이질적인 문제를 포함한다는 것이다(Dziri et al., 2023). 데이터 세트에 대한 통계는 표 4에 나와 있습니다. 프리미티브의 수는 파이썬에 내장되지 않은 함수를 반영합니다. 모든 모델도 모든 파이썬 함수에 액세스할 수 있습니다. 각 데이터 세트 및 기본 작업에 대한 자세한 내용은 부록 A.5를 참조하십시오.\n' +
+      '\n' +
+      'LOGO.** LOGO는 Logo Turtle 그래픽 도메인 특화 언어(Abelson and DiSessa, 1986)를 기반으로 하며, 기본 그래픽은 공간을 이동하면서 그리는 펜(The "turtle")을 \\(\\texttt{forward}(\\texttt{dist})\\) 및 \\(\\texttt{left}(\\texttt{theta})와 같은 명령을 사용하여 제어하여 그릴 수 있다. 우리가 사용하는 데이터는 Ellis et al. (2021)의 LOGO 데이터 세트를 기반으로 하며, Wong et al. (2021)에 의해 재주석된다. LLM에 의한 더 쉬운 예측을 위해, 우리는 데이터를 추상 구문 트리로 파싱하고 이들을 파이썬으로 번역하기 위한 규칙 세트를 작성하고, 이 재작성된 데이터를 릴리스한다. Wong et al.(2021)의 "small" train/test split (200/111)을 사용하고 "large" train set에서 \\(100\\) dev examples를 취한다.\n' +
+      '\n' +
+      '**Date.** 빅벤치-하드(Srivastava et al., 2022; Suzgun et al., 2022)로부터의 날짜 이해 태스크를 사용하는데, 이는 날짜 이해가 필요한 짧은 단어 문제들로 구성된다. 우리는 Lyu et al.(2023)의 예측으로부터 은 프로그램을 얻는다. 구체적으로 GPT-3.5에서 예측된 프로그램을 열차, 디브, 테스트 분할(66/113/180)로 분할하고 정확도에 따라 열차 분할을 필터링한다.\n' +
+      '\n' +
+      '**TextCraft.** LLMs-as-agent 설정에서 ReGAL의 효용을 탐구하기 위해(Liu et al., 2023), 텍스트 전용 환경 내에서 마인크래프트 아이템을 크래프트하기 위해 에이전트를 필요로 하는 TextCraft 데이터세트(Prasad et al., 2023)를 사용한다(Cote et al., 2019). TextCraft의 각 태스크 인스턴스는 목표(쿼리)와 산만자를 포함한 관련 항목에 대한 레시피를 포함하는 일련의 10개의 크래프팅 명령으로 구성된다. LLM 에이전트가 각 단계에서 환경으로부터 텍스트 피드백을 받는 대화형 설정에서 TextCraft를 사용하는 Prasad et al.(2023)과 달리, 우리는 에이전트에게 전체 태스크를 한번에 실행하기 위한 단일 파이썬 프로그램을 생성하도록 요청하여 태스크를 _more challenging_로 만든다. 우리는 Prasad et al.(2023)에서 사용된 테스트 세트의 깊이 2 분할에 대해 평가하며, 우리의 dev 세트에 대한 깊이 1 레시피 예제의 서브세트를 사용하여 190/50/77의 기차/dev/테스트 분할을 제공한다.\n' +
+      '\n' +
+      '### Baselines\n' +
+      '\n' +
+      '**이전 작업의 기준.** 이전 작업의 관련 외부 기준선과 ReGAL을 비교합니다. 그러나 ICL 예제 사용과 출력 프로그래밍 언어의 형식과 같은 작업의 여러 방법론적 차이는 에이전트가 이러한 기준선에 비해 고유한 이점을 제공한다는 점에 유의해야 한다. 따라서 우리는 주로 기준 에이전트의 강도를 강조하기 위해 이러한 숫자를 참조한다. LOGO의 경우 Grand et al.(2023)이 보고한 "오프라인 합성" 번호를 사용하여 우리의 열차/테스트 설정과 유사하지만 Grand et al.(2023)이 원래 Lisp 형식으로 프로그램을 예측하고 다른 에이전트 모델을 사용한다는 점에 주목한다. Date 데이터셋은 Lyu et al. (2023)의 Faithful-CoT 방법을 gpt-3.5-turbo를 사용하여 사용자 정의 테스트 분할에서 실행하였다. 출력 포맷과 사용된 모델이 동일한 반면, Lyu et al. (2023)은 문맥 내 학습을 위해 검색된 예를 사용하는 반면, Lyu et al. (2023)은 그렇지 않다. 또한, ICL 예는 Lyu et al. (2023)에 의해 생성된 필터링된 프로그램을 기반으로 하여, 우리의 베이스라인 에이전트로부터 더 나은 성능을 이끌어낸다. 마지막으로, TextCraft의 경우 ReAct(Yao et al., 2023)를 기반으로 Prasad et al. (2023)의 베이스라인 - ReAct(Yao et al., 2023)를 기반으로 - TextCraft의 깊이-2 테스트 세트에서 재실행한다. 여기서, 우리는 Prasad et al.(2023)이 gpt-3.5-turbo를 능가하는 것으로 발견했기 때문에 gpt-3.5-turbo-instruct를 사용한다.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:6]\n' +
+      '\n' +
+      '여러 테스트 인스턴스에 걸쳐 있습니다. 우리는 ReGAL이 _shared_ 추상화를 학습함으로써 이 패러다임에 비해 개선된다고 주장한다. 표 2의 결과는 ReGAL이 추상화가 결여된 기준 에이전트보다 큰 개선을 제공한다는 것을 나타낸다. 여기서, 우리는 학습된 추상화가 재사용 가능하다는 것, 즉 공유된다는 것을 확인한다. 도. 도 3은 CodeLlama-13B 에이전트에 의해 생성된 테스트 프로그램에서 Top-5 가장 일반적인 ReGAL 기능이 호출된 횟수를 나타낸다. 모든 데이터 세트에서 ReGAL에 의해 학습된 도우미 함수는 일반적으로 재사용되며 텍스트 크래프트에서 가장 상대적인 재사용이 있음을 알 수 있다. 부록 B.1은 이러한 공통 기능의 예를 나타낸다.\n' +
+      '\n' +
+      '## 6 Analysis\n' +
+      '\n' +
+      '어떤 종류의 프로그램이 발견됩니까?\n' +
+      '\n' +
+      '어떤 종류의 도우미 기능이 발견되는지 추가로 조사하기 위해 그림 1에서 각 도메인에 대해 가장 빈번한 도우미 기능을 조사한다. 도 3을 참조하여, 이하의 결과를 요약한다. 함수 코드는 부록 B.1을 참조하십시오. 우리는 도메인 간에 뚜렷한 경향이 나타난다는 것을 발견한다.\n' +
+      '\n' +
+      'LOGO의 경우 ReGAL은 서로 다른 형태의 모양을 캡슐화하는 기능을 발견한다. 이는 LOGO 데이터가 이러한 기능을 염두에 두고 생성되었기 때문에 예상되며, 즉 더 큰 모양은 반원, 오각형 및 원과 같은 객체로 구성된다. 날짜의 경우 ReGAL은 get_date_one_year_ago()와 같은 이름으로 해석 가능성을 우선시하면서 단일 연산을 캡슐화하는 경향이 있다. LOGO의 함수보다 덜 복잡해 보이지만, 이 접근법은 Grand et al.(2023)에 의해 강조된 바와 같이 합성 절차에서 함수 명명법의 중요성과 일치한다. TextCraft에서 ReGAL에 의해 밝혀진 기능은 더 복잡하고 게임의 역동성을 반영한다. 구체적으로, 함수는 TextCraft에서 올바른 크래프팅 성분을 갖는 것이 물체를 크래프팅하기 위한 전제 조건이라는 사실을 반영하여 성분을 확인하기 위한 조건문을 포함한다(그림의 craft_and_get_ingredient() 참조). 도 2 및 표 10을 참조하면, 학습된 코드 뱅크 \\(C\\))에서 가져온 것이다.\n' +
+      '\n' +
+      '### Error Analysis\n' +
+      '\n' +
+      'ReGAL이 프로그램 생성을 어떻게 보조하는지 더 잘 이해하고 도움이 되지 않는 경우도 조사하기 위해 2부 오류 분석을 수행한다. 먼저 ReGAL-증강 프로그램이 올바르고 기준 에이전트의 원시 프로그램이 잘못된 경우를 살펴본다. 그런 다음 기준 프로그램이 정확했지만 ReGAL 프로그램이 잘못된 반대 사례 세트를 조사한다.\n' +
+      '\n' +
+      '도. 도 1은 CodeLlama-13B 모델을 사용한 LOGO에 대한 첫 번째 종류의 비교를 보여주며, 여기서 재사용과 추상화의 이점을 강조하는 실제 예를 정성적으로 보여준다. 베이스라인 프로그램은 처음부터 프로그램을 생성할 때 폴리곤의 내각을 계산하는 오류를 범한다. 이는 검증된 도우미를 사용하여 폴리곤을 올바르게 생성하는 ReGAL 에이전트에 의해 방지됩니다. 예제는 또한 추상화의 중요성을 보여줍니다: 쿼리가 복잡해짐에 따라 처음부터 솔루션을 생성하는 것이 더 어려워집니다. 기본 프로그램 이유가 모양 외부에 있는 코드에 대해 잘못되어 임베드()를 올바르게 사용하지 못했습니다. 한편, 증강 프로그램은 모양에 대한 추론을 쉽게 일치하는 함수에 오프로딩하고, 임베드(embed)를 올바르게 사용할 수 있다. 이러한 경향을 정량화하기 위해 ReGAL 에이전트가 올바른 25건의 LOGO에 대한 기준 코드Llama-13B의 출력을 수동으로 검사하여 추론을 포함하는 오류로 분류한다(그림의 첫 번째 예). 1) 및 형상-내부 오류(두 번째 예제); 우리는 16개의 추론과 9개의 형상 오류를 발견한다. 또한 LOGO에서 CodeLlama-13B를 사용하여 증강 에이전트가 실패하고 기준선이 성공한 모든 경우를 수동으로 검사하여 ReGAL의 실패 모드를 검사한다. 우리는 그것들을 세 가지 유형으로 분류한다.\n' +
+      '\n' +
+      '******: (7 exs.) 프로그램은 프리미티브 동작들 또는 제어 흐름의 실수들로 인해 실패한다.\n' +
+      '*****잘못된/정의되지 않은 함수**: (4 exs.) 코드는 존재하지 않는 함수를 지칭하거나, 올바른 함수와 유사한 함수를 잘못 호출한다.\n' +
+      '**검증 실패**: (2 exs.) 프로그램은 정확했지만 검증 함수는 false negative.5 각주 5: 예를 들어, "작은 6 gon_ 옆에 있는 작은 사각형"에 대해 에이전트는 정사각형의 왼쪽에 육각형을 생성하며, 여기서 참조는 오른쪽에 있다.\n' +
+      '\n' +
+      '따라서, 가장 일반적인 에러는 프리미티브 동작들을 예측하지 못하는 것이고; 여기서, ReGAL 에이전트는 둘 다 동일한 ICL 예산을 갖기 때문에 기준 에이전트 w.r.t.에 불리하다. 베이스라인 에이전트는 _only_ 프리미티브 코드를 갖는 10개의 ICL 예들을 보는 반면, ReGAL 에이전트는 5개의 프리미티브 예들 및 5개의 데모 뱅크 예들을 본다.\n' +
+      '\n' +
+      '그림 3: 상위 5명의 가장 일반적인 도우미에 대한 CodeLlama-13B의 기능 사용. 기능은 프로그램에 걸쳐 재사용됩니다.\n' +
+      '\n' +
+      '### Sample Efficiency\n' +
+      '\n' +
+      'Sec. 4.2에서 언급된 바와 같이, 베이스라인 및 ReGAL 에이전트들 모두는 가장 유사한 ICL 예들을 검색하기 위해 질의들 및 골드 프로그램들(\\(X\\))의 시연들에 의존한다. 또한 ReGAL은 코드뱅크 \\(C\\)에서 도우미 기능을 학습하기 위해 동일한 시범을 사용한다. 본 논문에서는 TextCraft의 CodeLlama-13B 모델을 이용하여 열차 집합 \\(X\\)에서 주석이 달린 금 프로그램의 크기에 따라 두 에이전트의 성능이 어떻게 확장되는지 연구한다. 를 포함하는 것을 특징으로 하는 반도체 소자의 제조 방법. 4, 우리는 ReGAL 에이전트가 훈련 예제의 수를 변화시킴에 따라 베이스라인 에이전트를 지속적으로 능가하는 것을 관찰한다. 특히 ReGAL에 의해 학습된 헬퍼 기능은 25회의 시연으로 \\(2.56\\%\\) 향상되었고, Sec. 5에서 사용된 열차 세트의 거의 절반 크기로 \\(8.45\\%\\) 향상되었으며, 기준선 및 ReGAL 에이전트 모두 시연 횟수가 증가함에 따라 성능이 향상되었다. 이는 훈련 세트가 더 커지고 결과적으로 더 다양해짐에 따라 두 에이전트 모두 테스트 쿼리와 유사한 시연 검색의 이점을 얻을 것으로 예상된다.\n' +
+      '\n' +
+      '##7 토론 및 결론\n' +
+      '\n' +
+      '고정 대 고정 변액 비용.Sec. 5, ReGAL은 CodeLlama와 같은 오픈 소스 LLM에 특히 효과적이었다. 이 결과는 ReGAL 추상화를 사용하여 독점적이고 폐쇄적인 소스 모델과 최소한 동일한 성능까지 자유롭게 사용 가능하고 오픈 소스 모델을 가져올 수 있음을 나타내므로 고무적이다. 따라서, 우리는 테스트 데이터에서 LLM을 실행하는 가변 비용을 테스트 세트의 크기에 따라 선형적으로 확장하는 ReGAL을 실행하는 고정 비용으로 변환하여 도우미 함수 라이브러리를 학습할 수 있다.\n' +
+      '\n' +
+      '시맨틱 파싱.실행가능 시맨틱 파싱(Winograd, 1972; Zelle & Mooney, 1996)으로의 접속들은 일반적으로 도메인-특정 언어(domain-specific language; DSL)에 질의들을 매핑하는 것을 수반한다; DSL은 특정 목표, 예를 들어 데이터베이스들을 질의하기 위한 SQL 연산들, 또는 로봇공학을 위한 공간 추상화들에 유용한 추상화들의 세트를 특정한다. 이러한 DSL은 일반적으로 사람에 의해 정의되며, ReGAL을 보는 한 가지 방법은 극히 일반적인 프리미티브 집합의 위에 있는 _learning_ a DSL의 방법이다. ReGAL의 장점 중 하나는 일반성이다: 세 개의 다른 도메인에서 인간의 개입 없이 유용한 추상화를 학습할 수 있는 반면, 표준 시맨틱 파싱 설정에서는 이러한 추상화를 수동으로 지정해야 한다.\n' +
+      '\n' +
+      '계층적 강화 학습에 대한 연결.ReGAL에서 발견한 기능을 원시 작업으로 구성된 하위 수준 정책 또는 스킬로 보는 방법 중 하나입니다. 이 관점에서, 우리의 시스템은 계층적 강화 학습(HRL; Barto & Mahadevan, 2003)과 유사하며, 여기서 작업은 기술 선택 및 기술 자체로 인수분해된다. 계층적 프레임워크에서는 일반적으로 하위 수준의 정책을 선택하는 상위 수준의 컨트롤러 정책이 있습니다. 우리의 설정에서, 에이전트 LLM은 스킬 세트로부터 선택하는 제어기 역할을 하는 반면, ReGAL의 트레이닝 단계는 유용한 스킬 세트를 발견하는 것을 담당한다; 이것은 옵션 발견(Sutton et al., 1999)과 유사하며, 여기서 특정 스킬들에 대한 폐쇄 루프 정책들은 보상 신호로부터 학습된다. ReGAL은 유사한 계층적 구조를 갖는 반면, 일반적으로 이러한 특징을 갖지 않는 HRL 스킬 정책과 달리 ReGAL의 스킬은 상징적이고, 해석가능하며, 편집가능하다는 점에서 HRL과 다르다.\n' +
+      '\n' +
+      '한계.HRL과 관련하여 언급된 바와 같이, ReGAL이 학습하는 함수는 코드 기반이다. 이것은 특히 환경이 동적으로 변할 수 있는 도메인들에서, 신경망들에 의해 파라미터화된 함수들(예를 들어, 안드레아스 등(2016))보다 덜 유연하게 할 수 있다. 예를 들어, 에이전트가 다양한 가정에서 주방에 도착해야 하는 네비게이션 도메인을 고려하십시오. 원시적인 동작에 따라 한 가정에서 성공하는 기능은 다른 가정에서 실패할 가능성이 높습니다. 그러나 ReGAL의 검증 기반 가지치기는 이 탐색 작업에 대한 기능이 발견되지 않음을 의미합니다. 관련하여, 모든 도메인이 재사용 가능한 추상화를 가지고 있는 것은 아니며, 모든 예가 그것으로부터 이익을 얻는 것은 아니다. 많은 경우, 도메인에 대한 프리미티브는 예를 들어 이미 DSL을 형성하는 경우 해당 도메인에 대한 올바른 추상화 수준입니다. 추상화는 또한 항상 이상적인 것은 아니다; 부록 B.1에서 우리는 ReGAL의 추상화가 인간이 선택한 것과 반드시 동일한 것은 아니라는 것을 알 수 있다. 예를 들어, 인간이 draw_small_5gon()이 아닌 draw_5gon(size)과 같은 함수를 쓸 가능성이 있다.\n' +
+      '\n' +
+      '결론.우리는 작은 예시들의 집합으로부터 추상화를 학습하기 위한 기울기 없는 접근 방법인 ReGAL을 소개한다. 실험 결과는 ReGAL의 추상화가 세 가지 다양한 도메인에 걸쳐 다양한 LLM에 의해 예측된 프로그램의 정확도를 향상시킨다는 것을 보여준다. 또한, ReGAL 추상화는 재사용 가능하고 일반적이며 주어진 작업에 대해 예제 전반에 걸쳐 적용될 수 있다. 분석 결과, ReGAL에 의해 학습된 함수들은 태스크 다이내믹뿐만 아니라 일반적으로 사용되는 서브루틴을 코드화한다는 것을 알 수 있었다. 오류 분석 결과 ReGAL의 개선은 함수 재사용과 프로그램 예측에 관련된 추론의 단순화에서 비롯됨을 알 수 있다.\n' +
+      '\n' +
+      '그림 4: ReGAL 프로그램은 CodeLlama-13B를 사용하여 다양한 크기의 훈련 세트 \\(X\\)에 대해 TextCraft의 원시 프로그램에 비해 더 높은 성공률(정확도)을 산출한다.\n' +
+      '\n' +
+      '8가지 더 큰 충격\n' +
+      '\n' +
+      '우리의 연구는 일련의 시연을 통해 상징적 기능을 배우는 것을 목표로 하며, 이는 정확성뿐만 아니라 해석 가능성 및 신뢰성의 측면에서 LLM 예측을 개선할 수 있는 잠재력을 가지고 있다. LPM 자체의 메커니즘과 달리 파이썬 함수는 본질적으로 인간이 해석할 수 있으며 디버깅할 수 있다. 나아가, 이러한 함수를 실행함으로써 얻어진 결과들은 그 결과를 생성한 연산의 정확한 흔적을 식별할 수 있다는 점에서 본질적으로 충실하다(Lyu et al., 2023). 우리의 작업은 일반적인 LLM 기반 시스템보다 부정적인 사용의 가능성이 더 많지 않으며 이러한 모델 및 그들이 훈련된 데이터 세트에 고유한 편향의 대상이 된다(Weidinger et al., 2021). 임의의 시스템 생성 코드와 마찬가지로, 실행 환경을 손상시킬 가능성이 있는 스니펫을 실행하기 전에 특히 주의를 기울여야 한다(Ruan et al., 2023).\n' +
+      '\n' +
+      '## Acknowledgements\n' +
+      '\n' +
+      '우리는 이첸 장, 저스틴 첸, 윤재홍, 스와르나데프 사하에게 종이에 대한 귀중한 피드백에 감사한다. 이 작업은 NSF-AI Engage Institute DRL-2112635, DARPA Machine Commonsense (MCS) Grant N66001-19-2-4031 및 가속 기반 모델 연구 프로그램에 의해 지원되었다. 이 기사에 포함된 견해는 자금 조달 기관이 아닌 저자의 견해이다.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* Abelson & DiSessa(1986) Abelson, H. and DiSessa, A. _Turtle geometry: The computer as a media for explore mathematics_. 1986년 MIT 기자요\n' +
+      '* Ahn et al. (2022) Ahn, M., Brohan, A., Brown, N., Chebotar, Y., Cortes, O., David, B., Finn, C., Fu, C., Hausman, K., Herzog, A., Ho, D., Hsu, J., Ibarz, J., Ichter, B., Irpan, A., Jang, E., Ruano, R. J., Jeffrey, K., Jesmonth, S., Joshi, N., Julian, R., Kalashnikov, D., Kuang, Y., Lee, K. -H., Levine, S., Lu, Y., Luu, L., Parada, C., Pastor, P., Quiambao, J., Rao, K., Rettinghouse, J., Reyes, D., Sermanet, P., Sievers, N., Tan, C., Toshev, A., Vanhoucke, V., Xia, F., Xiao, T., Xu, P., Xu, S., Yan, M., and Zeng, A. _arXiv preprint arXiv:2204.01691_, 2022.\n' +
+      '* Andreas et al. (2016) Andreas, J., Rohrbach, M., Darrell, T., and Klein, D. Neural module networks. In _Proceedings of the IEEE conference on computer vision and pattern recognition_, pp. 39-48, 2016.\n' +
+      '* Barto & Mahadevan (2003) Barto, A. G. and Mahadevan, S. 계층적 강화 학습의 최근 진보 이산 이벤트 동적 시스템_, 13(1-2):41-77, 2003.\n' +
+      '* Bengio et al. (2009) Bengio, Y., Louradour, J., Collobert, R., and Weston, J. Curriculum Learning. In _Proceedings of the 26th annual international conference on machine learning_, pp. 41-48, 2009.\n' +
+      '* Bogin et al. (2023) Bogin, B., Gupta, S., Clark, P., and Sabharwal, A. Leveraging code to improve in-context learning for semantic parsing. _ arXiv preprint arXiv:2311.09519_, 2023.\n' +
+      '* Bowers et al. (2023) Bowers, M., Olaussson, T. X., Wong, L., Grand, G., Tenenbaum, J. B., Ellis, K., and Solar-Lezama, A. Top-down synthesis for library learning. _ Proceedings of the ACM on Programming Languages_, 7(POPL):1182-1213, 2023.\n' +
+      '* Cai et al. (2023) Cai, T., Wang, X., Ma, T., Chen, X., and Zhou, D. Large language models as tool maker. _ arXiv preprint arXiv:2305.17126_, 2023.\n' +
+      '* Chen et al. (2022) Chen, W., Ma, X., Wang, X., and Cohen, W. W. Program of thoughts prompting: Disentangling computation from reasoning for numerical reasoning tasks. _ ArXiv:2211.12588_, 2022.\n' +
+      '* Cho et al. (2023) Cho, J., Zala, A., and Bansal, M. 텍스트-이미지 생성 및 평가를 위한 시각적 프로그래밍. _ 30-7차 신경 정보 처리 시스템 회의(NeurIPS)_, 2023.\n' +
+      '* Cote et al.(2019) Cote, M. - A., Kadar, A., Yuan, X., Kybartas, B., Barnes, T., Fine, E., Moore, J., Hausknecht, M., El Asri, L., Adada, M., et al. Textworld: A learning environment for text-based games. In _Computer Games: 7th Workshop, CGW 2018, Held in Conjunction with the 27th International Conference on Artificial Intelligence, IJCAI 2018, Stockholm, Sweden, July 13, 2018, Revised Selected Papers 7_, pp. 41-75. Springer, 2019.\n' +
+      '* Downey(2012) Downey, A. _Think python_. \'오라일리 미디어 주식회사 2012년\'\n' +
+      '* Dziri et al. (2023) Dziri, N., Lu, X., Sclar, M., Li, X. L., Jian, L., Lin, B. Y., West, P., Bhagavatula, C., Bras, R. L., Hwang, J. D., et al. Faith and fate: Transformers on compositionality. _ arXiv preprint arXiv:2305.18654_, 2023.\n' +
+      '* Ellis et al. (2021) Ellis, K., Wong, L., Nye, M., Sable-Meyer, M., Morales, L., Hewitt, L., Cary, L., Solar-Lezama, A., and Tenenbaum, J. B. Dreamcoder: Bootstrapping inductive program synthesis with wake-sleep library learning. In _Proceedings of the 42nd ACM SIGPLAN International Conference on Programming Language Design and Implementation_, pp. 835-850, 2021.\n' +
+      '* Flynn & Jacobs (1987) Flynn, B. B. and Jacobs, F. R. Application and implementation: experimental comparison of cellular(group technology) layout with process layout. _ Decision Sciences_, 18(4):562-581, 1987.\n' +
+      '* Furnkranz et al. (2012) Furnkranz, J., Gamberger, D., and Lavrac, N. _ 규칙 학습의 기초. Springer Science & Business Media, 2012.\n' +
+      '\n' +
+      '* Futuyma & Moreno (1988) Futuyma, D. J. and Moreno, G. Evolution of ecological specialization. _ Annual review of Ecology and Systematics_, 19(1):207-233, 1988.\n' +
+      '* Grand et al. (2023) Grand, G., Wong, L., Bowers, M., Olaussson, T. X., Liu, M., Tenenbaum, J. B., and Andreas, J. Learning interpretationable libraries by compression and documenting code. In _Intrinsically-Motivated and Open-Ended Learning Workshop@ NeurIPS2023_, 2023.\n' +
+      '* Gupta et al. (2018) Gupta, S., Shah, R., Mohit, M., Kumar, A., and Lewis, M. 계층적 표현을 사용하는 작업 지향 대화 상자에 대한 의미 구문 분석 In _Proceedings of the 2018 Conference on Empirical Methods in Natural Language Processing_, pp. 2787-2792, 2018.\n' +
+      '* Gupta & Kembhavi (2023) Gupta, T. and Kembhavi, A. Visual Programming: Compositional visual reasoning without training. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pp. 14953-14962, 2023.\n' +
+      '* Huang et al. (2022) Huang, W., Abbeel, P., Pathak, D., and Mordatch, I. Language models as zero-shot planners: Extraction actionable knowledge for embodied agent. _ ArXiv:2201.07207_, 2022.\n' +
+      '* Huang et al. (2023) Huang, W., Wang, C., Zhang, R., Li, Y., Wu, J., and Fei-Fei, L. 복스포저: 언어 모델을 사용한 로봇 조작을 위한 작성 가능한 3d 값 맵. In _Conference on Robot Learning_, pp. 540-562. PMLR, 2023.\n' +
+      '* Khot et al. (2023) Khot, T., Trivedi, H., Finlayson, M., Fu, Y., Richardson, K., Clark, P., and Sabharwal, A. Decomposed prompting: A modular approach for solve complex tasks. _The Eleventh International Conference on Learning Representations_, 2023.\n' +
+      '* Lake et al. (2015) Lake, B. M., Salakhutdinov, R., and Tenenbaum, J. B. Human-level concept learning through probabilistic program induction. _ Science_, 350(6266):1332-1338, 2015.\n' +
+      '* Liu et al. (2022) Liu, J., Shen, D., Zhang, Y., Dolan, B., Carin, L., and Chen, W. GPT-3에 대한 좋은 문맥 내 예를 만드는 것은? In Agirre, E., Apidianaki, M., and Vulic, I. (eds.), _Proceedings of Deep Learning Inside Out (DeeLIO 2022): The 3rd Workshop on Knowledge Extraction and Integration for Deep Learning Architectures_, pp. 100-114, Dublin, Ireland and Online, May 2022. Association for Computational Linguistics.\n' +
+      '* Liu et al. (2023) Liu, X., Yu, H., Zhang, H., Xu, Y., Lei, X., Lai, H., Gu, Y., Ding, H., Men, K., Yang, K., et al. Agentbench: Evaluation llms as agent. _ arXiv preprint arXiv:2308.03688_, 2023.\n' +
+      '* Lu et al. (2023) Lu, P., Peng, B., Cheng, H., Galley, M., Chang, K. - W., Wu, Y. N., Zhu, S. - C., and Gao, J. Chameleon: Plug-and-play compositional reasoning with large language models. _ arXiv preprint arXiv:2304.09842_, 2023.\n' +
+      '* Lyu et al. (2023) Lyu, Q., Havaldar, S., Stein, A., Zhang, L., Rao, D., Wong, E., Apidianaki, M., and Callison-Burch, C. Faithful chain-of-thought reasoning. _ arXiv preprint arXiv:2301.13379_, 2023.\n' +
+      '* Majumder et al. (2023) Majumder, B. P., Mishra, B. D., Jansen, P., Tafjord, O., Tandon, N., Zhang, L., Callison-Burch, C., and Clark, P. Clin:Continually learning language agent for rapid task adaptation and generalization. _ arXiv preprint arXiv:2310.10134_, 2023.\n' +
+      '* Marcus et al. (1999) Marcus, G. F., Vijayan, S., Bandi Rao, S., and Vishton, P. M. Rule learning by seven-month-old infants. _ Science_, 283(5398):77-80, 1999.\n' +
+      '* McConnell(2004) McConnell, S. _ 코드 완료. 피어슨 교육 2004년\n' +
+      '* Mialon et al. (2023) Mialon, G., Dessi, R., Lomeli, M., Nalmpantis, C., Pasunuru, R., Raileanu, R., Roziere, B., Schick, T., Dwivedi-Yu, J., Celikyilmaz, A., et al. Augmented language models: survey. _ arXiv preprint arXiv:2302.07842_, 2023.\n' +
+      '* O\'Donnell(2015) O\'Donnell, T. J. _Productivity and reuse in language: a theory of linguistic computation and storage_. MIT Press, 2015.\n' +
+      '* OpenAI(2022) OpenAI. 신규 및 개선된 임베딩 모델, 2022. URL[https://openai.com/blog/new-and- improved-embedding-model](https://openai.com/blog/new-and- improved-embedding-model].\n' +
+      '* Pedregosa et al. (2011) Pedregosa, F., Varoquaux, G., Gramfort, A., Michel, V., Thirion, B., Grisel, O., Blondel, M., Prettenhofer, P., Weiss, R., Dubourg, V., Vanderplas, J., Passos, A., Cournapeau, D., Brucher, M., Perrot, M., and Duchesnay, E. Scikit-learn: Machine learning in Python. _ Journal of Machine Learning Research_, 12:2825-2830, 2011.\n' +
+      '* Prasad et al. (2023) Prasad, A., Koller, A., Hartmann, M., Clark, P., Sabharwal, A., Bansal, M., and Khot, T. Adapt: As needed decomposition and planning with language models. _ arXiv preprint arXiv:2311.05772_, 2023.\n' +
+      '* Qian et al. (2023) Qian, C., Han, C., Fung, Y., Qin, Y., Liu, Z., and Ji, H. Creator: tool creation for disentangling abstract and concrete reasoning of large language models. In _Findings of the Association for Computational Linguistics: EMNLP 2023_, pp. 6922-6939, 2023.\n' +
+      '* Qin et al. (2023) Qin, Y., Liang, S., Ye, Y., Zhu, K., Yan, L., Lu, Y., Lin, Y., Cong, X., Tang, X., Qian, B., et al. ToollIm: 마스터 16000+ 실세계 apis를 위한 대형 언어 모델들을 용이하게 한다. _ arXiv preprint arXiv:2307.16789_, 2023.\n' +
+      '* Roy et al. (2022) Roy, S., Thomson, S., Chen, T., Shin, R., Pauls, A., Eisner, J., and Van Durme, B. Benchmarkp: semantic parsing에 대한 언어 모델을 평가하기 위한 벤치마크. _ arXiv preprint arXiv:2206.10668_, 2022.\n' +
+      '\n' +
+      '* Roziere et al. (2023) Roziere, B., Gehring, J., Gloeckle, F., Sootla, S., Gat, I., Tan, X. E., Adi, Y., Liu, J., Remez, T., Rapin, J., et al. Code llama: Open foundation models for code. _ arXiv preprint arXiv:2308.12950_, 2023.\n' +
+      '* Ruan et al. (2023) Ruan, Y., Dong, H., Wang, A., Pitis, S., Zhou, Y., Ba, J., Dubois, Y., Maddison, C., and Hashimoto, T. LM 에뮬레이트 샌드박스로 LM 에이전트의 위험을 식별합니다. _NeurIPS 2023 Foundation Models for Decision Making Workshop_, 2023.\n' +
+      '* Saha et al. (2022) Saha, S., Zhang, S., Hase, P., and Bansal, M. 요약 프로그램: 신경 모듈러 트리를 사용한 해석 가능한 추상 요약. _The Eleventh International Conference on Learning Representations_, 2022.\n' +
+      '* Schick et al. (2023) Schick, T., Dwivedi-Yu, J., Dessi, R., Raileanu, R., Lomeli, M., Zettlemoyer, L., Cancedda, N., and Scialom, T. 도구 형성기: 언어 모델은 스스로 도구를 사용하는 법을 배울 수 있습니다. _ arXiv preprint arXiv:2302.04761_, 2023.\n' +
+      '* Shin & Van Durme (2022) Shin, R. 그리고 Van Durme, B. Few-shot semantic parsing with language models trained on code. In _Proceedings of the 2022 Conference of the North American chapter of the Computational Linguistics: Human Language Technologies_, pp. 5417-5425, 2022.\n' +
+      '* Singh et al. (2023) Singh, I., Blukis, V., Mousavian, A., Goyal, A., Xu, D., Tremblay, J., Fox, D., Thomason, J., and Garg, A. ProPrompt: Generating situated robot task plans using Large Language Models. In _2023 IEEE International Conference on Robotics and Automation (ICRA)_, pp. 11523-11530. IEEE, 2023.\n' +
+      '* Srivastava et al. (2022) Srivastava, A., Rastogi, A., Rao, A., Shoeb, A. A. M., Abid, A., Fisch, A., Brown, A. R., Santoro, A., Gupta, A., Garriga-Alonso, A., et al. beyond the imitation game: Quantifying and extrapating the capabilities of language models. _ ArXiv:2206.04615_, 2022.\n' +
+      '* Suris et al. (2023) Suris, D., Menon, S., and Vondrick, C. ViperGPT: Visual inference via Python execution for reasoning. _ arXiv preprint arXiv:2303.08128_, 2023.\n' +
+      '* Sutton et al. (1999) Sutton, R. S., Precup, D., and Singh, S. mdps와 semi-mdps 사이에: 강화학습에서 시간적 추상화를 위한 프레임워크 _ 인공지능_, 112(1-2):181-211, 1999.\n' +
+      '* Suzgun et al. (2022) Suzgun, M., Scales, N., Scharli, N., Gehrmann, S., Tay, Y., Chung, H. W., Chowdhery, A., Le, Q. V., Chi, E. H., Zhou, D., et al. Challengeing big-bench tasks and whether the chain-of-thought can solve them. _ arXiv preprint arXiv:2210.09261_, 2022.\n' +
+      '* Wang et al. (2023) Wang, G., Xie, Y., Jiang, Y., Mandlekar, A., Xiao, C., Zhu, Y., Fan, L., and Anandkumar, A. Voyager: Anopen-ended embodied agent with large language models. _ arXiv preprint arXiv:2305.16291_, 2023.\n' +
+      '* Ward Jr(1963) Ward Jr, J. H. 목적 함수를 최적화하기 위한 계층적 그룹핑. _ Journal of the American statistical association_, 58(301):236-244, 1963.\n' +
+      '* Weidinger et al. (2021) Weidinger, L., Mellor, J., Rauh, M., Griffin, C., Uesato, J., Huang, P.-S., Cheng, M., Glaese, M., Balle, B., Kasirzadeh, A., et al. arXiv preprint arXiv:2112.04359_, 2021.\n' +
+      '* 위노그라드(1972) 위노그라드, T. 자연어 이해 Cognitive psychology_, 3(1):1-191, 1972.\n' +
+      '*Wolf et al. (2020) Wolf, T., Debut, L., Chaumond, J., Delangue, C., Moi, A., Cistac, P., Rault, T., Louf, R., Funtowicz, M., Davison, J., Shleifer, S., von Platen, P., Ma, C., Jernite, Y., Plu, J., Xu, C., Scao, T. L., Gugger, S., Drame, M., Lhoest, Q., and Rush, A. M. Transformers: State-of-the-art 자연어 처리. In _Proceedings of the 2020 Conference on Empirical Methods in Natural Language Processing: System Demonstrations_, pp. 38-45, Online, October 2020. Association for Computational Linguistics.\n' +
+      '* Wong et al. (2021) Wong, L., Ellis, K. M., Tenenbaum, J., and Andreas, J. Leveraging language to learn program abstractions and search heuristics. In _International Conference on Machine Learning_, pp. 11193-11204. PMLR, 2021.\n' +
+      '* Wong et al. (2023) Wong, L., Mao, J., Sharma, P., Siegel, Z. S., Feng, J., Korneev, N., Tenenbaum, J. B., and Andreas, J. Learning adaptive planning representations with natural language guidance. _ arXiv preprint arXiv:2312.08566_, 2023.\n' +
+      '* Yang(2016) Yang, C. _The price of language productivity: How children learn learn to break the rules of language_. MIT 기자 2016년\n' +
+      '* Yao et al. (2023) Yao, S., Zhao, J., Yu, D., Du, N., Shafran, I., Narasimhan, K. R., and Cao, Y. 반응: 추론과 언어 모델에서의 행동을 동기화하는 것. _The Eleventh International Conference on Learning Representations_, 2023.\n' +
+      '* Yasunaga et al. (2023) Yasunaga, M., Chen, X., Li, Y., Pasupat, P., Leskovec, J., Liang, P., Chi, E. H., and Zhou, D. Large language models as analogical reasoners. _ arXiv preprint arXiv:2310.01714_, 2023.\n' +
+      '* Yuan et al. (2023) Yuan, L., Chen, Y., Wang, X., Fung, Y. R., Peng, H., and Ji, H. Craft: Customizing llms by create and retrieval from specialized toolsets. _ arXiv preprint arXiv:2309.17428_, 2023.\n' +
+      '* Zelle & Mooney (1996) Zelle, J. M. and Mooney, R. J. Learning to parsing database query using 귀납적 논리 프로그래밍. In _Proceedings of the national conference on artificial intelligence_, pp. 1050-1055, 1996.\n' +
+      '\n' +
+      '## 부록의 방법\n' +
+      '\n' +
+      '### Preprocessing\n' +
+      '\n' +
+      '주석을 추가.** 주석을 추가하기 위해, 우리는 먼저 제로 샷 프롬프트를 사용하여 쿼리를 구성 부분으로 분해한다; 예를 들어, _"한 행에 4개의 작은 반원을 배치"_와 같은 LOGO 쿼리는 _"1로 분해된다. 반원을 배치 2. 작은 반원 3. 한 행에 4. 4반원을 배치._ 그런 다음 모델에 코드에 주석을 추가하라는 메시지에 이 분해를 포함시킵니다. 댓글을 추가한 후, 먼저 정확한 일치(댓글 문자열 제외)로 코드를 검증한 후 정확한 일치에 실패하면 실행 정확도를 사용한다.\n' +
+      '\n' +
+      '### Training\n' +
+      '\n' +
+      '코드 뱅크 편집.코드 뱅크 편집 프롬프트는 모델에 CoT 스타일의 출력을 생성하도록 요청하며, 먼저 실패한 단위 테스트를 지정한 다음 기능에 대한 편집을 제안합니다. 그런 다음 새로운 버전으로 해당 기능에 대한 저장된 데모를 실행합니다. 리팩토링 후 더 많은 통과 사례가 있는 경우 기능을 교체합니다. 새 함수의 서명이 이전 함수와 다를 경우 간단한 프롬프트를 사용하여 단위 테스트를 재인수분해하여 새 함수를 수용합니다.\n' +
+      '\n' +
+      '코드뱅크 프루닝.각 함수마다 합격 프로그램\\(P\\)과 불합격 프로그램\\(F\\)의 집합을 주어 \\(s=|P|-\\sum_{p\\in F}1/n_{p}\\)을 계산하며, 여기서 \\(n_{p}\\)은 \\(p\\)에서 사용되는 함수의 수이다. 즉, 함수는 자신이 참여하는 통과 프로그램마다 \\(+1\\)을 받고, 프로그램의 함수 수에 반비례하는 음의 점수(순진하게 실패는 임의의 함수에 기인할 수 있음)를 갖는다. 기능은 충분한 횟수를 사용하고 \\(s\\)이 임계값 \\(\\theta\\)(모든 실험에서 0으로 설정) 아래로 떨어지면 가지치기된다.\n' +
+      '\n' +
+      '### Testing\n' +
+      '\n' +
+      '테스트 타임 에이전트에서는 OpenAI Ada 임베딩을 사용하여 색인 및 검색 6을 위해 ChromaDB를 사용한다. ICL 예제들은 질의 유사성을 이용하여 학습 데이터로부터 그리고 데모 뱅크로부터 검색된다. 우리는 검색을 위해 질의와 함수명 사이의 유사성을 이용하여 코드뱅크 함수의 수를 20으로 제한한다. 코드 뱅크는 테스트 전에 한 번 가지치기된다.\n' +
+      '\n' +
+      '각주 6: [https://github.com/chroma-core/chroma/](https://github.com/chroma-core/chroma/]\n' +
+      '\n' +
+      '### Models\n' +
+      '\n' +
+      'GPT-3.5의 경우 gpt-3.5-터보 버전(0613)을 사용한다. 모든 CodeLlama 모델은 CodeLlama-* -Instruct-hf 버전을 사용하며, 우리는 Lemur-70b-v1 버전의 Lemur를 사용한다. 후자의 두 오픈 소스 모델은 HuggingFace(Wolf et al., 2020)의 체크포인트를 사용한다.\n' +
+      '\n' +
+      '```\n' +
+      '입력:\\(X=(q,p)\\)//훈련 데이터: (쿼리, 프로그램) Params: editEvery, pruneEvery, threshold \\(\\theta\\) output: CodeBank \\(C\\), DemoBank \\(D\\) \\(C\\leftarrow\\varnothing,D\\leftarrow\\varnothing\\)//초기화, 즉 클러스터링 및 난이도별 정렬을 통한 리팩토링//전처리 데이터를 현재 CodeBank \\(C\\)을 기반으로 그룹 \\(\\mathcal{G}\\leftarrow\\texttt{preprocessAndGroupData \\(X)\\)에서 인덱스\\(g\\), 배치\\(\\mathcal{G}\\in\\mathcal{P}\\)do//refactor 프로그램. 새 프로그램과 도우미 기능을 반환합니다. \\ (p_{1}^{new},h_{1}),\\ldots,(p_{n}^{new},h_{k})\\) =\\(\\texttt{refactorBatch}(\\mathcal{G},C)\\) \\(H^{new}\\leftarrow\\{h_{1},\\cdots,h_{k}\\) // 새로운 도우미 함수의 집합 \\(H\\) // 인디케이터 \\(\\delta^{new}\\)을 통해 실행될 때 동일한 결과를 산출함을 검증한다. refactored programs for\\(i\\in\\{i:\\delta^{i}}=True\\\\)) if\\(g\\pmod\\texttt{retry}(p_{i}^{new}},h_{i}^{new}}=0\\)then\\(C,D\\pmod\\texttt{editCodeBank}(g\\pmod\\texttt{new}}=0\\)then\\(C,D\\pmod\\texttt{editCodeBank}(g\\pmod\\texttt{new}}=0\\)then\\(C,D\\pmod\\texttt{editCodeBank)\n' +
+      '```\n' +
+      '\n' +
+      '**알고리즘 1**ReGAL : 훈련 알고리즘\n' +
+      '\n' +
+      '### Data\n' +
+      '\n' +
+      '입력:**(X=(q,p)\\)//훈련 데이터: (쿼리, 프로그램) Params: editEvery, pruneEvery, threshold \\(\\theta\\) output: CodeBank \\(C\\), DemoBank \\(D\\) \\(C\\leftarrow\\varnothing,D\\leftarrow\\varnothing\\)///초기화, 즉 클러스터링 및 난이도별 정렬을 통한 리팩토링// 전처리 데이터를 현재 코드뱅크 \\(C\\)을 기반으로 그룹 \\(\\mathcal{G}\\leftarrow\\texttt{preprocessAndGroupData \\(X)\\)에서 인덱스 \\(g\\), 배치 \\(\\mathcal{G}\\in\\mathcal{P}\\)do//refactor 프로그램. 새 프로그램과 도우미 기능을 반환합니다. \\ \\(\\delta^{1:k}\\leftarrow\\texttt{verify}(H,C,\\p_{i}}^{new}}})//refactored program of new helper functions \\(\\textttBatch}(H,C,\\delta^{i}}}\\delta^{i}}=False\\}\\(p_{i}})do\\(p_{i},h_{i}}_retry})//refactored program for\\(i\\in\\delta^{i}\\delta^{new}}H^{i}=True\\}),\\ldots,(p_{n}}\\delta^{i}}\\texttt{verify}(H,C,\\delta^{i}}\\delta^{i}}=True\\})//refactored program for\\(i\\in\\delta^{i}\\delta^{i}}\\delta^{i}}=True\\},H,p_{i}\n' +
+      '\n' +
+      '**알고리즘 2**ReGAL : 훈련 알고리즘\n' +
+      '\n' +
+      '#### a.5.1 Logo\n' +
+      '\n' +
+      'LOGO 데이터는 동기식 텍스트 코드 문법으로부터 생성되고, 절차적으로 생성된 언어 명령들 _"3개의 작은 삼각형들"_와 대응하는 터틀 그래픽 프로그램과 쌍을 이루지만, 원래의 LOGO 데이터세트는 Lisp-스타일 기능 구문으로 표현된다. 그러다가\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c|c c c c} \\hline \\hline\n' +
+      '**Dataset** & **Train** & **Dev** & **Test** & **\\# Primitives** \\\\ \\hline LOGO & 200 & 100 & 111 & 9 \\\\ Date & 66 & 113 & 180 & 4 \\\\ TextCraft & 190 & 50 & 77 & 3 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 4: 데이터셋 통계량. 우리는 프로그램의 기본 함수(내장된 파이썬 함수에서 제외) 수를 나열합니다.\n' +
+      '\n' +
+      '이것은 효율적인 코드 검색을 위한 유용한 데이터 구조의 적용을 용이하게 하며(Ellis et al., 2021; Bowers et al., 2023), Python과 같은 객체 지향 언어는 실제로 훨씬 더 일반적이다. 그 결과, LLM 프리트레이닝 데이터에 더 많이 표현되어 파싱 성능에 기여하는 것으로 나타났다(Bogin et al., 2023). 이를 설명하기 위해 LOGO 데이터셋을 파이썬으로 번역하기 위해 AST 기반 파싱 스크립트를 작성한다.\n' +
+      '\n' +
+      'Primitives.표 5는 LOGO 라이브러리에서 이용가능한 프리미티브를 설명한다. 이들은 모든 파이썬 프리미티브에 추가된다는 점에 유의한다. 또한 모든 에이전트가 둥근 모양을 그릴 수 있도록 긴 루프와 작은 단계에 대해 여러 개의 하드 코딩된 값을 제공합니다. HALF_INF는 반원을 그리기 위해 필요한 단계의 수이다. EPS_DIST는 작은 거리이고, EPS_ANGLE는 작은 각도이다.\n' +
+      '\n' +
+      '#####a.5.2 날짜 이해\n' +
+      '\n' +
+      '날짜 이해는 수학적 추론과 구문 분석을 모두 포함한다. 각각의 질문은 날짜와 시간에 대한 추론이 필요한 단어 문제를 제기한다. 예를 들어, 문제는 다음과 같은 질문을 던집니다: "2017년 5월 9일, 제인은 40개의 달걀을 샀습니다. 그녀는 하루에 하나씩 먹었습니다. 오늘 그녀는 달걀이 떨어졌습니다. 10일 전 MM/DD/YYYY?"_. 이러한 종류의 질문은 LLM이 직접 대답하기 특히 어렵습니다. Lyu 등(2023)은 이 태스크를 프로그램 예측 태스크로 접근하였는데, 여기서 LLM은 실행 시 질문에 대한 답을 주는 파이썬 스크립트를 예측한다. 이 패러다임은 데이트타임과 데이트틸과 같이 날짜에 수학을 수행할 수 있는 기존의 파이썬 라이브러리가 있기 때문에 데이트에 특히 도움이 된다. 이러한 라이브러리로 프로그램을 예측하면 LLM 기반 추론에 비해 성능이 향상되지만, Lyu et al.(2023) 방법은 한 번에 하나씩 프로그램을 예측하여 공유 서브루틴의 이점을 테이블에 남긴다. 우리는 리팩토링 과정의 시작점으로 Lyu et al.(2023)이 예측한 프로그램을 사용한다. 표 6은 Lyu et al.(2023)의 프로그램에 의해 호출된 Python 라이브러리를 설명하며, 이는 우리가 Date에 대한 프리미티브로 취급한다.\n' +
+      '\n' +
+      '#### a.5.3 TextCraft\n' +
+      '\n' +
+      'TextCraft는 크래프팅 레시피와 짝을 이루는 목표 쿼리로 구성된다. 레시피에는 산만함이 제공되어 구문 분석 작업이 어렵다. 또한, 필수 성분이 수집되었을 때만 품목을 제작할 수 있기 때문에 에이전트는 전제 조건에 대해 추론해야 한다.\n' +
+      '\n' +
+      '조회는 특정 항목을 조작하도록 요청합니다. 예를 들어, 쿼리는 크래프팅 명령들과 함께 "_craft behive_"일 수 있다:\n' +
+      '\n' +
+      '4개의 벌집을 이용한 1개의 참나무 통나무 공예품 1개의 벌집 블록을 이용한 4개의 참나무 판자\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|l} \\hline \\hline\n' +
+      '**Primitive** & **Description** \\\\ \\hline date() & returns a date object \\\\ \\hline time() & returns a time object \\\\ \\hline relativelydelta(time) & performs addition/sub- \\\\  & traction of time, which can be days, weeks, months, or years. \\\\ \\hline strftime(format) & prints the date in the specified format \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 6: 날짜 프리미티브\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|l} \\hline \\hline\n' +
+      '**Input:**\\(Q\\), \\(C\\), \\(D\\), \\(X\\)/테스트 쿼리 \\(Q\\), 코드 뱅크 C, 데모 뱅크 D, 트레이닝 데이터 \\(X=\\)(쿼리, 프로그램) \\\\\\\n' +
+      '**Params:** ICL Budget \\(M\\), ICL Percentage \\(r\\) \\\\\n' +
+      '출력:** 예측 프로그램\\(\\hat{P}\\)\\\\(M^{demo}\\gets r*M\\)\\\\\\(M^{train}\\gets M-M_{demo}\\)\\\\\\(\\hat{P}\\leftarrow\\varnothing\\)\\\\\\\\(M^{train}\\gets M-M_{demo}\\) \\\\\\(\\hat{P}\\leftarrow\\varnothing\\)\\\\\\\n' +
+      '\\(q\\in X\\)**do**(\\\\\\(H\\leftarrow\\)**retrieve(\\(q,C,20\\))/query_\\\\(X^{demo}\\leftarrow\\)retrieve(\\(q,D,M^{demo}\\))_/retrieve(\\(D\\)_\\\\\\(X^{train}\\leftarrow\\)retrieve(\\(H,X^{train}\\)createPrompt(\\\\\\\\(\\hat{P}\\leftarrow\\))\\\\(I\\leftarrow\\))에서 원시\\\\\\\\\\(\\hat{p}\\gets LLM(I\\))_\\\\\\(\\hat{p}\\)/생성 프로그램\\\\\\\\(\\hat{p}\\hat{p}\\)\n' +
+      '**return**\\(\\hat{P}\\) \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 5: LOGO 프리미티브\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:14]\n' +
+      '\n' +
+      '보다 효율적으로 하기 위해 다음 두 가지 프로그램을 다시 작성해 주세요. 원시 설명 문자열} 결과 프로그램은 원본 프로그램과 동일한 결과로 실행해야 합니다. 코드의 크기를 줄일 수 있는 도우미 기능을 쓰는 것으로 시작하세요. 또한 다음의 도우미 기능들 중에서 선택할 수 있다: {codebank 함수 정의}{// all in batch QUERY{i}:{query} PROGRAM{i}:{program}Please formatyouranswer as:// repeated for i NEW PROGRAM{i}:// once at end NEW HELPERS:  Donotincludeanytext that not valid Python code. 무슨 일이 있어도, 당신의 프로그램은 다음의 방식으로 포맷되어야 한다는 것을 상기시켜라://repeat fori NEW PROGRAM{i}: # Thoughts: #1. 상기 쿼리는: <query intention>  2. <query>는 <components>에 의해 해결될 수 있다.  # 3. 조력자 기능 <기능>을 <골>에 사용할 것이다. <프로그램용 코드{i}> 공유 도우미 기능을 도입하여 새로운 프로그램을 최대한 짧게 만들어 보세요. 헬퍼 함수 매개변수는 가능한 일반적이고 헬퍼 함수는 정보적으로 명명되어야 한다. {logo_special_instr}```\n' +
+      '``로고_special_instructions= 만약 원래의 함수가 \'embed\'를 사용한다면, 당신은 당신의 버전에 \'embed\'를 사용할 필요가 있을 것이다. 반복될 모든 코드는 임베딩에 전달된 트리플 따옴표 내에 포함될 필요가 있다.\n' +
+      '```\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l} You are an expert coder. For each query below, decompose it intits parts.  Example:  Query: Do some action 5 times and then do another action  Query (decomposed):  The query asks: Do some action and then doanother action  This can be decomposed into: 1. repeat an action 2. some action 3. another action \\\\ Query: {query}  Query (decomposed): \\\\ \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 13: 쿼리 분해 프롬프트. 출력은 표 14의 코멘트 프롬프트에 의해 사용된다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l} Please add comments to the following program to explain what each chunk of code does with respect to the query. \\\\ First, decompose the query intoparts. Then comment the code with the queryparts. Example: \\\\ Query: Do someaction and then doanother action \\\\ Code: \\\\ do_some_action() \\\\ do_another_action() \\\\ Query: Do someaction 5 times and then doanother action \\\\ Query (decomposed): \\\\ The query asks: Do someaction and then doanother action \\\\ This can be decomposed into: \\\\\n' +
+      '1. 반복 동작 \\\\\n' +
+      '2. 일부 작용\\\\\n' +
+      '3. 다른 액션\\\\코멘트 코드: \\\\\n' +
+      '#iinrange(5)에 대한 action \\\\\\을 반복한다 : \\\\\n' +
+      '# do some action\\\\ do_some_action()\\\\\n' +
+      'do another action \\\\ do_another_action() \\\\ \\{primitives description\\} \\\\ Query: \\{query\\} \\\\ Code: \\\\ \\{program\\} \\\\ Query (decomposed): \\\\ \\{output from decompose prompt\\} \\\\ \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 14: 프리미티브 프로그램에 댓글을 추가하라는 프롬프트. 표 13의 출력을 입력으로 합니다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l} \\hline \\hline Your tasks is tosolve simple word problems by creating Python programs. \\{codebank\\_str\\} \\\\ \\hline You will be given a query and have to produce a program. \\{thought\\_str\\} \\\\ Examples: \\{icl\\_string\\} \\\\ Please generate ONLY the code to produce the answer and nothing else. \\\\ Query: \\{query\\} \\\\ \\{thought\\_and\\}Program: \\\\ \\hline \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 16: 날짜 이해와 같은 파이썬 작업에 대한 에이전트 프롬프트. 기준선 에이전트와 ReGAL 에이전트는 동일한 프롬프트를 사용하지만 기준선 에이전트의 경우 \\(\\{codebank\\_str\\}\\)이 비어 있으며 ReGAL은 \\(\\{\\)icl\\_string\\}에서 데모 뱅크의 일부 시연을 본다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l} \\hline \\hline \\hline \\multicolumn{1}{l}{\\begin{tabular}{l} \\hline \\hline \\multicolumn{1}{l}{\n' +
+      '\\begin{tabular}{l} \\hline \\hline \\end{tabular} } \\\\ \\hline \\hline \\end{tabular} \\\\ \\hline \\hline \\end{tabular} \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 15: editCodeBank에 대한 프롬프트.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l} YourtaskistodrawsimplifiguresusingpythonTurtlegraphics. \\\\ Youwilluseacustomturtlelibrary,similartothebuilt-inlibrary,whichissufficient \\\\ foralltasks. \\\\ Here’sadescriptionofthecustomlibrary: \\\\ -forward(x):moveforwardxpixels \\\\ -left(theta):rotateleftbythetageres \\\\ -right(theta):rotaterightbythetageres \\\\ -penup():stopdrawing \\\\ -pendow():startdrawing \\\\ -teleport(x,y,theta):movetoposition(x,y)withangletheta \\\\ -heading():getthecurrentangledoftheturtle \\\\ -isdown():checkifthepenisdown \\\\ -embed(program,local_vars):runsthecodeinprogramusingthecurrentcontextand \\\\ teleportsbacktotheoriginalposition.Allowsyoutoensetprograms. \\\\ Implementationally,embedgetstheturtlestate(is_down,x,y,heading),executes \\\\ program,thenreturnstotheoriginalstate. \\\\ -save(path):savethepicturetofile \\\\ \\(\\{\\)codebank_str\\} \\\\ Youwillbegivenaqueryandhavetoproducaprogram.Beginyourprogramwithacomment \\\\ thatexplainsyourreasoning.Forexample,youmightwrite:\\n#Thought:thequery \\\\ asksforaline,soIwillusetheforward()function. \\\\ Examples: \\\\ \\(\\{\\)icl_string\\} \\\\ PleasegenerateONLYthecodetopoducetheanswerandnothingelse. \\\\ Query:\\(\\{\\)query\\(\\}\\) \\\\ ThoughtandProgram: \\\\ \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 17: LOGO 에이전트에 대한 프롬프트.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
