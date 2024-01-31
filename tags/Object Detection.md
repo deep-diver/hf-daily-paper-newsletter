@@ -1,0 +1,1 @@
+- [YOLO-World: Real-Time Open-Vocabulary Object Detection](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/14/2024-01-31+YOLO-World%3A+Real-Time+Open-Vocabulary+Object+Detection.yaml) / 2024-01-31
