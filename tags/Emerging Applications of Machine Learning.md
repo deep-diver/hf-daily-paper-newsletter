@@ -15,3 +15,4 @@
 - [TIP-Editor: An Accurate 3D Editor Following Both Text-Prompts And Image-Prompts](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/12/2024-01-29+TIP-Editor%3A+An+Accurate+3D+Editor+Following+Both+Text-Prompts+And+Image-Prompts.yaml) / 2024-01-29
 - [ReGAL: Refactoring Programs to Discover Generalizable Abstractions](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/14/2024-01-31+ReGAL%3A+Refactoring+Programs+to+Discover+Generalizable+Abstractions.yaml) / 2024-01-31
 - [Transfer Learning for Text Diffusion Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/14/2024-01-31+Transfer+Learning+for+Text+Diffusion+Models.yaml) / 2024-01-31
+- [Advances in 3D Generation: A Survey](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/15/2024-02-01+Advances+in+3D+Generation%3A+A+Survey.yaml) / 2024-02-01

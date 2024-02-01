@@ -39,3 +39,5 @@
 - [ReGAL: Refactoring Programs to Discover Generalizable Abstractions](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/14/2024-01-31+ReGAL%3A+Refactoring+Programs+to+Discover+Generalizable+Abstractions.yaml) / 2024-01-31
 - [Transfer Learning for Text Diffusion Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/14/2024-01-31+Transfer+Learning+for+Text+Diffusion+Models.yaml) / 2024-01-31
 - [Weaver: Foundation Models for Creative Writing](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/14/2024-01-31+Weaver%3A+Foundation+Models+for+Creative+Writing.yaml) / 2024-01-31
+- [Efficient Tool Use with Chain-of-Abstraction Reasoning](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/15/2024-02-01+Efficient+Tool+Use+with+Chain-of-Abstraction+Reasoning.yaml) / 2024-02-01
+- [Scavenging Hyena: Distilling Transformers into Long Convolution Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/15/2024-02-01+Scavenging+Hyena%3A+Distilling+Transformers+into+Long+Convolution+Models.yaml) / 2024-02-01
