@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# 랩터: 트리-조직 검색을 위한 재귀적 추상화 처리\n' +
+      '\n' +
+      '**Parth Sarthi, Salman Abdullah, Aditi Tuli, Shubh Khanna, Anna Goldie, Christopher D. Manning Stanford University psarthi@cs.stanford.edu**\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      '검색 증강 언어 모델은 세계 상태의 변화에 더 잘 적응하고 긴 꼬리 지식을 통합할 수 있다. 그러나 대부분의 기존 방법은 검색 코퍼스에서 짧은 연속 청크만을 검색하므로 전체 문서 컨텍스트에 대한 전체적 이해를 제한한다. 본 논문에서는 텍스트 덩어리를 재귀적으로 임베딩, 클러스터링 및 요약하는 새로운 접근 방식을 소개하고, 하위부터 요약 수준이 다른 트리를 구성한다. 추론 시간에 RAPTOR 모델은 이 트리에서 검색하여 다양한 추상 수준에서 긴 문서에 걸친 정보를 통합한다. 통제된 실험은 재귀적 요약이 있는 검색이 여러 작업에서 전통적인 검색 증강 LM에 비해 상당한 개선을 제공한다는 것을 보여준다. 복잡한 다단계 추론을 포함하는 질의 응답 태스크에 대해, 우리는 최신 결과를 보여준다; 예를 들어, RAPTOR 검색을 GPT-4의 사용과 결합함으로써, QuALITY 벤치마크에서 최상의 성능을 절대 정확도에서 20% 향상시킬 수 있다.\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      '대규모 언어 모델(LLM)은 많은 작업에서 인상적인 성능을 보여주는 변환 도구로 등장했다. LLM의 크기가 증가함에 따라, 그들은 그들의 파라미터들 내에 인코딩된 사실들과 함께 매우 효과적인 지식 저장소로서 독립형으로서 기능할 수 있다(Petroni et al., 2019; Jiang et al., 2020; Talmor et al., 2020; Rae et al., 2021; Hoffmann et al., 2022; Chowdhery et al., 2022; Bubeck et al., 2023; Kandpal et al., 2023). 그리고 모델들은 다운스트림 태스크들에 대한 미세 조정으로 더욱 개선될 수 있다(Roberts et al., 2020). 그럼에도 불구하고 큰 모델조차도 특정 작업에 대한 충분한 도메인 특정 지식을 포함하지 않고 세계가 계속 변화하여 LLM에서 사실을 무효화한다. 추가적인 미세 조정 또는 편집을 통해 이들 모델의 지식을 업데이트하는 것은 특히 방대한 텍스트 코퍼스를 다룰 때 어렵다(Lewis et al., 2020; Mitchell et al., 2022). 개방형 도메인 질문 응답 시스템(Chen et al., 2017; Yu et al., 2018)에서 개척된 대안적 접근 방식은 별도의 정보 검색 시스템에서 대량의 텍스트를 청크(단락)로 분할한 후 색인하는 것이다. 그 후, 검색된 정보는 문맥으로서 질문과 함께 LLM에 제시된다("retrieval augmentation", Lewis et al., 2020; Izacard et al., 2022; Min et al., 2023; Ram et al., 2023). 따라서, 일부 도메인에 특정한 현재 지식을 갖는 시스템을 용이하게 제공하고 용이한 해석가능성 및 프로버넌스 추적을 가능하게 하는 반면, LLM의 파라메트릭 지식은 불투명하고 그 소스로 역추적하기 어렵다(Akyurek et al., 2022).\n' +
+      '\n' +
+      '그럼에도 불구하고, 기존의 검색-증강 접근법들은 또한 결함이 있다. 우리가 다루는 하나는 대부분의 기존 방법이 소수의 짧고 연속적인 텍스트 청크만 검색한다는 것인데, 이는 대규모 담화 구조를 표현하고 활용하는 능력을 제한한다. 이것은 NarrativeQA 데이터세트(Kocisky et al., 2018)에서와 같이 전체 책을 이해하는 것과 같이 텍스트의 여러 부분으로부터의 지식을 통합해야 하는 주제 질문과 특히 관련이 있다. 신데렐라의 동화와 "신데렐라가 어떻게 그녀의 해피엔딩에 도달했는가?"라는 질문을 생각해 보자. 검색된 상위\\(k\\)의 짧은 연속 텍스트는 질문에 답하기에 충분한 컨텍스트를 포함하지 않는다.\n' +
+      '\n' +
+      '이를 해결하기 위해 트리 구조를 사용하여 텍스트에 대한 상위 및 하위 세부 정보를 모두 캡처하는 색인 및 검색 시스템을 설계한다. 그림 1에서 볼 수 있듯이, 우리의 시스템 RAPTOR은 텍스트 덩어리를 클러스터링하고, 그 클러스터의 텍스트 요약을 생성한 다음, 아래에서 위로 트리를 생성하여 반복한다. 이 구조는 RAPTOR가 상이한 레벨에서 텍스트를 나타내는 LLM의 컨텍스트 청크에 로드할 수 있게 하여, 상이한 레벨에서 질문에 효과적이고 효율적으로 답변할 수 있게 한다.\n' +
+      '\n' +
+      '우리의 주요 기여는 텍스트 요약법을 사용하여 다양한 규모의 컨텍스트를 검색할 수 있도록 하고 긴 문서 컬렉션에 대한 실험에서 그 효과를 보여주는 아이디어이다. 3가지 언어 모델(UnifiedQA(Khashabi et al., 2020), GPT-3(Brown et al., 2020) 및 GPT-4(OpenAI, 2023))을 사용한 제어 실험은 RAPTOR이 현재 검색 증강을 능가하는 것을 보여준다. 더욱이, RAPTOR은 GPT-4와 결합되고, 때로는 UnifiedQA와 함께, 책과 영화에 대한 자유 텍스트 응답 질문(NarrativeQA, Kocisky et al., 2018), 전체 텍스트 NLP 논문(QASPER, Dasigi et al., 2021), 중장절(QuALITY, Pang et al., 2022)에 기초한 객관식 질문의 세 가지 QA 과제에 대해 새로운 최첨단 결과를 제공한다.\n' +
+      '\n' +
+      '각주 1: 우리는 여기서 RAPTOR의 코드를 공개할 것이다.\n' +
+      '\n' +
+      '##2 관련 업무\n' +
+      '\n' +
+      '왜 Retrieval?최근 하드웨어 및 알고리즘의 발전은 실제로 모델이 다룰 수 있는 컨텍스트 길이를 확장하여 검색 시스템의 필요성에 대한 질문으로 이어졌다(Dai et al., 2019; Dao et al., 2022; Liu et al., 2023). 그러나, Liu et al. (2023) 및 Sun et al. (2021)이 언급한 바와 같이, 모델들은 장거리 컨텍스트를 과소이용하는 경향이 있고 특히 관련 정보가 긴 컨텍스트 내에 내장될 때 컨텍스트 길이가 증가함에 따라 성능이 감소하는 것을 보는 경향이 있다. 더욱이, 실질적으로, 긴 컨텍스트의 사용은 비싸고 느리다. 이는 지식 집약적 과제를 위해 가장 관련성이 높은 정보를 선택하는 것이 여전히 중요하다는 것을 시사한다.\n' +
+      '\n' +
+      '검색 방법 검색-증강 언어 모델(RALM)은 검색기, 판독기 및 종단간 시스템 훈련과 같은 다양한 구성 요소의 개선을 보았다. 검색 방법은 **TF-IDF**(Sparck Jones, 1972) 및 **BM25**(Robertson et al., 1995; Roberts et al., 2020)와 같은 전통적인 용어 기반 기술에서 딥 러닝 기반 전략(Karpukhin et al., 2020; Khattab & Zaharia, 2020; Sachan et al., 2023)으로 전환되었다. 최근 일부 연구는 방대한 지식을 암기할 수 있는 능력으로 인해 대규모 언어 모델을 검색기로 사용하는 것을 제안한다(Yu et al., 2022; Sun et al., 2022). 리더 컴포넌트에 대한 연구는 검색을 위해 DPR과 BM25를 모두 사용하고 인코더에서 패시지를 독립적으로 처리하는 **Fusion-in-Decoder(FID)**(Izacard & Grave, 2022)와 검색된 컨텍스트에 접지된 텍스트를 생성하기 위해 교차 청크 어텐션 및 청크 와이즈 검색을 사용하는 **RETRO**(Borgeaud et al., 2022; Wang et al., 2023)를 포함한다.\n' +
+      '\n' +
+      'End-to-end 시스템 트레이닝 작업에는 리트리버와 연동하여 인코더-디코더 모델을 미세 조정하는 **Atlas**(Izacard et al., 2022), 오픈 도메인 질문 응답을 위한 양방향 마스킹된 LM 미세 조정인 **REALM**(Guu et al., 2020), 사전 학습된 시퀀스-투-시퀀스 모델을 뉴럴 리트리버와 통합하는 **RAG(Retrieval-Augmented Generation)**(Lewis et al., 2020) 등이 있다. Min et al. (2021)은 다중 응답 검색에서 통과 다양성과 관련성을 다루기 위해 트리 디코딩 알고리즘을 사용하는 **Joint Passage Retrieval (JPR)** 모델을 도입하였다. **DHR(Dense Hierarchical Retrieval)** 및 **HHR(Hybrid Hierarchical Retrieval)**은 문서 및 통과 레벨 검색을 결합하고, 희소 및 밀집 검색 방법을 통합함으로써 검색 정확도의 발전을 나타낸다(Liu et al., 2021; Arivazhagan et al., 2023).\n' +
+      '\n' +
+      '그림 1: **트리 구성 프로세스: RAPTOR는 벡터 임베딩을 기반으로 텍스트 덩어리를 재귀적으로 클러스터링하고 해당 클러스터의 텍스트 요약을 생성하여 아래에서 위로 트리를 구성한다. 함께 클러스터된 노드는 형제자매입니다. 부모 노드는 해당 클러스터의 텍스트 요약을 포함합니다.**\n' +
+      '\n' +
+      '방법의 다양성에도 불구하고 모델의 검색 구성요소는 주로 표준 접근 방식, 즉 코퍼스를 칭킹하고 BERT 기반 검색기로 인코딩한다. 이러한 접근법이 널리 채택되지만, Nair et al.(2023)은 잠재적인 단점을 강조한다: 연속적인 세그먼테이션은 텍스트의 완전한 의미론적 깊이를 캡처하지 못할 수 있다. 기술 또는 과학 문서에서 추출한 스니펫을 읽는 것은 중요한 맥락이 부족하여 읽기가 어렵거나 오판의 소지가 있을 수 있다. Cohan & Goharian (2017); Newman et al.(2023); Zhang et al.(2023)\n' +
+      '\n' +
+      'ContextSummarization 기법으로서의 재귀적 요약은 문서의 축약된 관점을 제공하여, 앤젤리디스 & 라파타(2018) 콘텐츠와의 보다 집중적인 참여를 가능하게 한다. Gao et al.(2023)에 의한 요약/스니펫 모델은 대부분의 데이터 세트에서 정확성을 향상시키지만 때때로 손실된 압축 수단일 수 있는 구절의 요약 및 스니펫을 사용한다. Wu et al.(2021)에 의한 재귀-추론 요약 모델은 더 작은 텍스트 청크들을 요약하기 위해 태스크 분해를 채용하며, 이들은 나중에 더 큰 섹션들의 요약들을 형성하기 위해 통합된다. 이 방법은 더 넓은 주제를 포착하는 데 효과적이지만 세분화된 세부 사항을 놓칠 수 있다. LlamaIndex Liu(2022)는 인접한 텍스트 청크를 유사하게 요약하지만 중간 노드를 유지하여 다양한 수준의 세부 정보를 저장하여 세분화된 세부 정보를 유지함으로써 이 문제를 완화한다. 그러나 두 방법 모두 인접한 노드를 그룹화하거나 요약하기 위한 인접성에 의존하기 때문에 텍스트 내에서 멀리 떨어진 상호 의존성을 여전히 간과할 수 있으며, 이는 RAPTOR로 찾고 그룹화할 수 있다.\n' +
+      '\n' +
+      '## 3 Methods\n' +
+      '\n' +
+      'RAPTOR 구축의 개요: 긴 텍스트는 종종 하위 주제와 계층적 구조를 제시한다는 개념 Cao & Wang (2022); Dong et al. (2023), RAPTOR은 더 넓은 주제 이해와 세분화된 세부 사항의 균형을 맞추고 노드들이 텍스트 내의 순서뿐만 아니라 의미적 유사성에 기초하여 그룹화될 수 있도록 하는 재귀적 트리 구조를 구축함으로써 읽기에서 의미적 깊이와 연결의 문제를 다룬다.\n' +
+      '\n' +
+      'RAPTOR 트리의 구축은 검색 코퍼스를 전통적인 검색 증강 기술과 유사하게 길이 100의 짧고 연속적인 텍스트로 분할하는 것으로 시작한다. 문장이 100토큰 한계를 넘으면 문장 중간을 자르기보다는 전체 문장을 다음 청크로 옮긴다. 이것은 각 청크 내의 텍스트의 맥락적 및 의미적 일관성을 보존한다. 그런 다음 이러한 텍스트들은 BERT 기반 인코더(multi-qa-mpnet-base-cos-v1) Reimers & Gurevych(2019)인 SBERT를 사용하여 임베딩된다. 청크 및 해당 SBERT 임베딩은 트리 구조의 리프 노드를 형성한다.\n' +
+      '\n' +
+      '유사한 텍스트 청크를 그룹화하기 위해 클러스터링 알고리즘을 사용한다. 클러스터링되면 언어 모델을 사용하여 그룹화된 텍스트를 요약합니다. 그런 다음 이러한 요약된 텍스트가 다시 임베딩되고 추가 클러스터링이 불가능해질 때까지 임베딩, 클러스터링 및 요약의 주기가 계속되어 원본 문서의 구조화된 다층 트리 표현이 생성된다. RAPTOR의 중요한 측면은 계산 효율이다. 시스템은 구축 시간과 토큰 지출 측면에서 선형적으로 확장되어 크고 복잡한 말뭉치를 처리하기에 적합하다. RAPTOR의 확장성에 대한 포괄적인 논의는 부록 A를 참조하기 바란다.\n' +
+      '\n' +
+      '이 트리 내에서 질의하기 위해 트리 횡단 및 축소된 트리라는 두 가지 별개의 전략을 소개한다. 트리 순회 방법은 트리 계층을 계층별로 순회하며, 각 레벨에서 가장 관련성이 높은 노드를 가지치기하고 선택한다. 접힌 트리 방법은 모든 레이어에 걸쳐 노드를 일괄적으로 평가하여 가장 관련성이 높은 노드를 찾는다.\n' +
+      '\n' +
+      '클러스터링 알고리즘 클러스터링은 RAPTOR 트리를 구축하여 텍스트 세그먼트를 응집 그룹으로 구성하는 데 중요한 역할을 한다. 이 단계는 관련된 내용을 함께 그룹화하여 후속 검색 과정에 도움이 됩니다.\n' +
+      '\n' +
+      '클러스터링 접근법의 독특한 측면 중 하나는 고정된 수의 클러스터를 요구하지 않고 노드가 여러 클러스터에 속할 수 있는 소프트 클러스터링을 사용하는 것이다. 개별 텍스트 세그먼트는 종종 다양한 주제와 관련된 정보를 포함하므로 여러 요약에 포함할 수 있기 때문에 이러한 유연성은 필수적이다.\n' +
+      '\n' +
+      '클러스터링 알고리즘은 가우시안 혼합 모델(Gaussian Mixture Models, GMM)을 기반으로 하며, 이는 유연성과 확률적 프레임워크를 모두 제공한다. GMM은 데이터 포인트가 여러 가우시안 분포의 혼합물로부터 생성된다고 가정한다.\n' +
+      '\n' +
+      '각각 \\(d\\)차원의 밀집 벡터 임베딩으로 표현되는 \\(n\\)개의 텍스트 세그먼트 집합이 주어졌을 때, \\(k^{th}\\)의 가우시안 분포에서의 소속도가 주어졌을 때, \\(p(\\mathbf{x}|k)=\\mathcal{N}(\\mathbf{x};\\mu_{k},\\mathbf{\\Sigma}_{k})\\)로 표현될 수 있다. 전체 확률분포는 가중결합 \\(P(\\mathbf{x})=\\sum_{k=1}^{\\kappa}\\pi_{k}\\mathcal{N}(\\mathbf{x};\\mu_{k},\\mathbf{\\Sigma}_{k})\\)이며, 여기서 \\(\\pi_{k}\\)는 \\(k^{\\mathrm{th}}\\) 가우시안 분포에 대한 혼합가중치를 나타낸다.\n' +
+      '\n' +
+      '벡터 임베딩의 고차원성은 전통적인 GMM에 대한 도전을 제시하는데, 거리 메트릭은 고차원 공간에서 유사성을 측정하는 데 사용될 때 제대로 작동하지 않을 수 있기 때문이다(Aggarwal et al., 2001). 이를 완화하기 위해 차원 감소를 위한 매니폴드 학습 기법인 Uniform Manifold Approximation and Projection(UMAP)을 사용한다(McInnes et al., 2018). UMAP에서 가장 가까운 이웃 매개변수인 \\(n\\_neighbors\\)의 수는 국부적 구조와 전역적 구조의 보존 사이의 균형을 결정한다. 제안된 알고리즘은 계층적 클러스터링 구조를 생성하기 위해 \\(n\\_neighbors\\)을 변화시킨다: 먼저 전역 클러스터를 식별하고 이 전역 클러스터 내에서 로컬 클러스터링을 수행한다. 이 2단계 클러스터링 프로세스는 광범위한 주제에서 특정 세부 사항에 이르기까지 텍스트 데이터 간의 광범위한 관계를 포착한다.\n' +
+      '\n' +
+      '로컬 클러스터의 결합된 컨텍스트가 요약 모델의 토큰 임계값을 초과하는 경우, 본 알고리즘은 클러스터 내의 클러스터링을 재귀적으로 적용하여 컨텍스트가 토큰 임계값 내에 유지되도록 한다.\n' +
+      '\n' +
+      '최적의 군집 수를 결정하기 위해 모델 선택을 위해 베이지안 정보 기준(BIC)을 사용한다. BIC는 모델 복잡성을 처벌할 뿐만 아니라 적합도(Schwarz, 1978)를 보상한다. 주어진 GMM에 대한 BIC는 \\(BIC=\\ln(N)k-2\\ln(\\hat{L})\\)이며, 여기서 \\(N\\)은 텍스트 세그먼트(또는 데이터 포인트)의 수이고, \\(k\\)은 모델 파라미터의 수이며, \\(\\hat{L}\\)은 모델의 우도 함수의 최대값이다. GMM의 맥락에서 매개변수 수\\(k\\)는 입력 벡터의 차원성과 클러스터 수의 함수이다.\n' +
+      '\n' +
+      'BIC에 의해 결정된 최적의 클러스터 수를 사용하여 기대-최대화 알고리즘을 사용하여 GMM 매개변수, 즉 평균, 공분산 및 혼합물 가중치를 추정한다.\n' +
+      '\n' +
+      'GMM의 가우시안 가정은 종종 희박하고 왜곡된 분포를 나타내는 텍스트 데이터의 특성과 완벽하게 일치하지 않을 수 있지만, 우리의 경험적 관찰은 그것이 우리의 목적에 효과적인 모델을 제공한다는 것을 시사한다. 우리는 GMM 클러스터링을 연속적인 청크를 요약하는 것과 비교하는 삭제를 실행하고 부록 B에 세부 정보를 제공한다.\n' +
+      '\n' +
+      '모델 기반 요약은 가우시안 혼합 모델을 사용하여 노드를 클러스터링한 후 각 클러스터의 노드를 언어 모델로 보내 요약한다. 이 단계를 통해 모델은 텍스트의 큰 청크를 선택된 노드의 간결하고 일관된 요약으로 변환할 수 있다. 실험을 위해 gpt-3.5-터보를 사용하여 요약을 생성한다. 요약 단계는 잠재적으로 많은 양의 검색된 정보를 관리 가능한 크기로 압축한다. 부록 C의 요약으로 인한 압축에 대한 통계와 부록 D의 요약에 사용된 프롬프트를 제공한다.\n' +
+      '\n' +
+      '요약 모델은 일반적으로 신뢰할 수 있는 요약을 생성하지만 집중 주석 연구에 따르면 요약의 약 4%가 경미한 환각을 포함하는 것으로 나타났다. 이들은 부모 노드로 전파되지 않았으며 질문 응답 작업에 식별 가능한 영향을 미치지 않았다. 환각에 대한 심층적인 분석은 부록 E를 참고한다.\n' +
+      '\n' +
+      '이 섹션에서는 RAPTOR에서 사용하는 두 가지 쿼리 메커니즘인 트리 횡단 및 축소 트리에 대해 자세히 설명한다. 이러한 방법은 각각의 장점 및 절충점을 갖는 관련 정보를 검색하기 위해 다층 RAPTOR 트리를 탐색하는 독특한 방법을 제공한다. 우리는 부록 F에서 두 방법의 의사 코드를 제공한다. 우리는 SBERT를 사용하여 모든 노드를 내장한다는 점에 유의한다.\n' +
+      '\n' +
+      '*트리 순회** 방법은 먼저 질의 임베딩에 대한 코사인 유사도에 기초하여 최상위-k개의 가장 관련성이 높은 루트 노드들을 선택한다. 이들 선택된 노드들의 자식들은 다음 계층에서 고려되고, 상위-k 노드들은 질의 벡터와의 코사인 유사성에 기초하여 이 풀로부터 다시 선택된다. 이 과정은 우리가 리프 노드들에 도달할 때까지 반복된다. 마지막으로, 선택된 모든 노드로부터의 텍스트가 연결되어 검색된 컨텍스트를 형성한다. 알고리즘의 단계들은 아래에 요약되어 있다:\n' +
+      '\n' +
+      '1. RAPTOR 트리의 루트 레이어에서 시작한다. 쿼리 임베딩과 이 초기 계층에 존재하는 모든 노드의 임베딩 사이의 코사인 유사도를 계산한다.\n' +
+      '2. 가장 높은 코사인 유사도 점수를 기준으로 상위(k) 노드를 선택하여 집합 \\(S_{1}\\)을 형성한다.\n' +
+      '\n' +
+      '3. 집합 \\(S_{1}\\)의 요소들의 자식 노드들로 진행한다. 질의 벡터와 이들 자식 노드들의 벡터 임베딩들 사이의 코사인 유사도를 계산한다.\n' +
+      '4. 쿼리에 코사인 유사도 점수가 가장 높은 상위 \\(k\\) 자식 노드를 선택하여 집합 \\(S_{2}\\)을 형성한다.\n' +
+      '5. 이 공정을 \\(d\\) 층에 대해 재귀적으로 계속하여 세트 \\(S_{1},S_{2},\\dots,S_{d}\\)를 생성한다.\n' +
+      '6. 관련 컨텍스트를 쿼리에 조립하기 위해 \\(S_{1}\\)부터 \\(S_{d}\\)까지 집합한다.\n' +
+      '\n' +
+      '각 계층에서 선택된 깊이\\(d\\)와 노드 수\\(k\\)를 조절함으로써 트리 탐색 방법은 검색되는 정보의 특이성과 폭에 대한 제어를 제공한다. 알고리즘은 트리의 상위 계층을 고려하여 넓은 전망에서 시작하여 하위 계층을 통해 내려오면서 점진적으로 더 미세한 세부 사항에 초점을 맞춘다.\n' +
+      '\n' +
+      '** 붕괴된 트리** 접근법은 그림 2와 같이 트리의 모든 노드를 동시에 고려하여 관련 정보를 검색하는 더 간단한 방법을 제공한다. 이 방법은 계층별로 이동하는 대신 다층 트리를 단일 계층으로 평평하게 하여 본질적으로 모든 노드를 비교를 위해 동일한 수준으로 만든다. 이 방법에 대한 단계들은 아래에 요약되어 있다:\n' +
+      '\n' +
+      '1. 먼저 RAPTOR 트리 전체를 하나의 층으로 붕괴시킨다. 이 새로운 노드 집합은 \\(C\\)으로 표시되며 원래 트리의 모든 계층에서 노드를 포함한다.\n' +
+      '2. 다음으로, 축소집합 \\(C\\)에 존재하는 모든 노드들의 임베딩과 질의 임베딩 사이의 코사인 유사도를 계산한다.\n' +
+      '3. 마지막으로 질의와 코사인 유사도 점수가 가장 높은 상위(k) 노드를 선택한다. 모델의 입력 제한을 초과하지 않도록 미리 정의된 최대 토큰 수에 도달할 때까지 결과 세트에 노드를 계속 추가합니다.\n' +
+      '\n' +
+      'QASPER 데이터 세트에서 20개 스토리에 대해 두 가지 접근법을 모두 테스트했다. 그림 3은 최상위 크기가 다른 트리 탐색과 최대 토큰 번호가 다른 축소된 트리 탐색의 성능을 보여준다. 붕괴된 트리 접근 방식은 일관되게 더 나은 성능을 발휘합니다. 우리는 붕괴된 트리 검색은 트리 탐색보다 더 큰 유연성을 제공하기 때문에 더 낫다고 믿는다. 즉, 모든 노드를 동시에 검색함으로써 주어진 질문에 대해 정확한 수준의 입도에 있는 정보를 검색한다. 이에 비해, \\(d\\)와 \\(k\\)의 값이 동일한 트리 탐색을 사용하는 동안, 트리의 각 레벨에서 노드의 비율은 일정할 것이다. 따라서 세분화된 세부 정보에 대한 상위 주제 정보의 비율은 질문에 관계없이 동일하게 유지됩니다.\n' +
+      '\n' +
+      '그림 2: 트리 횡단 및 축소된 트리 검색 메커니즘의 **그림입니다. 트리 탐색은 트리의 루트 레벨에서 시작하여 쿼리 벡터에 대한 코사인 유사성에 기초하여 상위-\\(k\\)(여기서, 상위-1) 노드(들)를 검색한다. 각 레벨에서 이전 레이어의 상위(k) 노드에서 상위(k) 노드를 검색합니다. 접힌 트리는 질의 벡터와의 코사인 유사도에 기초하여, 트리를 단일 계층으로 접고 임계 토큰 수에 도달할 때까지 노드를 검색한다. 코사인 유사도 검색이 수행된 노드들은 두 예시 모두에서 강조 표시된다.**\n' +
+      '\n' +
+      '그러나 붕괴된 트리 접근법의 한 가지 단점은 트리의 모든 노드에 대해 코사인 유사성 검색을 수행해야 한다는 것이다. 그러나, 이는 FAISS(Johnson et al., 2019)와 같은 빠른 \\(k\\)-최근접 이웃 라이브러리들을 사용하여 보다 효율적으로 만들어질 수 있다.\n' +
+      '\n' +
+      '전반적으로 축소된 트리 접근법이 QASPER 데이터 세트의 하위 집합에서 더 큰 유연성과 우수한 성능을 고려할 때, 이는 우리가 진행하는 쿼리 접근 방식이다. 특히, 2000개의 최대 토큰이 포함된 축소 트리를 사용하여 상위 20개 노드를 검색하는 것과 거의 동일합니다. 토큰 기반 접근법을 사용하면 토큰 카운트가 노드에 걸쳐 변할 수 있기 때문에 컨텍스트가 모델 컨텍스트 제약을 초과하지 않도록 한다. UnifiedQA 모델을 사용한 실험을 위해, UnifiedQA의 최대 컨텍스트 길이가 512 토큰이기 때문에 400 토큰의 컨텍스트를 제공한다. 우리는 RAPTOR와 기준선에 동일한 양의 컨텍스트 토큰을 제공한다.\n' +
+      '\n' +
+      '정성적 연구는 RAPTOR의 검색 프로세스가 Dense Passage Retrieval(DPR) 방법과 비교하여 얻을 수 있는 이점을 이해하기 위해 정성적 분석을 수행한다. 우리의 연구는 1500단어 신데렐라 동화를 사용한 주제별 멀티홉 질문에 초점을 맞춘다. 그림 4에서 알 수 있듯이 RAPTOR의 트리 기반 검색은 질문의 세부 수준과 일치하는 다른 트리 계층에서 노드를 선택할 수 있다. 이 접근법은 종종 DPR보다 다운스트림 작업에 더 적절하고 포괄적인 정보를 산출한다. 구체적인 질문에 대해서는 RAPTOR와 DPR에서 모두 검색된 텍스트를 포함한 자세한 논의와 예시는 부록 G를 참고하기 바란다.\n' +
+      '\n' +
+      '## 4 Experiments\n' +
+      '\n' +
+      '데이터셋 우리는 내러티브QA, QASPER 및 QuALITY의 세 가지 질문 응답 데이터셋에 걸쳐 RAPTOR의 성능을 측정한다.\n' +
+      '\n' +
+      '내러티브QA는 총 1,572개의 문서(Kocisky et al., 2018; Wu et al., 2021)로 책과 영화 녹취록의 전체 텍스트를 기반으로 한 질문-답변 쌍을 포함하는 데이터셋이다. 내러티브QA-스토리 과제는 내러티브의 질문에 정확하게 답하기 위해 전체 내러티브에 대한 포괄적인 이해가 필요하므로, 문학적 영역에서 더 긴 텍스트를 이해하는 모델의 능력을 테스트한다. 우리는 표준 BLEU(B-1, B-4), ROUGE(R-L) 및 METEOR(M) 메트릭을 사용하여 이 데이터 세트에 대한 성능을 측정한다. 실험에 사용된 내러티브QA 평가 스크립트에 대한 자세한 내용은 부록 H를 참조하십시오.\n' +
+      '\n' +
+      'QASPER 데이터세트는 1,585개의 NLP 논문에 걸쳐 5,049개의 질문을 포함하며, 각각의 질문은 전체 텍스트 내에 임베딩된 정보에 대해 프로빙한다(Dasigi et al., 2021). QASPER의 답변 유형은 답변 가능/답변 불가능, 예/아니오, 추상성 및 추출성으로 분류됩니다. 정확도는 표준 F1을 사용하여 측정된다.\n' +
+      '\n' +
+      '마지막으로 QuALITY 데이터세트는 각각 약 5,000개의 길이를 평균하는 컨텍스트 패시지를 수반하는 객관식 질문으로 구성된다(Pang et al., 2022). 이 데이터 세트는 QA 작업을 위해 전체 문서에 대한 추론을 요구하므로 중간 길이의 문서에 대한 검색 시스템의 성능을 측정할 수 있다. 데이터 세트에는 도전적인 하위 집합인 QuALITY-HARD가 포함되어 있으며, 이는 대부분의 인간 주석자가 속도 설정에서 잘못 대답한 질문을 포함한다. 우리는 전체 테스트 세트와 HARD 하위 집합 모두에 대한 정확도를 보고한다.\n' +
+      '\n' +
+      '통제된 기준선 비교 우리는 먼저 QASPER, 내러티브QA 및 QuALITY의 세 가지 데이터 세트에 대해 SBERT(Reimers and Gurevych, 2019), BM25(Robertson et al., 1995; 2009), DPR(Karpukhin et al., 2020)을 RAPTOR 트리 구조가 있거나 없는 임베딩 모델로 사용하여 UnifiedQA 3B를 판독기로 사용하여 통제된 비교를 제시한다. 상기 표 1 및 표 2에 나타낸 바와 같이,\n' +
+      '\n' +
+      '그림 3: **조회 방법의 비교.** 상위 k 값이 다른 트리 횡단 및 컨텍스트 길이가 다른 축소 트리를 사용하여 QASPER 데이터 세트의 20개 이야기에 대한 결과. 2000개의 토큰이 포함된 축소된 트리는 최상의 결과를 생성하므로 주요 결과에 대해 이 쿼리 전략을 사용한다.\n' +
+      '\n' +
+      '우리의 결과는 RAPTOR가 모든 리트리버와 결합될 때 모든 데이터 세트에서 각 리트리버를 일관되게 능가한다는 것을 보여준다. 2\n' +
+      '\n' +
+      '각주 2: 표 1 및 2의 DPR 실험의 경우 이전에 수행된 나머지 실험에서 사용된 dpr-단일-nd-베이스와 대조적으로 dpr-멀티세트-베이스 모델을 사용했다. 이 결정은 dpr-multiset-base가 우수한 결과를 보인 Karpukhin et al.(2020)에서 관찰된 성능에 기초하였다.\n' +
+      '\n' +
+      'SBERT가 있는 RAPTOR이 가장 성능이 좋기 때문에 모든 후속 실험에 사용한다. 이제 GPT-3, GPT-4 및 통합 QA의 세 가지 다른 LLM을 사용하여 RAPTOR을 BM25 및 DPR과 비교한다. 표 3에서 볼 수 있듯이 RAPTOR는 QASPER 데이터 세트에서 세 가지 언어 모델 모두에서 BM25 및 DPR을 일관되게 능가한다. RAPTOR의 F-1 매치 점수는 GPT-3, GPT-4 및 UnifiedQA를 사용할 때 각각 53.1%, 55.7% 및 36.6%이다. 이 점수는 DPR을 1.8, 2.7, 4.5점으로 초과하고 BM25를 각 LLM에서 6.5, 5.5, 10.2점으로 취소한다. QASPER은 NLP 논문 내에서 정보를 합성해야 하므로 RAPTOR의 상위 요약 노드가 상위\\(k\\) 가장 유사한 원시 텍스트 청크만 추출할 수 있는 방법을 능가할 수 있다는 것은 놀라운 일이 아니다.\n' +
+      '\n' +
+      '마찬가지로, 표 4와 같은 QuALITY 데이터셋에서 RAPTOR은 DPR 및 BM25에 비해 2% 및 5.1% 향상된 62.4%의 정확도를 달성한다. UnifiedQA를 사용할 때 유사한 경향이 관찰되며, RAPTOR은 DPR 및 BM25를 각각 2.7% 및 6.7% 능가한다.\n' +
+      '\n' +
+      '마지막으로, 내러티브QA 데이터 세트에서 표 6에 제시된 바와 같이 RAPTOR는 여러 메트릭에 걸쳐 탁월하다. ROUGE-L의 경우 BM25와 DPR을 각각 7.3점과 2.7점 앞섰다. BLEU-1, BLEU-4 및 METEOR과 같은 다른 메트릭에서 RAPTOR은 각각 1.7~5.8 및 0.7~2.1 포인트 범위의 마진에서 BM25 및 DPR을 능가한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c} \\hline \\hline\n' +
+      '**Model** & **ROUGE** & **BLEU-1** & **BLEU-4** & **METEOR** \\\\ \\hline\n' +
+      'RAPTOR** & **30.87\\%** & **23.50\\%** & **6.42\\%** & **19.20\\%**\\%** RAPTOR & 29.26\\% & 22.56\\% & 5.95\\% & 18.15\\%\\%\n' +
+      'RAPTOR** & **27.93\\%** & **21.17\\%** & **5.70\\%** & **17.03\\%**\\\\BM25 without RAPTOR & 23.52\\% & 17.73\\% & 4.65\\% & 13.98\\%\\%\n' +
+      '**DPR with RAPTOR** & **30.94\\%** & **23.51\\%** & **6.45\\%** & **19.05\\%** \\\\ DPR without RAPTOR & 29.56\\% & 22.84\\% & 6.12\\% & 18.44\\% \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 1: **내러티브QA 성능 With + With With RAPTOR:** UnifiedQA-3B를 언어 모델로 사용하여, 내러티브QA 데이터셋에 RAPTOR이 있거나 없는 다양한 검색 방법(SBERT, BM25, DPR)의 성능 비교. RAPTOR은 각 검색 방법의 기준선보다 우수하다.\n' +
+      '\n' +
+      '그림 4: **Querying Process:** RAPTOR가 신데렐라 이야기에 대한 두 가지 질문에 대한 정보를 검색하는 방법에 대한 일러스트레이션: "이야기의 중심 주제는 무엇인가?"와 "신데렐라는 어떻게 해피엔딩을 찾았는가?" 하이라이트된 노드는 RAPTOR의 선택을 나타내는 반면 화살표는 DPR의 리프 노드를 가리킨다. 특히, RAPTOR의 문맥은 종종 DPR에 의해 직접 또는 상위 계층 요약 내에서 검색된 정보를 포함한다.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:8]\n' +
+      '\n' +
+      '우리는 이 가설을 양적으로나 정성적으로 검증했다. 본 논문에서는 부록 G의 정성적 분석을 제시한다. 상위 노드들의 기여도를 정량적으로 이해하기 위해 QuALITY 데이터세트의 스토리를 사용하였다. RAPTOR 트리는 섹션 3에 설명된 대로 이러한 스토리 각각에 대해 구축되지만 검색 중에는 레이어의 다른 하위 집합으로 검색을 제한한다. 예를 들어, 우리는 리프 노드와 각 상위 계층뿐만 아니라 레이어의 서로 다른 인접 하위 집합에서 독점적으로 검색한다. 우리는 표 8의 한 이야기에 특정한 결과를 보여주며 전체 트리 검색이 특정 계층에만 초점을 맞춘 검색 전략을 능가했음을 보여준다.\n' +
+      '\n' +
+      '이러한 발견은 RAPTOR에서 전체 트리 구조의 중요성을 강조한다. RAPTOR은 검색을 위해 원문과 상위 요약문을 모두 제공함으로써, 상위 주제 질의에서 세부 지향 질문에 이르기까지 더 넓은 범위의 질문을 효과적으로 처리할 수 있다. 추가 이야기에 대한 자세한 결과와 층 기여에 대한 절제 연구는 부록 I에서 찾을 수 있다.\n' +
+      '\n' +
+      '## 5 Conclusion\n' +
+      '\n' +
+      '본 논문에서는 다양한 수준의 추상화 수준에서 문맥 정보를 갖는 대용량 언어 모델의 파라메트릭 지식을 증강하는 새로운 트리 기반 검색 시스템인 RAPTOR을 제안한다. RAPTOR은 재귀적 클러스터링과 요약 기법을 사용하여 검색 코퍼스의 다양한 섹션에 걸쳐 정보를 합성할 수 있는 계층적 트리 구조를 생성한다. 질의 단계에서 RAPTOR는 보다 효과적인 검색을 위해 이 트리 구조를 활용한다. 실험을 통해 RAPTOR이 기존의 검색 방법을 능가할 뿐만 아니라 여러 질의응답 태스크에 대한 새로운 성능 벤치마크를 설정함을 보였다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c} \\hline \\hline\n' +
+      '**Model** & **ROUGE-L** & **BLEU-1** & **BLEU-4** & **METEOR** \\\\ \\hline BiDAF (Kosisky et al., 2018) & \\(6.2\\) & \\(5.7\\) & \\(0.3\\) & \\(3.7\\) \\\\ BM25 + BERT (Mou et al., 2020) & \\(15.5\\) & \\(14.5\\) & \\(1.4\\) & \\(5.0\\) \\\\ Recursively Summarizing Books (Wu et al., 2021) & \\(21.6\\) & \\(22.3\\) & \\(4.2\\) & \\(10.6\\) \\\\ Retrieval + Reader (Izacard and Grave, 2022) & **32.0** & **35.3** & **7.5** & \\(11.1\\) \\\\\n' +
+      '**RAPTOR + UnifiedQA** & 30.8 & 23.5 & 6.4 & **19.1** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 6: ROUGE-L, BLEU-1, BLEU-4 및 METEOR의 네 가지 메트릭에 초점을 맞춘 여러 모델에 걸친 내러티브QA 데이터 세트에 대한 성능 비교. RAPTOR은 UnifiedQA 3B와 페어링될 때 BM25 및 DPR과 같은 검색 방법을 능가할 뿐만 아니라 METEOR 메트릭에서 새로운 최신 기술을 설정한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c} \\hline \\hline\n' +
+      '**Model** & \\multicolumn{2}{c}{**Accuracy**} \\\\ \\cline{2-3}  & **Test Set** & **Hard Subset** \\\\ \\hline Longformer-base (Beltagy et al., 2020) & \\(39.5\\) & \\(35.3\\) \\\\ DPR and DeBERTaV3-large (Pang et al., 2022) & \\(55.4\\) & \\(46.1\\) \\\\ CoLISA (DeBERTaV3-large) (Dong et al., 2023) & \\(62.3\\) & \\(54.7\\) \\\\\n' +
+      '**RAPTOR + GPT-4** & **82.6** & **76.2** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 7: 전체 테스트 세트 및 더 도전적인 하드 서브세트 모두에 대한 QuALITY 데이터세트의 정확도. RAPTOR가 적용된 GPT-4는 새로운 최첨단 기술을 설정합니다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c} \\hline \\hline\n' +
+      '**Layers Queried / Start Layer** & **Layer 0 (Leaf Nodes)** & **Layer 1** & **Layer 2** \\\\ \\hline\n' +
+      '1 layer & 57.9 & 57.8 & 57.9\\\\\n' +
+      '2층 & - & 52.6 & 63.15\\\\\n' +
+      '3 layers & - & - & **73.68** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 8: QuALITY 데이터셋으로부터 Story 1에 대한 서로 다른 트리 레이어를 질의할 때 RAPTOR의 성능. 열은 서로 다른 시작점(가장 높은 층)을 나타내고 행은 서로 다른 조회된 층 수를 나타낸다.\n' +
+      '\n' +
+      '##6 재현성 성명\n' +
+      '\n' +
+      'QA 및 요약에 대한 언어 모델은 QA 작업의 경우 GPT-3 및 GPT-4, 요약의 경우 GPT-3.5-터보 네 가지 언어 모델이 RAPTOR 실험에 사용된다. gpt-3, gpt-4 및 gpt-3.5-터보 모델은 API 호출(OpenAI API)을 통해 액세스될 수 있다. QA 작업에 사용되는 Unified QA는 Hugging Face에서 공개적으로 사용할 수 있다.\n' +
+      '\n' +
+      '평가 데이터세트 실험에 사용된 세 가지 평가 데이터세트(QuALITY, QASPER 및 내러티브QA)는 모두 공개적으로 액세스할 수 있다. 이러한 데이터 세트는 이 연구에서 수행된 검색 및 QA 테스트를 복제할 수 있도록 한다.\n' +
+      '\n' +
+      '소스 코드 RAPTOR의 소스 코드는 여기에서 공개적으로 사용할 수 있다.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* A. C. Aggarwal, A. Hinneburg, and D. A. Keim(2001) on the Surprising Behavior of Distance Metrics in High Dimensional Space. In Database Theory--ICDT 2001: 8th International Conference London, UK, January 4-6, 2001 Proceedings 8, pp. 420-434. External Links: Link, Document Cited by: SS1.\n' +
+      '* J. Ainslie, T. 레이만 데종수 온타논, S 영천천 제므얀스키, D. 우투스, M. 곽준섭 Tay, et al. (2023)CoLT5: 조건부 계산을 갖는 더 빠른 장거리 트랜스포머. ArXiv:2303.09752. External Links: Link, 2303.09752 Cited by: SS1.\n' +
+      '* E. Akyurek, T. Bolukbasi, F. Liu, B. Xiong, I. Tenney, J. Andreas, and K. Guu(2022)는 언어 모델의 지식을 훈련 데이터로 다시 추적한다. In Findings of the Association for Computational Linguistics: EMNLP 2022, pp. 2429-2446. External Links: Link, Document Cited by: SS1.\n' +
+      '* S. 안젤리디스와 M. 라파타(2018) 의견 요약: 측면 추출은 감정 예측을 충족하고 둘 다 약하게 감독된다. arXiv preprint arXiv:1808.08858. External Links: Link, 1808.08858 Cited by: SS1.\n' +
+      '* M. G. Arivazhagan, L. 류필기 천원 양종욱 Huang (2023) Hybrid hierarchical retrieval for open-domain question answering. In Findings of the Association for Computational Linguistics: ACL 2023, pp. 10680-10689. External Links: Link, 2003.10689 Cited by: SS1.\n' +
+      '* I. Beltagy, M. E. Peters, and A. Cohan(2020)Longformer: the Long-document Transformer. 외부 링크: 링크, 2004.05150 인용: SS1.\n' +
+      '* S. Borgeaud, A. Mensch, J. Hoffmann, T. 카이 E. 러더포드, 케이 Millican, G. Pan Van Den Driessche, J. Lespiau, B. Damoc, A. Clark, et al.(2022) Improving language models by retrieving from 수조 개의 토큰들. In International conference on machine learning, pp. 2206-2240. External Links: Link, 2206.02240 Cited by: SS1.\n' +
+      '*T. 브라운, B. 만, N. 라이더 Subbiah, J. D. Kaplan, P. Dhariwal, A. Neelakantan, P. Shyam, G. Sastry, A. Askell, S. Agarwal, A. Herbert-Voss, G. Krueger, T. 헤니건 어린이, A. 라메시, D. 지글러, J. 우, C. 윈터, C. 헤세, M. 첸 E. 시글러 M. 리트윈 그레이, B. 체스, J. 클라크, C. 버너, S. McCandlish, A. Radford, I. Sutskever, and D. Amodei(2018) 언어 모델은 Few-Shot Learners이다. 신경 정보 처리 시스템의 발전에 있어서, M. 란자토 Hadsell, M.F. Balcan, and H. Lin(Eds.), pp. 1877-1901. External Links: Link, Document Cited by: SS1.\n' +
+      '\n' +
+      '2020. URL[https://proceedings.neurips.cc/paper_files/paper/2020/file/1457c0d6bfcb4967418bfbf8ac142f64a-Paper.pdf](https://proceedings.neurips.cc/paper_files/paper/2020/file/1457c0d6bfcb4967418bfbf8ac142f64a-Paper.pdf]\n' +
+      '* Bubeck et al. (2023) Sebastien Bubeck, Varun Chandrasekaran, Ronen Eldan, Johannes Gehrke, Eric Horvitz, Ece Kamar, Peter Lee, Yin Tat Lee, Yuanzhi Li, Scott Lundberg, et al. Sparks of Artificial General Intelligence: Early Experiments with GPT-4. _arXiv preprint arXiv:2303.12712_, 2023. URL[https://arxiv.org/abs/2303.12712](https://arxiv.org/abs/2303.12712)\n' +
+      '* Cao & Wang(2022) Shuyang Cao and Lu Wang. HIBRIDS: 구조 인식 긴 문서 요약에 대한 계층적 편향을 가진 주의. In _Proceedings of the 60th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)_, pp. 786-807, Dublin, Ireland, May 2022. Association for Computational Linguistics. doi: 10.18653/v1/2022.acl-long.58. URL[https://aclanthology.org/2022.acl-long.58](https://aclanthology.org/2022.acl-long.58).\n' +
+      '* Chen et al. (2017) Danqi Chen, Adam Fisch, Jason Weston, and Antoine Bordes. 오픈 도메인 질문에 답하기 위해 위키피디아 읽기 In _Proceedings of the 55th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)_, pp. 1870-1879, Vancouver, Canada, July 2017. Association for Computational Linguistics. doi: 10.18653/v1/P17-1171. URL[https://aclanthology.org/P17-1171](https://aclanthology.org/P17-1171).\n' +
+      '* Chowdhery et al. (2022) Aakanksha Chowdhery, Sharan Narang, Jacob Devlin, Maarten Bosma, Gaurav Mishra, Adam Roberts, Paul Barham, Hyung Won Chung, Charles Sutton, Sebastian Gehrmann, et al. PaLM: Scaling Language Modeling with Pathways. _ arXiv preprint arXiv:2204.02311_, 2022. URL[https://arxiv.org/abs/2204.02311](https://arxiv.org/abs/2204.02311).\n' +
+      '* Cohan & Goharian (2017) Arman Cohan and Nazli Goharian. 단어 임베딩과 도메인 지식을 사용하여 과학적 요약을 위한 인용문을 문맥화하는 것. In _Proceedings of the 40th International ACM SIGIR Conference on Research and Development in Information Retrieval_, pp. 1133-1136, 2017. URL[https://dl.acm.org/doi/abs/10.1145/3077136.3080740](https://dl.acm.org/doi/abs/10.1145/3077136.3080740)\n' +
+      '* Dai et al.(2019) Zihang Dai, Zhilin Yang, Yiming Yang, Jaime Carbonell, Quoc Le, and Ruslan Salakhutdinov. 트랜스포머-XL: 고정 길이 컨텍스트를 넘어서는 주의 언어 모델. In _Proceedings of the 57th Annual Meeting of the Association for Computational Linguistics_, pp. 2978-2988, Florence, Italy, July 2019. Association for Computational Linguistics. doi: 10.18653/v1/P19-1285. URL[https://aclanthology.org/P19-1285](https://aclanthology.org/P19-1285).\n' +
+      '* Dao et al. (2022) Tri Dao, Dan Fu, Stefano Ermon, Atri Rudra, and Christopher Re. 플래시 어텐션: IO-Awareness와 함께 빠르고 메모리 효율적인 정확한 어텐션 Advances in Neural Information Processing Systems_, 35:16344-16359, 2022. URL[https://arxiv.org/abs/2205.14135](https://arxiv.org/abs/2205.14135).\n' +
+      '* Dasigi et al. (2021) Pradeep Dasigi, Kyle Lo, Iz Beltagy, Arman Cohan, Noah A. Smith, and Matt Gardner. 연구 논문에 게재된 정보 탐색 질문 및 답변 데이터 세트 In _Proceedings of the 2021 Conference of the North American chapter of the Computational Linguistics: Human Language Technologies_, pp. 4599-4610, Online, June 2021. Association for Computational Linguistics. doi: 10.18653/v1/2021.naacl-main.365. URL[https://aclanthology.org/2021.naacl-main.365](https://aclanthology.org/2021.naacl-main.365).\n' +
+      '* Dong et al.(2023a) Mengxing Dong, Bowei Zou, Yanling Li, and Yu Hong. CoLISA: 객관식 읽기 이해를 위한 대비학습을 통한 내적 상호작용 In _Advances in Information Retrieval: 45th European Conference on Information Retrieval, ECIR 2023, Dublin, Ireland, April 2-6, 2023, Proceedings, Part I_, pp. 264-278. Springer, 2023a. URL[https://link.springer.com/chapter/10.1007/978-3-031-28244-7_17](https://link.springer.com/chapter/10.1007/978-3-031-28244-7_17)\n' +
+      '* Dong et al.(2023b) Zican Dong, Tianyi Tang, Lunyi Li, and Wayne Xin Zhao. 변압기를 이용한 장문 모델링에 관한 연구 arXiv preprint arXiv:2302.14502_, 2023b. URL[https://arxiv.org/abs/2302.14502](https://arxiv.org/abs/2302.14502)\n' +
+      '* Gao et al. (2023) Tianyu Gao, Howard Yen, Jiatong Yu, and Danqi Chen. 큰 언어 모델을 사용하여 인용이 있는 텍스트를 생성할 수 있습니다. _ arXiv preprint arXiv:2305.14627_, 2023. URL[https://arxiv.org/abs/2305.14627](https://arxiv.org/abs/2305.14627).\n' +
+      '\n' +
+      '* Guo et al. (2022) Mandy Guo, Joshua Ainslie, David Uthus, Santiago Ontanon, Jianmo Ni, Yun-Hsuan Sung, and Yinfei Yang. LongT5: 긴 시퀀스에 대한 효율적인 텍스트 대 텍스트 변환기. In _Findings of the Association for Computational Linguistics: NAACL 2022_, pp. 724-736, Seattle, United States, July 2022. Association for Computational Linguistics. doi: 10.18653/v1/2022.findings-naacl.55. URL[https://aclanthology.org/2022.findings-naacl.55](https://aclanthology.org/2022.findings-naacl.55).\n' +
+      '* Guu et al. (2020) Kelvin Guu, Kenton Lee, Zora Tung, Panupong Pasupat, and Mingwei Chang. 증강 언어 모델 사전 교육을 검색합니다. In _International conference on machine learning_, pp. 3929-3938. PMLR, 2020. URL[https://doi.org/10.48550/arXiv.2002.08909](https://doi.org/10.48550/arXiv.2002.08909).\n' +
+      '* Hoffmann et al. (2022) Jordan Hoffmann, Sebastian Borgeaud, Arthur Mensch, Elena Buchatskaya, Trevor Cai, Eliza Rutherford, Diego de Las Casas, Lisa Anne Hendricks, Johannes Welbl, Aidan Clark, et al training compute-optimal large language models. _ arXiv preprint arXiv:2203.15556_, 2022. URL[https://arxiv.org/abs/2203.15556](https://arxiv.org/abs/2203.15556).\n' +
+      '* Izacard & Grave (2022) Gautier Izacard and Edouard Grave. 2022. URL[https://arxiv.org/abs/2012.04584](https://arxiv.org/abs/2012.04584) ArXiv:2012.04584를 사전 인쇄합니다.\n' +
+      '* Izacard et al. (2022) Gautier Izacard, Patrick Lewis, Maria Lomeli, Lucas Hosseini, Fabio Petroni, Timo Schick, Jane Dwivedi-Yu, Armand Joulin, Sebastian Riedel, and Edouard Grave. 검색 증강 언어 모델을 이용한 소수 샷 학습 arXiv preprint arXiv:2208.03299_, 2022. URL[https://arxiv.org/abs/2208.03299](https://arxiv.org/abs/2208.03299).\n' +
+      '* Jiang et al. (2020) Zhengbao Jiang, Frank F Xu, Jun Araki, and Graham Neubig. 언어 모델이 무엇을 알고 있는지 어떻게 알 수 있습니까? _ Transactions of the Association for Computational Linguistics_, 8:423-438, 2020. URL[https://arxiv.org/abs/1911.12543](https://arxiv.org/abs/1911.12543).\n' +
+      '* Johnson et al. (2019) Jeff Johnson, Matthijs Douze, and Herve Jegou. GPU를 이용한 억만장 규모의 유사성 검색 IEEE Transactions on Big Data_, 7(3):535-547, 2019. URL[https://arxiv.org/abs/1702.08734](https://arxiv.org/abs/1702.08734).\n' +
+      '* Kandpal et al. (2023) Nikhil Kandpal, Haikang Deng, Adam Roberts, Eric Wallace, and Colin Raffel. 대형 언어 모델은 긴 꼬리 지식을 배우기 위해 고군분투한다. In _International Conference on Machine Learning_, pp. 15696-15707. PMLR, 2023. URL[https://proceedings.mlr.press/v202/kandpal23a/kandpal23a.pdf](https://proceedings.mlr.press/v202/kandpal23a/kandpal23a.pdf]).\n' +
+      '* Karpukhin et al. (2020) Vladimir Karpukhin, Barlas Oguz, Sewon Min, Patrick Lewis, Ledell Wu, Sergey Edunov, Danqi Chen, and Wen-tau Yih. 개방형 도메인 질의 응답을 위한 밀도 패스 검색 In _Proceedings of the 2020 Conference on Empirical Methods in Natural Language Processing (EMNLP)_, pp. 6769-6781, Online, November 2020. Association for Computational Linguistics. doi: 10.18653/v1/2020.emnlp-main.550. URL[https://aclanthology.org/2020.emnlp-main.550](https://aclanthology.org/2020.emnlp-main.550)\n' +
+      '* Khashabi et al. (2020) Daniel Khashabi, Sewon Min, Tushar Khot, Ashish Sabharwal, Oyvind Tafjord, Peter Clark, and Hannaneh Hajishirzi. UNIFIEDQA: 단일 QA 시스템과 형식 경계를 교차합니다. In _Findings of the Association for Computational Linguistics: EMNLP 2020_, pp. 1896-1907, Online, November 2020. Association for Computational Linguistics. doi: 10.18653/v1/2020.findings-emnlp.171. URL[https://aclanthology.org/2020.findings-emnlp.171](https://aclanthology.org/2020.findings-emnlp.171)\n' +
+      '* Khattab & Zaharia (2020) Omar Khattab and Matei Zaharia. ColBERT: 버트를 통한 상황화된 후기 상호작용을 통한 효율적이고 효과적인 통로 검색. In _Proceedings of the 43rd International ACM SIGIR conference on research and development in Information Retrieval_, pp. 39-48, 2020. URL[https://arxiv.org/abs/2004.12832](https://arxiv.org/abs/2004.12832).\n' +
+      '* Kocisky et al. (2018) Tomas Kocisky, Jonathan Schwarz, Phil Blunsom, Chris Dyer, Karl Moritz Hermann, Gabor Melis, and Edward Grefenstette. 내러티브QA 읽기 이해도 도전 Transactions of the Association for Computational Linguistics_, 6:317-328, 2018. URL[https://arxiv.org/abs/1712.07040](https://arxiv.org/abs/1712.07040).\n' +
+      '\n' +
+      '* Lewis et al. (2020) Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio Petroni, Vladimir Karpukhin, Naman Goyal, Heinrich Kuttler, Mike Lewis, Wen-tau Yih, Tim Rocktaschel, et al. Retrieval-Augmented Generation for Knowledge-Intensive NLP Task. _ Advances in Neural Information Processing Systems_, 33:9459-9474, 2020. URL[https://doi.org/10.48550/arXiv.2005.11401](https://doi.org/10.48550/arXiv.2005.11401).\n' +
+      '* Liu(2022) Jerry Liu. LlamaIndex, 2022. URL[https://github.com/jerryjliu/llama_index](https://github.com/jerryjliu/llama_index).\n' +
+      '* Liu et al. (2023) Nelson F Liu, Kevin Lin, John Hewitt, Ashwin Paranjape, Michele Bevilacqua, Fabio Petroni, and Percy Liang. 중간에서 잃음: 언어 모델이 긴 문맥을 사용하는 방법. _ arXiv preprint arXiv:2307.03172_, 2023. URL[https://arxiv.org/abs/2307.03172](https://arxiv.org/abs/2307.03172)이다.\n' +
+      '* Liu et al. (2021) Ye Liu, Kazuma Hashimoto, Yingbo Zhou, Semih Yavuz, Caiming Xiong, and Philip Yu. 개방형 도메인 질의 응답을 위한 고밀도 계층 검색 Marie-Francine Moens, Xuanjing Huang, Lucia Specia, and Scott Wen-tau Yih(eds.), _Findings of the Association for Computational Linguistics: EMNLP 2021_, pp. 188-200, Punta Cana, Dominican Republic, November 2021. Association for Computational Linguistics. doi: 10.18653/v1/2021.findings-emnlp.19. URL[https://aclanthology.org/2021.findings-emnlp.19](https://aclanthology.org/2021.findings-emnlp.19)\n' +
+      '* McInnes et al. (2018) Leland McInnes, John Healy, and James Melville. UMAP: Uniform Manifold Approximation and Projection for Dimension Reduction, 2018. URL[https://arxiv.org/abs/1802.03426](https://arxiv.org/abs/1802.03426). arXiv preprint arXiv:1802.03426.\n' +
+      '* Min et al. (2021) Sewon Min, Kenton Lee, Ming-Wei Chang, Kristina Toutanova, and Hannaneh Hajishirzi. 다양한 다중 응답 검색을 위한 공동 통과 순위. Marie-Francine Moens, Xuanjing Huang, Lucia Specia, and Scott Wen-tau Yih(eds.), _Proceedings of the 2021 Conference on Empirical Methods in Natural Language Processing_, pp. 6997-7008, Online and Punta Cana, Dominican Republic, November 2021. Association for Computational Linguistics. doi: 10.18653/v1/2021.emnlp-main.560. URL[https://aclanthology.org/2021.emnlp-main.560](https://aclanthology.org/2021.emnlp-main.560)\n' +
+      '* Min et al. (2023) Sewon Min, Weijia Shi, Mike Lewis, Xilun Chen, Wen-tau Yih, Hannaneh Hajishirzi, and Luke Zettlemoyer. 비모수 마스킹 언어 모델링입니다. In _Findings of the Association for Computational Linguistics: ACL 2023_, pp. 2097-2118, Toronto, July 2023. Association for Computational Linguistics. doi: 10.18653/v1/2023.findings-acl.132. URL[https://aclanthology.org/2023.findings-acl.132](https://aclanthology.org/2023.findings-acl.132).\n' +
+      '* Mitchell et al. (2022) Eric Mitchell, Charles Lin, Antoine Bosselut, Christopher D Manning, and Chelsea Finn. 축척에서 메모리 기반 모델 편집 In _International Conference on Machine Learning_, pp. 15817-15831. PMLR, 2022. URL[https://proceedings.mlr.press/v162/mitchell22a/mitchell122a.pdf](https://proceedings.mlr.press/v162/mitchell22a/mitchell122a.pdf)\n' +
+      '* Mou et al. (2020) Xiangyang Mou, Mo Yu, Bingsheng Yao, Chenghao Yang, Xiaoxiao Guo, Saloni Potdar, and Hui Su. 책에 대한 질의응답에 대한 좌절스러울 정도로 어려운 증거 검색. In _Proceedings of the First Joint Workshop on Narrative Understanding, Storylines, and Events_, pp. 108-113, Online, July 2020. Association for Computational Linguistics. doi: 10.18653/v1/2020.nuse-1.13. URL[https://aclanthology.org/2020.nuse-1.13](https://aclanthology.org/2020.nuse-1.13).\n' +
+      '* Nair et al. (2023) Inderjet Nair, Aparna Garimella, Balaji Vasan Srinivasan, Natwar Modani, Niyati Chhaya, Srikrishna Karaman, and Sumit Shekhar. 선형 텍스트 분할을 위한 신경 CRF 기반 계층적 접근법. In _Findings of the Association for Computational Linguistics: EACL 2023_, pp. 883-893, Dubrovnik, Croatia, May 2023. Association for Computational Linguistics. doi: 10.18653/v1/2023.findings-eacl.65. URL[https://aclanthology.org/2023.findings-eacl.65](https://aclanthology.org/2023.findings-eacl.65)\n' +
+      '* Newman et al. (2023) Benjamin Newman, Luca Soldaini, Raymond Fok, Arman Cohan, and Kyle Lo. 탈맥락화를 위한 제어 가능한 qa 기반 프레임워크. _ arXiv preprint arXiv:2305.14772_, 2023. URL[https://arxiv.org/pdf/2305.14772.pdf](https://arxiv.org/pdf/2305.14772.pdf).\n' +
+      '* OpenAI(2023) OpenAI. GPT-4 기술 보고서 ArXiv_, abs/2303.08774, 2023. URL[https://arxiv.org/abs/2303.08774](https://arxiv.org/abs/2303.08774).\n' +
+      '* Pang et al. (2021) Richard Yuanzhe Pang, Alicia Parrish, Nitish Joshi, Nikita Nangia, Jason Phang, Angelica Chen, Vishakh Padmakumar, Johnny Ma, Jana Thompson, He He, and Samuel Bowman. QuALITY: 긴 입력 텍스트를 사용한 질문 답변, 예! In _Proceedings of the 2022 Conference of the North American chapter of the Computational Linguistics: Human Language Technologies_, pp. 5336-5358, Seattle, United States, July 2022. Association for Computational Linguistics. URL[https://aclanthology.org/2022.naacl-main.391](https://aclanthology.org/2022.naacl-main.391).\n' +
+      '* Petroni et al. (2019) Fabio Petroni, Tim Rocktaschel, Patrick Lewis, Anton Bakhtin, Yuxiang Wu, Alexander H Miller, and Sebastian Riedel. 지식 베이스로서의 언어 모델? _ arXiv preprint arXiv:1909.01066_, 2019. URL[https://arxiv.org/abs/1909.01066](https://arxiv.org/abs/1909.01066).\n' +
+      '* Rae et al. (2021) Jack W Rae, Sebastian Borgeaud, Trevor Cai, Katie Millican, Jordan Hoffmann, Francis Song, John Aslanides, Sarah Henderson, Roman Ring, Susannah Young, et al. Scaling language models: Methods, Analysis & Insight from Training Gopher. _ arXiv preprint arXiv:2112.11446_, 2021. URL[https://arxiv.org/abs/2112.11446](https://arxiv.org/abs/2112.11446).\n' +
+      '* Ram et al. (2023) Ori Ram, Yoav Levine, Itay Dalmedigos, Dor Muhlgay, Amnon Shashua, Kevin Leyton-Brown, and Yoav Shohham. 문맥 내 검색-증강 언어 모델. _ arXiv preprint arXiv:2302.00083_, 2023. URL[https://arxiv.org/abs/2302.00083](https://arxiv.org/abs/2302.00083).\n' +
+      '* Reimers & Gurevych (2019) Nils Reimers and Iryna Gurevych. 문장-BERT: 샴 BERT-네트워크를 이용한 문장 임베딩. In _Proceedings of the 2019 Conference on Empirical Methods in Natural Language Processing and the 9th International Joint Conference on Natural Language Processing (EMNLP-IJCNLP)_, pp. 3982-3992, Hong Kong, China, November 2019. Association for Computational Linguistics. doi: 10.18653/v1/D19-1410. URL[https://aclanthology.org/D19-1410](https://aclanthology.org/D19-1410).\n' +
+      '* Roberts et al. (2020) Adam Roberts, Colin Raffel, and Noam Shazeer. 얼마나 많은 지식이 언어 모델의 매개변수로 채워질 수 있는가? In _Proceedings of the 2020 Conference on Empirical Methods in Natural Language Processing (EMNLP)_, pp. 5418-5426, Online, November 2020. Association for Computational Linguistics. doi: 10.18653/v1/2020.emnlp-main.437. URL[https://aclanthology.org/2020.emnlp-main.437](https://aclanthology.org/2020.emnlp-main.437)\n' +
+      '* Robertson et al. (2009) Stephen Robertson, Hugo Zaragoza et al. The Probabilistic Relevance Framework: BM25 and Beyond. _ Foundations and Trends in Information Retrieval_, 3(4):333-389, 2009. URL[https://doi.org/10.1561/1500000019](https://doi.org/10.1561/1500000019).\n' +
+      '* Robertson et al. (1995) Stephen E Robertson, Steve Walker, Susan Jones, Micheline M Hancock-Beaulieu, Mike Gatford, et al. Okapi at TREC-3. _Nist Special Publication Sp_, 109:109, 1995. URL[https://www.microsoft.com/en-us/research/publication/okapi-at-trec-3/](https://www.microsoft.com/en-us/research/publication/okapi-at-trec-3/)\n' +
+      '* Sachan et al. (2023) Devendra Singh Sachan, Mike Lewis, Dani Yogatama, Luke Zettlemoyer, Joelle Pineau, and Manzil Zaheer. 조밀한 통로 검색기를 훈련시키려면 질문만 하면 됩니다 The Association for Computational Linguistics_, 11:600-616, 2023. doi: 10.1162/tacl_a_00564. URL[https://aclanthology.org/2023.tacl-1.35](https://aclanthology.org/2023.tacl-1.35).\n' +
+      '* Schwarz (1978) Gideon Schwarz. 모델의 치수를 추정합니다. _ 통계연보_, pp. 461-464, 1978. URL[https://projecteuclid.org/journals/annals-of-statistics/volume-6/issue-2/Estimating-the-Dimension-of-a-Model/10.1214/aos/1176344136.full](https://projecteuclid.org/journals/annals-of-statistics/volume-6/issue-2/Estimating-the-Dimension-of-a-Model/10.1214/aos/1176344136.full]\n' +
+      '* Jones (1972) Karen Spirck Jones. 용어특성의 통계적 해석과 검색에의 응용 Journal of documentation_, 28(1):11-21, 1972. URL[https://doi.org/10.1108/eb026526](https://doi.org/10.1108/eb026526)이다.\n' +
+      '* Sun et al. (2021) Simeng Sun, Kalpesh Krishna, Andrew Mattaella-Micke, and Mohit Iyyer. 장거리 언어 모델은 실제로 장거리 문맥을 사용하나요? Marie-Francine Moens, Xuanjing Huang, Lucia Specia, and Scott Wen-tau Yih(eds.), _Proceedings of the 2021 Conference on Empirical Methods in Natural Language Processing_, pp. 807-822, Online and Punta Cana, Dominican Republic, November 2021. Association for Computational Linguistics. doi: 10.18653/v1/2021.emnlp-main.62. URL[https://aclanthology.org/2021.emnlp-main.62](https://aclanthology.org/2021.emnlp-main.62)\n' +
+      '* Sun et al. (2022) Zhiqing Sun, Xuezhi Wang, Yi Tay, Yiming Yang, and Denny Zhou. Recitation-augmented language models. _ arXiv preprint arXiv:2210.01296_, 2022. URL[https://arxiv.org/abs/2210.01296](https://arxiv.org/abs/2210.01296).\n' +
+      '\n' +
+      '* Talmor et al. (2020) Alon Talmor, Yanai Elazar, Yoav Goldberg, and Jonathan Berant. oLMpics- what language model pre-training capture. _ Transactions of the Association for Computational Linguistics_, 8:743-758, 2020. URL[https://arxiv.org/abs/1912.13283](https://arxiv.org/abs/1912.13283).\n' +
+      '* Wang et al. (2023) Boxin Wang, Wei Ping, Peng Xu, Lawrence McAfee, Zihan Liu, Mohammad Shoeybi, 이동, Oleksii Kuchaiev, Bo Li, Chaowei Xiao, et al. 검색과 함께 자기회귀 언어 모델을 사전 훈련할 것인가? 종합적인 연구. _ arXiv preprint arXiv:2304.06762_, 2023. URL[https://arxiv.org/abs/2304.06762](https://arxiv.org/abs/2304.06762)이다.\n' +
+      '* Wu et al. (2021) Jeff Wu, Long Ouyang, Daniel M. 지글러, 니산 스티엔논, 라이언 로우, 얀 라이케, 폴 크리스티아누 Recursively Summarizing Books with Human Feedback, 2021. URL[https://arxiv.org/abs/2109.10862](https://arxiv.org/abs/2109.10862).\n' +
+      '* Yu et al. (2018) Adams Wei Yu, David Dohan, Minh-Thang Luong, Rui Zhao, Kai Chen, Mohammad Norouzi, and Quoc V. 르 QANet: Local Convolution과 Global Self-Attention for Reading Comprehension, 2018. URL[https://arxiv.org/abs/1804.09541](https://arxiv.org/abs/1804.09541) arXiv preprint arXiv:1804.09541.\n' +
+      '* Yu et al. (2022) Wenhao Yu, Dan Iter, Shuohang Wang, Yichong Xu, Mingxuan Ju, Soumya Sanyal, Chenguang Zhu, Michael Zeng, and Meng Jiang. 검색이 아닌 생성: 대형 언어 모델은 강력한 컨텍스트 생성기, 2022. URL[https://arxiv.org/abs/2209.10063](https://arxiv.org/abs/2209.10063)이다.\n' +
+      '* Zhang et al. (2023) Shiyue Zhang, David Wan, and Mohit Bansal. 추출은 충실하지 않다: 추출 요약에서 광범위한 불성실 문제에 대한 조사. Anna Rogers, Jordan Boyd-Graber, and Naoaki Okazaki(eds.), _Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics(Volume 1: Long Papers)_, pp. 2153-2174, Toronto, July 2023. Association for Computational Linguistics. doi: 10.18653/v1/2023.acl-long.120. URL[https://aclanthology.org/2023.acl-long.120](https://aclanthology.org/2023.acl-long.120).\n' +
+      '\n' +
+      '## 부록 트리-빌딩 프로세스의 확장성과 계산 효율성\n' +
+      '\n' +
+      'RAPTOR의 트리 구축 프로세스의 계산 효율성과 비용 효율성을 평가하기 위해 16GB RAM이 있는 소비자 등급 노트북, 특히 Apple M1 Mac에 대한 실험을 수행했다. 이 실험은 일반적인 하드웨어에서 RAPTOR의 확장성과 실현 가능성을 입증하는 것을 목표로 했다. 컨텍스트 길이를 12,500에서 78,000 토큰으로 변경하고 초기 분할 및 임베딩에서 최종 루트 노드 구성에 이르기까지 트리 구축 프로세스를 완료하는 데 필요한 토큰 지출과 시간을 모두 측정했다.\n' +
+      '\n' +
+      '토큰 지출 우리는 프롬프트 토큰과 완료 토큰을 모두 포함하는 트리 구축 과정에서 초기 문서 길이와 총 토큰 수 사이의 관계를 경험적으로 조사했다. 문서 길이는 세 가지에 걸쳐 크게 다양했다.\n' +
+      '\n' +
+      '도 5: QASPER, NarrativeQA, QuALITY에 대한 문서 길이의 함수로서의 토큰 비용. RAPTOR 트리 구축 비용은 각 데이터 세트에 대해 문서 길이에 따라 선형적으로 확장된다.\n' +
+      '\n' +
+      '조사된 데이터 세트: QuALITY, QASPER 및 내러티브QA. 도 5는 초기 문서 길이와 총 토큰 지출 간의 명확한 선형 상관 관계를 도시한 것으로, RAPTOR이 문서 복잡도 또는 길이에 관계없이 선형 토큰 스케일링을 유지함을 강조한다.\n' +
+      '\n' +
+      '빌드 타임 우리는 또한 그림 6과 같이 문서 길이와 빌드 시간 사이의 일관된 선형 추세를 경험적으로 관찰했다. 이는 RAPTOR이 시간 측면에서 선형적으로 확장되어 다양한 길이의 큰 말뭉치를 효율적으로 처리할 수 있는 실행 가능한 솔루션임을 시사한다.\n' +
+      '\n' +
+      '본 연구의 결과는 RAPTOR이 토큰의 확장과 구축 시간 측면에서 모두 확장된다는 것을 보여준다. 입력 텍스트의 복잡성과 부피가 커지더라도 트리 구성 비용은 예측 가능하고 선형적으로 스케일링된다. 이것은 RAPTOR가 계산적으로 효율적이고 크고 다양한 말뭉치를 처리하기에 적합하다는 것을 보여준다.\n' +
+      '\n' +
+      '## 부록 B 절제에 대한 RAPTOR에서의 클러스터링 메커니즘 연구\n' +
+      '\n' +
+      'RAPTOR 접근법에서 클러스터링 메커니즘의 효율성을 평가하기 위해 QuALITY 데이터 세트에 대한 절제 연구를 수행했다. 이 연구는 RAPTOR의 성능을 표준 클러스터링 방법과 대조적으로 균형 잡힌 트리 스타일 인코딩 및 연속 청크의 요약과 비교한다.\n' +
+      '\n' +
+      '### Methodology\n' +
+      '\n' +
+      '이 절제 연구의 두 구성 모두 검색의 일관성을 유지하기 위해 SBERT 임베딩과 통합 QA를 활용했다. RAPTOR의 경우 일반적인 클러스터링 및 요약 프로세스를 사용했다. 대조적으로, 대체 설정에는 연속 텍스트 청크를 재귀적으로 인코딩하고 요약하여 균형 잡힌 트리를 생성하는 것이 포함되었다. 우리는 약 6.7 노드인 RAPTOR에서 관찰된 평균 군집 크기를 기반으로 이 설정에 대한 창 크기를 결정했다. 따라서 우리는 7개의 노드의 윈도우 크기를 선택했다. 붕괴된 트리 접근법은 두 모델 모두에서 검색을 위해 적용되었다.\n' +
+      '\n' +
+      '### 결과 및 토론\n' +
+      '\n' +
+      '절제 연구의 결과는 표 9에 나와 있으며, 이 절제 연구의 결과는 RAPTOR의 클러스터링 메커니즘을 최신 기반 트리 접근법에 비해 사용할 때 정확도의 향상을 분명히 나타낸다. 이 발견은 RAPTOR의 클러스터링 전략이 요약에 대한 균질한 콘텐츠를 캡처하는 데 더 효과적이어서 전체 검색 성능을 향상시킨다는 가설을 입증한다.\n' +
+      '\n' +
+      '그림 6: 최대 80,000 토큰의 문서에 대해 문서 길이의 함수로 시간을 구축합니다. RAPTOR 트리 구축 시간은 각 데이터 세트에 대해 문서 길이에 따라 선형적으로 확장된다.\n' +
+      '\n' +
+      '## 부록 C 데이터세트 통계 및 압축 비율\n' +
+      '\n' +
+      '모든 데이터 세트에서 자식 노드 길이의 합에 대한 요약 길이의 평균 비율은 0.28로 72%의 압축률을 나타낸다. 평균적으로 요약 길이는 131개의 토큰이고, 평균 자식 노드 길이는 86개의 토큰이다. 아래는 세 가지 데이터 세트 모두에 대한 세부 통계량입니다.\n' +
+      '\n' +
+      '## 부록 D 요약 프롬프트\n' +
+      '\n' +
+      '표 11은 요약에 사용된 프롬프트를 나타낸다.\n' +
+      '\n' +
+      '## 부록 E 환각 분석\n' +
+      '\n' +
+      'RAPTOR 모델 내에서 요약의 품질과 정확성을 평가하기 위해 생성된 요약에서 환각에 초점을 맞춘 분석을 수행했다. 요약서는 gpt-3.5-터보에 의해 생성된 다음 주석을 달아서 환각 비율을 정량화하고 이러한 부정확성이 부모 노드로 전파되는지 여부를 조사하고 질문 응답(QA) 작업에 미치는 영향을 평가했다.\n' +
+      '\n' +
+      '### Methodology\n' +
+      '\n' +
+      '40개 층에서 150개의 노드를 무작위로 샘플링하고 환각에 대해 평가했다. 이 샘플링 전략은 다양한 컨텍스트에 걸쳐 모델의 성능을 광범위하게 볼 수 있다. 각 노드는 손으로 주석을 달았고 환각이 포함되어 있는지 확인했다.\n' +
+      '\n' +
+      '### Findings\n' +
+      '\n' +
+      '샘플링된 150개의 노드 중 4%(6개 노드)는 일종의 환각을 포함했다. 가장 일반적으로 이러한 환각은 요약된 텍스트에 존재하지 않는 학습 데이터에서 사소한 정보를 추가하거나 요약본을 작성할 때 일부 정보를 잘못 추론하는 모델에서 비롯되었다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c} \\hline \\hline\n' +
+      '**Dataset** & \\begin{tabular}{c} **Avg.** \\\\ **Summary** \\\\ **Length** \\\\ **(tokens)** \\\\ \\end{tabular} & \\begin{tabular}{c} **Avg. Child** \\\\ **Node Text** \\\\ **Length** \\\\ **(tokens)** \\\\ \\end{tabular} & \\begin{tabular}{c} **Avg. \\# of** \\\\ **Child Nodes** \\\\ **Per Parent** \\\\ \\end{tabular} &\n' +
+      '\\begin{tabular}{c} **Avg.** \\\\ **Compression** \\\\ **Ratio (\\%)** \\\\ \\end{tabular} \\\\ \\hline All Datasets & 131 & 85.6 & 6.7 &.28 \\\\ QuALITY & 124.4 & 87.9 & 5.7 &.28 \\\\ NarrativeQA & 129.7 & 85.5 & 6.8 &.27 \\\\ QASPER & 145.9 & 86.2 & 5.7 &.35 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 10: 데이터 세트별 평균 요약 길이 및 자식 노드 길이의 통계량\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l l} \\hline \\hline\n' +
+      '**Configuration** & **Accuracy** \\\\ \\hline\n' +
+      '**RAPTOR + SBERT embeddings + UnifiedQA** & **56.6\\%** \\\\ Recency-based tree + SBERT embeddings + UnifiedQA & 55.8\\% \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 9: RAPTOR과 최근성 기반 트리 접근법을 비교한 절제 연구 결과\n' +
+      '\n' +
+      '**Example:**\n' +
+      '\n' +
+      '자식 노드의__Text:__\n' +
+      '\n' +
+      '\'우리 백성들에게 함께 가겠나?\' \'우리 백성들에게 함께 가겠나?\' \'조르가 죽으면 위대한 전사 오가 될 것이다\' \'조르가 죽으면 대장도 될 것이다\' \'내 전사만큼 강력한 자는 없다\' \'하지만 너희 아버지는 허락하지 않을 것이다\' \'조르, 우리 아버지 갈루스의 최고 대장도 허락하지 않을 것이다\' \'나처럼 너도 마찬가지다\' 코탠, 할 수 있으면... 브래들리는 그녀가 코탄처럼 영어가 망가진 영어로 말했지만 똑같이 매력적이라는 것을 알아차렸다.\n' +
+      '\n' +
+      '해당 노드의 부모에서 발견된:__Summary:_\n' +
+      '\n' +
+      '주인공 브래들리는 코탄에게 백성들과 함께 지내며 위대한 전사가 되라는 요청을 받고 있지만, 그는 거절하고 자국으로 돌아가야 한다. 산타모니카의 톰 빌링스가 도착해서 보웬 J. 타일러 주니어를 찾으러 왔다고 말한다. 코탄의 여동생인 애조르는 탐의 나라에 가서 이상하고 멋진 것들을 볼 수 있는 가능성에 대해 흥분하고 있습니다.\n' +
+      '\n' +
+      '여기서 환각은 요약본에 주니어가 명시되어 있다. Ajor와 Co-Tan은 자매이지만 이를 명시적으로 언급하거나 암시하지는 않는다.\n' +
+      '\n' +
+      '모든 부모 노드를 검토한 결과 환각이 상위 계층으로 전파되지 않는다는 것을 발견했다. 일반적으로 환각은 경미했고 텍스트의 주제적 해석을 변경하지 않았다.\n' +
+      '\n' +
+      'QA 작업에 대한### 영향\n' +
+      '\n' +
+      '우리의 연구 결과에서 환각은 QA 작업의 수행에 식별 가능한 영향을 미치지 않았다. 이는 환각이 우리의 RAPTOR 아키텍처에서 요약 구성 요소에 대한 주요 관심사가 아님을 시사한다.\n' +
+      '\n' +
+      '## 검색 방법을 위한 부록 F Pseudocode\n' +
+      '\n' +
+      '```\n' +
+      'functionTraverseTree(tree,query,k) \\(S_{\\text{current}}\\leftarrow\\text{layer}[0]\\)forlayer in range(tree.num_layers)do \\(top_{k}\\leftarrow[]\\)fornode in \\(score\\leftarrow\\text{dot\\product(query, node}\\) \\(\\text{top\\k.append}((\\text{node, score}))\\)for \\(S_{0}\\cup S_{1}\\cup S_{2}\\cup S_{k}\\cup S_{cup S_{k}\\)for return\\(S_{0}\\cup S_{cup S_{1}\\cup S_{k}\\cup S_{cup S_{cup S_{k}\\)for \\(S_{\\text{current}}\\gets S_{\\text{current}}\\gets S_{layer}\\)for \\(\n' +
+      '```\n' +
+      '\n' +
+      '**알고리즘 1**트리 순회 알고리즘\n' +
+      '\n' +
+      '## 부록 G 질적 분석\n' +
+      '\n' +
+      'RAPTOR의 검색 과정을 정성적으로 조사하기 위해, 우리는 동화의 신데렐라의 1500단어 버전에 대한 주제적, 다중 홉 질문에 대해 테스트한다. RAPTOR에 의해 검색된 컨텍스트와 DPR에 의해 검색된 컨텍스트를 비교한다. 주요 논문의 그림 4는 두 가지 질문에 대한 RAPTOR의 트리 구조 내 검색 과정을 상세히 보여준다. RAPTOR이 각 질문에 대해 선택하는 노드는 강조 표시되고, DPR이 동일한 질문에 대해 선택하는 리프 노드는 화살표로 표시된다. 이 비교는 RAPTOR의 트리 구조의 이점을 보여준다. RAPTOR은 각 계층에서 요구되는 입도의 레벨에 따라 다른 계층에서 노드를 선택한다.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:19]\n' +
+      '\n' +
+      '다운스트림 작업에 상당한 영향을 미칩니다. GPT-4는 RAPTOR의 맥락을 제공받으면 "신데렐라는 왕자가 잃어버린 유리구두의 주인을 찾아 신데렐라의 소유주임을 발견하면 해피엔딩을 발견한다. 결국 결혼하여 신데렐라의 삶을 더 나은 방향으로 변화시킨다."라는 상세한 답변을 생성한다. 반면, GPT-4는 DPR의 맥락을 이용하여 "주어진 맥락을 바탕으로 신데렐라가 어떻게 해피엔딩을 발견하는지 판단할 수 없다"고 말한다.\n' +
+      '\n' +
+      '우리가 살펴보는 두 번째 질문은 전체 텍스트에 대한 총체적인 이해가 필요한 주제 질문인 "이야기의 중심 주제는 무엇인가?"이다. 이 질문에 대해 RAPTOR 및 DPR에 의해 검색된 텍스트는 표 13과 같다. RAPTOR에 의해 검색된 텍스트는 스토리의 모든 주요 부분에 대한 짧은 설명을 포함하는 반면, DPR에 의해 검색된 텍스트는 스토리의 좁은 서브세트에 대한 상세한 설명을 포함한다. 다시 말하지만, 검색 메커니즘의 차이는 질문에 답할 때 GPT-4의 성능에 영향을 미친다. DPR의 맥락을 고려해 “친절하고 겸손한 소녀 신데렐라가 아름다운 공주로 마법처럼 변신해 무도회에서 왕자와 다른 이들의 관심과 감탄을 사로잡는 만큼 이야기의 중심 주제는 변신이며 내면의 아름다움의 힘”이라고 출력한다. 이 답변은 신데렐라가 왕자를 처음 만날 때까지 이야기의 첫 부분만을 고려한 것이다. 이와는 대조적으로, RAPTOR의 맥락을 고려할 때 GPT-4는 "신데렐라가 요정 대모의 도움으로 학대받고 억압받는 소녀에서 궁극적으로 왕자와 행복과 사랑을 찾는 아름답고 자신감 있는 젊은 여성으로 변신하는 것처럼 이야기의 중심 주제는 변신과 역경을 극복하는 것"이라고 출력하며, 이는 보다 완전한 답으로 이야기에 대한 포괄적인 이해를 보여준다.\n' +
+      '\n' +
+      '이 정성적 분석은 RAPTOR가 검색하는 정보가 더 적절하고 철저하기 때문에 이전 검색 메커니즘을 능가하여 다운스트림 작업에서 더 나은 성능을 제공한다는 것을 나타낸다.\n' +
+      '\n' +
+      '또한 내러티브와 주제에 대한 질문과 함께 2600단어 스토리를 만들었습니다. 이야기에서 발췌한 내용이 아래에 있으며 이 이야기의 전체 PDF가 여기에 연결되어 있습니다. "이야기의 중심 주제는 무엇인가?"와 같은 질문에 대해, "이 이야기는 인간의 연결의 힘에 관한 것으로... 그들의 열정을 추구하면서 서로를 고무시키고 고양시킨다."라는 문장이 포함된 상위 노드를 검색한다. 원문에 명시적으로 제시되지 않은 이 요약은 거의 직접적으로 질문에 답한다.\n' +
+      '\n' +
+      '**"The Eager Writer"에서 발췌:**\n' +
+      '\n' +
+      '"이썬의 글쓰기에 대한 열정은 항상 그의 일부였다. 어렸을 때, 그는 종종 수첩에 이야기와 시를 쓰곤 했고, 나이가 들면서 글쓰기에 대한 사랑이 더 심해졌다. 그의 저녁은 종종 그의 방의 희미한 불빛 속에서 노트북으로 타이핑하면서 보내졌다. 그는 최근에 온라인 마케팅 회사에 대한 콘텐츠 작가로서의 직업을 가지고 있었고, 그의 마음은 여전히 스토리링의 세계를 그리워했다. 그러나 많은 작가 지망생들처럼, 업계에서 발판을 찾기 위해 애썼다. 그는 온라인 마케팅 회사에 대한 콘텐츠 작가로서의 직업을 가지고 있었지만, 이것이 그가 추구하고자 하는 길이 아니라는 것이 점점 더 분명해졌다.\n' +
+      '\n' +
+      '## 부록 H 내러티브QA 평가 스크립트\n' +
+      '\n' +
+      '우리는 평가 요구에 더 잘 맞추기 위해 AllenNLP의 평가 스크립트3을 몇 가지 수정했다.\n' +
+      '\n' +
+      '각주 3: docs.allennlp.org/models/main/models/rc/tools/narrativeqa/\n' +
+      '\n' +
+      '**추가 스무딩:** 스무딩은 참조 텍스트에서 발생하는 n-그램 일치가 없기 때문에 BLEU 점수가 0인 경우를 처리하기 위해 통합되었다. BLEU 점수가 0이면 결과가 왜곡되어 희귀하거나 새로운 문구에 대해 지나치게 가혹한 평가가 발생한다. 평활 함수를 추가하여 BLEU 점수가 0으로 떨어지는 것을 방지하여 보다 공정한 평가를 제공한다.\n' +
+      '***Modified BLEU-4 Weighting:** 원래 스크립트는 자신의 BLEU-4 계산에서 가장 높은 순서 n-gram(4-gram)에 1의 가중치를 적용하고 나머지에는 0의 가중치를 적용했다(즉, 가중치=(0, 0, 0, 1)). 이 접근법은 낮은 순서의 매치들을 무시하면서 4-그램 매치들에 과도하게 초점을 맞출 수 있다. 보다 균형 잡힌 평가를 제공하기 위해 BLEU-4 계산에 대한 가중치를 (0.25, 0.25, 0.25, 0.25)로 변경하여 모든 n-그램 수준에 가중치를 고르게 분배했다.\n' +
+      'METEOR 계산에서 매핑하기 전의 ***토큰화:** 원본 스크립트는 METEOR 계산을 위해 간단한 분할 및 맵 방법을 활용했다. 우리는 먼저 텍스트를 토큰화한 다음 토큰을 매핑하여 이를 수정했다. 이 개정안은 단어의 올바른 언어적 경계를 고려하여 METEOR 계산의 정확성을 향상시킨다.\n' +
+      '\n' +
+      '## 부록 I RAPTOR의 성능에 미치는 층별 분석\n' +
+      '\n' +
+      '다양한 레이어가 성능에 어떤 영향을 미치는가?\n' +
+      '\n' +
+      '본 절에서는 다양한 스토리들에 대한 계층적 트리 구조의 다른 계층들을 질의할 때 RAPTOR의 검색 성능에 대한 상세한 분석을 제시한다. 이 표들은 다양한 질의 요구사항에 대한 RAPTOR의 다층 구조의 유용성을 검증한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{|c c c|} \\hline \\hline\n' +
+      '**RAPTOR** & \\multicolumn{2}{c|}{**Question: What is the central theme of the story?**} \\\\ \\hline\n' +
+      '**RAPTOR** & \\multicolumn{2}{c|}{Fairy Godmother helps Carderella attend a ball by transforming her rags...} & \\multicolumn{1}{c|}{Cinderella} \\\\  & \\multicolumn{2}{c|}{impresses the Prince at the ball...} & \\multicolumn{1}{c|}{sho loses track of time and has to run home alone in} \\\\  & \\multicolumn{2}{c|}{the darkness. The Prince is unable to find Clinderella and goes in search of her...} & \\multicolumn{1}{c|}{She} \\\\  & \\multicolumn{2}{c|}{forgave her sisters, and treated them always very kindly, and the Prince had great cause} & \\multicolumn{1}{c|}{to be glad that he had found the glass slipper.} \\\\ \\hline\n' +
+      '**DPR** & \\multicolumn{2}{c|}{Two mice were turned into footnote, four grasshoppers into white horses. Next, the Fairy touched Chinderella’s rags, and they became rich satin robes, trimmed with point lace...} & \\multicolumn{1}{c|}{Lias! the clock had struck Eleven. She found no coach, only a pumpkin, and the rat and mice ran quickly away when they saw her, while all her fine dress turned to rags, and she had to run home alone. They told her a beautiful Princess had been at the ball, with whom the Prince was delighted. They did not know it was Cinderella.} \\\\ \\hline\n' +
+      '**RAPTOR** & \\multicolumn{2}{c|}{**Question: How does Cinderella find a happy ending?**} \\\\ \\hline\n' +
+      '**RAPTOR** & \\multicolumn{2}{c|}{The story of Cinderella involves her godmother, a fairy, who transforms a pumpkin into a grand coach with her wand and allows Cinderella to attend the ball. However, Cinderella must return home before the clock strikes eleven or her dress will turn back into rags...} & \\multicolumn{1}{c|}{Cinderella impresses the Prince at the ball but leaves before he can find out who she is...} & \\multicolumn{1}{c|}{The Prince searched for the owner of a lost glass slipper and found it belonged to Cinderella. She forgave her sisters and the Prince was glad to have found her.} \\\\ \\hline\n' +
+      '**DPR** & \\multicolumn{2}{c|}{the clock had struck Eleven...} & \\multicolumn{1}{c|}{The Prince was very much surprised when he missed Cinderella again, and leaving the ball, went in search of her...} & \\multicolumn{1}{c|}{Fairy touched Cinderella’s rags, and they became rich satin robes, trimmed with point lace...} & \\multicolumn{1}{c|}{Her old shoes became a charming pair of glass slippers, which shoe like diamonds. “Now go to the ball, my love,” she said, “and enjoy yourself. But remember, you must leave the room before the clock strikes eleven. If you do not your dress will return to its original rags.” \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 13: 동화 속 신데렐라에 대한 질문에 대해 RAPTOR 및 DPR에 의해 검색된 텍스트에서 관련 발췌.\n' +
+      '\n' +
+      '어떤 층에서 노드를 회수하는가?\n' +
+      '\n' +
+      '우리는 또한 검색된 노드가 출처하는 레이어를 조사하기 위해 붕괴된 트리 검색과 함께 RAPTOR로 세 가지 데이터 세트 모두와 세 가지 다른 검색기에 걸쳐 절제 연구를 수행한다. 검색된 노드의 18.5%에서 57%가 비잎 노드에서 나온다는 것을 관찰한다. 그림 7에서 알 수 있듯이 계층 간 검색 패턴은 RAPTOR의 다층 트리 구조의 중요성을 드러낸다. 특히, 내러티브QA 데이터 세트에 대한 DPR 검색기를 사용하여 RAPTOR에 의해 검색된 노드의 상당한 비율은 리프 노드와 대조적으로 트리의 첫 번째 및 두 번째 계층에서 나온다. 이 패턴은 비록 백분율이 다양하지만 다른 데이터 세트와 검색기에서 일관성이 있다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c} \\hline \\hline\n' +
+      '**Layers Queried / Start Layer** & **Layer 0 (Leaf Nodes)** & **Layer 1** \\\\ \\hline\n' +
+      '1 layer & **94.7** & 84.2\\\\\n' +
+      '2 layers & - & 89.4 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 16: Story 4에 대한 트리의 상이한 계층들을 질의할 때 RAPTOR의 성능.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c} \\hline \\hline\n' +
+      '**Layers Queried / Start Layer** & **Layer 0 (Leaf Nodes)** & **Layer 1** \\\\ \\hline\n' +
+      '1층 & 57.9 & 47.3\\\\\n' +
+      '2 layers & - & **68.4** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 17: Story 5에 대한 트리의 상이한 계층들을 질의할 때 RAPTOR의 성능.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c} \\hline \\hline\n' +
+      '**Dataset** & **DPR** & **SBERT** & **BM25** \\\\ \\hline NarrativeQA & 57.36\\% & 36.78\\% & 34.96\\% \\\\ Quality & 32.28\\% & 24.41\\% & 32.36\\% \\\\ Qasper & 22.93\\% & 18.49\\% & 22.76\\% \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 18: 상이한 데이터세트 및 검색기에 걸친 비-리프 노드로부터의 노드의 백분율\n' +
+      '\n' +
+      '도 7: RAPTOR의 상이한 계층들로부터 검색된 노드들의 백분율을 보여주는 히스토그램. 3개의 검색기(SBERT, BM25 및 DPR)를 사용하여 3개의 데이터 세트(내러티브QA, 품질 및 Qasper)에 걸친 트리. 데이터는 최종 검색에 기여하는 노드의 상당 부분이 비잎 계층에서 비롯됨을 나타내며, 첫 번째 및 두 번째 계층에서 주목할 만한 비율이 있어 검색 프로세스에서 RAPTOR의 계층적 요약의 중요성을 강조한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c} \\hline \\hline\n' +
+      '**Layers Queried / Start Layer** & **Layer 0 (Leaf Nodes)** & **Layer 1** \\\\ \\hline\n' +
+      '1 layer & **94.7** & 84.2\\\\\n' +
+      '2 layers & - & 89.4 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 17: Story 5에 대한 트리의 상이한 계층들을 질의할 때 RAPTOR의 성능.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c} \\hline \\hline\n' +
+      '**Layer** & **NarrativeQA** & **Quality** & **Qasper** \\\\ \\hline\n' +
+      '0 & 63.22\\% & 75.59\\% & 81.51\\%\n' +
+      '1 & 31.51\\% & 22.78\\% & 17.84\\% \\\\\n' +
+      '2 & 4.85\\% & 1.63\\% & 0.65\\%\n' +
+      '3 & 0.42\\% & - & - \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 20: SBERT를 리트리버로 하는 상이한 계층으로부터의 노드의 백분율\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c} \\hline \\hline\n' +
+      '**Layer** & **NarrativeQA** & **Quality** & **Qasper** \\\\ \\hline\n' +
+      '0 & 42.64\\% & 67.71\\% & 77.07\\%\n' +
+      '1 & 45.00\\% & 29.43\\% & 21.88\\%\n' +
+      '2 & 10.57\\% & 2.85\\% & 1.05\\%\n' +
+      '3 & 1.78\\% & -\\\\\n' +
+      '4 & 0.003\\% & - & - \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 19: DPR을 리트리버로 하는 상이한 계층으로부터의 노드의 백분율\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c} \\hline \\hline\n' +
+      '**Layer** & **NarrativeQA** & **Quality** & **Qasper** \\\\ \\hline\n' +
+      '0 & 65.04\\% & 67.64\\% & 77.24\\%\n' +
+      '1 & 28.79\\% & 28.85\\% & 21.57\\%\n' +
+      '2 & 5.36\\% & 3.51\\% & 1.19\\%\n' +
+      '3 & 0.81\\% & - & - \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 21: BM25를 리트리버로 하는 상이한 계층으로부터의 노드의 백분율\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
