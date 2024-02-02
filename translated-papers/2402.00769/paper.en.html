@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      'AnimateLCM: Accelerating the Animation of Personalized Diffusion Models and Adapters with Decoupled Consistency Learning\n' +
+      '\n' +
+      'Fu-Yun Wang\n' +
+      '\n' +
+      'MMLab, CUHK\n' +
+      '\n' +
+      'Avolution AI\n' +
+      '\n' +
+      'Shanghai AI Lab\n' +
+      '\n' +
+      'SenseTime Research\n' +
+      '\n' +
+      '{fywang@link, hsli@ee}.cuhk.edu.hk\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      'Video diffusion models has been gaining increasing attention for its ability to produce videos that are both coherent and of high fidelity. However, the iterative denoising process makes it computationally intensive and time-consuming, thus limiting its applications. Inspired by the Consistency Model (CM) that distills pretrained image diffusion models to accelerate the sampling with minimal steps and its successful extension Latent Consistency Model (LCM) on conditional image generation, we propose AnimateLCM, allowing for high-fidelity video generation within minimal steps. Instead of directly conducting consistency learning on the raw video dataset, we propose a decoupled consistency learning strategy that decouples the distillation of image generation priors and motion generation priors, which improves the training efficiency and enhance the generation visual quality. Additionally, to enable the combination of plug-and-play adapters in stable diffusion community to achieve various functions (e.g., ControlNet for controllable generation). we propose an efficient strategy to adapt existing adapters to our distilled text-conditioned video consistency model or train adapters from scratch without harming the sampling speed. We validate the proposed strategy in image-conditioned video generation and layout-conditioned video generation, all achieving top-performing results. Experimental results validate the effectiveness of our proposed method. Code and weights\n' +
+      '\n' +
+      'will be made public. More details are available at [https://github.com/G-U-N/AnimateLCM._](https://github.com/G-U-N/AnimateLCM._)\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      'Diffusion models [3, 10, 11, 25] have achieved unprecedented success in image generation [11, 25] and video generation [4, 12, 20, 37]. The high-quality generation achieved by the diffusion model relies on the iterative denoising process that gradually transforms a high-dimensional Gaussian noise into real data. One of the most representative models for image generation is Stable Diffusion [25] (SD), which relies on a variational autoencoder (VAE) to build a mapping between the real image and down-sampled latent features to reduce the cost of generation and the cross-attention mechanism to achieve text-conditioned image generation. Built upon Stable Diffusion, many plug-and-play adapters (e.g., ControlNet) [38] are developed and combined to achieve more innovative functions.\n' +
+      '\n' +
+      'However, the nature of iterative sampling leads to slow generation and high computational burdens of diffusion models which are much slower than other generative models (e.g., GAN) [5, 36]. Recently, consistency models [33] (CM) have been proposed as a promising alternative aimed at speeding up the generation process. By learning consistency mappings that maintain self-consistency [33] on PF-ODE trajectories induced by the pre-trained diffusion models, CM allows for high-quality image generation with a very small number of steps, eliminating the need for computation-intensive iterations. Latent consistency model [19] (LCM), built upon the SD, can be integrated into the Web-UI widely adopted by the community with existing adapters to achieve various functionalities (e.g., real-time image-to-image translation). In contrast, although video diffusion models are achieving many inspiring progress [4, 7, 21, 28, 29], the acceleration of video sampling is still under-explored even more urgent due to the high computational cost of video generation.\n' +
+      '\n' +
+      'In this paper, we propose AnimateLCM for high-fidelity video generation with a minimal number of steps. Following LCM, we treat the reverse diffusion process as solving classifier-free guidance (CFG) [9] augmented probability flow ODE (PF-ODE) [15, 19, 32], and we train our model to directly predict the solution of such ODE in the latent space. However, instead of directly conducting consistency learning on the raw video data which suffers from low-quality issues and requires high training resources, we propose a decoupled consistency learning strategy that decouples the consistency distillation of image generation priors and motion generation priors. As shown in Fig. 1, we first conduct the consistency distillation to adapt the image base diffusion model into the image consistency model, which can be adapted very efficiently. Then we conduct 3D inflation to both the image diffusion model and image consistency model to accommodate 3D video features. Eventually, we conduct consistency distillation on video data to obtain the eventual video consistency model. A specially designed initialization strategy is additionally proposed to alleviate potential feature corruption caused by the inflation process. We empirically show that this process not only boosts the training efficiency but also enhances the final generation quality.\n' +
+      '\n' +
+      'In addition, we build the AnimateLCM on SD, and therefore we can achieve innovative generation results by replacing the spatial weights of our trained video consistency model with the publicly available personalized image diffusion weights, as shown in the right of Fig. 1. Besides, we show that although most of the adapters in the community can be directly integrated with our trained video consistency model, they are likely to lose control of details or cause flickering in the results. To better suit existing adapters from the community or train specific adapters from scratch with our video consistency model, we propose an effective strategy that could "accelerate" the adapters without requiring specific teacher models. To show the effectiveness of the strategy, we train an image encoder from scratch with our video consistency model, and additionally achieve high-fidelity image-to-video generation with minimal steps. We adapt the existing layout-conditioned adapters [23, 38] pretrained with vanilla image diffusion models to achieve better compatibility and better controllable video generation with minimal steps. Our main contributions are summarized as follows:\n' +
+      '\n' +
+      '* We propose AniamteLCM allowing for fast and high-fidelity video generation. We propose a decoupled distillation strategy decoupling the image generation priors and motion priors, achieving better training efficiency and generation quality.\n' +
+      '* Built upon the stable diffusion weight, we show good compatibility with personalized image diffusion weights to achieve high-quality video generation in various styles. We also propose an efficient strategy that adapts the existing adapters to better suit our consistency model or trains specific adapters from scratch without harming the sampling speed. Relying on this, we additionally achieve high-fidelity image-conditioned video generation and layout-conditioned video generation.\n' +
+      '\n' +
+      '## 2 Related Works\n' +
+      '\n' +
+      'In this section, we discuss related diffusion models and sampling speeding strategies.\n' +
+      '\n' +
+      '### Diffusion Models\n' +
+      '\n' +
+      'Diffusion Models [10, 11, 25], which are also known as score-based generative models [15, 32], have achievedgreat success in image generation. The iterative sampling progress is guided by the score direction to gradually denoise the noise-corrupted data. Current successful generalized video diffusion models [4, 28, 29, 37], typically reply to pre-trained image diffusion models [25] and are trained by adding temporal layers to them. Most of them are trained with image-video joint tuning [3, 29] or simply freeze the spatial weights [4].\n' +
+      '\n' +
+      '### Sampling Acceleration\n' +
+      '\n' +
+      'To tackle the problem of slow generation in diffusion models. Early works on improving the sampling speed focus on improved ODE solvers [15, 17, 18, 39]. The distillation-based acceleration method shows a more promising acceleration speed by tuning the original diffusion weights with a refined scheduler or architecture [22, 27]. The consistency model [33] is a new version model trained by enforcing the self-consistency property. The latent consistency model [19] successfully adapts the idea to the stable diffusion on conditional image generation at latent space.\n' +
+      '\n' +
+      '## 3 Preliminaries\n' +
+      '\n' +
+      'In this section, we provide a high-level review of diffusion models and consistency models. Since our model is based on the stable diffusion which is an extended version of DDPM [10], we apply the relevant notations in the following discussion. That is, we treat the discrete forward diffusion process as the continuous-time Variance Preserving SDE [15]. Note that the discussion could be further generalized to the other format of definitions of SDE.\n' +
+      '\n' +
+      '**Diffusion models.** In DDPM, the training data point \\(\\mathbf{x}_{0}\\sim p_{\\mathrm{data}}(\\mathbf{x})\\) is gradually perturbed by the discrete Markov chain with the perturbation kernel \\(p(\\mathbf{x}_{i}\\mid\\mathbf{x}_{i-1})=\\mathcal{N}(\\mathbf{x}_{i};\\sqrt{1- \\beta_{i}}\\mathbf{x}_{i-1},\\beta_{i}\\mathbf{I})\\), \\(i=1,2,\\ldots,N\\). In this way, the distribution of noisy data at different timestep follows the distribution \\(p_{i}(\\mathbf{x}_{i}\\mid\\mathbf{x}_{0})=(\\mathbf{x}_{i};\\sqrt{\\alpha_{i}} \\mathbf{x}_{0},(1-\\alpha_{i})\\mathbf{I})\\), where \\(\\alpha_{i}:=\\Pi_{j=1}^{i}(1-\\beta_{i})\\). As \\(N\\to\\infty\\), the discrete Markov chain converges to the following SDE,\n' +
+      '\n' +
+      '\\[\\mathrm{d}\\mathbf{x}=\\mathbf{f}(\\mathbf{x},t)\\mathrm{d}t+g(t)\\mathrm{d} \\mathbf{w}, \\tag{1}\\]\n' +
+      '\n' +
+      'where \\(\\mathbf{f}(\\mathbf{x},t)=-\\frac{1}{2}\\mathbf{x}\\beta(t)\\) and \\(g(t)=\\sqrt{\\beta(t)}\\).\n' +
+      '\n' +
+      'A remarkable property of this SDE is the existence of reverse-time ordinary differential equation (ODE), dubbed the Probability Flow (PF) ODE [32], points in whose solution trajectories at time t still follow the noisy distribution \\(p_{t}(\\mathbf{x})\\).\n' +
+      '\n' +
+      '\\[\\mathrm{d}\\mathbf{x}=\\left[\\mathbf{f}(\\mathbf{x},t)-g^{2}(t)\\nabla_{\\mathbf{ x}}\\log p_{t}(\\mathbf{x})\\right]\\mathrm{d}t. \\tag{2}\\]\n' +
+      '\n' +
+      'In DDPM, the noise prediction neural network \\(\\mathbf{\\epsilon}_{\\theta}(\\mathbf{x}_{t},t)\\) is trained to remove noise from the current data point, whose direction is to mimic the opposite direction of the score function \\(\\nabla_{\\mathbf{x}_{t}\\log p_{t}(\\mathbf{x}_{t})}\\approx-\\frac{1}{\\sqrt{1- \\alpha_{i}}}\\mathbf{\\epsilon}_{\\theta}(\\mathbf{x}_{t},t)\\).\n' +
+      '\n' +
+      '**Consistency models.** Given the above solution trajectory \\(\\{\\mathbf{x}_{t}\\}_{t\\in[\\epsilon,T]}\\) of the PF ODE discussed above, the consistency model, tries to let all the data points in the same trajectory to direct predict the solution of the PF ODE [33]. However, instead of directly setting the solution as the target prediction, it innovatively proposes to enforce the points at the trajectories to follow the self-consistency property. That is, outputs are enforced to be the same for arbitrary pairs of \\((\\mathbf{x}_{t},t)\\) belonging to the same PF ODE trajectory, i.e., \\(\\mathbf{f}(\\mathbf{x}_{t},t)=\\mathbf{f}(\\mathbf{x}_{t^{\\prime}},t^{\\prime})\\) for all \\(t,t^{\\prime}\\in[\\epsilon,T]\\).\n' +
+      '\n' +
+      'To ensure the boundary condition [33] that for any consistent function \\(\\mathbf{f}(\\cdot,\\cdot)\\), we have \\(\\mathbf{f}(\\mathbf{x}_{\\epsilon},\\epsilon)=\\mathbf{x}_{\\epsilon}\\), i.e., \\(\\mathbf{f}(\\cdot,\\epsilon)\\) is an identity function. Consistency models are typically formulated with a skip connection, that is,\n' +
+      '\n' +
+      '\\[\\mathbf{f}_{\\theta}(\\mathbf{x}_{t},t)=c_{\\text{skip}}(t)\\mathbf{x}_{t}+c_{ \\text{out}}(t)F_{\\theta}(\\mathbf{x},t), \\tag{3}\\]\n' +
+      '\n' +
+      'where \\(c_{\\text{skip}}(t)\\) and \\(c_{\\text{out}}(t)\\) are differentialble functions with \\(c_{\\text{skip}}(\\epsilon)=1\\) and \\(c_{out}(\\epsilon)=0\\).\n' +
+      '\n' +
+      'Eventually, to enforce the self-consistency property, a target model \\(\\theta^{-}\\) updated with exponential moving average (EMA), i.e., \\(\\theta^{-}=\\mu\\theta^{-}+(1-\\mu)\\theta\\) is additionally maintained to consistency distillation.\n' +
+      '\n' +
+      '\\[\\mathcal{L}(\\theta,\\theta^{-};\\Phi)=\\mathbb{E}_{\\mathbf{x},t}\\left[d\\left( \\mathbf{f}_{\\theta}(\\mathbf{x}_{t_{n+1},t_{n+1}}),\\mathbf{f}_{\\theta^{-}}( \\hat{\\mathbf{x}}_{t_{n}}^{\\phi},t_{n})\\right)\\right], \\tag{4}\\]\n' +
+      '\n' +
+      'where \\(d(\\cdot,\\cdot)\\) is a distance measuring function, \\(\\hat{\\mathbf{x}}_{t_{n}}^{\\phi}\\) is obtained by a one discretization step of a numerical ODE solver with a pretrained diffusion model parameterized as \\(\\phi\\),\n' +
+      '\n' +
+      '\\[\\hat{\\mathbf{x}}_{t_{n}}^{\\phi}=\\mathbf{x}_{t_{n+1}}+(t_{n}-t_{n+1})\\Phi( \\mathbf{x}_{t_{n+1}},t_{n+1};\\phi). \\tag{5}\\]\n' +
+      '\n' +
+      '## 4 Methodology\n' +
+      '\n' +
+      'AnimateLCM tames the stable diffusion-based video models to follow the self-consistency property, achieving high-fidelity video generation within a minimal number of steps. Fig. 2 illustrates the overall training paradigm of AnimateLCM, consisting of decoupled consistency learning strategy for effective consistency learning and teacher-free adaptation for effective adapters training/finetuning. In the following, we first introduce our applied basic adaptations of latent diffusion models to latent consistent models in Sec. 4.1. Later, we introduce our _decoupled consistency learning_ strategy which decouples the distillation of image generation priors and motion priors in Sec. 4.2, achieving better training efficiency and generation quality than simple consistency learning on video data. In Sec. 4.3, we illustrate the _teacher-free adaptation_ strategy that better suits adapters or train them from scratch without harming sampling speed, achieving fast and high-quality image-conditioned generation and layout-conditioned generation.\n' +
+      '\n' +
+      '### From DMs to CMs\n' +
+      '\n' +
+      'Here we introduce our adaptation of the stable diffusion model (DM) to the consistency model (CM), basically following the design of latent consistency model (LCM) [19].\n' +
+      '\n' +
+      '**From \\(\\mathbf{\\epsilon}\\)-prediction to \\(\\mathbf{x}_{0}\\)-prediction.** Note that the the stable diffusion models typically predict the noise added to the given samples, that is they are the \\(\\mathbf{\\epsilon}\\)-prediction type models. However, the consistency models aim to directly predict the solution \\(\\mathbf{x}_{0}\\) of the PF-ODE trajectory. Since we know that \\(\\mathbf{x}_{t}\\sim\\mathcal{N}(\\sqrt{\\alpha_{i}}\\mathbf{x}_{0},1-\\alpha_{i} \\mathbf{I})\\), we could parametrize the \\(\\mathbf{f}_{\\theta}\\) as follows:\n' +
+      '\n' +
+      '\\[\\mathbf{f}_{\\theta}(\\mathbf{x}_{t},\\mathbf{c},t)=c_{\\text{skip}}(t)\\mathbf{x} _{t}+c_{\\text{out}}(t)\\mathbf{x}_{\\theta}(\\mathbf{x}_{t},\\mathbf{c},t)\\,, \\tag{6}\\]\n' +
+      '\n' +
+      'where \\(\\mathbf{c}\\) is the text condition embeddings, and \\(\\mathbf{x}_{\\theta}=\\left(\\frac{\\mathbf{x}_{t}-\\sqrt{1-\\alpha_{t}}\\mathbf{ \\epsilon}_{\\theta}(\\mathbf{x}_{t},\\mathbf{c},t)}{\\sqrt{\\alpha_{t}}}\\right)\\).\n' +
+      '\n' +
+      '**Classifier-free guidance augmented ODE solver.** In stable diffusion models with parameter \\(\\phi\\), classifier-free guidance is an essential strategy for high-quality generation, that is,\n' +
+      '\n' +
+      '\\[\\mathbf{\\epsilon}_{\\phi}(\\mathbf{x}_{t},\\mathbf{c},t,w)=(1+w)\\mathbf{ \\epsilon}_{\\theta}(\\mathbf{x}_{t},\\mathbf{c},t)-w\\mathbf{\\epsilon}_{\\phi}(\\mathbf{x}_{t },\\varnothing,t). \\tag{7}\\]\n' +
+      '\n' +
+      'Assuming that the PF ODE solver is denoted as the \\(\\Phi(\\mathbf{x}_{t_{a}},\\mathbf{c},t_{n},t_{n+1};\\phi)\\) which aligns with the forward SDE process, instead the actual PF ODE solver of stable diffusion in practice for solving the solution trajectories can be represented as\n' +
+      '\n' +
+      '\\[\\Phi_{w}(\\mathbf{x}_{t_{n}},\\mathbf{c},t_{n},t_{n+1};\\phi)=(1+w) \\Phi(\\mathbf{x}_{t_{n}},\\mathbf{c},t_{n},t_{n+1};\\phi)\\] \\[-w\\Phi(\\mathbf{x}_{t_{n}},\\varnothing,t_{n},t_{n+1};\\phi). \\tag{8}\\]\n' +
+      '\n' +
+      'In this way, we apply the classifier-free guidance augmented ODE solver for sampling the adjacent pairs in the same trajectories.\n' +
+      '\n' +
+      '**Sample sparse timesteps from dense timesteps.** Previous works [19, 22] reveal that the number of discrete points in the trajectory \\(N\\) influences the training efficiency and the quality greatly. Typically, smaller N accelerates the training and on the contrary, larger N introduces less bias at training. The stable diffusion model typically holds 1000 timesteps which is relatively too large. To facilitate the training efficiency, we uniformly sample 50 timesteps from the whole 1000 timesteps for training.\n' +
+      '\n' +
+      '### Decoupled Consistency Learning\n' +
+      '\n' +
+      'For the consistency distillation process, a crucial observation is that the final generation quality of the consistency models is greatly influenced by the data used for training. However, current publicly available datasets usually suffer from various problems including low-resolution, watermark, and overly brief or ambiguous captions. Besides, direct training on large-resolution videos is resource-consuming and is not affordable for most researchers. Considering that there are many filtered high-quality image datasets available now, we propose to decouple the distillation of image generation priors and motion priors. To be specific, we first distill the stable diffusion models into image consistency models on filtered high-quality image-text datasets with high resolutions. To freeze the weights of the stable diffusion, we train light LoRA [13] weights at layers of stable diffusion models. The LoRA weights are tuned, work as a versatile acceleration module, and have been shown to be well-compatible with other personalized models in stable diffusion communities. For inference, the\n' +
+      '\n' +
+      'Figure 2: High-level overview of AnimateLCM. Left: the overall training paradigm for taming the video generation model to follow consistency property. Top-Right: the teacher-free adaptation strategy replace the cfg-augmented ode solver with one-step MCMC approximation. Bottom-Right: the design for training image-to-video adapters from scratch or taming existing adapters in stable diffusion community.\n' +
+      '\n' +
+      'LoRA weights are merged with the original weights without corrupting the inference speed.\n' +
+      '\n' +
+      'After gaining the consistency models at the image generation level, we freeze the weights of stable diffusion and LoRA weights on it. To train the consistency models for video generation, we first inflate the 2D convolution kernels (e.g., \\(3\\times 3\\)) to the pseudo-3D convolution kernels (e.g., \\(1\\times 3\\times 3\\)) and add additional temporal layers on it with zero initialization and block level residual connection, that is,\n' +
+      '\n' +
+      '\\[\\mathbf{z}^{\\prime}=T_{\\text{zero}}(\\mathbf{z})+\\mathbf{z}, \\tag{9}\\]\n' +
+      '\n' +
+      'where \\(T\\) denotes the temporal layer, and zero means it is zero-initialized. Therefore, the outputs of the model at the very first training will not be influenced, which has been verified a lot to accelerate the training [29, 38]. We then train the temporal layers under the guidance of open-sourced video diffusion models extended from stable diffusion models.\n' +
+      '\n' +
+      '**Initialization strategy.** However, noting that the spatial LoRA weights are trained to accelerate the sampling without considering temporal modeling and the temporal modules are trained in vanilla diffusion ways, thus direct combining them together tend to causes the representation corruption at the beginning of training. In this way, how to effectively and efficiently combining them with less conflicts poses non-trivial challenges. We empirically find an effective initialization strategy that can not only borrow the consistency priors from spatial LoRA weights but also alleviate the negative influence of direct combination. To be specific, as shown in Fig. 3, at the beginning of consistency training, we only insert the pre-trained spatial LoRA weights into the online consistency model without inserting them to the target consistency model. In this way, the target consistency model, which works as the learning "instructor" for the online model, will not produce corrupted predictions spoiling the online model. During the training, the LoRA weights will gradually accumulates in the target consistency model through the exponential moving average (EMA) and reach the desired weight after a certain iterations. We empirically show that this strategy greatly boosts the training efficiency. Generally, we apply the loss as\n' +
+      '\n' +
+      '\\[\\mathcal{L}(\\theta,\\theta^{-};\\Phi)\\] \\[=\\mathbb{E}_{\\mathbf{x},t}\\left[\\lambda_{n}d\\left(\\mathbf{f}_{ \\theta}(\\mathbf{x}_{t_{n+1}},\\mathbf{x},t_{n+1}),\\mathbf{f}_{\\theta^{-}}( \\hat{\\mathbf{x}}_{t_{n}}^{\\phi},\\mathbf{c},t_{n})\\right)\\right]\\,, \\tag{10}\\]\n' +
+      '\n' +
+      'Where \\(\\lambda_{n}\\) is an weight function for different timesteps. Given that the prediction at smaller timestep \\(t_{n}\\) work as the target for the larger timestep \\(t_{n+1}\\), we should give more priority to the learning at smaller timesteps. Therefore, we decay the \\(\\lambda\\) as the \\(n\\) growsm, setting \\(\\lambda_{n}=(1-\\delta\\frac{n}{N})^{\\gamma}\\) where \\(\\delta\\) and \\(\\gamma\\) are the scaling factor controlling the decaying speed. We apply huber loss as the distance metric \\(d(\\mathbf{x},\\mathbf{y})=\\sqrt{\\|\\mathbf{x}-\\mathbf{y}\\|_{2}^{2}+c^{2}}-c\\) with hyper-parameter \\(c\\), which produces more smooth gradient and has better robustness to outliers.\n' +
+      '\n' +
+      '### Teacher-Free Adaptation\n' +
+      '\n' +
+      'The plug-and-play adapters play an important role in the stable diffusion community. However, we observe that even though many adapters trained with image diffusion models still works to some extend but they generally lose control in details, as shown in Fig. 6. In this section, we propose a simple yet effective strategy that trains the adapters from scratch or accommodates the existing adapters for better compatibility, with which we achieve the image-to-video generation and controllable video generation with a minimal number of steps without requiring teacher models.\n' +
+      '\n' +
+      'For the training of video consistency models, we typically rely on the pre-trained video diffusion models \\(\\epsilon_{\\theta}(\\mathbf{x},\\mathbf{c},t)\\) to approximate the score \\(\\nabla_{\\mathbf{x}}\\log p_{t}(\\mathbf{x})\\). Inspired by Song and Dhariwal [31], the score could be unbiasedly estimated by\n' +
+      '\n' +
+      '\\[\\nabla_{\\mathbf{x}_{t}}\\log p_{t}(\\mathbf{x}_{t})=-\\mathbb{E}_{ \\mathbf{x}}\\left[\\frac{\\mathbf{x}_{t}-\\sqrt{\\alpha_{t}}\\mathbf{x}}{1-\\alpha_{ t}}\\bigg{|}\\mathbf{x}_{t}\\right], \\tag{11}\\]\n' +
+      '\n' +
+      'in stable diffusion models. In this way, for given \\(\\mathbf{x}\\), we could simply approximate the score at \\(\\mathbf{x}_{t}\\) with \\(\\frac{\\mathbf{x}_{t}-\\sqrt{\\alpha_{t}}\\mathbf{x}}{1-\\alpha_{t}}\\). Although it is a one-step MCMC approximation of the actual score, the experiments show it works well in practice for video generation. Additionally, we show that the estimation can actually be done with two forward SDE sharing the same perturbation noise at different timesteps. Denote the noise as \\(\\mathbf{\\epsilon}_{0}\\) and assuming that \\(\\mathbf{x}_{t}=\\sqrt{\\alpha_{t}}\\mathbf{x}+\\sqrt{1-\\alpha_{t}}\\mathbf{\\epsilon}_{0}\\), the score approximation \\(\\frac{\\mathbf{x}_{t}-\\sqrt{\\alpha_{t}}\\mathbf{x}}{1-\\alpha_{t}}\\) reveals that the noise predict is also \\(\\mathbf{\\epsilon}_{0}\\). Following the widely used ODE solver\n' +
+      '\n' +
+      'Figure 3: Initialization strategy. We only insert the spatial LoRA weights into the online model at the beginning and gradually propagate the LoRA weights to target model through EMA.\n' +
+      '\n' +
+      'DDIM [30], we could see\n' +
+      '\n' +
+      '\\[\\begin{split}\\mathbf{x}_{t-1}&=\\sqrt{\\alpha_{t-1}} \\left(\\frac{\\mathbf{x}_{t}-\\sqrt{1-\\alpha_{t}}\\mathbf{\\epsilon}_{0}}{\\sqrt{\\alpha_{ t}}}\\right)+\\sqrt{1-\\alpha_{t-1}}\\mathbf{\\epsilon}_{0}\\\\ &=\\sqrt{\\alpha_{t-1}}\\mathbf{x}+\\sqrt{1-\\alpha_{t-1}}\\mathbf{ \\epsilon}_{0}.\\end{split} \\tag{12}\\]\n' +
+      '\n' +
+      'Therefore, following the above strategy, we could achieve teacher-free consistency learning tolerating a certain degree of bias.\n' +
+      '\n' +
+      '**Image-to-video.** To achieve image-to-video generation, the most crucial part is how to preprocess the input images to extract image contexts and how to incorporate the image contexts into the consistency models.\n' +
+      '\n' +
+      'For preprocessing the image, we compare the pre-trained clip image encoder, light downsample blocks at the pixel space, and light blocks at the latent space. Our observation is that the clip image encoder tends to ignore the details of the input images and might generate frames that do not conform to the original characters\'s detailed features. For downsample blocks at the pixel space, we find that the generated frames typically follow well with the shape and contour but fail at color consistency. The light blocks at the latent space where the images are first encoded by the VAE Encoder achieve the best results, partially due to the generation process being conducted at the latent space. Besides, since the U-Net blocks have various spatial dimensions at different blocks, we also downsample the features in the light blocks to better align with the U-Net.\n' +
+      '\n' +
+      'For incorporating the image contexts, typical ways try the cross-attention or masked modeling. However, we find that the cross-attention tends to corrupt the spatial information of the original image and thus fails to reproduce the input image and faces slow convergence. For masked modeling, previous works construct a condition the same as the target video and set the first frame to be the given image and the other frames to zero. However, we find that this strategy usually fails to keep the identity of the original image at later frames, which potentially indicates the temporal layers might not be adequate to align the information in the first frame to other frames. We achieve image-to-video through a very simple yet effective way. For incorporating the input image, we first encode the image into the latent space and then repeat the latent at the temporal dimension to align the number of frames of video generation. Then, the extracted features are fed to the light blocks to extract features at different resolutions, the corresponding features are then directly added to the corresponding layers in the U-Net. To further refine the generation results, after decoding with the VAE decoder, we additionally align the generated video with the input image at the HSV space.\n' +
+      '\n' +
+      '**Controllable video generation.** We surprisingly find that the layout control adapters including T2I-Adapter [23], ControlNet [38], etc. trained on image diffusion models could be directly integrated with our video consistency model to achieve controllable video generation. However, as we claimed and shown in Fig. 6, they might lose control of details or cause flickering in results. Luckily, we verified that the gap could be efficiently narrowed by tuning LoRA layers on the existing adapters to achieve better compatibility. As shown in the figure 6, after the teacher-free adaptation process, we achieve apparently superior control stability and visual quality.\n' +
+      '\n' +
+      '## 5 Experiments\n' +
+      '\n' +
+      '### Experimental Setup\n' +
+      '\n' +
+      '**Implementation details.** We apply stable diffusion v1-5 as the base model for most experiments. We apply the DDIM ODE solver for the training. Following the latent consistency model, we uniformly sample 50 timesteps for training. We apply the stable diffusion v1-5 with the open-sourced motion weights [6] as the teacher video diffusion models. All the experiments except the controllable video generation are conducted on the publicly available WebVid-2M [2] dataset without any augmentation or additional data. For controllable video generation, we train our model on the TikTok dataset [14] with brief text prompts captioned by BLIP [16].\n' +
+      '\n' +
+      '**Benchmarks.** To evaluate our approach, we follow previous works, utilizing the widely used UCF-101 [34], a categorized video dataset curated for action recognition tasks, for validation. We ask the GPT-4 [1] to generate very brief captions for each category. For each category, we generate \\(24\\) videos with 16 frames in resolution \\(512\\times 512\\) and thus generate \\(24\\times 101\\) videos in total. We follow previous video generation works, applying FVD [35] and CLIP-SIM [8] as the validation metric. For FVD, we randomly choose \\(2048\\) videos from the UCF-101 dataset and the generated \\(24\\times 101\\) videos, respectively. For CLIPSIM, we rely on the CLIP ViT-H/14 LAION-2B [24] to compute the mean value of the similarities of the brief caption and all the frames in the video. As a pioneer work for video generation acceleration, there is no available open-sourced weight for testing and comparison. Therefore, we compare AnimateLCM with the teacher model using the DDIM [30] and DPM-Solver++ [18].\n' +
+      '\n' +
+      '### Qualitative Results\n' +
+      '\n' +
+      'Fig. 7 demonstrates the 4-step generation results of our method in text-to-video generation, image-to-video generation, and controllable video generation with different personalized style models including styles of realistic, 2D anime, and 3D anime. All of them achieve satisfactory results. We also demonstrate the generation results under different number of function evaluations (NFE) in Fig. 7. The generation results show that our method well follows the consistency property with different inference steps, maintaining a similar style and motion. We demonstrate good visual quality as well as smooth motion with only 2 inference steps. As the NFE increases, the generation quality increases accordingly, achieving competitive performance with the teacher model with 25 and 50 inference steps.\n' +
+      '\n' +
+      '### Quantitative Experiments\n' +
+      '\n' +
+      'Table 1 illustrates quantitative metrics comparison for AnimateLCM and strong baseline methods DDIM [30], and DPM++ [17, 18]. AnimateLCM significantly surpasses the baseline methods, especially in the low step regime (1\\(\\sim\\)4). Additionally, all these metrics of AnimateLCM are evaluated without requiring classifier-free guidance (CFG) in\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c c|c c c c} \\hline \\hline \\multirow{2}{*}{Methods} & \\multicolumn{5}{c|}{FVD \\(\\downarrow\\)} & \\multicolumn{5}{c}{CLIPSIM \\(\\uparrow\\)} \\\\ \\cline{2-10}  & 1 Step & 2 Steps & 4 Steps & 8 Steps & 1 Step & 2 Steps & 4 Steps & 8 Steps \\\\ \\hline DDIM (Pretrained) [30] & 4940.83 & 3218.74 & 1944.82 & 1209.88 & 4.43 & 5.26 & 14.87 & 24.38 \\\\ DPM++ (Pretrained) [18] & 2731.37 & 2093.47 & 1043.82 & 932.43 & 10.48 & 18.04 & 26.82 & 29.50 \\\\ AnimateLCM & 1256.50 & 1081.26 & 925.71 & 910.34 & 22.16 & 25.99 & 28.89 & 30.03 \\\\ AnimateLCM (Realistic) & 1071.50 & 790.99 & 929.79 & 1081.72 & 25.41 & 29.39 & 30.62 & 30.71 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 1: Zero-shot text-to-video generation on UCF-101. Our approach achieves state-of-the-art performance in both FVD and CLIPSIM metrics. AnimateLCM (Realistic) means that we replace the spatial layer weights of the original SD with realistic style personalized model.\n' +
+      '\n' +
+      'Figure 4: Qualitative generation results. We demonstrate the generation results of AnimateLCM including text-to-video generation, image-to-video generation, and controllable video generation.\n' +
+      '\n' +
+      'stead of 7.5 CFG strength applied for other baselines, thus saving half of the inference peak memory cost and inference time. Additionally, we validate the performance of AnimateLCM by replacing the spatial weight with a publicly available personalized realistic style model with a good balance between generation diversity and fidelity, which further boosts the performance. It shows the good compatibility of AniamteLCM with personalized diffusion models.\n' +
+      '\n' +
+      '### Discussion\n' +
+      '\n' +
+      '**Effectiveness of decoupled consistency learning.** We validate the effectiveness of our proposed decoupled learning strategy with the special design for spatial LoRA initialization. We compare with the two baselines: "w/o decouple" and "w/o init". "w/o decouple" denotes directly applying video consistency learning on the video data without pretraining the spatial LoRA layers on high-quality image datasets; "w/o init" applies the decoupled consistency learning but does not apply the initialization strategy in Fig. 3. For a fair comparison of convergence speed, we train the spatial LoRA weights for 4 hours on an 8 A800 GPU node. We then train our strategy and ""w/o init" baseline on the video dataset for an additional 4 hours. We train the "w/o decouple" for 8 hours on the video dataset. As shown in Fig. 5, our strategy achieves the best performance, significantly surpassing the baseline of "w/o decouple", showcasing the effectiveness of our decoupled consistency learning. **Effectiveness of teacher-free adaptation.** Fig. 6 illustrates the controllable generation results with direct usage of T2I-Adapter [23] on image diffusion models or fine-tuned with our proposed teacher-free adaptation. As shown in Fig. 6, after the teacher-free adaptation process, we achieve apparently superior control stability and visual quality.\n' +
+      '\n' +
+      '**Properties of personalized models.** The original stable diffusion models are trained on vast text-image pairs, gaining image generation priors. However, they are not further human-aligned, thus typically failing to generate images with good aesthetic scores. Many personalized models are obtained through finetuned on high-quality datasets or merged with different base weights [13, 26]. They generally produce images with higher aesthetic scores on specific domains. As shown in Fig. 4, our proposed AnimateLCM is able to directly apply their weights for high-quality video generation with different styles including realistic, 2D animate, 3D animate, etc. Generally, we find that by applying the weight of personalized models, we are not only able to improve the visual quality but also the motion smoothness and consistency. We validate the performance of the personalized weight of Realistic Vision V5.0 on Civitai in addition to the original stable diffusion-v1.5, and the results are shown in Table 1. We observe a consistent metric increase in both the FVD and CLIPSIM, especially in the low-step regime. However, even though we observe an obvious visual quality improvement when increasing the inference steps, the FVD metric becomes worse at 4 steps and 8 steps, which could potentially be caused by the specific domain gap between the personalized model and the UCF101. For example, the personalized models tend to generate clear and high-quality videos while the UCF101 contains blurry and fuzzy content.\n' +
+      '\n' +
+      '## 6 Conclusion\n' +
+      '\n' +
+      'We present AnimateLCM, an innovative advancement in video generation acceleration. AnimateLCM relies on a decoupled consistency learning strategy in that we decouple the consistency distillation of image generation prior and motion generation prior with a specific initialization design to alleviate the gap between the two stages, which achieves a good trade-off on training efficiency and generation quality. We additionally propose a simple yet effective teacher-free adaption strategy that could better accommodate existing adapters in stable diffusion communities or train them from scratch, thus achieving more innovative generation results. Extensive experiments validate the effectiveness. **Limitations:** AnimateLCM faces limitations for generating samples in one step, which might result in blurry or artifact-laden outcomes..\n' +
+      '\n' +
+      'Figure 5: Quantitative ablation study on the proposed decoupled consistency learning and the specific initialization strategy.\n' +
+      '\n' +
+      'Figure 6: Comparison of controllable generation w/ and w/o teacher-free adaptation. Faces of generations are blurred.\n' +
+      '\n' +
+      'Figure 7: The generation results comparison for AnimateLCM and teacher model in different number of inference steps (NFE).\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* [1] Josh Achiam, Steven Adler, Sandhini Agarwal, Lama Ahmad, Ilge Akkaya, Florencia Leoni Aleman, Diogo Almeida, Janko Altenschmidt, Sam Altman, Shyamal Anadkat, et al. Gpt-4 technical report. _arXiv preprint arXiv:2303.08774_, 2023.\n' +
+      '* [2] Max Bain, Arsha Nagrani, Gul Varol, and Andrew Zisserman. Frozen in time: A joint video and image encoder for end-to-end retrieval. In _ICCV_, pages 1728-1738, 2021.\n' +
+      '* [3] Andreas Blattmann, Tim Dockhorn, Sumith Kulal, Daniel Mendelevitch, Macie Kilian, Dominik Lorenz, Yam Levi, Zion English, Vikram Voleti, Adam Letts, et al. Stable video diffusion: Scaling latent video diffusion models to large datasets. _arXiv preprint arXiv:2311.15127_, 2023.\n' +
+      '* [4] Andreas Blattmann, Robin Rombach, Huan Ling, Tim Dockhorn, Seung Wook Kim, Sanja Fidler, and Karsten Kreis. Align your latents: High-resolution video synthesis with latent diffusion models. In _CVPR_, pages 22563-22575, 2023.\n' +
+      '* [5] Ian Goodfellow, Jean Pouget-Abadie, Mehdi Mirza, Bing Xu, David Warde-Farley, Sherjil Ozair, Aaron Courville, and Yoshua Bengio. Generative adversarial networks. _NeurIPS_, 2014.\n' +
+      '* [6] Yuwei Guo, Ceyuan Yang, Anyi Rao, Yaohui Wang, Yu Qiao, Dahua Lin, and Bo Dai. Animatedff: Animate your personalized text-to-image diffusion models without specific tuning. _arXiv preprint arXiv:2307.04725_, 2023.\n' +
+      '* [7] Yingqing He, Shaoshu Yang, Haoxin Chen, Xiaodong Cun, Menghan Xia, Yong Zhang, Xintao Wang, Ran He, Qifeng Chen, and Ying Shan. Scalecrafter: Tuning-free higher-resolution visual generation with diffusion models. _arXiv preprint arXiv:2310.07702_, 2023.\n' +
+      '* [8] Jack Hessel, Ari Holtzman, Maxwell Forbes, Ronan Le Bras, and Yejin Choi. Clipscore: A reference-free evaluation metric for image captioning. _arXiv preprint arXiv:2104.08718_, 2021.\n' +
+      '* [9] Jonathan Ho and Tim Salimans. Classifier-free diffusion guidance. _arXiv preprint arXiv:2207.12598_, 2022.\n' +
+      '* [10] Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising diffusion probabilistic models. _NeurIPS_, 33:6840-6851, 2020.\n' +
+      '* [11] Jonathan Ho, William Chan, Chitwan Saharia, Jay Whang, Ruiqi Gao, Alexey Gritsenko, Diederik P Kingma, Ben Poole, Mohammad Norouzi, David J Fleet, et al. Imagen video: High definition video generation with diffusion models. _arXiv preprint arXiv:2210.02303_, 2022.\n' +
+      '* [12] Jonathan Ho, Tim Salimans, Alexey Gritsenko, William Chan, Mohammad Norouzi, and David J Fleet. Video diffusion models. _arXiv:2204.03458_, 2022.\n' +
+      '* [13] Edward J Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, and Weizhu Chen. Lora: Low-rank adaptation of large language models. _arXiv preprint arXiv:2106.09685_, 2021.\n' +
+      '* [14] Yasamin Jafarian and Hyun Soo Park. Learning high fidelity depths of dressed humans by watching social media dance videos. In _CVPR_, pages 12753-12762, 2021.\n' +
+      '* [15] Tero Karras, Miika Aittala, Timo Aila, and Samuli Laine. Elucidating the design space of diffusion-based generative models. _NeurIPS_, 35:26565-26577, 2022.\n' +
+      '* [16] Junnan Li, Dongxu Li, Silvio Savarese, and Steven Hoi. Blip-2: Bootstrapping language-image pre-training with frozen image encoders and large language models. _arXiv preprint arXiv:2301.12597_, 2023.\n' +
+      '* [17] Cheng Lu, Yuhao Zhou, Fan Bao, Jianfei Chen, Chongxuan Li, and Jun Zhu. Dpm-solver: A fast ode solver for diffusion probabilistic model sampling in around 10 steps. _NeurIPS_, 35:5775-5787, 2022.\n' +
+      '* [18] Cheng Lu, Yuhao Zhou, Fan Bao, Jianfei Chen, Chongxuan Li, and Jun Zhu. Dpm-solver++: Fast solver for guided sampling of diffusion probabilistic models. _arXiv preprint arXiv:2211.01095_, 2022.\n' +
+      '* [19] Simian Luo, Yiqin Tan, Longbo Huang, Jian Li, and Hang Zhao. Latent consistency models: Synthesizing high-resolution images with few-step inference. _arXiv preprint arXiv:2310.04378_, 2023.\n' +
+      '* [20] Zhengxiong Luo, Dayou Chen, Yingya Zhang, Yan Huang, Liang Wang, Yujun Shen, Deli Zhao, Jingren Zhou, and Tieniu Tan. Videofusion: Decomposed diffusion models for high-quality video generation. _arXiv e-prints_, pages arXiv-2303, 2023.\n' +
+      '* [21] Yue Ma, Yingqing He, Xiaodong Cun, Xintao Wang, Ying Shan, Xiu Li, and Qifeng Chen. Follow your pose: Pose-guided text-to-video generation using pose-free videos. _arXiv preprint arXiv:2304.01186_, 2023.\n' +
+      '* [22] Chenlin Meng, Robin Rombach, Ruiqi Gao, Diederik Kingma, Stefano Ermon, Jonathan Ho, and Tim Salimans. On distillation of guided diffusion models. In _CVPR_, pages 14297-14306, 2023.\n' +
+      '* [23] Chong Mou, Xintao Wang, Liangbin Xie, Jian Zhang, Zhongang Qi, Ying Shan, and Xiaohu Qie. T2i-adapter: Learning adapters to dig out more controllable ability for text-to-image diffusion models. _arXiv preprint arXiv:2302.08453_, 2023.\n' +
+      '* [24] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, et al. Learning transferable visual models from natural language supervision. In _ICML_, pages 8748-8763. PMLR, 2021.\n' +
+      '* [25] Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Bjorn Ommer. High-resolution image synthesis with latent diffusion models. In _CVPR_, pages 10684-10695, 2022.\n' +
+      '* [26] Nataniel Ruiz, Yuanzhen Li, Varun Jampani, Yael Pritch, Michael Rubinstein, and Kfir Aberman. Dreambooth: Fine tuning text-to-image diffusion models for subject-driven generation. _arXiv preprint arXiv:2208.12242_, 2022.\n' +
+      '* [27] Tim Salimans and Jonathan Ho. Progressive distillation for fast sampling of diffusion models. _arXiv preprint arXiv:2202.00512_, 2022.\n' +
+      '* [28] Xiaoyu Shi, Zhaoyang Huang, Fu-Yun Wang, Weikang Bian, Dasono Li, Yi Zhang, Manyuan Zhang, Ka Chun Cheung, Simon See, Hongwei Qin, et al. Motion-i2v: Consistent and controllable image-to-video generation with explicit motion modeling. _arXiv preprint arXiv:2401.15977_, 2024.\n' +
+      '\n' +
+      '* [29] Uriel Singer, Adam Polyak, Thomas Hayes, Xi Yin, Jie An, Songyang Zhang, Qiyuan Hu, Harry Yang, Oron Ashual, Oran Gafni, et al. Make-a-video: Text-to-video generation without text-video data. _arXiv preprint arXiv:2209.14792_, 2022.\n' +
+      '* [30] Jiaming Song, Chenlin Meng, and Stefano Ermon. Denoising diffusion implicit models. _arXiv preprint arXiv:2010.02502_, 2020.\n' +
+      '* [31] Yang Song and Prafulla Dhariwal. Improved techniques for training consistency models. _arXiv preprint arXiv:2310.14189_, 2023.\n' +
+      '* [32] Yang Song, Jascha Sohl-Dickstein, Diederik P Kingma, Abhishek Kumar, Stefano Ermon, and Ben Poole. Score-based generative modeling through stochastic differential equations. _arXiv preprint arXiv:2011.13456_, 2020.\n' +
+      '* [33] Yang Song, Prafulla Dhariwal, Mark Chen, and Ilya Sutskever. Consistency models. _arXiv preprint arXiv:2303.01469_, 2023.\n' +
+      '* [34] Khurram Soomro, Amir Roshan Zamir, and Mubarak Shah. Ucf101: A dataset of 101 human actions classes from videos in the wild. _arXiv preprint arXiv:1212.0402_, 2012.\n' +
+      '* [35] Thomas Unterthiner, Sjoerd Van Steenkiste, Karol Kurach, Raphael Marinier, Marcin Michalski, and Sylvain Gelly. Towards accurate generative models of video: A new metric & challenges. _arXiv preprint arXiv:1812.01717_, 2018.\n' +
+      '* [36] Lijun Yu, Yong Cheng, Kihyuk Sohn, Jose Lezama, Han Zhang, Huiwen Chang, Alexander G Hauptmann, Ming-Hsuan Yang, Yuan Hao, Irfan Essa, et al. Magvit: Masked generative video transformer. In _CVPR_, pages 10459-10469, 2023.\n' +
+      '* [37] David Junhao Zhang, Jay Zhangjie Wu, Jia-Wei Liu, Rui Zhao, Lingmin Ran, Yuchao Gu, Difei Gao, and Mike Zheng Shou. Show-1: Marrying pixel and latent diffusion models for text-to-video generation. _arXiv preprint arXiv:2309.15818_, 2023.\n' +
+      '* [38] Lvmin Zhang and Maneesh Agrawala. Adding conditional control to text-to-image diffusion models. _arXiv preprint arXiv:2302.05543_, 2023.\n' +
+      '* [39] Wenliang Zhao, Lujia Bai, Yongming Rao, Jie Zhou, and Jiwen Lu. Unipc: A unified predictor-corrector framework for fast sampling of diffusion models. _arXiv preprint arXiv:2302.04867_, 2023.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
