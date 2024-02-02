@@ -3,3 +3,5 @@
 - [TrustLLM: Trustworthiness in Large Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/2/2024-01-12+TrustLLM%3A+Trustworthiness+in+Large+Language+Models.yaml) / 2024-01-12
 - [Towards Conversational Diagnostic AI](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/3/2024-01-12+Towards+Conversational+Diagnostic+AI.yaml) / 2024-01-12
 - [CheXagent: Towards a Foundation Model for Chest X-Ray Interpretation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/8/2024-01-23+CheXagent%3A+Towards+a+Foundation+Model+for+Chest+X-Ray+Interpretation.yaml) / 2024-01-23
+- [Machine Unlearning for Image-to-Image Generative Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/16/2024-02-02+Machine+Unlearning+for+Image-to-Image+Generative+Models.yaml) / 2024-02-02
+- [SymbolicAI: A framework for logic-based approaches combining generative models and solvers](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/16/2024-02-02+SymbolicAI%3A+A+framework+for+logic-based+approaches+combining+generative+models+and+solvers.yaml) / 2024-02-02

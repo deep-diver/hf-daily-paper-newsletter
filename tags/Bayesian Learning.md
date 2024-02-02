@@ -1,0 +1,1 @@
+- [CroissantLLM: A Truly Bilingual French-English Language Model](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/16/2024-02-02+CroissantLLM%3A+A+Truly+Bilingual+French-English+Language+Model.yaml) / 2024-02-02

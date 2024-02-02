@@ -18,3 +18,4 @@
 - [MouSi: Poly-Visual-Expert Vision-Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/14/2024-01-31+MouSi%3A+Poly-Visual-Expert+Vision-Language+Models.yaml) / 2024-01-31
 - [T3: Transparent Tracking & Triggering for Fine-grained Overlap of Compute & Collectives](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/14/2024-01-31+T3%3A+Transparent+Tracking+%26+Triggering+for+Fine-grained+Overlap+of+Compute+%26+Collectives.yaml) / 2024-01-31
 - [Weak-to-Strong Jailbreaking on Large Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/14/2024-01-31+Weak-to-Strong+Jailbreaking+on+Large+Language+Models.yaml) / 2024-01-31
+- [Efficient Exploration for LLMs](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/16/2024-02-02+Efficient+Exploration+for+LLMs.yaml) / 2024-02-02
