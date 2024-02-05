@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# EVA-GAN: Enhanced Various Audio Generation via\n' +
+      '\n' +
+      'Scalable Generative Adversarial Networks\n' +
+      '\n' +
+      'Shijia Liao\n' +
+      '\n' +
+      'Shiyi Lan\n' +
+      '\n' +
+      'Arun George Zachariah\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      'The advent of Large Models marks a new era in machine learning, significantly outperforming smaller models by leveraging vast datasets to capture and synthesize complex patterns. Despite these advancements, the exploration into scaling, especially in the audio generation domain, remains limited, with previous efforts didn\'t extend into the high-fidelity (HiFi) 44.1kHz domain and suffering from both spectral discontinuities and blurriness in the high-frequency domain, alongside a lack of robustness against out-of-domain data. These limitations restrict the applicability of models to diverse use cases, including music and singing generation. Our work introduces Enhanced Various Audio Generation via Scalable Generative Adversarial Networks (EVA-GAN), yields significant improvements over previous state-of-the-art in spectral and high-frequency reconstruction and robustness in out-of-domain data performance, enabling the generation of HiFi audios by employing an extensive dataset of 36,000 hours of 44.1kHz audio, a context-aware module, a Human-In-The-Loop artifact measurement toolkit, and expands the model to approximately 200 million parameters. Demonstrations of our work are available at [https://double-blind-eva-gan.cc](https://double-blind-eva-gan.cc).\n' +
+      '\n' +
+      'Machine Learning, ICML\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      'Recently, GAN-based neural vocoders have revolutionized the generation of audio waveforms from acoustic properties, with broad applications in voice synthesis, voice conversion, and audio enhancement. Despite the efficiency in sampling and memory optimization offered by them, they face challenges such as **spectral discontinuities** and **blurriness** in the high-frequency domain, blocking the high-quality music and singing voice generation. Figure 2 illustrates spectral disruptions when generating singing data using existing vocoders, including HiFiGAN (Kong et al., 2020) and BigVGAN (gil Lee et al., 2023), which represent the current state-of-the-art. We attribute these issues to a lack of data diversity, limited model capacity, a discrepancy between the context window sizes used during training and inference, and the absence of objective metrics for measuring these artifacts.\n' +
+      '\n' +
+      'Another significant challenge in this domain is achieving high-quality audio fidelity, particularly used in music and singing synthesis, which remains insufficiently addressed. BigVGAN (gil Lee et al., 2023) has proposed scaling of datasets and models as a pathway to state-of-the-art out-of-domain (OOD) performance. However, its reliance on the LibriTTS dataset (Zen et al., 2019), which is limited to low-fidelity (24kHz) speech data, falls short of capturing the diverse and rich acoustic properties required for realistic music and singing generation. While the scaling of models is recognized as a pivotal strategy for enhancing performance, the vast majority of vocoders are equipped with fewer than 20 million parameters. This limitation is primarily due to the significant computational expense and memory requirements associated with managing the gradient footprint, thus hampering advancements in the synthesis of high-fidelity music and singing audio.\n' +
+      '\n' +
+      'Moreover, the prevalent evaluation of existing work on speech datasets, known for their reduced sensitivity to spectrogram quality, has led to a deficiency in effective objective metrics for the automatic assessment of high-frequency **artifacts** and spectrogram discontinuities in neural vocoders. We have identified that current metrics fail to detect artifacts that, despite being subtle (e.g., a discontinuity lasting only 20 milliseconds), are **highly perceptible** to humans. This underscores the necessity for a robust evaluation method capable of identifying such nuances during the training process.\n' +
+      '\n' +
+      'The current issues in audio generation are very similar to the early challenges in Natural Language Processing (NLP). Prior to the advent of Large Language Models (LLMs) suchas GPT-3, the consensus within the NLP field believed that solving its problems required specialized designs and techniques. Similarly, audio generation tasks such as singing synthesis, text-to-speech, and music synthesis have typically used different model architectures. However, the introduction of the GPT series marked a significant paradigm shift, illustrating that broad, scalable solutions could effectively tackle a range of NLP tasks without needing task-specific adjustments or unique model designs. Inspired by this shift, we present the Enhanced Various Audio Generation via Scalable Generative Adversarial Networks (EVA-GAN). By focusing on model and data scaling, EVA-GAN aims to modernize audio generation, creating a generalized and robust vocoder following industry-standard deep learning methods.\n' +
+      '\n' +
+      'Our contributions are multifaceted:\n' +
+      '\n' +
+      '1. Compared to (gil Lee et al., 2023), we have expanded EVA-GAN to 200 million parameters and utilized a comprehensive 36,000-hour HiFi (44.1kHz) dataset, which are **largest** model and data used in Neural Vocoder to the best of our knowledge.\n' +
+      '2. We introduce a novel context-aware module, referred to as CAM, which marks a significant leap forward in model performance, achieving outstanding advancements with virtually no additional computational burden, as documented in Table 1.\n' +
+      '3. We propose a innovative training pipeline, which includes a longer context window (around 3 seconds), a loss balancer as initially introduced by Encodec (Defossez et al., 2022), incorporated gradient checkpointing, and improved activation functions to boost training stability, reduce memory usage, and minimize the need for manual hyperparameter tuning.\n' +
+      '4. We build a brand new Human-In-The-Loop SMOS (Similarity Mean Option Score) evaluation toolkit, enables artifact monitoring and ensuring unparalleled alignment with human subjective perceptions.\n' +
+      '\n' +
+      'Overall, we created a state-of-the-art 44.1kHz Vocoder, EVA-GAN, especially suited for high-quality audio generation, establishing a new industry benchmark in this domain.\n' +
+      '\n' +
+      '## 2 Related Work\n' +
+      '\n' +
+      'Neural vocoders, which produce audio waveforms from acoustic properties using deep learning, have become indispensable in speech synthesis, voice conversion, and speech enhancement. The evolution of neural vocoder techniques can be segmented into three distinct phases: autoregressive (AR) or flow-based models (van den Oord et al., 2016; Kalchbrenner et al., 2018; Prenger et al., 2019), GAN-centric approaches (Yamamoto et al., 2020; Yang et al., 2020; Kong et al., 2020; Jang et al., 2021), and direct spectral generation (DSG) strategies (Siazdak, 2023; Kaneko et al., 2022).\n' +
+      '\n' +
+      '### GAN-based Neural Vocoders\n' +
+      '\n' +
+      'Of these, the current best-in-class GAN-based (Kong et al., 2020; gil Lee et al., 2023; Kaneko et al., 2022; Siuzdak,\n' +
+      '\n' +
+      'Figure 1: The EVA-GAN generator is composed of two main sections: Context Aware Blocks and Upsample Parallel Resblocks. The _Context Aware Blocks_, a novel introduction in this paper, leverage residual connections and large convolution kernel to augment the context window and capacity of the module with minimal computational overhead. The _Upsample Parallel Resblocks_, adapted from the HiFi-GAN’s multi-receptive field fusion (MRF) blocks (Kong et al., 2020), utilize the _SiLU_(Elfwing et al., 2017) activation function for decoding features into a waveform.\n' +
+      '\n' +
+      '2023) vocoders boost impressive sampling efficiency and memory optimization. However, they come with their own set of challenges, like spectral inconsistencies, high and low frequency range artifacts, deconvolution checkerboard artifacts, leading to compromised audio quality. Furthermore, basic HiFi-GAN (Kong et al., 2020) tends to fall short when dealing with musical data, high-pitched audio, and out-of-distribution (OOD) content, causing audio disruptions.\n' +
+      '\n' +
+      '### Development of Generator and Loss Terms\n' +
+      '\n' +
+      'UnivNet (Jang et al., 2021) replaces the Mel-Spectrogram loss with a multi-scale STFT loss and adopts a multi-resolution discriminator to boost high-frequency domain recovery. Meanwhile, BigVGAN (gil Lee et al., 2023) purposed to use Snake Activation to improve spectrogram quality and out-of-distribution (OOD) performance. On the other hand, models like NSF-HiFi-GAN (Zhao et al., 2020; Kong et al., 2020; Openvpi, 2022), RefineGAN (Xu et al., 2021), and SingGAN (Huang et al., 2022), incorporate an f0 source to elevate audio quality and spectral continuity, but this restricts them from utilizing large and varied datasets.\n' +
+      '\n' +
+      '### Reduce Artifacts by Improving Discriminators\n' +
+      '\n' +
+      'Discriminators play a crucial role in vocoder training, striking a balance between reducing human-sensitive artifacts and optimizing objective scores, such as loss. Various approaches have been explored in previous works, including MPD, MSD, MRD, MS-STFTD, and MS-SBCQTD, all aiming to minimize these artifacts and enhance high-frequency domain reconstruction.\n' +
+      '\n' +
+      'HiFi-GAN (Kong et al., 2020) introduced the Multi-Period Discriminator (MPD), transforming the waveform into 2D representations of varying heights and employing 2D convolutions to analyze periodic structures. In the same vein, HiFi-GAN\'s Multi-Scale Discriminator (MSD) processes the waveform into multiple 1D representations at different scales, enabling detailed analysis of time-domain information.\n' +
+      '\n' +
+      'UnivNet (Jang et al., 2021) proposed the Multi-Resolution Spectrogram Discriminator (MSRD or MRD), focusing on the multi-resolution time-frequency domain through the Short-Term Fourier Transform (STFT). Similarly, Encodec (Defossez et al., 2022) advocated for a Multi-Scale STFT Discriminator (MS-STFTD) to enhance audio generation quality.\n' +
+      '\n' +
+      'Furthering this innovation, (Gu et al., 2023) introduced the Multi-Scale Sub-Band Constant-Q Transform Discriminator (MS-SBCQTD). This novel approach supports the generator in more effectively restoring high-frequency components by utilizing the Constant Q Transform, an alternative to the conventional STFT.\n' +
+      '\n' +
+      '## 3 Preliminaries\n' +
+      '\n' +
+      'This manuscript extends the foundational work on Generative Adversarial Network (GAN)-based vocoders, specifically leveraging the architectural paradigm introduced by HiFiGAN (Kong et al., 2020). An exposition of the critical elements of this framework is imperative for understanding the subsequent developments. The inception of specific loss metrics by Least Squares GAN (Mao et al., 2017) heralded their adoption in GAN-based vocoders, prominently exemplified by HiFiGAN\'s implementation.\n' +
+      '\n' +
+      '### Generator\n' +
+      '\n' +
+      'The generator within a GAN-based vocoder framework is tasked with the transformation of Mel-Spectrograms into unprocessed waveforms. The generator\'s loss metrics in HiFiGAN (Kong et al., 2020) encapsulate the Mel-Spectrogram loss \\(L_{mel}\\), the adversarial loss \\(L_{adv}\\), and the feature matching loss \\(L_{fm}\\), articulated as follows:\n' +
+      '\n' +
+      '\\[L_{mel}(G)=\\mathbb{E}\\Big{[}\\|\\phi(x)-\\phi(G(s))\\|_{1}\\Big{]} \\tag{1}\\]\n' +
+      '\n' +
+      '\\[L_{adv}(G)=\\mathbb{E}\\Big{[}(D(G(s))-1)^{2}\\Big{]} \\tag{2}\\]\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c} \\hline \\hline Experiment & Total Params & Generator Params & Train Mem & Infer Mem & Infer Time & PESQ \\\\ \\hline HiFi-GAN-base & 13.6 M & 13.6 M & 43.2 GB & 2.1 GB & 177 ms & 3.5486 \\\\ EVA-GAN-base & 34.85 M & 16.3 M & 46 GB & 2.2 GB & 193 ms & 4.0330 \\\\ EVA-GAN-big & 192.99 M & 174.44 M & 68 GB & 2.7 GB & 402 ms & 4.3536 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 1: Speed measured across different models, results were obtained on a single A100 GPU, using a batch size of 16 with 512 frames (around 6 seconds) of audio in fp32 format. Comparing to original HiFi-GAN (Kong et al., 2020), we have replaced leaky ReLU with SiLU (Elfwing et al., 2017), applied in-place activation optimizations, and optimize kernel sizes for 44.1k generation. EVA-GAN-base is essentially HiFi-GAN-base enhanced with our Context Aware Module, while EVA-GAN-large represents a scaled version of the generator to 174M parameters. The reported training memory encompasses both forward and backward memory usage, excluding the application of the optimizer. Speed metrics are based on the average of 100 inferences, following 10 initial warm-up runs. PESQ (wide-band) are observed at LibriTTS dev set.\n' +
+      '\n' +
+      '\\[L_{fm}(G)=\\mathbb{E}\\Big{[}\\sum_{i=1}^{T}\\frac{1}{N_{i}}\\|D^{i}(x)-D^{i}(G(s))\\|_{1} \\Big{]} \\tag{3}\\]\n' +
+      '\n' +
+      'where \\(x\\) represents the ground truth, \\(\\phi\\) symbolizes the Mel-Spectrogram function, \\(s\\) denotes the Mel-Spectrogram corresponding to the audio signal, \\(T\\) denotes the number of layers in the discriminator, \\(D\\) and \\(G\\) respectively signify the discriminator and generator, and \\(N_{i}\\) denotes the number of features in the \\(i\\)-th layer of the discriminator\n' +
+      '\n' +
+      '### Discriminator\n' +
+      '\n' +
+      'Beyond the Mel-Spectrogram loss, contemporary GAN-based vocoders incorporate multiple discriminators to attenuate perceptual distortions, which, despite potentially enhancing objective measures such as spectrogram fidelity, remain perceptibly discernible. Notably, these discriminators universally adopt multi-resolution feature analysis.\n' +
+      '\n' +
+      'Each discriminator is evaluated using the following adversarial loss metric:\n' +
+      '\n' +
+      '\\[L_{adv}(D)=\\mathbb{E}\\Big{[}(D(x)-1)^{2}+(D(G(s)))^{2}\\Big{]}, \\tag{4}\\]\n' +
+      '\n' +
+      'where \\(x\\) denotes the ground truth, \\(s\\) represents the Mel-Spectrogram associated with the audio signal, and \\(D\\) and \\(G\\) respectively indicate the Discriminator and Generator.\n' +
+      '\n' +
+      '## 4 Eva-Gan\n' +
+      '\n' +
+      'We position EVA-GAN as an advancement over HiFi-GAN (Kong et al., 2020), characterized by a larger context window, an improved structure, increased capacity, and an expanded dataset.\n' +
+      '\n' +
+      '### Data Scaling\n' +
+      '\n' +
+      'Traditionally, the training of a vocoder involves using datasets such as LJSpeech (Ito & Johnson, 2017), LibriTTS (Zen et al., 2019), VCTK (Veaux et al., 2017), and M4Singer (Zhang et al., 2022). These datasets, however, either suffer from a low sampling rate (24k) or lack diversity, covering only a limited range of speakers and languages. The importance of data scaling was underscored by the BigVGAN study (gil Lee et al., 2023), which showed significant out-of-distribution improvements when scaled to the LibriTTS (Zen et al., 2019) dataset. Building on this, we aim to further increase the scale to enhance model robustness.\n' +
+      '\n' +
+      'To this end, the Fish Audio community compiled a comprehensive 16,000-hour high-fidelity music and song dataset from YouTube Music and Netease Music (dubbed HiFi-16000h). This dataset encompasses a variety of languages including Chinese, English, and Japanese, and features a wide spectrum of musical instruments. To our knowledge, this is the largest high-fidelity audio dataset to date, effectively addressing out-of-domain sample concerns.\n' +
+      '\n' +
+      'Furthermore, to boost speech performance, an additional 20,000 hours of diverse language audio from the broadcast platform Player FM (termed PlayerFM-20000h) was added by the Fish Audio community. A balanced distribution of 50% from HiFi-16000h and 50% from PlayerFM-20000h was maintained to ensure sample diversity.\n' +
+      '\n' +
+      'Our results highlight the critical role of scale and diversity in training datasets. Our baseline HiFi-GAN, trained on this extensive 36,000-hour dataset, effectively reduces spectral discontinuities and demonstrates the capability to replicate a wide array of audio types. This includes, but is not limited to, singing, speaking, bass, piano, and unique sounds like helicopter noise and boiling kettle sounds.\n' +
+      '\n' +
+      '### Model Scaling\n' +
+      '\n' +
+      'Echoing BigVGAN\'s findings (gil Lee et al., 2023), which highlight the superior performance of larger models over smaller ones even on the relatively modest-sized LibriTTS dataset (Zen et al., 2019) (about 1000 hours), we observed marked improvements in robustness and overall performance with an enlarged generator. Accordingly, we have scaled up the generator in our base EVA-GAN-base model from 16.3 million to 174.4 million parameters, thus creating the more potent EVA-GAN-big variant. The enhanced capabilities of EVA-GAN-big are evident in Table 1 and demonstrated in Figure 2, particularly in terms of continuously and resolution in the high-frequency domain.\n' +
+      '\n' +
+      'Scaling up discriminators, such as MPD (Kong et al., 2020) and MRD (Jang et al., 2021), did not yield proportionate benefits. Additionally, incorporating new discriminators like MS-STFT (Defossez et al., 2022) and MS-SBCQTD (Gu et al., 2023) did not further enhance model performance. We hypothesize that this outcome is attributable to the considerable capacity of our model, which effectively captures subtle distinctions between the ground truth and generated audio across both low and high-frequency ranges. This capability negates the need for any trade-offs or overemphasis on a particular frequency range in the loss function.\n' +
+      '\n' +
+      '### The Free Lunch: Context Aware Module (CAM)\n' +
+      '\n' +
+      'Despite the increased demand for computational resources and memory when scaling up the HiFi-GAN (Kong et al., 2020) generator, due to the challenges posed by long audio sequences and the substantial gradient footprint, we discovered that a 1D Convolution-based context-aware module namely CAM, utilizing the building blocks derived from ConvNeXt (Liu et al., 2022), requires significantly less memory and computational resources. This module not only is resource-efficient but also delivers notable improvements in both objective and subjective assessments, as demonstrated in Table 1.\n' +
+      '\n' +
+      '### Renew Training Paradigm\n' +
+      '\n' +
+      'While intuitively scaling the model, data, and context length can enhance performance, the challenge lies in achieving this within the bounds of limited computational resources and maintaining training stability. BigVGAN, previously the largest vocoder (gil Lee et al., 2023), encountered obstacles in further scaling due to training instability and computational constraints. To mitigate these issues, they reduced the context length, resulting in a compromise between stability and resource utilization -- less resource-intensive, yet at the cost of stability.\n' +
+      '\n' +
+      'Our investigation revealed a gap in the implementation of several efficient techniques in existing neural vocoders.\n' +
+      '\n' +
+      '#### 4.4.1 Larger Context Window\n' +
+      '\n' +
+      'In comparison to the context windows (typically 32 or 64 frames) used in HiFi-GAN (Kong et al., 2020) and BigVGAN (gil Lee et al., 2023), extending the window to 256 frames proved highly beneficial. This increase aids in faster model convergence, higher GPU utilization, significantly reduces spectrogram discontinuities. However, this expansion also raises GPU memory consumption and slows down the training speed. To mitigate this, we implemented several optimizations as described below.\n' +
+      '\n' +
+      '#### 4.4.2 SiLU in-place Activation\n' +
+      '\n' +
+      'We observed that replacing the Leaky ReLU activation function with SiLU (Elfwing et al., 2017) not only accelerates model convergence but also preserves final performance. Additionally, employing in-place activations for both the generator and discriminators wherever possible resulted in approximately a 30% reduction in GPU memory usage.\n' +
+      '\n' +
+      '#### 4.4.3 Gradient Checkpointing\n' +
+      '\n' +
+      'As indicated in Table 1, large batch sizes are not feasible with a 256-frame context window, even on A100 GPUs. Thus, we applied gradient checkpointing (Chen et al., 2016) to both the generator and discriminators, significantly reducing the gradient memory footprint. For instance, the memory usage of the EVA-GAN-base generator decreased from 46GB to 16GB, albeit with a 30% reduction in training speed.\n' +
+      '\n' +
+      '#### 4.4.4 TensorFlow-32\n' +
+      '\n' +
+      'While mixed precision training with fp16 and bf16 is common in large language models and computer vision tasks, we encountered instability with fp16 (notably large gradient norms) and performance degradation with bf16 due to its lower precision. Therefore, utilizing A100 GPUs, we opted for TensorFlow-32 for training, which offers roughly twice the speed of fp32.\n' +
+      '\n' +
+      '#### 4.4.5 Loss Balancer\n' +
+      '\n' +
+      'Upon scaling the model and adopting a 44.1k configuration, we encountered challenges in balancing various losses: feature matching loss, adversarial loss, Mel-Spectrogram loss, and multi-scale STFT loss. The loss balancer, a concept brought into the vocoder field by Encodec (Defossez et al., 2022), emerged as a solution. This technique automatically balances these losses based on their gradients, allowing each to contribute equally to the parameter update process. In the absence of this balancing, we observed significant human-perceptible high-frequency artifacts, despite seemingly acceptable objective results such as l1 Mel-Spectrogram distance, attributable to the inability to properly adjust the weight of the discriminator loss.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c|c|c} \\hline \\hline \\multicolumn{1}{l|}{LibriTTS} & M-STFT (\\(\\downarrow\\)) & Periodicity (\\(\\downarrow\\)) & V/UV F1 (\\(\\uparrow\\)) & PESQ (\\(\\uparrow\\)) & SMOS (\\(\\uparrow\\)) \\\\ \\hline Ground Truth & - & - & - & - & 4.909 \\\\ \\hline Vocos & 0.8580 & 0.1103 & 0.9555 & 3.6328 & 4.8577 \\\\ UnivNet-c32 & 0.8959 & 0.1333 & 0.9444 & 3.2566 & 4.8042 \\\\ HiFi-GAN (V1) & 1.3647 & 0.1600 & 0.9309 & 2.9110 & 4.7596 \\\\ \\hline BigVGAN-base & 0.8788 & 0.1287 & 0.9459 & 3.5190 & 4.8545 \\\\ BigVGAN-big & 0.7997 & 0.1018 & 0.9598 & 4.0270 & 4.8786 \\\\ \\hline HiFi-GAN-base & 1.0269 & 0.1230 & 0.9523 & 3.5485 & 4.8345 \\\\ EVA-GAN-base & 0.9485 & 0.0942 & 0.9658 & 4.0330 & 4.8687 \\\\ EVA-GAN-big & **0.7982** & **0.0751** & **0.9745** & **4.3536** & **4.9134** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 2: Objective evaluation of EVA-GAN was performed on the LibriTTS development sets, and subjective evaluation was carried out using test sets akin to those in the BigVGAN study (gil Lee et al., 2023). To align with these benchmarks, EVA-GAN’s outputs were down-sampled to 24kHz. The Vocos (Siazdak, 2023) weights were obtained from gemelo-ai/vocos. UnivNet-c32 (Jang et al., 2021) model weights were sourced from maum-ai/univnet. The HiFi-GAN (Kong et al., 2020) (V1) version, trained on LJSpech, VCTK, and LibriTTS at 22kHz, was sourced from jik876/hifi-gan. For BigVGAN, objective results were taken directly from the paper (gil Lee et al., 2023), and subjective evaluations were based on weights trained for 5 million steps, acquired from NVIDIA/BigVGAN.\n' +
+      '\n' +
+      '### Human-In-The-Loop Artifact Measurement\n' +
+      '\n' +
+      'While metrics such as PESQ (Rix et al., 2001) and Mel distance quantify the discrepancy between generated audios and ground truth, their high scores do not necessarily correlate with subjective evaluation outcomes. This misalignment arises because these metrics inadequately capture artifacts particularly perceptible to human listeners, especially those occurring in the high-frequency domain or as short-term spectrogram disruptions lasting only a few milliseconds. These nuances, though critical for audio quality, are overlooked by conventional metrics. In addressing this gap, discriminators in models like HiFiGAN (Kong et al., 2020) have been instrumental, highlighting their capability to discern such subtle differences, albeit not always reflected in objective metrics.\n' +
+      '\n' +
+      'To tackle these challenges, we have devised a Human-In-The-Loop Artifact Measurement toolkit, incorporating a SMOS (Similarity Mean Option Score) annotating tool and CLI, to continuously monitor and evaluate the quality of generated audio against human perceptual standards.\n' +
+      '\n' +
+      '## 5 Experiments Setup\n' +
+      '\n' +
+      'Adopting a similar approach to BigVGAN (gil Lee et al., 2023), we set our base learning rate at 1e-4 and applied gradient clipping at a norm of 1000 to manage gradient spiking and exploding. Our optimizer of choice was AdamW, with betas set at \\([0.8,0.99]\\). In line with what is commonly practiced in LLMs, we opted for a step-wise learning rate decay, as opposed to the epoch-based approach used in HiFi-GAN (Kong et al., 2020) and its derivatives. Specifically, we implemented an exponential learning rate decay of \\(0.999999\\) after each step.\n' +
+      '\n' +
+      'Our model utilizes a 512x upsampling rate to accommodate a 160 bins Mel-Spectrogram input, with 2048 n.fft, 512 hop length, and 2048 win length. As previously mentioned, we found that a larger context window is highly beneficial, so we used a 256 frames context window (approximately 3 seconds) instead of the 32 or 64 frames used in earlier models like HiFi-GAN (Kong et al., 2020) and BigVGAN (gil Lee et al., 2023). Due to memory constraints, our total batch size was set at 16, as opposed to 32 used in prior models. However, given the larger frame size of our model, we still achieved a higher effective frame count per batch, further enhancing training stability.\n' +
+      '\n' +
+      'For our Multi Period Discriminator, as introduced by HiFiGAN (Kong et al., 2020), we used periods of \\([3,5,7,11,17,23,37]\\). The Multi Resolution Discriminator and Multi Resolution STFT loss, as introduced by UniNet (Jang et al., 2021), were set to resolutions of [[2048, 512, 2048], [1024, 120, 600], [2048, 240, 1200], [4096, 480, 2400], [512, 50, 240]]. This setup, comparing to the 24k configuration provided by previous works (Kong et al., 2020; gil Lee et al., 2023; Jang et al., 2021; Siuzdak, 2023),\n' +
+      '\n' +
+      'Figure 2: Spectrogram visualizations for a 44.1kHz singing voice generated by HiFi-GAN (Kong et al., 2020), BigVGAN (gil Lee et al., 2023), and both the base and big versions of our EVA-GAN are presented, including zoomed-in views on high-frequency regions to illustrate differences in spectrogram continuity and high-frequency detail. The HiFi-GAN (Kong et al., 2020) (V1) model, trained on the LJSpeech, VCTK, and LibriTTS datasets at 22kHz, was obtained from jik876/hifi-gan. Weights for BigVGAN were sourced from the official repository NVIDIA/BigVGAN.\n' +
+      '\n' +
+      'improved the model\'s performance in the high-frequency domain.\n' +
+      '\n' +
+      'With the aforementioned setup and using tf32 precision, we experienced stable training without any issues of gradient exploding or crashing. Unless specified otherwise, all models were trained on the 36,000-hour dataset comprising 50% HiFi-16000h and 50% PlayerFM-20000h for 1 million steps on NVIDIA A100 GPUs.\n' +
+      '\n' +
+      'Starting with the HiFiGAN (Kong et al., 2020) v1 configuration, we replaced the Leaky ReLU activation with SiLU activation and established a 44.1k baseline, resulting in the **HiFi-GAN-Base**. We chose upsample rates of \\([8,8,2,2,2]\\), upsample kernel sizes of \\([16,16,4,4,4]\\), and parallel block (MRF blocks (Kong et al., 2020)) kernel sizes of \\([3,7,11]\\). This configuration led to a 13.6M generator.\n' +
+      '\n' +
+      'Building upon **HiFi-GAN-Base**, we added the Context Aware Module before the generator: depths and dims for each block at \\([3,3,9,3]\\) and \\([128,256,384,512]\\), a 0.2 drop path ratio, and a kernel size of 7. This resulted in **EVA-GAN-base** with a 16.3M generator, considering the increased input dimension from 160 to 512, and an additional 18.6M for the Context Aware Module.\n' +
+      '\n' +
+      'To develop **EVA-GAN-big**, we retained all settings from **EVA-GAN-base** but altered the upsample rate to \\([4,4,2,2,2,2,2]\\), the upsample kernel sizes to \\([8,8,4,4,4,4,4]\\), and the parallel block kernel sizes to \\([3,7,11,13]\\). The initial channels for upsampling were set at 1536. This scaling increased the generator size to 174.4M, bringing the total parameter count to 193M.\n' +
+      '\n' +
+      '## 6 Results\n' +
+      '\n' +
+      'We evaluated the performance of EVA-GAN and compared it with existing methods across multiple tasks, including LibriTTS (24k speech) and DSD-100 (48k music), and observed significant performance improvements.\n' +
+      '\n' +
+      'Table 1 demonstrates that, compared to our optimized HiFi-GAN (Kong et al., 2020) baseline, the Context Aware Module adds minimal overhead in inference speed and training memory, yet significantly improves performance when trained on our dataset. This suggests that the additional parameters efficiently enhance network capacity without requiring excessive resources. Furthermore, while EVA-GAN-big is six times larger than EVA-GAN-base, it only doubles the training memory and slows inference time by a factor of one, maintaining a speed 250 times faster than real-time with a batch size of 16.\n' +
+      '\n' +
+      '### Evaluation Metrics\n' +
+      '\n' +
+      'Following BigVGAN\'s methodology (gil Lee et al., 2023), we employed the following objective metrics for our LibriTTS evaluation:\n' +
+      '\n' +
+      '* Multi-resolution STFT (M-STFT), as provided in Parallel WaveGAN (Yamamoto et al., 2020), using the open-source implementation from csteinmetz1/auraloss (Steinmetz & Reiss, 2020).\n' +
+      '* Periodicity error (based on CREPE) and voiced / unvoiced classification F1 score (V/UV F1), highlighting a common artifact in neural vocoders without a source module. We used CARGAN (Morrison et al., 2022) code available at descriptive/cargan.\n' +
+      '* Perceptual evaluation of speech quality (PESQ) (Rix et al., 2001), using the well-known automated voice quality assessment tool\'s wide-band version (16,000 Hz), available at ludlows/PESQ.\n' +
+      '\n' +
+      'In line with BigVGAN (gil Lee et al., 2023), we observed that the 5-scale mean opinion score (MOS) does not accurately reflect each model\'s performance, as most received high scores and minor data noise could alter the average scores significantly. Since our task involves copy-synthesis for vocoders, we aim for the model to generate outputs closely resembling the input Mel-Spectrogram. In cases of noisy inputs, we do not want the neural vocoder to bias the audio quality towards the training data, which might result in artificially high listener scores.\n' +
+      '\n' +
+      'Therefore, we adopted a 5-scale similarity mean opinion score (SMOS) approach, similar to (gil Lee et al., 2023). Specifically, participants were provided with both reference audio (Ground Truth) and generated audio to assess the quality of the generated audio. All participants were required to wear headphones and listen to the audios in a quiet environment for more accurate ranking.\n' +
+      '\n' +
+      '### LibriTTS\n' +
+      '\n' +
+      'In Table 2, we present both objective and subjective results on LibriTTS (Zen et al., 2019), a 24kHz speech dataset. The objective evaluation metrics M-STFT, Periodicity, V/UV F1, and PESQ were calculated on the LibriTTS development set, encompassing both clean and \'other\' categories with unseen speakers in the training of BigVGAN (gil Lee et al., 2023) and HiFiGAN (Kong et al., 2020). For subjective evaluation, we conducted SMOS tests on a randomly selected set of 100 files from the LibriTTS test set.\n' +
+      '\n' +
+      'Our findings, detailed in Table 2, reveal that EVA-GAN, despite being natively 44.1kHz and not trained on LibriTTS, significantly outperforms the current state-of-the-art, BigVGAN (gil Lee et al., 2023), in all objective and subjective metrics after downsampling to 24kHz. Notably, HiFi-GAN-base, with only changes in the training recipe, activation function, and the use of our large dataset, shows remarkable improvement over the HiFiGAN (Kong et al., 2020) baseline. This underscores the importance of our new training strategy and a more diverse dataset.\n' +
+      '\n' +
+      'EVA-GAN-base further enhances the objective results of HiFi-GAN-base by incorporating a CAM. When compared to BigVGAN-base, EVA-GAN-base achieves better performance in most objective metrics while using less memory and offering faster inference speeds. Our largest model, EVA-GAN-big, validates the efficacy of scaling up, surpassing all existing models even though EVA-GANs were not trained on LibriTTS.\n' +
+      '\n' +
+      '### Dsd-100\n' +
+      '\n' +
+      'To manage resource constraints, we employed a strategy of random sampling, choosing 10 tracks from each of the five categories in the DSD-100 (Liutkus et al., 2017) dataset of 44.1kHz mixed audios for testing: Mixture, Bass, Drums, Vocals, and Others. For each track, we selected a 5-second clip from a random non-silent section for our evaluation, with the findings detailed in Table 3.\n' +
+      '\n' +
+      'Analyzing this dataset offered a unique perspective on the resilience and efficacy of neural vocoders in music generation, given its encompassment of critical musical components. The inference drawn is that a model\'s proficiency on the DSD-100 dataset likely translates to enhanced performance in high-fidelity music and speech synthesis.\n' +
+      '\n' +
+      'Additional results, including those for extremely OOD tasks, are available in our demos at Here.\n' +
+      '\n' +
+      '### Ablation Studies\n' +
+      '\n' +
+      '**New Training Recipe and Larger Dataset:** Compared to the HiFiGAN v1 (Kong et al., 2020) baseline, our HiFiGAN-base significantly improves objective metrics by optimizing the training recipe and dataset, as discussed in Section 4 and evidenced in Table 2 and Figure 2.\n' +
+      '\n' +
+      '**Context Aware Module:** The introduction of the Context Aware Module in our EVA-GAN-base significantly enhanced its objective metrics, adding minimal overhead. This is demonstrated in Tables 1, 2, 3, and Figure 2.\n' +
+      '\n' +
+      '**Larger Model:** The scaling up of EVA-GAN to create EVA-GAN-big, detailed in Tables 2, 3, and Figure 2, shows the effectiveness of increasing model size. EVA-GAN-big, which is six times larger than EVA-GAN-base but without any changes in training hyperparameters or dataset, achieves superior performance in both speech and music domains, and exhibits robustness across various types of audio. Additional results demonstrating its OOD performance can be found on our Here.\n' +
+      '\n' +
+      '## 7 Conclusions\n' +
+      '\n' +
+      'In this paper, we introduced **EVA-GAN**, a groundbreaking audio generation model that sets new benchmarks in the realm of neural vocoders. By leveraging an extensive dataset and incorporating innovative features such as a CAM and scaling the model to around 200M parameters, **EVA-GAN** significantly outperforms existing models in terms of spectral continuity, high-frequency reconstruction, and robustness in out-of-distribution data performance.\n' +
+      '\n' +
+      'Our comprehensive experiments, conducted on a diverse range of audio data, including the largest dataset to date, demonstrate **EVA-GAN**\'s superior ability to generate high-quality, realistic audio across various domains. This achievement not only marks a significant advancement in audio synthesis but also opens new avenues for future research and applications in speech synthesis, music generation, and beyond.\n' +
+      '\n' +
+      '**EVA-GAN**\'s remarkable performance, underscored by its state-of-the-art results and efficiency, establishes it as the new gold standard in audio generation, promising to enhance a wide array of applications in the audio domain.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c c c} \\hline \\hline DSD100 & Mixture (\\(\\uparrow\\)) & Bass (\\(\\uparrow\\)) & Drums (\\(\\uparrow\\)) & Vocals (\\(\\uparrow\\)) & Other (\\(\\uparrow\\)) \\\\ \\hline Ground Truth & 4.7778 & 4.7237 & 4.8533 & 4.7531 & 4.8313 \\\\ \\hline Vocos & 3.1519 & 3.2716 & 3.9857 & 4.2078 & 3.0694 \\\\ UnivNet-c32 & 2.2778 & 2.9241 & 3.5507 & 3.2963 & 2.3247 \\\\ HiFi-GAN (V1) & 2.4023 & 3.0833 & 3.5821 & 3.3188 & 2.5769 \\\\ \\hline BigVGAN-base & 3.3537 & 3.2821 & 4.2464 & 4.3846 & 3.6892 \\\\ BigVGAN-big & 4.0854 & 3.8642 & 4.0909 & 4.5000 & 3.9747 \\\\ \\hline HiFi-GAN-base & 4.5658 & 4.1940 & **4.5493** & 4.6944 & 4.4605 \\\\ EVA-GAN-base & 4.4133 & 4.2405 & 4.5467 & 4.6627 & 4.5634 \\\\ EVA-GAN-big & **4.6197** & **4.4675** & 4.4658 & **4.7467** & **4.6053** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 3: SMOS evaluated on DSD100 test sets. BigVGAN (gil Lee et al., 2023) weights, trained for 5 million steps, were acquired from the official repository NVIDIA/BigVGAN. All samples are resampled to 44.1kHz for listeners.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* Chen et al. (2016) Chen, T., Xu, B., Zhang, C., and Guestrin, C. Training deep nets with sublinear memory cost, 2016.\n' +
+      '* Defossez et al. (2022) Defossez, A., Copet, J., Synnaeve, G., and Adi, Y. High fidelity neural audio compression, 2022.\n' +
+      '* Elfwing et al. (2017) Elfwing, S., Uchibe, E., and Doya, K. Sigmoid-weighted linear units for neural network function approximation in reinforcement learning, 2017.\n' +
+      '* gil Lee et al. (2023) gil Lee, S., Ping, W., Ginsburg, B., Catanzaro, B., and Yoon, S. Bigvgan: A universal neural vocoder with large-scale training, 2023.\n' +
+      '* Gu et al. (2023) Gu, Y., Zhang, X., Xue, L., and Wu, Z. Multi-scale subband constant-q transform discriminator for high-fidelity vocoder, 2023.\n' +
+      '* Huang et al. (2022) Huang, R., Cui, C., Chen, F., Ren, Y., Liu, J., Zhao, Z., Huai, B., and Wang, Z. Singgan: Generative adversarial network for high-fidelity singing voice generation, 2022.\n' +
+      '* Ito & Johnson (2017) Ito, K. and Johnson, L. The lj speech dataset. [https://keithito.com/LJ-Speech-Dataset/](https://keithito.com/LJ-Speech-Dataset/), 2017.\n' +
+      '* Jang et al. (2021) Jang, W., Lim, D., Yoon, J., Kim, B., and Kim, J. Univnet: A neural vocoder with multi-resolution spectrogram discriminators for high-fidelity waveform generation, 2021.\n' +
+      '* Kalchbrenner et al. (2018) Kalchbrenner, N., Elsen, E., Simonyan, K., Noury, S., Casagrande, N., Lockhart, E., Stimberg, F., van den Oord, A., Dieleman, S., and Kavukcuoglu, K. Efficient neural audio synthesis. 2, 2018.\n' +
+      '* Kaneko et al. (2022) Kaneko, T., Tanaka, K., Kameoka, H., and Seki, S. isftIntet: Fast and lightweight mel-spectrogram vocoder incorporating inverse short-time fourier transform, 2022.\n' +
+      '* Kong et al. (2020) Kong, J., Kim, J., and Bae, J. Hifi-gan: Generative adversarial networks for efficient and high fidelity speech synthesis, 2020.\n' +
+      '* Liu et al. (2022) Liu, Z., Mao, H., Wu, C.-Y., Feichtenhofer, C., Darrell, T., and Xie, S. A convnet for the 2020s, 2022.\n' +
+      '* 12th International Conference, LVA/ICA 2015, Liberec, Czech Republic, August 25-28, 2015, Proceedings_, pp. 323-332, Cham, 2017. Springer International Publishing.\n' +
+      '* Mao et al. (2017) Mao, X., Li, Q., Xie, H., Lau, R. Y. K., Wang, Z., and Smolley, S. P. Least squares generative adversarial networks, 2017.\n' +
+      '* Morrison et al. (2022) Morrison, M., Kumar, R., Kumar, K., Seetharaman, P., Courville, A., and Bengio, Y. Chunked autoregressive gan for conditional waveform synthesis, 2022.\n' +
+      '* Openvpi (2022) Openvpi. Release nsf-hifigan with 44.1 khz sampling rate. openvpi/vocoders, Dec 2022. URL [https://github.com/openvpi/vocoders/releases/tag/nsf-hifigan-v1](https://github.com/openvpi/vocoders/releases/tag/nsf-hifigan-v1).\n' +
+      '* Prenger et al. (2019) Prenger, R., Valle, R., and Catanzaro, B. Waveglow: A flow-based generative network for speech synthesis. 3, 2019.\n' +
+      '* Rix et al. (2001) Rix, A., Beerends, J., Hollier, M., and Hekstra, A. Perceptual evaluation of speech quality (pesq): A new method for speech quality assessment of telephone networks and codecs. volume 2, pp. 749-752 vol.2, 02 2001. ISBN 0-7803-7041-4. doi: 10.1109/ICASSP.2001.941023.\n' +
+      '* Siuzdak (2023) Siuzdak, H. Vocos: Closing the gap between time-domain and fourier-based neural vocoders for high-quality audio synthesis, 2023.\n' +
+      '* Steinmetz & Reiss (2020) Steinmetz, C. J. and Reiss, J. D. auraloss: Audio focused loss functions in PyTorch. In _Digital Music Research Network One-day Workshop (DMRN+15)_, 2020.\n' +
+      '* van den Oord et al. (2016) van den Oord, A., Dieleman, S., Zen, H., Simonyan, K., Vinyals, O., Graves, A., Kalchbrenner, N., Senior, A., and Kavukcuoglu, K. Wavenet: A generative model for raw audio. 1, 2016.\n' +
+      '* Veaux et al. (2017) Veaux, C., Yamagishi, J., and MacDonald, K. Cstr vctk corpus: English multi-speaker corpus for cstr voice cloning toolkit. 2017.\n' +
+      '* Xu et al. (2021) Xu, S., Zhao, W., and Guo, J. Refinegan: Universally generating waveform better than ground truth with highly accurate pitch and intensity responses. _arXiv preprint arXiv:2111.00962_, 2021.\n' +
+      '* Yamamoto et al. (2020) Yamamoto, R., Song, E., and Kim, J.-M. Parallel wavegan: A fast waveform generation model based on generative adversarial networks with multi-resolution spectrogram. 4, 2020.\n' +
+      '* Yang et al. (2020) Yang, Y. R., Chen, Y.-A., and Tsao, Y. Multi-band melgan: Faster waveform generation for high-quality text-to-speech. [5], 2020.\n' +
+      '* Zen et al. (2019) Zen, H., Dang, V., Clark, R., Zhang, Y., Weiss, R. J., Jia, Y., Chen, Z., and Wu, Y. Librits: A corpus derived from librispecech for text-to-speech, 2019.\n' +
+      '* Zhang et al. (2019) Zhang, L., Li, R., Wang, S., Deng, L., Liu, J., Ren, Y., He, J., Huang, R., Zhu, J., Chen, X., and Zhao, Z. M4singer: A multi-style, multi-singer and musical score provided mandarin singing corpus. In _Thirty-sixth Conferenceon Neural Information Processing Systems Datasets and Benchmarks Track_, 2022.\n' +
+      '* Zhao et al. (2020) Zhao, Y., Wang, X., Juvela, L., and Yamagishi, J. Transferring neural speech waveform synthesizers to musical instrument sounds generation. In _Proc. ICASSP_, pp. 6269-6273, 2020. doi: 10.1109/ICASSP40776.2020.9053047. URL [https://ieeexplore.ieee.org/document/9053047/](https://ieeexplore.ieee.org/document/9053047/).\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
