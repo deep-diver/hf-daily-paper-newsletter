@@ -1,0 +1,1 @@
+- [PokéLLMon: A Human-Parity Agent for Pokémon Battles with Large Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/17/2024-02-05+Pok%C3%A9LLMon%3A+A+Human-Parity+Agent+for+Pok%C3%A9mon+Battles+with+Large+Language+Models.yaml) / 2024-02-05
