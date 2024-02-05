@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# Repeat After Me:\n' +
+      '\n' +
+      'Transformers are Better than State Space Models at Copying\n' +
+      '\n' +
+      'Transformers are Better than State Space Models at Copying\n' +
+      '\n' +
+      'Samy Jelassi\n' +
+      '\n' +
+      'David Brandfonbrener\n' +
+      '\n' +
+      'Sham M. Kakade\n' +
+      '\n' +
+      'Eran Malach\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      'Transformers are the dominant architecture for sequence modeling, but there is growing interest in models that use a fixed-size latent state that does not depend on the sequence length, which we refer to as "generalized state space models" (GSSMs). In this paper we show that while GSSMs are promising in terms of inference-time efficiency, they are limited compared to transformer models on tasks that require copying from the input context. We start with a theoretical analysis of the simple task of string copying and prove that a two layer transformer can copy strings of exponential length while GSSMs are fundamentally limited by their fixed-size latent state. Empirically, we find that transformers outperform GSSMs in terms of efficiency and generalization on synthetic tasks that require copying the context. Finally, we evaluate pretrained large language models and find that transformer models dramatically outperform state space models at copying and retrieving information from context. Taken together, these results suggest a fundamental gap between transformers and GSSMs on tasks of practical interest.\n' +
+      '\n' +
+      'Machine Learning, ICML\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      'Transformers (Vaswani et al., 2017) are the workhorse of modern sequence modeling, achieving remarkable performance on a variety of tasks, but they have unavoidable inefficiencies. Specifically, they require \\(\\Omega(L)\\) memory1 and compute to predict the next token of a sequence of length \\(L\\). This has spurred a boom in attempts to create architectures that can achieve similar performance as transformers, but with \\(O(1)\\) memory to predict each token. This class of models includes state space models like S4 (Gu et al., 2021) or Mampa (Gu and Dao, 2023), as well as traditional RNN models (Hochreiter and Schmidhuber, 1997) and models that can be trained in parallel like linear attention (Katharopoulos et al., 2020; Choromanski et al., 2020) and parallel RNNs (Bradbury et al., 2016; Peng et al., 2023; Sun et al., 2023). In this paper, we will refer to this entire class of models that use a fixed-size memory as "generalized state space models" or GSSMs (see a formal definition in Section 2).\n' +
+      '\n' +
+      'Footnote 1: In some naive implementations of transformers, it is common to allocate a \\(L\\times L\\) matrix to compute the attention. However, memory efficient implementations, such as FlashAttention (Dao et al., 2022), compute the attention with \\(O(L)\\) memory.\n' +
+      '\n' +
+      'Recent work has demonstrated impressive performance of GSSMs, but it is not yet clear what these models sacrifice for their improved efficiency, if anything. In this paper, we find that one particular capability that is sacrificed is the ability to retrieve and repeat parts of the input context. As a result, transformers are better than GSSMs at a variety of tasks that require accessing arbitrary parts of the context.\n' +
+      '\n' +
+      'To understand this gap in capabilities, we begin by presenting a theoretical analysis of the copying task2. First, we show via construction that a simple transformer model can copy strings of length that is exponential in the number of heads of the transformer. This construction relies on the ability of the transformer to implement a mechanism of "storage" and retrieval of sequences of n tokens (n-grams), where the n-grams are used to track where to copy from. In contrast, we show that, trivially, GSSMs cannot accurately copy strings with more bits than the size of the latent state.\n' +
+      '\n' +
+      'Footnote 2: Note that we study copying of the input and _not_ copying of training data (McCoy et al., 2023; Carlini et al., 2022)\n' +
+      '\n' +
+      'Our theory studies representation expressivity, but not whether these representations will be learned. Moreover, in practice a large GSSM may have enough capacity to represent the entire input in the latent state, at least in theory. To resolve these concerns, we conduct a variety of synthetic experiments with models of \\(\\sim\\)160M parameters. We find that transformers are both much more efficient at learning tocopy (Figure 0(a)) and also generalize better to longer inputs (Figure 0(b)). Additionally, we verify experimentally that the copy "algorithm" learned by transformers indeed relies on n-grams to perform a lookup of where to copy from (Figure 3), similarly to our theoretical construction.\n' +
+      '\n' +
+      'Finally, we present a variety of experiments on pre-trained models to test their ability to remember and access the input context. In particular, we show that Pythia transformers (Biderman et al., 2023) outperform Mamba GSSMs (Gu and Dao, 2023) of similar size at a variety of memory-intensive tasks including copying and retrieving information from the context (Figure 0(c)). This is especially notable since the Mamba models achieve lower perplexity than the Pythia models at language modeling on the Pile (Gao et al., 2020). These experiments illustrate the practical relevance of the memory issues that we raise, and hint at one way that architectural choices can impact the downstream performance of LLMs above and beyond training perplexity.\n' +
+      '\n' +
+      '## 2 Theory: Representational Capacity\n' +
+      '\n' +
+      'In this section we use the copy task for a theoretical comparison between state space models and transformers. We prove two main results. First, we construct a small transformer that solves the copy task for sequences lengths that are exponential in the transformer size. Second, we show that _any_ state space model _fails_ to solve the copy task, unless its latent state grows linearly with the sequence length.\n' +
+      '\n' +
+      '### Setting\n' +
+      '\n' +
+      'Let \\(\\mathbb{D}\\) be a dictionary, which contains \\(D\\) "alphabet" tokens. A sequence-to-sequence model is a function \\(H:\\mathbb{D}^{*}\\rightarrow\\mathbb{D}^{*}\\), which maps an input sequence of tokens to an output sequence. We think of the input \\(x_{1},\\dots,x_{i}\\) as the "prompt" to the model, and of the output sequence \\(H(x_{1},\\dots,x_{i})\\) as the generated "answer".\n' +
+      '\n' +
+      'A sequence-to-token mapping is a function \\(h:\\mathbb{D}^{*}\\rightarrow\\mathbb{D}\\). Any sequence-to-token model \\(h\\) naturally defines a sequence-to-sequence model \\(H\\) by auto-regressive inference. Namely, for every input sequence \\(x_{1},\\dots,x_{i}\\in\\mathbb{D}\\) we define recursively \\(x_{i+j}=h(x_{1},\\dots,x_{i+j-1})\\) and let \\(H(x_{1},\\dots,x_{i})=(x_{i+1},x_{i+2},\\dots)\\).\n' +
+      '\n' +
+      'Generalized state space models.A state space \\(\\mathcal{S}\\) is some finite set. We denote by \\(\\operatorname{mem}(\\mathcal{S})\\) the number of bits required to encode the states of \\(\\mathcal{S}\\), namely \\(\\operatorname{mem}(\\mathcal{S})=\\log(|\\mathcal{S}|)\\). A _generalized state space model_ (GSSM) is a sequence model defined by an update rule \\(u:\\mathcal{S}\\times\\mathbb{D}\\rightarrow\\mathcal{S}\\) and some output function \\(r:\\mathcal{S}\\rightarrow\\mathbb{D}\\). Let \\(s_{0}\\in\\mathcal{S}\\) be some initial state. Given some sequence \\(x_{1},\\dots,x_{L}\\), the state of the model at iteration \\(i\\) is denoted by \\(S_{i}(x_{1},\\dots,x_{i})\\) and the output token is denoted by \\(R_{i}(x_{1},\\dots,x_{i})\\). The state and output are defined recursively: 1) \\(S_{0}(\\emptyset)=s_{0}\\), 2) \\(S_{i}(x_{1},\\dots,x_{i})=u(S_{i-1}(x_{1},\\dots,x_{i-1}),x_{i})\\), 3) \\(R_{i}(x_{1},\\dots,x_{i})=r(S_{i}(x_{1},\\dots,x_{i}))\\).\n' +
+      '\n' +
+      '_Remark 2.1_.: It is important to note that for any sequence model, there are two types of memory considerations: 1) input-independent memory (_parameters_) and 2) input-dependent memory (_activations_). The GSSM definition constraints the input-dependent memory (_activations_), which\n' +
+      '\n' +
+      'Figure 1: **(a) Copying: training efficiency.** Here we train models to copy strings of length \\(\\leq 300\\) and evaluate string-level accuracy on strings of length 300. Transformers train much faster than GSSMs. An LSTM cannot even learn the task within this number of samples. **(b) Copying: length generalization.** Here we train models to copy on strings of length \\(\\leq 50\\) until all models are perfect in-distribution and evaluate string-level accuracy. Purple dotted line indicates maximum training string length and green dotted line indicates context window during training. Evaluating on longer inputs, the transformer models dramatically outperform the GSSMs. Using our Hard-Alibi positional encoding, we can even generalize well beyond the training context size. **(c) Lookup with pretrained models.** Here the task requires looking up and retrieving a number from a “phone book” of varying length that is entirely in context. We evaluate pretrained models 1-shot without any finetuning. Pythia (a transformer model) substantially outperforms Mamba (a GSSM) across model sizes.\n' +
+      '\n' +
+      'corresponds to \\(\\operatorname{mem}(\\mathcal{S})\\), and does not restrict in any way the amount of input-independent memory (_parameters_) or the run-time of state updates. Since our main goal is to show a lower bound on the state space memory, leaving all other considerations unconstrained only strengthens our results.\n' +
+      '\n' +
+      'Transformers.Given some input of length \\(L\\) and dimension \\(d\\), denoted \\(\\mathbf{x}_{1},\\dots,\\mathbf{x}_{L}\\in\\mathbb{R}^{d}\\), an attention head is parameterized by \\(W_{k},W_{q},W_{v}\\in\\mathbb{R}^{d\\times d}\\). We denote \\(\\mathbf{k}_{i}=W_{k}\\mathbf{x}_{i},\\mathbf{q}_{i}=W_{q}\\mathbf{x}_{i},\\mathbf{v}_{i}=W_{v}\\mathbf{x}_{i}\\) and denote \\(K_{i}=[\\mathbf{k}_{1},\\dots,\\mathbf{k}_{i}]\\in\\mathbb{R}^{d\\times i}\\) and \\(V_{i}=[\\mathbf{v}_{1},\\dots,\\mathbf{v}_{i}]\\in\\mathbb{R}^{d\\times i}\\). We denote the output of the head at token \\(i\\) by \\(\\mathbf{o}_{i}\\in\\mathbb{R}^{d}\\), where \\(\\mathbf{o}_{i}=V_{i}\\cdot\\operatorname{softmax}(K_{i}\\cdot\\mathbf{q}_{i})\\).\n' +
+      '\n' +
+      'We consider a transformer with \\(l\\) attention heads, each one of dimension \\(d\\) so that the full dimension of the Transformer is \\(dl\\). An embedding is some mapping \\(\\Psi:\\mathbb{D}\\to\\mathbb{R}^{d}\\). An MLP is a function \\(f:\\mathbb{R}^{dl}\\to\\mathbb{R}^{dl}\\) s.t. \\(f(\\mathbf{x})=U_{1}\\sigma(U_{2}\\mathbf{x})\\), for some activation function \\(\\sigma\\). Both the embedding and the MLP layer are assumed to be applied on the token level. An attention-block is a set of \\(l\\) heads applied in parallel, and a transformer-block is an attention-block followed by an MLP which operates on the concatenated output of the \\(l\\) heads. The output of the model is sampled based on the output of the final layer. For simplicity, we study the \\(\\operatorname{arg\\,max}\\) "sampling" (i.e., predicting the most probable token).\n' +
+      '\n' +
+      'The copy task.To define the copy task, we add two special tokens to \\(\\mathbb{D}\\): (1) _beginning-of-sequence_ token, denoted \\(\\langle\\textsc{nos}\\rangle\\), and (2) _copy_ token, denoted \\(\\langle\\textsc{copy}\\rangle\\). So now \\(|\\mathbb{D}|=D+2\\). A length-\\(L\\) copy distribution \\(\\mathcal{D}_{L}\\) over \\(\\mathbb{D}^{L+2}\\) generates strings of the form: \\(\\left\\langle\\textsc{nos}\\right\\rangle,x_{1},\\dots,x_{L},\\langle\\textsc{copy}\\rangle\\)", where \\(\\mathbf{x}\\in(\\mathbb{D}\\setminus\\{\\langle\\textsc{nos}\\rangle\\,,\\langle\\textsc{ copy}\\rangle\\})^{L}\\).\n' +
+      '\n' +
+      'For some sequence-to-sequence model \\(H:\\mathbb{D}^{*}\\to\\mathbb{D}^{*}\\), we denote the error of \\(H\\) on a copy distribution \\(\\mathcal{D}_{L}\\) by\n' +
+      '\n' +
+      '\\[\\operatorname{err}_{\\mathcal{D}_{L}}(H)=\\Pr_{\\mathcal{D}_{L}}[H_{1:L}(\\left \\langle\\textsc{nos}\\right\\rangle,\\mathbf{x},\\left\\langle\\textsc{copy}\\right\\rangle )\\neq\\mathbf{x}]\\]\n' +
+      '\n' +
+      'where \\(H_{1:L}(\\cdot)\\) denotes the first \\(L\\) tokens generated by \\(H\\). That is, we expect the model to output an exact copy of \\(\\mathbf{x}\\).\n' +
+      '\n' +
+      '### Transformers can copy inputs of exponential length\n' +
+      '\n' +
+      'In this section we show that transformers can implement the copy operation for input sequences with length exponential in the number of heads. Namely, we construct a transformer with two blocks that gets small error on the copy task.\n' +
+      '\n' +
+      'Construction: hash-based copying.The key idea in the construction is to first "hash" sequences of \\(n\\) tokens (\\(n\\)-grams), then at each iteration of the auto-regression attend to the previous occurrence of the most recent \\(n\\)-gram, and output the succeeding token. That is, we show that a transformer can implement the copying algorithm illustrated in Figure 3 (and see also Algorithm 1 in the Appendix).\n' +
+      '\n' +
+      'Positional embedding: Hard-ALBi.To perform the hashing described in the algorithm, we need to be able to leverage local positional information to define a hash, and also to apply this hash function globally on the entire input. To do this, we use a hard version of ALBi (Press et al., 2021), which we call _Hard-ALBi_. Just as in ALBi, we add a bias \\(b_{i}\\) to the \\(i\\)-th attention head as follows: \\(\\mathbf{o}_{i}=V_{i}\\cdot\\operatorname{softmax}(K_{i}\\cdot\\mathbf{q}_{i}+b_{i})\\). Specifically, we set \\(b_{i}\\) s.t. \\(b_{i,j}=-\\infty\\) for \\(j\\leq i-m\\) and \\(b_{i,j}=0\\) for \\(j>i-m\\). We allow different heads with different choices of \\(m\\) and also allow for \\(m=\\infty\\) which corresponds to softmax attention with no positional embedding. This is illustrated in Figure 5(c) (Appendix). While the Hard-ALBi is introduced for our theoretical construction, we observe it also offers significant benefits empirically, as discussed in Section 3.\n' +
+      '\n' +
+      'Guarantees.The copy algorithm given in Algorithm 1 (and similarly, our transformer construction) can perfectly copy the input sequence, as long as there are no repeated \\(n\\)-gram patterns in the input. Therefore, the error of the algorithm depends on the probability of repeated \\(n\\)-grams:\n' +
+      '\n' +
+      '**Definition 2.2**.: Let \\(\\mathcal{D}_{L}\\) be some copy distribution. For some \\(n\\in\\mathbb{N}\\), let \\(p_{\\mathrm{n-gram}}(\\mathcal{D}_{L})\\) be the probability that \\(x_{1},\\dots,x_{L}\\) contains two repeated sequences of \\(n\\) tokens. Namely:\n' +
+      '\n' +
+      '\\[p_{\\mathrm{n-gram}}(\\mathcal{D}_{L})=\\Pr_{\\mathcal{D}_{L}}[\\exists_{i\\neq j} \\operatorname{s.t.}x_{i},\\dots x_{i+n}=x_{j},\\dots,x_{j+n}]\\]\n' +
+      '\n' +
+      'Figure 3: An illustration of the \\(n\\)-gram based copy algorithm. In order to predict the next token, we match the current \\(n\\)-gram to the corresponding \\(n\\)-gram in the input, then output the next token.\n' +
+      '\n' +
+      'Figure 2: An illustration of the copy task.\n' +
+      '\n' +
+      'Below we state the main theoretical result on copying with transformers, showing that transformers can copy their input, with error bounded by the probability of repeated \\(n\\)-grams:\n' +
+      '\n' +
+      '**Theorem 2.3**.: _For all \\(n\\), there exists a depth-2 transformer \\(\\mathcal{T}\\) of dimension \\(O(n\\log(D))\\) s.t. for all \\(2n\\leq L\\leq D^{n}\\), and for any copy distribution \\(\\mathcal{D}_{L}\\), \\(\\operatorname{err}_{\\mathcal{D}_{L}}(\\mathcal{T})<p_{\\mathrm{n-gram}}(\\mathcal{ D}_{L})\\)._\n' +
+      '\n' +
+      'Intuitively, the probability of repeated \\(n\\)-grams decays quickly when increasing the value of \\(n\\). Indeed, we show that for the uniform distribution over sequences, this probability decays _exponentially_ with \\(n\\):\n' +
+      '\n' +
+      '**Lemma 2.4**.: _Let \\(\\mathcal{D}_{L}\\) be the copy distribution generated by sampling \\(\\mathbf{x}\\) from the uniform distribution over the "alphabet" (non-special) tokens. Then, \\(p_{\\mathrm{n-gram}}(\\mathcal{D}_{L})<L^{2}D^{-n}\\)._\n' +
+      '\n' +
+      'Combining the above results, we get that transformers can copy sequences of tokens drawn from the uniform distribution, using a number of parameters that depends only _logarithmically_ on the input sequence length.\n' +
+      '\n' +
+      '**Corollary 2.5**.: _Fix some \\(\\epsilon\\in(0,1/2)\\) and some \\(L\\geq\\Omega(\\log(1/\\epsilon))\\). There exists a depth-2 transformer \\(\\mathcal{T}\\) of dimension \\(O(\\log(L/\\epsilon)\\log(D))\\) s.t. for the uniform copy distribution \\(\\mathcal{D}_{L}\\), \\(\\operatorname{err}_{\\mathcal{D}_{L}}(\\mathcal{T})<\\epsilon\\)._\n' +
+      '\n' +
+      '_Remark 2.6_.: For simplicity we do not limit the precision of the parameters or activations, but note that our results hold for finite-precision transformers, using \\(O(\\log(\\log(L)))\\) bits.\n' +
+      '\n' +
+      '### State Space Models cannot copy inputs beyond memory size\n' +
+      '\n' +
+      'We saw that transformers are able to copy uniform sequences of tokens, with parameter count _logarithmic_ in the sequence length. We now show that GSSMs _cannot_ copy uniform input sequences, unless the capacity of their state space grows _linearly_ with the size of the sequence length. This is intuitive: to be able to copy the entire input sequence, the model needs to store it in its state space, which requires the memory to grow linearly with the sequence length.\n' +
+      '\n' +
+      '**Theorem 2.7**.: _Fix some GSSM \\(H\\) over state space \\(\\mathcal{S}\\). Then, for all \\(L\\), for the uniform copy distribution \\(\\mathcal{D}_{L}\\), the model \\(H\\) has error \\(\\operatorname{err}_{\\mathcal{D}_{L}}(H)>1-\\frac{|\\mathcal{S}|}{D^{L}}\\)._\n' +
+      '\n' +
+      'Given Theorem 2.7, the following Corollary is immediate:\n' +
+      '\n' +
+      '**Corollary 2.8**.: _Fix some \\(L\\in\\mathbb{N}\\). Then, every GSSM \\(H\\) with state space \\(\\mathcal{S}\\) s.t. \\(\\operatorname{mem}(\\mathcal{S})<L\\log(D)-1\\) has error \\(\\operatorname{err}_{\\mathcal{D}_{L}}(H)>1/2\\) for the uniform copy distribution \\(\\mathcal{D}_{L}\\)._\n' +
+      '\n' +
+      '_Remark 2.9_.: As mentioned previously, the input-dependent memory of transformers grows linearly with the sequence length, which is _less_ memory-efficient compared to GSSMs. However, it is interesting to note that from the above result, at least for the copy task, transformers are _almost optimal_ in terms of their input-dependent memory. More specifically, an implication of Theorem 2.3 is that there exists a transformer which can copy inputs of length \\(L\\) using \\(\\tilde{O}(L)\\) input-dependent memory3, and due to Corollary 2.8 this is indeed optimal (up to logarithmic factors).\n' +
+      '\n' +
+      'Footnote 3: We use \\(\\tilde{O}\\) to hide logarithmic factors.\n' +
+      '\n' +
+      '## 3 Learning to Copy\n' +
+      '\n' +
+      'In the previous section, we proved that transformers can represent the copy operation for exponentially long sequences, while GSSMs fail to copy long sequences due to their limited memory. While these results show that in theory, transformers can outperform GSSMs, our theoretical results do not establish that such a gap will be observed in practice for two reasons. First, it is not clear that transformers can indeed _learn_ to copy from examples. Second, GSSMs in practice may use a large latent state memory, so that our bounds only hold for very long sequences of tokens. For example, a latent state of 1000 32-bit floating point numbers has enough bits to store at least 2000 tokens from a 50K token vocabulary. However, even though a GSSM could fit the context into memory, it may not learn to do so.\n' +
+      '\n' +
+      'Our goal in this section is to verify that our theoretical analysis bears out experimentally when training models from scratch on synthetic data, before moving on to study pre-trained models in the next section. Specifically, we train transformers and GSSMs (LSTM (Hochreiter & Schmidhuber, 1997) and Mambo (Gu & Dao, 2023)) on variants of the copy task shown in Figure 2.\n' +
+      '\n' +
+      '### Experimental setup\n' +
+      '\n' +
+      'We now provide a brief overview of our experimental setup. Further details may be found in Appendix A.\n' +
+      '\n' +
+      'Architecture.In all our experiments, we set the model hyperparameters so that the Mambo and transformers have a similar number of parameters (\\(\\approx 160\\) million parameters). Since we find that large LSTMs are hard to train (as confirmed in Pascanu et al. (2013)), we use the largest LSTM we managed to train which has \\(\\approx 40\\) million parameters.\n' +
+      '\n' +
+      'Dataset.During training, we generate in an online manner a batch of 64 examples at each epoch. At test time, we evaluate our models on \\(10\\) batches of \\(128\\) examples. We report the mean and standard-deviation over these 10 batches. If not specified otherwise, our token space \\(\\mathcal{V}\\) is of size 30 and made of the alphabet letters i.e. \\(\\mathcal{V}=\\{a,\\ldots,z,\\left\\langle\\mathrm{aos}\\right\\rangle,\\left\\langle \\mathrm{cos}\\right\\rangle,\\left\\langle\\mathrm{cov}\\right\\rangle\\}\\) where \\(\\left\\langle\\mathrm{nos}\\right\\rangle\\) is the beginning of sentence token, \\(\\left\\langle\\mathrm{nos}\\right\\rangle\\) the end of sentence token and \\(\\left\\langle\\mathrm{cov}\\right\\rangle\\) the separator token. All the strings are sampled uniformly i.e. we first sample the length of the sequence and then independently sample each position of the string from \\(\\mathcal{V}\\). Finally, we "pack the context" with i.i.d. sequencesduring training similarly to (Zhou et al., 2023): we fill the context with multiple independent samples of the task.\n' +
+      '\n' +
+      'Positional information.Positional information also plays an important role in the length generalization capacity of Transformers (Jelassi et al., 2023; Kazemnejad et al., 2023; Shen et al., 2023). Previously popular methods of input-layer positional embeddings (e.g. sinusoidal (Vaswani et al., 2017) or learned (Radford et al., 2019)) have been replaced by relative positional encodings at each attention layer (e.g. RoPE (Su et al., 2023), Alibi (Press et al., 2021), or NoPE (Kazemnejad et al., 2023)). Below, we experiment these positional encodings along with the Hard-Alibi encoding introduced in Section 2.\n' +
+      '\n' +
+      '### Data efficiency on the copy task\n' +
+      '\n' +
+      'We begin by training our models on the simple task of copying a sequence of input tokens described in Figure 2. The model gets an input of \\(\\leq L\\) tokens followed by a _Separation_ (\\(\\langle\\mathrm{copy}\\rangle\\)) token, and needs to output the same sequence again from the beginning. In this section, we focus on in-distribution learning: we train on strings of random length \\(\\leq L=300\\) and record the string-level accuracy on evaluation strings sampled from the training distribution.\n' +
+      '\n' +
+      'Results for this experiment are shown in Figure 1a. Clearly, there is a large gap between the transformers and GSSMs. We observe that the transformers need 100x less samples than the best GSSMs to learn the copy task.\n' +
+      '\n' +
+      'Note that the sharp changes in accuracy displayed in Figure 1a are due to the log-scaled x-axis and choice of string-level accuracy as a metric. In Figure 9a, we report the character-level accuracy, which yields smoother curves demonstrating the learning process of GSSMs. Regarding LSTMs, we find that they do not manage to learn on length-300 strings even at the character level. In Figure 9b, we show that LSTMs are able to learn to copy on shorter strings and that string length is the bottleneck.\n' +
+      '\n' +
+      '### Length generalization on the copy task\n' +
+      '\n' +
+      'The prior experiment demonstrates superior efficiency of learning in-distribution. Now, we test the ability of the learned functions to generalize out-of-distribution. Specifically, we consider generalization from short sequences to longer sequences. Testing this sort of generalization can help us to better understand which function the model has learned, i.e. whether the model has truly learned the "correct" copy operation or whether it just learned to copy sequences of the particular size it was trained on.\n' +
+      '\n' +
+      'Here, we train all models on sequences of \\(\\leq 50\\) tokens, and test them on sequences of up to \\(1000\\) tokens, reporting string-level accuracy. As seen in Figure 1b, all models are able to (eventually) solve the task in-distribution on lengths of \\(\\leq 50\\), but transformer-based models display much better generalization to longer inputs compared to GSSMs. Namely, we observe that the performance of the GSSMs (LSTM and MAMBA) drops to zero almost immediately when increasing the input length, while the performance of transformers decays much more gradually with length.\n' +
+      '\n' +
+      'Positional information.When looking at the relative performance of different transformer models in Figure 1b, it becomes clear that the positional encoding is important to length generalization. Specifically, the ALiBi and NoPE transformers dramatically outperform the RoPE model on longer inputs. This is likely because the sinusoidal embeddings of RoPE create a more dramatic change than the decay of ALiBi or NoPE when we go to longer inputs.\n' +
+      '\n' +
+      'Improved generalization with Hard-ALiBi.To test our understanding of how transformers learn to copy, we now consider swapping in the Hard-ALiBi positional encoding that we used in our theoretical construction of hash-based copying (introduces in Subsection 2.2 and illustrated in Figure 8 in the Appendix). Figure 1b shows that a transformer trained with Hard-ALiBi embedding on sequences of length \\(\\leq 50\\) achieves almost perfect length generalization up to sequences of length 1000. Note that this is well beyond the context length ever encountered in training.\n' +
+      '\n' +
+      '### Transformers learn to use n-gram hashing\n' +
+      '\n' +
+      'Next, we attempt to determine whether the transformer trained on the copy task indeed applies the mechanism of storage and retrieval of n-grams. To do this, we evaluate the performance of a transformer with Hard-ALiBi positional encoding trained on the copy task when tested on a distribution of examples that intentionally contains duplicate n-grams. That is, we draw uniform sequences of tokens, and then randomly replace some n-gram with another n-gram that already appears in the sequence, such that each\n' +
+      '\n' +
+      'Figure 4: String-level copying accuracy on data with duplicated n-grams. Copying fails when the duplicated n-gram is too long as the model can no longer perform n-gram lookups.\n' +
+      '\n' +
+      'example always contains two copies of the same n-gram (typically followed by a different token). We use the Hard-Alibi model here since it performs the best for the copy task as showed in Figure 0(a). Figure 4 shows the performance of the transformer for different choices of \\(n\\). We observe that the transformer maintains roughly the same accuracy for \\(n\\leq 4\\), but that its accuracy starts dropping when the inputs contains duplicate sequences of 5 or more tokens. This suggests that the transformer relies on something like 5-gram retrieval to do the copy task.\n' +
+      '\n' +
+      '### GSSMs cannot arbitrarily retrieve from context\n' +
+      '\n' +
+      'We now introduce another task to probe the mechanisms that the models use to copy from the context: the _n-gram lookup_ task. In this task the model needs to use a given n-gram as a key to look up the k-token key that follows the query. We consider two variants of the task: _suffix keys_ and _prefix keys_. In both variants, we assess length generalization to understand the function that the models have learned.\n' +
+      '\n' +
+      'First, we consider the suffix key version of n-gram lookup. In this task, the model is given a sequence \\(L\\) of input tokens, a separator, and then an n-gram from the input sequence. The model then needs to output a sequence of \\(k\\) tokens following the chosen n-gram (see Figure 5 for an illustration). This task is closely related to induction heads (Olsson et al., 2022). This task requires the model to be able to "store" the entire context in order to effectively find the correct key to access it\'s query. We train all models on sequences of at most 30 tokens and show results in Figure 5. Transformers perform well on this task, with a relatively small drop in performance when increasing the sequence length up to 100. This suggests that transformers can learn to perform n-gram storage and retrieval. GSSMs, however, perform poorly beyond their training distribution. Intuitively, this task still requires the models to store the entire input sequence, something that GSSMs struggle to do.\n' +
+      '\n' +
+      'Next, we try the prefix key version of n-gram lookup. Here we provide the n-gram key at the beginning and then the full input sequence (illustrated in Figure 6). In this version of the task the model does not need to store the entire input since it can look for the key on the fly as the sequence is processed. This is good for the GSSMs, since they can write the key into the state and then ignore inputs that do not match. Indeed, GSSMs achieve perfect length-generalization on this variant. Interestingly, the GSSMs even outperform the NoPE and ALIBi transformers (although not the Hard-Alibi model). We hypothesize that this may be an issue where these positional embeddings make it more difficult to effectively perform the hashing lookup over a long distance in relative positions. Taken together, these results illustrate how GSSMs seem to be memory limited, but can be effective when the tasks only require a summary of the inputs rather than storing the entire context.\n' +
+      '\n' +
+      'Figure 5: **Top**: An illustration of the suffix key variant of the n-gram lookup task. **Bottom:** When trained on strings of length \\(\\leq 30\\), transformers outperform GSSMs on longer inputs, illustrating superior performance on this memory-intensive task.\n' +
+      '\n' +
+      'Figure 6: **Top**: An illustration of the prefix key variant of the n-gram lookup task. **Bottom:** When trained on strings of length \\(\\leq 30\\), GSSMs perform as well as the Hard-Alibi transformer and better than the other transformers. This slight variant of the task requires much less memory and is thus more suitable to the strengths of GSSMs at storing a small state over time.\n' +
+      '\n' +
+      '## 4 Pre-trained Models\n' +
+      '\n' +
+      'In this section, we compare the performance of pre-trained transformers and pre-trained GSSMs on memory-intensive tasks such as copying long strings, retrieval and few-shot question answering. We show that transformers outperform GSSMs of similar scale on such memory-intensive tasks, even when the GSSM has lower perplexity as a language model. These results confirm that the limitation of GSSMs raised in previous sections apply to large scale models trained on real pretraining data.\n' +
+      '\n' +
+      '### Setup\n' +
+      '\n' +
+      'In the experiments below, we compare Pythia transformer models (Biderman et al., 2023) of sizes ranging from 410M to 2.8B against Mamba models (Gu & Dao, 2023) of similar sizes. All these models have been pre-trained on the Pile (Gao et al., 2020) and use the same tokenizer. The Mamba models generally have slightly lower perplexity on the training set for a given size. The main difference between the Pythia and the Mamba models is their architectural design.\n' +
+      '\n' +
+      'We compare these models by measuring their performance while varying the input instance length and consider two types of tasks: copy-based and information retrieval tasks. The copy-based tasks consist of presenting a random text to the model and asking it to copy the text. In the information retrieval tasks, we provide a text to the model and ask it a related question. These retrieval tasks can be seen as "selective copy", since the model needs to copy a small chunk of the input text in order to respond to the question. To measure performance, we use the string-level accuracy in all the experiments except in Figure 6(c) where we consider question answering and thus report the F1 score. We evaluate the models over 10 batches of size 64 for all the tasks except for question answering where we evaluate over 50 questions because the number of questions with a given context length is limited. Further details are in Appendix A.\n' +
+      '\n' +
+      '### Copying the input context\n' +
+      '\n' +
+      'We first observe that pre-trained transformers outperform pre-trained GSSMs at copying long natural language strings. In Figure 6(a), we randomly sample strings from the C4 dataset (Raffel et al., 2020) with varying number of tokens. Our prompt consists of two copies of the sampled string plus the first word of the string and we expect the model to complete the third copy. Even the smallest transformer model dramatically outperforms the largest GSSM. This happens even though the large GSSMs have enough bits in the state variable to potentially store the context. This confirms the idea that this is an architectural bias of transformers that makes it easier for them to copy from the context.\n' +
+      '\n' +
+      'Unlike strings of tokens sampled uniformly at random, natural text can often be compressed, possibly allowing language models to copy longer strings even with limited memory. To test whether this matters, in Figure 6(b) we conduct the same experiment as above but randomly shuffle the order of the words in the strings. We find that when we shuffle the words, both GSSMs and transformers perform worse on the task, but the effect is more stark for GSSMs. Even the largest GSSM now gets zero accuracy on strings of length 300. This suggests that when the input is more difficult to compress, the GSSM suffers due to its fixed size state.\n' +
+      '\n' +
+      '### Retrieval from the input context\n' +
+      '\n' +
+      'While copying provides a clear task to separate the model classes, it is not a particularly realistic task. That said, it presents an extreme case of a type of behavior that is highly relevant for many tasks of interest. In particular, many tasks require retrieving specific information from the context that is relevant to the desired output. This subsection presents examples of how our results transfer to more practical tasks.\n' +
+      '\n' +
+      'Phone-book lookup.We first consider a "phone-book" experiment where we provide a synthetic phone-book to the model and ask it to return the phone number when given a name. We generate the phone-book by randomly sampling \\(L\\) names and their associated phone number. One line of this phone-book looks like "John Powell: 609-323-7777". Our prompt to the model consists of the phone-book, two few-shot examples and a question asking for the phone number of a randomly sampled name from the phone-book. Figure 9(c) reports the accuracy obtained by the pretrained transformers and GSSMs while varying the size of the phone-book \\(L\\). We observe that even the smallest transformer (410M parameters) outperforms the largest GSSMs (2.8B parameters) when the phone-book size is long enough (\\(L\\geq 70\\)). This shows that in retrieval tasks which require access to the whole context, GSSMs struggle to store the relevant information in their fixed-size state.\n' +
+      '\n' +
+      'Question-Answering.In this experiment, we compare the 2.8B parameter Mamba and transformer models4, on the SQuAD question-answering dataset (Rajpurkar et al., 2018). This dataset provides text paragraphs together with a few questions regarding the text. We probe the models to answer the question by providing a single demonstration of a question/answer pair (corresponding to the same text) before giving the target question. We bin the paragraphs according to their lengths, and report the F1 score as a function of the paragraph length for both models in Figure 6(c). We observe that while for short paragraphs, both the Pythia transformer and Mamba achieve comparable performance, the performance of Mamba degrades more quickly withthe paragraph length, while the transformer-based model maintains a similar accuracy even for longer texts. This result shows that the fixed-memory of GSSMs also limits their performance on standard natural tasks.\n' +
+      '\n' +
+      '## 5 Related Work\n' +
+      '\n' +
+      'There exists a broad body of prior work on the representational capacity of GSSMs like RNNs (Merrill, 2019; Merrill et al., 2020) as well as transformers (Weiss et al., 2021; Merrill et al., 2022; Wei et al., 2022; Sanford et al., 2023; Edelman et al., 2022). Previous works that study transformers do so through comparison to other complexity classes, such as threshold circuits (Merrill et al., 2022), RASP language (Weiss et al., 2021) or first-order logic (Chiang et al., 2023) (see Strobl et al. (2023) for a thorough review). These works do not provide insights into how transformers implement algorithms for solving specific problems. In contrast, our theoretical result constructs a transformer for the copy task, which illustrates the mechanism and provides tight bounds on the model size. Together with the result showing that GSSMs cannot copy long sequences, our theory characterizes the power of different sequence models on the copy task. Other theoretical separation results between transformers and RNNs (Sanford et al., 2023; Merrill, 2019) use more complex tasks of less practical relevance.\n' +
+      '\n' +
+      'Other papers have previously demonstrated the capacity of transformers to leverage the entire input context for tasks like retrieval, question answering, and in-context learning (Devlin et al., 2018; Raffel et al., 2020; Petroni et al., 2020; Brown et al., 2020; Liu et al., 2023). Another line of work has studied the "induction head" mechanism in transformers that performs a retrieval operation much like the one we observe for copying (Olsson et al., 2022). But, to our knowledge, there is not a comparison in related work between transformers and GSSMs of similar quality on these tasks.\n' +
+      '\n' +
+      'Several of our experiments study length generalization as a way to assess whether the model found the "right way" to solve the task. Prior work on length generalization in transformers has focused on the data distribution (Anil et al., 2022), positional embeddings (Kazemnejad et al., 2023), and arithmetic tasks (Deletang et al., 2022; Ruoss et al., 2023; Jelassi et al., 2023; Zhou et al., 2023). We extend many of these ideas to the copying task.\n' +
+      '\n' +
+      'Finally, we note that while we focus on tasks where transformers outperform GSSMs, there are also tasks where GSSMs outperform transformers. For example, Liu et al. (2023) shows that transformers fail to generalize out of distribution for "flip-flop language modeling", while LSTMs do so easily. These tasks require tracking a small \\(O(1)\\) state variable over time. Another benefit of GSSMs is the ability to input long contexts like DNA sequences that may be impractical for transformers (Nguyen et al., 2023).\n' +
+      '\n' +
+      '## 6 Discussion\n' +
+      '\n' +
+      'We have demonstrated through theory and experiments that transformers are better than GSSMs at copying from their input context. However, we emphasize that state space models have many advantages over transformers. The memory and computational complexity of GSSMs does not increase with the input length, which is ideal for training and inference on long inputs. Additionally, state space models such as RNNs are better at tracking state variables across long sequences (Liu et al., 2023), which may be useful for generating long consistent text. Importantly, language processing in the hu\n' +
+      '\n' +
+      'Figure 7: **(a) Copy: natural language strings.** We compare pretrained models on their ability to copy natural language strings sampled from C4 of varying lengths and report string-level accuracy. The transformer models substantially outperform the GSSMs. **(b) Copy: shuffled strings.** To test whether it mattered that the strings were in natural language, we randomly shuffle the word order of the strings from the previous experiment. We find that this degrades performance, especially for the Mamba models. **(c) Question answering (SQUAD).** We compare Pythia and Mamba on a standard question answering dataset where we bin the dataset based on the length of the context paragraph. We find that Mamba performance decays more quickly with the length of the context.\n' +
+      '\n' +
+      'man brain appears to be much more similar to how state space models process language (Tikochinski et al., 2024). We therefore believe that future work should focus on building hybrid architectures that endow state space models with an attention-like mechanism, allowing them to retrieve relevant pieces of text from their input. Indeed, humans have an incredibly limited capacity for memorizing sequences (Miller, 1956), but can translate entire novels if we allow them to look back at the text (Shelton, 1612).\n' +
+      '\n' +
+      '## Acknowledgements\n' +
+      '\n' +
+      'We thank Boaz Barak for helpful discussions. Kempner Institute computing resources enabled this work. Samy Jelassi acknowledges funding supported by the Center of Mathematical Sciences and Applications. This work has been made possible in part by a gift from the Chan Zuckerberg Initiative Foundation to establish the Kempner Institute for the Study of Natural and Artificial Intelligence. Sham Kakade acknowledges funding from the Office of Naval Research under award N00014-22-1-2377.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* Anil et al. (2022) Anil, C., Wu, Y., Andreassen, A., Lewkowycz, A., Misra, V., Ramasesh, V., Slone, A., Gur-Ari, G., Dyer, E., and Neyshabur, B. Exploring length generalization in large language models. _Advances in Neural Information Processing Systems_, 35:38546-38556, 2022.\n' +
+      '* Biderman et al. (2023) Biderman, S., Schoelkopf, H., Anthony, Q. G., Bradley, H., O\'Brien, K., Hallahan, E., Khan, M. A., Purohit, S., Prashanth, U. S., Raff, E., et al. Pythia: A suite for analyzing large language models across training and scaling. In _International Conference on Machine Learning_, pp. 2397-2430. PMLR, 2023.\n' +
+      '* Bradbury et al. (2016) Bradbury, J., Merity, S., Xiong, C., and Socher, R. Quasi-recurrent neural networks. _arXiv preprint arXiv:1611.01576_, 2016.\n' +
+      '* Brown et al. (2020) Brown, T., Mann, B., Ryder, N., Subbiah, M., Kaplan, J. D., Dhariwal, P., Neelakantan, A., Shyam, P., Sastry, G., Askell, A., et al. Language models are few-shot learners. _Advances in neural information processing systems_, 33:1877-1901, 2020.\n' +
+      '* Carlini et al. (2022) Carlini, N., Ippolito, D., Jagielski, M., Lee, K., Tramer, F., and Zhang, C. Quantifying memorization across neural language models. _arXiv preprint arXiv:2202.07646_, 2022.\n' +
+      '* Chiang et al. (2023) Chiang, D., Cholak, P., and Pillay, A. Tighter bounds on the expressivity of transformer encoders. _arXiv preprint arXiv:2301.10743_, 2023.\n' +
+      '* Choromanski et al. (2020) Choromanski, K., Likhosherstov, V., Dohan, D., Song, X., Gane, A., Sarlos, T., Hawkins, P., Davis, J., Mohiuddin, A., Kaiser, L., et al. Rethinking attention with performers. _arXiv preprint arXiv:2009.14794_, 2020.\n' +
+      '* Dao et al. (2022) Dao, T., Fu, D., Ermon, S., Rudra, A., and Re, C. Flashattention: Fast and memory-efficient exact attention with io-awareness. _Advances in Neural Information Processing Systems_, 35:16344-16359, 2022.\n' +
+      '* Deletang et al. (2022) Deletang, G., Ruoss, A., Grau-Moya, J., Genewein, T., Wenliang, L. K., Catt, E., Hutter, M., Legg, S., and Ortega, P. A. Neural networks and the chomsky hierarchy. _arXiv preprint arXiv:2207.02098_, 2022.\n' +
+      '* Devlin et al. (2018) Devlin, J., Chang, M.-W., Lee, K., and Toutanova, K. Bert: Pre-training of deep bidirectional transformers for language understanding. _arXiv preprint arXiv:1810.04805_, 2018.\n' +
+      '* Edelman et al. (2022) Edelman, B. L., Goel, S., Kakade, S., and Zhang, C. Inductive biases and variable creation in self-attention mechanisms. In _International Conference on Machine Learning_, pp. 5793-5831. PMLR, 2022.\n' +
+      '* Gao et al. (2020) Gao, L., Biderman, S., Black, S., Golding, L., Hoppe, T., Foster, C., Phang, J., He, H., Thite, A., Nabeshima, N., et al. The pile: An 800gb dataset of diverse text for language modeling. _arXiv preprint arXiv:2101.00027_, 2020.\n' +
+      '* Gu & Dao (2023) Gu, A. and Dao, T. Mamba: Linear-time sequence modeling with selective state spaces. _arXiv preprint arXiv:2312.00752_, 2023.\n' +
+      '* Gu et al. (2021) Gu, A., Goel, K., and Re, C. Efficiently modeling long sequences with structured state spaces. _arXiv preprint arXiv:2111.00396_, 2021.\n' +
+      '* Hochreiter & Schmidhuber (1997) Hochreiter, S. and Schmidhuber, J. Long short-term memory. _Neural computation_, 9(8):1735-1780, 1997.\n' +
+      '* Jelassi et al. (2023) Jelassi, S., d\'Ascoli, S., Domingo-Enrich, C., Wu, Y., Li, Y., and Charton, F. Length generalization in arithmetic transformers. _arXiv preprint arXiv:2306.15400_, 2023.\n' +
+      '* Katharopoulos et al. (2020) Katharopoulos, A., Vyas, A., Pappas, N., and Fleuret, F. Transformers are rnns: Fast autoregressive transformers with linear attention. In _International conference on machine learning_, pp. 5156-5165. PMLR, 2020.\n' +
+      '* Kazemnejad et al. (2023) Kazemnejad, A., Padhi, I., Ramamurthy, K. N., Das, P., and Reddy, S. The impact of positional encoding on length generalization in transformers. _arXiv preprint arXiv:2305.19466_, 2023.\n' +
+      '* Liu et al. (2023a) Liu, B., Ash, J. T., Goel, S., Krishnamurthy, A., and Zhang, C. Exposing attention glitches with flip-flop language modeling. _arXiv preprint arXiv:2306.00946_, 2023a.\n' +
+      '\n' +
+      '* Liu et al. (2023) Liu, N. F., Lin, K., Hewitt, J., Paranjape, A., Bevilacqua, M., Petroni, F., and Liang, P. Lost in the middle: How language models use long contexts. _arXiv preprint arXiv:2307.03172_, 2023b.\n' +
+      '* Loshchilov & Hutter (2017) Loshchilov, I. and Hutter, F. Decoupled weight decay regularization. _arXiv preprint arXiv:1711.05101_, 2017.\n' +
+      '* McCoy et al. (2023) McCoy, R. T., Smolensky, P., Linzen, T., Gao, J., and Celikyilmaz, A. How much do language models copy from their training data? evaluating linguistic novelty in text generation using raven. _Transactions of the Association for Computational Linguistics_, 11:652-670, 2023.\n' +
+      '* Merrill (2019) Merrill, W. Sequential neural networks as automata. _arXiv preprint arXiv:1906.01615_, 2019.\n' +
+      '* Merrill et al. (2020) Merrill, W., Weiss, G., Goldberg, Y., Schwartz, R., Smith, N. A., and Yahav, E. A formal hierarchy of rnn architectures. _arXiv preprint arXiv:2004.08500_, 2020.\n' +
+      '* Merrill et al. (2022) Merrill, W., Sabharwal, A., and Smith, N. A. Saturated Transformers are Constant-Depth Threshold Circuits. _Transactions of the Association for Computational Linguistics_, 10:843-856, 08 2022. ISSN 2307-387X. doi: 10.1162/tacl_a_00493. URL [https://doi.org/10.1162/tacl_a_00493](https://doi.org/10.1162/tacl_a_00493).\n' +
+      '* Miller (1956) Miller, G. A. The magic number seven plus or minus two: Some limits on our capacity for processing information. _Psychological review_, 63:91-97, 1956.\n' +
+      '* Nguyen et al. (2023) Nguyen, E., Poli, M., Faizi, M., Thomas, A., Birch-Sykes, C., Wornow, M., Patel, A., Rabideau, C., Massaroli, S., Bengio, Y., et al. Hyenadna: Long-range genomic sequence modeling at single nucleotide resolution. _arXiv preprint arXiv:2306.15794_, 2023.\n' +
+      '* Olsson et al. (2022) Olsson, C., Elhage, N., Nanda, N., Joseph, N., DasSarma, N., Henighan, T., Mann, B., Askell, A., Bai, Y., Chen, A., et al. In-context learning and induction heads. _arXiv preprint arXiv:2209.11895_, 2022.\n' +
+      '* Pascanu et al. (2013) Pascanu, R., Mikolov, T., and Bengio, Y. On the difficulty of training recurrent neural networks. In _International conference on machine learning_, pp. 1310-1318. Pmlr, 2013.\n' +
+      '* Paszke et al. (2019) Paszke, A., Gross, S., Massa, F., Lerer, A., Bradbury, J., Chanan, G., Killeen, T., Lin, Z., Gimelshein, N., Antiga, L., et al. Pytorch: An imperative style, high-performance deep learning library. _Advances in neural information processing systems_, 32, 2019.\n' +
+      '* Peng et al. (2023) Peng, B., Alcaide, E., Anthony, Q., Albalak, A., Arcadinho, S., Cao, H., Cheng, X., Chung, M., Grella, M., GV, K. K., et al. Rwkv: Reinventing rnns for the transformer era. _arXiv preprint arXiv:2305.13048_, 2023.\n' +
+      '* Petroni et al. (2020) Petroni, F., Lewis, P., Piktus, A., Rocktaschel, T., Wu, Y., Miller, A. H., and Riedel, S. How context affects language models\' factual predictions. _arXiv preprint arXiv:2005.04611_, 2020.\n' +
+      '* Press et al. (2021) Press, O., Smith, N. A., and Lewis, M. Train short, test long: Attention with linear biases enables input length extrapolation. _arXiv preprint arXiv:2108.12409_, 2021.\n' +
+      '* Radford et al. (2019) Radford, A., Wu, J., Child, R., Luan, D., Amodei, D., and Sutskever, I. Language models are unsupervised multitask learners, 2019. URL [https://api.semanticscholar.org/CorpusID:160025533](https://api.semanticscholar.org/CorpusID:160025533).\n' +
+      '* Raffel et al. (2020) Raffel, C., Shazeer, N., Roberts, A., Lee, K., Narang, S., Matena, M., Zhou, Y., Li, W., and Liu, P. J. Exploring the limits of transfer learning with a unified text-to-text transformer. _The Journal of Machine Learning Research_, 21(1):5485-5551, 2020.\n' +
+      '* Rajpurkar et al. (2018) Rajpurkar, P., Jia, R., and Liang, P. Know what you don\'t know: Unanswerable questions for squad. _arXiv preprint arXiv:1806.03822_, 2018.\n' +
+      '* Ruoss et al. (2023) Ruoss, A., Deletang, G., Genewein, T., Grau-Moya, J., Csordas, R., Bennani, M., Legg, S., and Veness, J. Randomized positional encodings boost length generalization of transformers. _arXiv preprint arXiv:2305.16843_, 2023.\n' +
+      '* Sanford et al. (2023) Sanford, C., Hsu, D., and Telgarsky, M. Representational strengths and limitations of transformers. _arXiv preprint arXiv:2306.02896_, 2023.\n' +
+      '* Shelton (1612) Shelton, T. _The Ingenious Gentleman Don Quixote of La Mancha_. 1612. Written by Miguel de Cervantes, translated by Thomas Shelton.\n' +
+      '* Shen et al. (2023) Shen, R., Bubeck, S., Eldan, R., Lee, Y. T., Li, Y., and Zhang, Y. Positional description matters for transformers arithmetic. _arXiv preprint arXiv:2311.14737_, 2023.\n' +
+      '* Strobl et al. (2023) Strobl, L., Merrill, W., Weiss, G., Chiang, D., and Angluin, D. Transformers as recognizers of formal languages: A survey on expressivity. _arXiv preprint arXiv:2311.00208_, 2023.\n' +
+      '* Su et al. (2023) Su, J., Ahmed, M., Lu, Y., Pan, S., Bo, W., and Liu, Y. Roformer: Enhanced transformer with rotary position embedding. _Neurocomputing_, pp. 127063, 2023.\n' +
+      '* Sun et al. (2023) Sun, Y., Dong, L., Huang, S., Ma, S., Xia, Y., Xue, J., Wang, J., and Wei, F. Retentive network: A successor to transformer for large language models. _arXiv preprint arXiv:2307.08621_, 2023.\n' +
+      '* Tikochinski et al. (2024) Tikochinski, R., Goldstein, A., Meiri, Y., Hasson, U., and Reichart, R. An incremental large language model for long text processing in the brain. 2024.\n' +
+      '\n' +
+      '* Vaswani et al. (2017) Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A. N., Kaiser, L., and Polosukhin, I. Attention is all you need. _Advances in neural information processing systems_, 30, 2017.\n' +
+      '* Wei et al. (2022) Wei, C., Chen, Y., and Ma, T. Statistically meaningful approximation: a case study on approximating turing machines with transformers. _Advances in Neural Information Processing Systems_, 35:12071-12083, 2022.\n' +
+      '* Weiss et al. (2021) Weiss, G., Goldberg, Y., and Yahav, E. Thinking like transformers. In _International Conference on Machine Learning_, pp. 11080-11090. PMLR, 2021.\n' +
+      '* Wolf et al. (2019) Wolf, T., Debut, L., Sanh, V., Chaumond, J., Delangue, C., Moi, A., Cistac, P., Rault, T., Louf, R., Funtowicz, M., et al. Huggingface\'s transformers: State-of-the-art natural language processing. _arXiv preprint arXiv:1910.03771_, 2019.\n' +
+      '* Zhou et al. (2023) Zhou, H., Bradley, A., Littwin, E., Razin, N., Saremi, O., Susskind, J., Bengio, S., and Nakkiran, P. What algorithms can transformers learn? a study in length generalization. _arXiv preprint arXiv:2310.16028_, 2023.\n' +
+      '\n' +
+      '## Appendix A Experimental setup\n' +
+      '\n' +
+      'In this section, we provide additional details about our experimental setup. We first give a description of the positional encodings used in our transformers experiments (Subsection A.1) and then give details about the training and evaluation procedures (Subsection A.2).\n' +
+      '\n' +
+      '### Positional encodings in the transformers\n' +
+      '\n' +
+      'We consider multiple positional encoding schemes in our experiments in Section 3:\n' +
+      '\n' +
+      '* the NoPE scheme (Kazemnejad et al., 2023) where no positional information is added to any of the attention scores (Figure 8a). This architecture choice helps to get better length generalization in multiple tasks including the copy task.\n' +
+      '* the ALiBi scheme (Press et al., 2021) which biases the attention scores with a penalty that is proportional to their distance (Figure 8b). \\(m\\) is a head-specific slope fixed before training.\n' +
+      '* the Hard-ALiBi scheme introduced in Section 2 which has \\(M\\) masked attention heads where we explicitly force the model to attend to their directly previous tokens and \\(H-M\\) heads set to be NoPE attention heads. In Figure 8c, we display the case where we have \\(M=4\\) masked heads: in the first head, the tokens just attend to themselves; in the second head, the tokens attend to themselves and to previous ones; in the third head, the tokens attend to themselves, the previous ones and the second preceding tokens. The remaining \\(H-M\\) heads are set to NoPE.\n' +
+      '\n' +
+      'Figure 8: **Positional encoding schemes for transformers: illustration of the different positional encodings of the transformers that are trained in our experiments. (a) corresponds to the NoPE encoding (Kazemnejad et al., 2023) where no positional encoding is applied to any of the attention heads (b) depicts the ALiBi encoding (Press et al., 2021) where \\(m\\) is a head-specific scalar and (c) the Hard-ALiBi encoding introduced in Section 2. For the sake of illustration, we consider the case where we mask three heads which means that we force Heads 1, 2 and 3 to attend to their current token, their current and preceding tokens and their current, preceding and prior to the preceding tokens. The remaining heads are set as NoPE heads.**\n' +
+      '\n' +
+      '### Pretraining and evaluation details\n' +
+      '\n' +
+      'Software dependencies.We implement all of our training in Pytorch (Paszke et al., 2019). We use the HuggingFace library (Wolf et al., 2019) and the Mamba GitHub repository (Gu and Dao, 2023).\n' +
+      '\n' +
+      'Architectures.In our experiments in Section 3, the backbone of our transformers is the GPT-NeoX architecture. We set the number of layers to 12, the hidden size to 1024 and the number of heads \\(H=16\\). We consider the different positional encodings that are described in Subsection A.1. For Alibi, we set the head-specific scalar as in the original paper i.e. \\(m_{h}=2^{-h/2}\\) for \\(h\\in\\{1,\\dots,H\\}\\). For the Hard-Alibi model, we sweep over the number of masked heads \\(M\\in\\{2,\\dots,10\\}\\) and found that the best model corresponds to \\(M=6\\). Regarding the Mamba models, we set the number of layers to 24 and the hidden size 1024. We also sweep over the state space dimension \\(S\\in\\{16,32,64,128,256\\}\\) and found the best model is \\(S=32\\). This choice of hyperparameters ensures that both transformers and Mamba models have a comparable number of parameters. Lastly, our LSTM is made of 4 layers and width 1024.\n' +
+      '\n' +
+      'Training hyperparameters.In Section 3, at each epoch, we sample online a batch size of size 64. We fill the context with examples so we choose a context length (\\(C=420\\) for all the experiments except Figure 0(a) where we set \\(C=620\\)) and pack as many examples as possible to fit this context. So in our case, one sample contains many instances. We run the experiments for 15 epochs for both transformers and Mamba while for LSTMs we need 300 epochs. All methods are trained with the AdamW optimizer (Loshchilov and Hutter, 2017) with learning rate 5e-5, a linear rate decay schedule, 300 steps of warmup and default weight decay of 1e-1. Finally, to train all the models, we use the next-token prediction loss but we apply a mask on the input instance so that we only penalize the model whenever it makes a mistake on the labels (and not on the inputs and labels jointly).\n' +
+      '\n' +
+      'Compute resources.Pretraining was all done on an internal cluster using RTX8000 GPUs. We estimate that the final training run needed to produce the results in the paper took approximately 600 GPU hours.\n' +
+      '\n' +
+      'Evaluation algorithm.We evaluate the models over 10 batches of size 64 for all the tasks except for the question answering one where we evaluate over 50 questions because the number of questions with a given context length is limited.\n' +
+      '\n' +
+      'Decoding algorithm.At inference, all our models use greedy decoding for generation and we set the temperature to 0.\n' +
+      '\n' +
+      '## Appendix B Additional Experiments\n' +
+      '\n' +
+      'In Subsection B.1, we focus on the in-distribution learning of the copy task and show that the number of samples needed by GSSMs is much higher than the one for transformers. In Subsection B.2, we study the performance of pre-trained models on the copy task in the case where the strings are sampled uniformly. This experiment shows that when the text to copy is totally random, the gap between pre-trained transformers and GSSMs is even larger.\n' +
+      '\n' +
+      '### Data efficiency on the copy task\n' +
+      '\n' +
+      'In this section, we provide additional plots to complement the data efficiency experiment from Figure 0(a). We want to highlight the following points:\n' +
+      '\n' +
+      '* in Figure 0(a), we see a sharp transition for the Mamba learning curve. However, Figure 8(a) shows that the learning process is more smooth at the character level. Besides, LSTMs are not able to learn the copy on length-300 strings even at the character level.\n' +
+      '* We consider the experiment of learning to copy much shorter strings namely strings with length \\(\\leq 30\\). Figure 8(b) shows that the gap in terms of training examples between transformers and Mamba is much smaller i.e. Mamba only needs 10x more data. Besides, we see that the LSTM is able to learn the copy task but it needs 100x more data than transformers.\n' +
+      '\n' +
+      '### Pre-trained models on the uniform copy task\n' +
+      '\n' +
+      'In this section, we provide an additional experiment that shows the superiority of pre-trained Pythia over pre-trained Mamba models in the copy task.\n' +
+      '\n' +
+      'We consider the same setup as in Section 3: we sample uniform strings of alphabet characters with a fixed length and ask the model to copy it by using the same prompt format as the one described in Subsection 4.2.\n' +
+      '\n' +
+      'This setting is a more extreme version of Figure 6(b) since the strings are more random: in Figure 6(b), the order of the nouns were random but the nouns were English nouns while in Figure 6(b), the strings are totally random. In Figure 10, we see a clear separation between the transformers and Mamba models with the smallest Pythia outperforming the largest Mamba. However, compared to Figure 6(b), the Pythia performance is much higher since the 1.4B model able to get almost 100% accuracy.\n' +
+      '\n' +
+      'Figure 10: **Copy: uniform strings.** To test whether it mattered that the strings were in natural language, we generate uniformly sampled strings (the generation process is described in Section 3). We find that this degrades the Mamba models while Pythia models are able to keep a high performance.\n' +
+      '\n' +
+      'Figure 9: **(a) Copying long strings: character-level accuracy.** Here we train models to copy strings of length \\(\\leq 300\\) and evaluate character-level accuracy on strings of length 300. Transformers train much faster than GSSMs. Mamba has a more progressive learning curve than in Figure 0(a). An LSTM cannot even learn the task within this number of samples at the character level. **(b) Copying short strings: string-level accuracy.** Here we train models to copy strings of length \\(\\leq 30\\) and evaluate character-level accuracy on strings of length 30. Transformers train much faster than GSSMs. Compared to Figure 0(a), we see that Mamba needs way less samples in order to learn to copy length-30 strings. An LSTM can learn to copy but requires 100x more training examples. **(c) Copying short strings: character-level accuracy.** Here we train models to copy strings of length \\(\\leq 30\\) and evaluate character-level accuracy on strings of length 30 and report the character-level accuracy.\n' +
+      '\n' +
+      '## Appendix C Proofs - Upper Bound\n' +
+      '\n' +
+      'This section gives a detailed proof of Theorem 2.3 and Lemma 2.4.\n' +
+      '\n' +
+      '### Technical Lemmas\n' +
+      '\n' +
+      'We begin by introducing some technical lemmas that we use in the proof of Theorem 2.3.\n' +
+      '\n' +
+      '**Lemma C.1**.: _Let \\(h_{t}(\\mathbf{x}_{1},\\dots,\\mathbf{x}_{i})=\\frac{1}{\\min(t,t)}\\sum_{j=\\max(1,i-t+1)}^{i} \\mathbf{x}_{j}\\). Then, \\(h_{t}\\) can be computed using a hard-ALiBi attention head._\n' +
+      '\n' +
+      'Proof.: Let \\(W_{k},W_{q}=0\\) (zero matrix) and let \\(W_{v}=I_{d}\\) (identity matrix). We choose \\(b_{i}\\in\\{0,-\\infty\\}^{i}\\) s.t.\n' +
+      '\n' +
+      '\\[b_{i,j}=\\begin{cases}-\\infty&j\\leq i-t\\\\ 0&j>i-t\\end{cases}\\]\n' +
+      '\n' +
+      '**Lemma C.2**.: _Assume that \\(d=\\lceil\\log(D)\\rceil+2\\). Then, there exists an embedding \\(\\Psi\\) s.t._\n' +
+      '\n' +
+      '* _For every_ \\(x\\in\\mathbb{D}\\) _it holds that_ \\(\\left\\lVert\\Psi(x)\\right\\rVert_{2}=1\\) _and_ \\(\\left\\lVert\\Psi(x)\\right\\rVert_{\\infty}\\leq 1\\)_._\n' +
+      '* _For_ \\(x^{\\prime}\\neq x\\) _it holds that_ \\(\\left\\langle x,x^{\\prime}\\right\\rangle<1-\\frac{1}{d}\\)_._\n' +
+      '* _For every_ \\(x\\neq\\left\\langle\\mathrm{nos}\\right\\rangle\\)_,_ \\(\\left\\langle\\Psi(x),\\Psi(\\left\\langle\\mathrm{nos}\\right\\rangle)\\right\\rangle=0\\)_, and for every_ \\(x\\neq\\left\\langle\\mathrm{cory}\\right\\rangle\\)_,_ \\(\\left\\langle\\Psi(x),\\Psi(\\left\\langle\\mathrm{cory}\\right\\rangle)\\right\\rangle=0\\)_._\n' +
+      '\n' +
+      'Proof.: Denote \\(d^{\\prime}=\\lceil\\log(D)\\rceil\\), and observe that we can encode all \\(D\\) "non-special" tokens as vectors in \\(\\left\\{\\pm\\frac{1}{\\sqrt{d}}\\right\\}^{d^{\\prime}}\\), and denote this encoding by \\(\\Psi^{\\prime}\\). Now, define:\n' +
+      '\n' +
+      '\\[\\Psi(x)=\\begin{cases}[1,0,\\dots,0]&x=\\left\\langle\\mathrm{nos}\\right\\rangle\\\\ [0,1,0,\\dots,0]&x=\\left\\langle\\mathrm{cory}\\right\\rangle\\\\ [0,0,\\Psi^{\\prime}(x)]&o.w.\\end{cases}\\]\n' +
+      '\n' +
+      '**Lemma C.3**.: _Let \\(\\mathbf{z}\\in\\mathbb{R}^{K}\\) be some vector such that, for some constants \\(a>b>0\\), there exists \\(i\\in[K]\\) s.t. \\(z_{i}=a\\) and for all \\(j\\neq i\\) we have \\(|z_{j}|\\leq b\\). Denote \\(\\mathbf{s}=\\mathrm{softmax}(\\mathbf{z})\\). Then \\(s_{i}\\geq\\frac{1}{1+K\\exp(b-a)}\\) and \\(s_{j}\\leq\\exp(b-a)\\) for all \\(j\\neq i\\)._\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:16]\n' +
+      '\n' +
+      '[MISSING_PAGE_EMPTY:17]\n' +
+      '\n' +
+      'Therefore, we can take \\(T^{\\rm query}=[\\hat{g}_{0},\\ldots,\\hat{g}_{q-1},n\\cdot g_{1}^{*},\\ldots,n\\cdot g _{q}^{*}]\\).\n' +
+      '\n' +
+      'Now, we prove Theorem 2.3 by showing that using a single attention head with no positional embedding on top of the construction in Lemma C.4 realizes the copy algorithm. Since the first block computes the correct choice of \\(\\operatorname{key}_{i},\\operatorname{query}_{i},\\operatorname{value}_{i}\\), by correctly scaling of the attention matrix we verify that the output of the second layer at position \\(i\\) corresponds to \\(\\approx\\operatorname{value}_{j}\\) for \\(j\\) s.t. \\(\\operatorname{key}_{j}=\\operatorname{query}_{i}\\).\n' +
+      '\n' +
+      'Proof of Theorem 2.3.: Let \\(T^{\\rm value},T^{\\rm key},T^{\\rm query}\\) be the outputs of the Transformer block guaranteed by Lemma C.4. Observe that, for some temprature \\(\\tau\\in\\mathbb{R}\\), the following function can be computed by a softmax-attention layer on-top of this block:\n' +
+      '\n' +
+      '\\[H(\\Psi(x_{1}),\\ldots,\\Psi(x_{i}))=T^{\\rm value}\\cdot\\operatorname{softmax}( \\tau\\cdot T^{\\rm key}\\cdot T_{i}^{\\rm query})\\]\n' +
+      '\n' +
+      'where e.g. \\(T^{\\rm value}\\) denotes \\(T^{\\rm value}(\\Psi(x_{1}),\\ldots,\\Psi(x_{i}))\\).\n' +
+      '\n' +
+      'For now, assume that all the \\(n\\)-grams in \\(\\mathbf{x}\\) are unique, and that the length of the input satisfies \\(2L+2\\leq K\\) for \\(K=D^{n}\\).\n' +
+      '\n' +
+      '**Claim:** Fix some \\(i>L\\), denote \\(\\mathbf{z}=T^{\\rm key}\\cdot T_{i}^{\\rm query}\\). Then, \\(z_{i-L+1}=n\\) and \\(|z_{j}|<n-\\frac{1}{d}\\) for all \\(j\\neq i-L+1\\).\n' +
+      '\n' +
+      '**Proof:** We separate to the following cases:\n' +
+      '\n' +
+      '* If \\(i>L+n-1\\), then for every \\(j\\) we have \\[T_{j}^{\\rm key}\\cdot T_{i}^{\\rm query} =\\mathbf{1}\\{j>n\\}\\cdot[\\Psi(x_{j-1}),\\ldots,\\Psi(x_{j-n})]^{\\top}[ \\Psi(x_{i}),\\ldots,\\Psi(x_{i-n+1})]\\] \\[=\\mathbf{1}\\{j>n\\}\\cdot\\sum_{t=1}^{n}\\Psi(x_{j-t})\\Psi(x_{i-t+1})\\] Now, if \\(j=i-L+1\\) then \\(x_{j-t}=x_{i-L+1-t}=x_{i-t+1}\\) and since \\(j>n\\) we get \\[T_{j}^{\\rm key}\\cdot T_{i}^{\\rm query}=\\sum_{t=1}^{n}\\|\\Psi(x_{i-t+1})\\|=n\\] If \\(j\\neq i-L+1\\), since there are no repeated \\(n\\)-grams, there is at least some \\(t\\in[n]\\) s.t. \\(\\Psi(x_{j-t})\\neq\\Psi(x_{i-t+1})\\) and by the choice of the embedding \\(\\Psi(x_{j-t})\\cdot\\Psi(x_{i-t+1})\\leq 1-\\frac{1}{d}\\). In this case, we get \\(\\left|T_{j}^{\\rm key}\\cdot T_{i}^{\\rm query}\\right|\\leq n-\\frac{1}{d}\\).\n' +
+      '* If \\(L<i\\leq L+n-1\\) and \\(j\\leq n\\) then \\[T_{j}^{\\rm key}\\cdot T_{i}^{\\rm query}=ne_{j-1}\\cdot e_{i-L}=n\\cdot\\mathbf{1}\\{j=i -L+1\\}\\] which satisfies the required.\n' +
+      '* If \\(L<i\\leq L+n-1\\) and \\(j>n\\) then \\[T_{j}^{\\rm key}\\cdot T_{i}^{\\rm query}=\\sum_{t=1}^{n}\\Psi(x_{j-t})\\Psi(x_{i-t +1})\\] and as before, since there are no repeated \\(n\\)-grams, we get \\(\\left|T_{j}^{\\rm key}\\cdot T_{i}^{\\rm query}\\right|\\leq n-\\frac{1}{d}\\)\n' +
+      '\n' +
+      '**Claim:** Fix some \\(\\epsilon\\in(0,1)\\) and some \\(i>L\\), denote \\(\\mathbf{s}=\\operatorname{softmax}(\\tau T^{\\rm key}\\cdot T_{i}^{\\rm query})= \\operatorname{softmax}(\\tau\\cdot\\mathbf{z})\\). If \\(\\tau=d\\ln(\\frac{2K}{\\epsilon})\\), then \\(s_{i-L+1}\\geq 1-\\epsilon\\) and \\(s_{j}\\leq\\frac{\\epsilon}{2K}\\) for all \\(j\\neq i-L+1\\).\n' +
+      '\n' +
+      '**Proof:** Using the previous claim, toehether with Lemma C.3, we get that:\n' +
+      '\n' +
+      '* \\(s_{i-L+1}\\geq\\frac{1}{1+i\\exp(-\\tau/d)}\\geq\\frac{1}{1+K\\exp(-\\tau/d)}\\geq\\frac {1}{1+\\epsilon/2}=1-\\frac{\\epsilon/2}{1+\\epsilon/2}\\geq 1-\\epsilon\\)* For \\(j\\neq i-L+1\\), \\[s_{j}\\leq\\exp(-\\tau/d)\\leq\\frac{\\epsilon}{2K}\\]\n' +
+      '\n' +
+      '**Claim:** Fix some \\(\\epsilon\\in(0,1)\\) and some \\(i>L\\). Then, for \\(\\tau\\geq d\\ln(\\frac{2K}{\\epsilon})\\), it holds that:\n' +
+      '\n' +
+      '\\[\\|H(\\Psi(x_{1}),\\ldots,\\Psi(x_{i}))-\\Psi(x_{i-L+1})\\|\\leq\\epsilon\\]\n' +
+      '\n' +
+      '**Proof:** Let \\(\\mathbf{s}\\) as defined in the previous claim. Then:\n' +
+      '\n' +
+      '\\[\\|H(\\Psi(x_{1}),\\ldots,\\Psi(x_{i}))-\\Psi(x_{i-L+1})\\| =\\left\\|\\sum_{j=1}^{i}s_{j}\\Psi(x_{j})-\\Psi(x_{i-L+1})\\right\\|\\] \\[\\leq(1-s_{i-L+1})\\left\\|\\Psi(x_{i-L+1})\\right\\|+\\sum_{j\\neq i-L+1 }s_{j}\\left\\|\\Psi(x_{j})\\right\\|\\] \\[=(1-s_{i-L+1})+\\sum_{j\\neq i-L+1}s_{j}\\leq\\epsilon+(i-1)\\frac{ \\epsilon}{2K}\\leq 2\\epsilon\\]\n' +
+      '\n' +
+      'Now, denote by \\(\\Phi:\\mathbb{R}^{d}\\rightarrow\\mathbb{D}\\) the output map given by \\(\\Phi(\\mathbf{z})=\\arg\\max_{x\\in\\mathbb{D}}\\mathbf{z}\\cdot\\Psi(x)\\) (which can be computed by an \\(\\arg\\max\\) over a linear function).\n' +
+      '\n' +
+      '**Claim:** If \\(\\tau\\geq d\\ln(8Kd)\\), then for all \\(i>L\\) we have \\(\\Phi(H(\\Psi(x_{1}),\\ldots,\\Psi(x_{i})))=x_{i-L+1}\\).\n' +
+      '\n' +
+      '**Proof:** Denote \\(\\mathbf{y}_{i}=H(\\Psi(x_{1}),\\ldots,\\Psi(x_{i}))\\). First, using the previous claim, we observe that\n' +
+      '\n' +
+      '\\[\\mathbf{y}_{i}\\cdot\\Psi(x_{i-L+1}) =(\\mathbf{y}_{i}-\\Psi(x_{i-L+1}))\\cdot\\Psi(x_{i-L+1})+\\|\\Psi(x_{i-L+1 })\\|\\] \\[\\geq 1-\\|\\mathbf{y}_{i}-\\Psi(x_{i-L+1})\\|\\geq 1-\\frac{1}{4d}\\]\n' +
+      '\n' +
+      'Next, observe that for all \\(j\\neq i-L+1\\) we have\n' +
+      '\n' +
+      '\\[\\mathbf{y}_{i}\\cdot\\Psi(x_{j}) =(\\mathbf{y}_{i}-\\Psi(x_{i-L+1}))\\cdot\\Psi(x_{j})+\\Psi(x_{j})\\cdot \\Psi(x_{i-L+1})\\] \\[\\leq\\|\\mathbf{y}_{i}-\\Psi(x_{i-L+1})\\|+1-\\frac{1}{d}\\leq 1-\\frac{3}{4 d}<\\mathbf{y}_{i}\\cdot\\Psi(x_{i-L+1})\\]\n' +
+      '\n' +
+      'From the above claim, the Transformer construction outputs the correct token at each step of the auto-regressive generation. \n' +
+      '\n' +
+      '### Proof of Lemma 2.4\n' +
+      '\n' +
+      'Proof of Lemma 2.4.: Fix some \\(i<j\\in[L]\\). Let \\(I:=\\{i,\\ldots,i+n\\}\\) and \\(J:=\\{j,\\ldots,j+n\\}\\). We first bound the probability of drawing some \\(\\mathbf{x}\\) s.t. \\(\\mathbf{x}_{I}=\\mathbf{x}_{J}\\). Note that there are \\(D^{|I\\cup J|}\\) choices for \\(\\mathbf{x}_{I\\cup J}\\). We count the number of choices for \\(\\mathbf{x}_{I\\cup J}\\) s.t. \\(\\mathbf{x}_{I}=\\mathbf{x}_{J}\\). Notice that in this case, \\(\\mathbf{x}_{I\\cup J}\\) is determined by \\(\\mathbf{x}_{I\\setminus J}\\), therefore there are \\(D^{|I\\setminus J|}\\) possible choices. We conclude that\n' +
+      '\n' +
+      '\\[\\Pr\\left[\\mathbf{x}_{I}=\\mathbf{x}_{J}\\right]=\\frac{D^{|I\\setminus J|}}{D^{|I\\cup J|} }=D^{|I\\setminus J|-|I\\cup J|}=D^{-n}\\]\n' +
+      '\n' +
+      'Using the union bound, we get that\n' +
+      '\n' +
+      '\\[\\Pr\\left[\\exists i<j\\;\\mathrm{s.t.}\\;\\mathbf{x}_{i,\\ldots,i+n}=\\mathbf{x}_{j,\\ldots,j +n}\\right]\\leq\\sum_{i<j}\\Pr\\left[\\mathbf{x}_{i,\\ldots,i+n}=\\mathbf{x}_{j,\\ldots,j+n} \\right]<L^{2}D^{-n}\\]\n' +
+      '\n' +
+      '## Appendix D Proofs - Lower Bound\n' +
+      '\n' +
+      'In this section, we prove Theorem 2.7. We begin by showing that, for every input, the output of the model in each iteration is a deterministic function of the state of the model after observing the input:\n' +
+      '\n' +
+      '**Lemma D.1**.: _Let \\(H_{u,r}:\\mathbb{D}^{n^{\\prime}}\\rightarrow\\mathbb{D}^{n}\\) be some fixed-state sequence-to-sequence model. Then, there exists map \\(G:\\mathcal{S}\\rightarrow\\mathbb{D}^{n}\\) s.t. for all \\(\\mathbf{x}\\in\\mathbb{D}^{n^{\\prime}}\\)_\n' +
+      '\n' +
+      '\\[H_{u,r}(\\mathbf{x})=G\\circ S_{n^{\\prime}}(\\mathbf{x})\\]\n' +
+      '\n' +
+      'Proof.: Let \\(x_{n^{\\prime}+1},\\ldots,x_{n^{\\prime}+n}\\) be the outputs of \\(H_{u,r}\\). We need to show that there exist functions \\(G_{1},\\ldots,G_{n}\\) s.t. \\(H_{u,r}(x_{1},\\ldots,x_{n^{\\prime}})=G(S_{n^{\\prime}}(x_{1},\\ldots,x_{n}))\\). We give the following recursive definition:\n' +
+      '\n' +
+      '* \\(G_{1}(s)=r(s)\\), \\(\\tilde{G}_{1}(s)=u(s,G_{1}(s))\\).\n' +
+      '* \\(G_{i}(s)=r(\\tilde{G}_{i-1}(s))\\), \\(\\tilde{G}_{i}(s)=u(\\tilde{G}_{i-1}(s),G_{i}(s))\\).\n' +
+      '\n' +
+      'Denote \\(s=S_{n^{\\prime}}(x_{1},\\ldots,x_{n^{\\prime}})\\) We prove by induction that \\(G_{i}(s)=x_{n^{\\prime}+i}\\) and also that \\(\\tilde{G}_{i}(s)=S_{n^{\\prime}+i}(x_{1},\\ldots,x_{n^{\\prime}+i})\\).\n' +
+      '\n' +
+      '* \\(G_{1}(s)=r(s)=R_{n^{\\prime}}(x_{1},\\ldots,x_{n^{\\prime}})=x_{n^{\\prime}+1}\\).\n' +
+      '* \\(\\tilde{G}_{1}(s)=u(s,G_{1}(s))=u(s,x_{n^{\\prime}+1})=S_{n^{\\prime}+1}(x_{1}, \\ldots,x_{n^{\\prime}+1})\\)\n' +
+      '* \\(G_{i}(s)=r(\\tilde{G}_{i-1}(s))=r(S_{n^{\\prime}+i-1}(x_{1},\\ldots,x_{n^{\\prime} +i-1}))=R_{n^{\\prime}+i-1}(x_{1},\\ldots,x_{n^{\\prime}+i-1})=x_{n^{\\prime}+i}\\)\n' +
+      '* \\(\\tilde{G}_{i}(s)=u(\\tilde{G}_{i-1}(s,G_{i}(s)))=u(S_{n^{\\prime}+i-1}(x_{1}, \\ldots,x_{n^{\\prime}+i-1}),x_{n^{\\prime}+i})=S_{n^{\\prime}+i}(x_{1},\\ldots,x_{ n^{\\prime}+i})\\)\n' +
+      '\n' +
+      'and so the required follows. \n' +
+      '\n' +
+      'Given the previous Lemma, we bound the error of the model by comparing the number of possible states to the number of possible inputs.\n' +
+      '\n' +
+      'Proof of Theorem 2.7.: From Lemma D.1, there exists some function \\(G:\\mathcal{S}\\rightarrow\\mathbb{D}^{n}\\) s.t. \\(H_{u,r}=G\\circ S_{n^{\\prime}}\\). For each \\(\\mathbf{x}\\), we denote by \\(\\tilde{\\mathbf{x}}\\) the sequence \\(\\left\\langle{\\rm nos}\\right\\rangle,\\mathbf{x},\\left\\langle{\\rm corv}\\right\\rangle\\). Now, observe the following:\n' +
+      '\n' +
+      '\\[1-\\operatorname{err}_{\\mathcal{D}_{n}}(H_{u,r}) =\\Pr_{\\mathcal{D}_{n}}\\left[H_{u,r}(\\tilde{\\mathbf{x}})=\\mathbf{x}\\right]\\] \\[=\\frac{1}{D^{n}}\\sum_{\\mathbf{x}\\in\\mathbb{D}^{n}}\\mathbf{1}\\{H_{u,r}( \\tilde{\\mathbf{x}})=\\mathbf{x}\\}\\] \\[=\\frac{1}{D^{n}}\\sum_{s\\in\\mathcal{S}}\\sum_{\\mathbf{x}\\in S_{n+2}^{-1 }(\\tilde{\\mathbf{x}})}\\mathbf{1}\\{G\\circ S_{n^{\\prime}+2}(\\tilde{\\mathbf{x}})=\\mathbf{x}\\}\\] \\[=\\frac{1}{D^{n}}\\sum_{s\\in\\mathcal{S}}\\sum_{\\mathbf{x}\\in S_{n+2}^{-1 }(\\tilde{\\mathbf{x}})}\\mathbf{1}\\{G(s)=\\mathbf{x}\\}\\leq\\frac{|\\mathcal{S}|}{D^{n}}\\]\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>

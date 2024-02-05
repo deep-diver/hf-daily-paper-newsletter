@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# Boximator: 동영상 합성을 위한 Rich 및 Controllable 동작 생성\n' +
+      '\n' +
+      ' Jiawei Wang\\({}^{*}\\) Yuchen Zhang\\({}^{*}\\) Jiaxin Zou\n' +
+      '\n' +
+      '양정국위립원항리\n' +
+      '\n' +
+      'ByteDance Research\n' +
+      '\n' +
+      '등등 기여도\\({}^{*}\\)\n' +
+      '\n' +
+      '{wangjiawei.424, zhangyuchen.zyc, zoujiaxin.zjx}\n' +
+      '\n' +
+      'zengyan.yanne, Weiguoqiang.9, yuanliping.000 lihang.lh}@bytedance.com\n' +
+      '\n' +
+      '[https://boximator.github.io](https://boximator.github.io)\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      '풍부하고 제어 가능한 모션을 생성하는 것은 비디오 합성에서 중추적인 도전이다. 우리는 세밀한 움직임 제어를 위한 새로운 접근 방법인 **Boximator**를 제안한다. Boximator는 **hard box**와 **soft box**의 두 가지 제약 유형을 도입한다. 사용자들은 하드 박스들을 사용하여 조건부 프레임 내의 오브젝트들을 선택한 다음, 박스들의 유형 중 하나를 사용하여 미래의 프레임들에서 오브젝트의 위치, 형상, 또는 모션 경로를 대략적으로 또는 엄격하게 정의한다. 복시메이터는 기존 비디오 확산 모델의 플러그인 역할을 합니다. 학습 과정은 원래 가중치를 동결하고 제어 모듈만 학습하여 기본 모델의 지식을 보존한다. 훈련 문제를 해결하기 위해 상자-객체 상관관계의 학습을 크게 단순화하는 새로운 **자가 추적** 기술을 소개한다. 경험적으로, Boximator는 최신 비디오 품질(FVD) 점수를 달성하고, 두 가지 기본 모델에서 개선되며, 박스 제약을 통합한 후 더욱 향상된다. 강력한 모션 제어성은 바운딩 박스 정렬 메트릭의 급격한 증가에 의해 검증된다. 인간 평가에서도 사용자가 기본 모델보다 Boximator 생성 결과를 선호하는 것으로 나타났다.\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      '비디오 합성은 최근에 놀라운 발전을 경험했다[8, 9, 13, 14, 16, 26]. 이러한 모델은 일반적으로 텍스트 프롬프트 또는 키 프레임을 사용하여 비디오를 생성한다. 최근 연구는 스케치, 깊이 맵[11, 34], 인간 포즈[7, 32, 38], 궤적[35, 40] 및 조건부 이미지[4, 23, 41]와 같은 프레임 레벨 제약을 통합함으로써 제어성을 향상시키는 데 초점을 맞추고 있다.\n' +
+      '\n' +
+      '본 논문에서는 세립 모션 제어를 위한 보편적인 메커니즘으로 박스 형태의 제약조건을 이용한 새로운 접근 방법을 소개한다. 제안된 방법은 객체의 바운딩 박스를 정확하게 묘사하는 _hard box_와 객체가 상주해야 하는 더 넓은 영역을 정의하는 _soft box_의 두 가지 제약 조건을 소개한다. 소프트 박스는 객체의 정확한 바운딩 박스만큼 타이트하거나, 프레임 바운더리만큼 느슨할 수 있다. 고유한 객체 ID를 이러한 상자와 연결하여 프레임 전체에 걸쳐 여러 객체를 제어합니다. 제안된 방법(Boximator, "box"와 "animator"를 결합)은 몇 가지 이점을 제공한다.\n' +
+      '\n' +
+      '1. 복시메이터는 유연한 모션 제어 도구 역할을 한다. 이는 전경 및 배경 객체 모두의 움직임을 관리할 뿐만 아니라, 더 작은 컴포넌트들을 조정함으로써 더 큰 객체들(예를 들어, 인간)의 포즈를 수정한다. 그림은 그림 1을 참조하십시오.\n' +
+      '2. 이미지-투-비디오 및 많은 최신 텍스트-투-비디오 방법들[9, 41]에서 볼 수 있는 바와 같이, 이미지 상에서 생성이 조건화되는 시나리오들에서, 사용자들은 그들 주위에 하드 박스들을 그리면서 객체들을 쉽게 선택할 수 있다. 이 시각적 기반 접근법은 모든 객체에 대한 언어적 설명이 필요한 언어 기반 대조군[15, 21]에 비해 더 간단하다.\n' +
+      '3. 사용자 정의 박스들이 결여된 프레임들에 대해, Boximator는 알고리즘 생성 소프트 박스들을 통해 근사적인 모션 경로 제어를 허용한다. 이러한 소프트 박스들은 한 쌍의 사용자 지정 박스들에 기초하여, 또는 사용자 지정 모션 경로와 결합된 하드 박스에 기초하여 구성될 수 있다. 사용자 지정 모션 경로의 예는 그림 1(c)-(e)를 참조하십시오.\n' +
+      '\n' +
+      '복시메이터는 기존 비디오 확산 모델의 플러그인 역할을 합니다. 우리는 모든 상자 제약 조건을 4개의 좌표, 객체 ID 및 하드/소프트 플래그로 인코딩한다. 학습하는 동안 베이스 모델의 텍스트 인코더와 U-Net을 동결하여 새로운 유형의 자기 주의 계층을 통해 박스 인코딩을 공급한다. 이 디자인은 GLIGEN[17]에서 영감을 얻었으며, 여기서 경계 상자는 이미지 합성을 위한 영역 제어를 달성하기 위해 객체 설명 텍스트와 결합된다. 그러나 Boximatoraims는 텍스트 접지에 의존하지 않고 객체 움직임을 제어하기 때문에 시각적 입력으로부터 Box-객체 상관관계를 학습해야 한다.\n' +
+      '\n' +
+      '경험적으로, 우리는 모델이 표준 최적화를 통해 이러한 시각적 상관 관계를 학습하는 것이 어렵다는 것을 발견한다. 이 문제를 완화하기 위해 우리는 _self-tracking_이라고 하는 새로운 훈련 기술을 소개한다. 이 기술은 비디오의 일부로서 컬러 바운딩 박스들을 생성하도록 모델을 트레이닝한다. 도전을 두 가지 더 쉬운 작업으로 단순화한다: (1) 올바른 색상으로 각 객체에 대한 경계 상자를 생성하고 (2) 모든 프레임에서 이러한 상자를 Boximator 제약 조건과 정렬한다. 우리는 비디오 확산 모델이 이러한 작업을 신속하게 마스터할 수 있음을 관찰한다. 그 후, 우리는 가시적인 경계 박스들을 생성하는 것을 중단하도록 모델을 트레이닝한다. 이러한 상자는 더 이상 시각적으로 존재하지 않지만 내부 표현이 지속되어 모델이 Boximator 제약 조건과 계속 정렬할 수 있습니다.\n' +
+      '\n' +
+      '우리는 WebVid-10M 데이터셋 [1]에서 2.2M 주석이 달린 객체가 있는 1.1M 고도로 역동적인 비디오 클립을 생성하기 위한 자동 데이터 주석 파이프라인을 개발했다. 우리는 이 데이터 세트를 활용하여 픽셀댄스 모델[41]과 오픈소싱 모델스코프 모델[31]의 두 가지 기본 모델에 대한 Boximator 모델을 훈련했다. 광범위한 실험은 Boximator가 다양한 실제 시나리오에서 강력한 모션 제어를 제공하면서 이러한 모델의 원래 비디오 품질을 유지한다는 것을 보여준다. MSR-VTT 데이터 세트에서 Boximator는 FVD 점수의 기본 모델을 개선한다. 박스 제약이 추가되면 비디오 품질이 훨씬 향상되었습니다(픽셀).\n' +
+      '\n' +
+      '도 1: Boximator를 이용한 동작 제어: (a) hard box를 이용하여 점핑 고양이의 끝 모양과 위치를 제어하는 단계; (b) bed와 window를 오른쪽으로 밀어 좌측으로 회전하는 force camera; (c) 사람이 커피 한 잔을 올리는 방법을 제어하는 단계; (d) dog와 ball의 동작 경로를 제어하는 단계; (e) motion path와 hard box를 이용하여 두 개의 풍선의 궤적과 근접도를 제어하는 단계. 모든 도면에서 점선 상자는 첫 번째 프레임 제약을 나타내고, 실선 상자는 마지막 프레임 제약을 나타내고, 화살표 선은 움직임 경로를 나타낸다. 예제 비디오는 처음에 256x256x16으로 생성된 다음 미리 훈련된 초해상도 모델을 통해 768x768x16으로 향상된다.\n' +
+      '\n' +
+      ' Dance: 237 \\(\\rightarrow\\) 174, ModelScope: 239 \\(\\rightarrow\\) 216), 그리고 박스-객체 정렬을 측정하는 객체 검출기의 평균 정밀도(AP) 점수는 현저하게 증가(MSR-VTT에서 1.9-3.7배, ActivityNet에서 4.4-8.9배 더 높음)하여 효과적인 모션 제어를 강조했다. 사용자 연구는 또한 큰 마진(비디오 품질의 경우 +18%, 모션 제어의 경우 +74%)으로 기본 모델보다 비디오 품질과 모션 제어를 선호했다. 또한, 절제 연구는 이러한 결과를 달성하기 위해 소프트 박스 도입과 자가 추적 훈련의 필요성을 확인한다.\n' +
+      '\n' +
+      '##2 관련 업무\n' +
+      '\n' +
+      '비디오 확산 모델은 이미지 확산 모델의 자연스러운 확장이다. 그들은 시간 계층을 추가하여 이미지 모델로부터 U-Net 아키텍처를 확장한다[13, 26]. 계산 효율을 향상시키기 위해 널리 채택된 방법은 잠재 공간[12, 43]에서 디노이(denoie)하는 것이다. 텍스트-투-비디오(T2V) 확산 모델은 종종 다양한 형태의 조건부 생성[2, 8, 31]의 기초가 된다. 최근의 발전은 T2V에 대한 2단계 접근법을 제안한다: 처음에 텍스트를 기반으로 이미지를 생성한 다음 텍스트와 미리 생성된 이미지를 모두 고려하는 비디오를 생성한다. 이러한 접근법은 비디오 모델이 정적 이미지를 기준으로 사용함으로써 동적 측면에 집중할 수 있게 하여 향상된 비디오 품질[9, 33, 41]로 이어진다. 기준 영상은 모션 제어를 위한 자연스러운 접지 소스를 제공한다.\n' +
+      '\n' +
+      'T2V와 I2V 모델의 제어성을 높이는 데 초점을 맞춘 연구가 급증하고 있다. VideoComposer[34]는 스케치, 깊이 맵, 움직임 벡터 등의 조건을 가능하게 한다. 댄스 비디오를 제작함에 있어서, 참조 비디오로부터 추출된 인간의 포즈는 일반적으로 사용된다[7, 32, 38]. 보다 정밀한 모션 제어를 위해, 사용자는 객체 또는 카메라 궤적을 플롯할 수 있다[35, 40]. 그러나 이러한 방법은 객체를 정의하는 정확한 방법을 제공하지 못하여 이미지에서 더 크거나 합성된 객체를 선택하고 제어하기가 어렵다. 또한, 궤적은 물체의 모양과 크기를 포착하지 못하며, 팔 벌림 또는 접근 움직임과 같은 포즈 또는 근접 변화를 묘사하는 데 중요하다.\n' +
+      '\n' +
+      '모션 제어를 위한 바운딩 박스의 사용을 연구하는 두 가지 동시 연구가 있지만, 그들의 작업은 주요 측면에서 우리와 다르다는 점에 유의해야 한다. TrailBlazer[21]은 지정된 영역 내에서 특정 객체를 생성하는 데 모델을 지시하기 위해 주의 지도 편집을 활용하는 훈련 없는 방법이다. 개체는 텍스트 프롬프트에 설명되어야 합니다. FACTOR[15]는 변압기 기반 발전 모델인 Phenaki[30]을 박스 제어 모듈을 추가하여 수정하였다. TrailBlazer와 마찬가지로 FACTOR은 각 상자에 대한 텍스트 설명이 필요하므로 시각적 접지를 지원하지 않습니다. 위의 방법 중 어느 것도 소프트 박스 제약을 지원하지 않으며 훈련에서 관련된 문제를 연구하지도 않는다.\n' +
+      '\n' +
+      '##3 배경 : 비디오 확산 모델\n' +
+      '\n' +
+      '복시메이터는 3D U-Net 아키텍처[24]를 사용하여 비디오 확산 모델[14] 위에 구축된다. 이 모델들은 잡음이 많은 비디오 입력들에서 잡음 벡터를 반복적으로 예측하여, 순수 가우시안 잡음을 점차적으로 고품질 비디오 프레임들로 변환한다. U-Net(\\epsilon_{\\theta}\\)은 시간스탬프(t\\)와 다양한 조건(c\\)과 함께 픽셀 공간 또는 잠재 공간에서의 잡음 입력(z\\)을 처리하고, \\(z\\)에서 잡음을 예측한다. 최적화는 잡음 예측 손실을 통해 달성된다:\n' +
+      '\n' +
+      '\\[\\mathcal{L}_{\\theta}=\\mathbb{E}_{z_{0},c,\\epsilon,t}[\\|\\epsilon-\\epsilon_{ \\theta}(z_{t},t,c)\\|_{2}^{2}],\\]\n' +
+      '\n' +
+      '여기서 \\(z_{0}\\)은 그라운드 진리 비디오를 나타내고, \\(\\epsilon\\)은 가우시안 잡음 벡터이고, \\(z_{t}\\)은 \\(z_{0}\\)의 잡음 변환 버전이다:\n' +
+      '\n' +
+      '\\[z_{t}=\\sqrt{\\bar{\\alpha}_{t}}z_{0}+\\sqrt{1-\\bar{\\alpha}_{t}}\\epsilon.\\]\n' +
+      '\n' +
+      '여기서, \\(\\bar{\\alpha}_{t}\\)는 미리 정의된 상수 시퀀스를 나타낸다.\n' +
+      '\n' +
+      '3D U-Net은 컨볼루션 블록과 어텐션 블록이 번갈아 가며 구성된다. 각 블록은 두 개의 컴포넌트, 즉 공간 컴포넌트, 개별 비디오 프레임을 개별 이미지로서 취급하는 것, 및 시간 컴포넌트로 구성되어, 프레임들에 걸쳐 정보 교환을 가능하게 한다. 모든 주의 블록 내에서, 공간 컴포넌트는 전형적으로 자기 주의 계층을 포함하고, 이어서 교차 주의 계층을 포함하며, 후자는 텍스트 프롬프트 상에서 생성을 컨디셔닝하기 위해 사용된다.\n' +
+      '\n' +
+      '##4 Boximator : Box-guided Motion Control\n' +
+      '\n' +
+      '### Model Architecture\n' +
+      '\n' +
+      '우리의 목표는 기존의 비디오 확산 모델에 모션 제어 기능을 부여하는 것이다. 기반 모델은 웹 스케일 이미지 및 비디오의 광범위한 컬렉션에 대해 사전 훈련된다는 점을 감안할 때, 획득된 지식을 보존하는 것이 중요하다. 이를 달성하기 위해 원본 모델을 동결합니다.\n' +
+      '\n' +
+      '도 2: 제어 모듈의 개요: 공간적 자기 주의와 공간적 교차 주의 사이에, 모든 공간적 주의 블록에 새로운 자기 주의 층을 추가하는 것. 트레이닝 동안, 모든 원래 모델 파라미터들은 동결된다.\n' +
+      '\n' +
+      '파라미터 및 새로 통합된 모션 제어 모듈을 훈련시키는 데에만 집중합니다.\n' +
+      '\n' +
+      '본 모델의 구조는 그림 2와 같다. 비디오 확산 모델의 모든 공간 주의 블록에는 공간 자기 주의 레이어와 공간 교차 주의 레이어의 두 가지 주의 레이어가 있다. 새로운 셀프 어텐션 레이어를 추가하여 이 스택을 보강합니다. 구체적으로, \\(\\mathbf{v}\\)가 프레임의 시각적 토큰들을 나타내고, \\(\\mathbf{h}_{\\mathrm{text}\\) 및 \\(\\mathbf{h}_{\\mathrm{box}\\)가 텍스트 프롬프트의 임베딩들 및 박스 제약들을 각각 나타내면, 수정된 공간 주의 블록은 다음과 같이 설명된다:\n' +
+      '\n' +
+      '\\[\\mathbf{v} =\\mathbf{v}+\\mathrm{SelfAttn}(\\mathbf{v})\\] \\[\\mathbf{v} =\\mathbf{v}+\\mathrm{TS}(\\mathrm{SelfAttn}([\\mathbf{v},\\mathbf{h}_{\\mathrm{ box}))\\] \\[\\mathbf{v} =\\mathbf{v}+\\mathrm{CrossAttn}(\\mathbf{v},\\mathbf{h}_{\\mathrm{text}}}}\n' +
+      '\n' +
+      '여기서 \\(\\mathrm{TS}(\\cdot)\\)는 시각적 토큰을 배타적으로 고려하는 토큰 선택 동작이다. 박스 임베딩 \\(\\mathbf{h}_{\\mathrm{box}\\)은 제어 토큰들의 시퀀스이다. 각각의 토큰은 박스를 나타내고, 다음에 의해 정의된다:\n' +
+      '\n' +
+      '\\[\\mathbf{t}_{b}=\\mathrm{MLP}(\\mathrm{Fourier}([b_{\\mathrm{loc}},b_{\\mathrm{id}},b_{ \\mathrm{flag}}])).\\]\n' +
+      '\n' +
+      '여기서, \\(b_{\\mathrm{loc}}\\)는 박스의 상단-좌측 및 하단-우측 좌표를 캡슐화하는 4차원 벡터로서, 범위 [0,1]로 정규화된다. 프레임 간에 박스를 연결하기 위해 사용되는 객체 ID는 \\(b_{\\mathrm{id}}\\)으로 표현되며, 본 실험에서 제안한 객체 ID는 RGB 공간에서 표현된다. 따라서 각 객체는 상자의 고유한 "색"에 해당하여 [0,1]로 정규화된 3차원 벡터(b(b_{\\mathrm{id}}\\)를 만든다. (b_{\\mathrm{flag}}\\)는 부울 표시기로 하드 박스에 대해서는 1로 설정되고 그렇지 않으면 0으로 설정된다. 이 세 가지 입력은 퓨리에 임베딩[22]에 이어 다층 퍼셉트론(MLP)을 통해 연결되고 처리된다. 주\\(\\mathbf{h}_{\\mathrm{box}}\\)는 고정된 수의 제어 토큰( \\(N\\)으로 표시됨)을 포함한다. 실제 박스 수가 \\(N\\)보다 작을 때, 우리는 빈 슬롯을 패딩하기 위해 학습 가능한 \\(\\mathbf{t}_{\\mathrm{null}}\\)을 사용한다.\n' +
+      '\n' +
+      '### Data Pipeline\n' +
+      '\n' +
+      '객체 추적 주석이 있는 공개적으로 사용 가능한 비디오 데이터 세트가 없는 경우 웹Vid-10M 데이터 세트[1]에서 교육 세트를 큐레이션했다. 실증분석을 통해 웹비드 동영상의 대다수가 실질적인 객체나 카메라 움직임을 보이지 않는다는 것을 알 수 있다. 결과적으로, 이 컬렉션에서 샘플링하는 것은 모션 제어 모듈을 훈련시키는 데 비효율적일 것이다. 이 문제를 해결하기 위해 WebVid에서 보다 역동적인 하위 집합을 선별했습니다. 여기에는 데이터 세트의 모든 클립을 평가하고 시작 프레임과 종료 프레임을 비교하고 두 프레임이 충분히 다른 클립만 유지하는 것이 포함되었다. 이 여과로 총 1.1M 비디오 클립이 생성되었다.\n' +
+      '\n' +
+      '정제된 데이터 세트의 모든 클립에 대해 첫 번째 프레임을 사용하여 시각적 언어 모델을 사용하여 이미지 설명을 생성했다[19]. 그런 다음 이러한 설명에서 명사 청크를 추출합니다. "젊은 남자" 또는 "흰 셔츠"와 같은 용어를 포함하는 이 덩어리는 객체 프롬프트 역할을 했다. 그런 다음 이러한 프롬프트를 미리 훈련된 접지 모델[20] 및 객체 추적기[5]에 공급하여 경계 상자를 생성하고 비디오의 모든 프레임에 걸쳐 채운다. 이 접근법은 총 2.4M 객체에 대한 바운딩 박스를 성공적으로 산출했다.\n' +
+      '\n' +
+      '트레이닝 동안, 우리는 지정된 목표 종횡비에 따라 비디오의 무작위 크롭을 취하고, 이어서 모든 바운딩 박스를 이 크롭된 영역에 투영한다(도 3). 경계 상자가 완전히 자르기 영역 외부에 있는 경우 자르기 경계를 따라 선 세그먼트로 투영한다. 이를 통해 사용자는 프레임의 테두리에 선 세그먼트를 그려 프레임 안팎으로 객체 움직임을 제어할 수 있다(예를 들어, 도 6(d) 참조).\n' +
+      '\n' +
+      '### Self-Tracking\n' +
+      '\n' +
+      '비디오 모션 제어에서의 중요한 도전은 박스 좌표들을 객체들과 연관시키고 프레임들에 걸쳐 시간적 일관성을 유지하는 것, 즉, 동일한 박스들의 그룹이 항상 동일한 객체를 제어하는 것을 보장하는 것에 있다. 실제로 이것은 확산 모델이 종종 좌표 및 ID와 같은 이산 제어 신호를 시각적 요소와 효과적으로 연결하는데 어려움을 겪기 때문에 어려운 것으로 판명되었다. 이러한 어려움은 비디오가 다수의 중첩된 박스들을 포함할 때 악화된다. 섹션 5.4에서 알 수 있듯이 전통적인 손실 최적화로 모델은 110K 단계의 훈련 후 대부분의 상자 제약 조건에 정렬하지 못했다.\n' +
+      '\n' +
+      'Miti를 위한 간단한 방법으로 자기추적을 제안한다.\n' +
+      '\n' +
+      '그림 4: 자기 추적: 모든 구속된 객체를 추적하도록 모델을 훈련시킨다. 이 그림은 검은 말과 그것을 둘러싼 노란 상자가 함께 생성된 3개의 프레임을 보여준다.\n' +
+      '\n' +
+      '도 3: 트레이닝 데이터: 모든 바운딩 박스들은 크롭된 영역(흰색 점선 박스)에 투영된다.\n' +
+      '\n' +
+      '이 도전에 참견하다. 우리는 객체의 제어 토큰(그림 4)에 지정된 색상으로 모든 프레임에서 제약된 각 객체에 대해 색상 경계 상자를 생성하도록 모델을 훈련한다. 즉, 생성과 객체 추적을 동시에 수행하도록 모델을 학습시킨다. 이 접근 방식은 문제를 두 가지 더 쉬운 작업으로 단순화한다: (1) 올바른 색상으로 각 객체에 대한 경계 상자를 생성하고 (2) 모든 프레임에서 이러한 상자를 Boximator 제약 조건과 정렬한다. 이미지 합성에서의 이전 연구 [25]는 확산 모델이 바운딩 박스를 생성할 수 있음을 보여준다. 확산 모델이 시간적 일관성을 유지하여 동일한 색상의 상자가 프레임에 걸쳐 동일한 객체를 일관되게 추적할 수 있음을 추가로 발견한다. 이 기능을 사용하면 작업(2)이 간단해집니다. 하드 박스 구속조건의 경우, 모델은 지정된 좌표에 박스를 넣기만 하면 되고, 소프트 박스 구속조건의 경우 지정된 영역 내에 박스를 넣기만 하면 된다. 직관적으로, 자기 추적 바운딩 박스들은 중개자 대표로서 작용한다. 모델은 이러한 상자의 생성을 안내하는 Boximator 제약조건을 따르며, 이는 차례로 객체의 생성을 안내한다.\n' +
+      '\n' +
+      '자기 추적 훈련 단계를 완료하면 동일한 데이터 세트를 사용하여 모델을 추가로 훈련하되 대상 프레임에서 경계 상자를 제외한다. 놀랍게도, 모델은 가시적인 바운딩 박스들의 생성을 중단하는 것을 빠르게 학습하지만, 박스 정렬 능력은 지속된다. 이는 자기 추적 단계가 모델이 적절한 내적 표현을 개발할 수 있도록 도와준다는 것을 나타낸다.\n' +
+      '\n' +
+      '### 다단계 훈련절차\n' +
+      '\n' +
+      '우리는 다단계 훈련 절차를 사용합니다. 처음에, 단계 1에서, 모델은 제공된 모든 그라운드 진리 바운딩 박스들을 하드 박스 제약들로서 사용하여 트레이닝된다. 하드박스 컨트롤은 소프트 컨트롤보다 학습하기 쉽기 때문에 이 단계는 좌표와 ID에 대한 모델의 초기 이해를 확립하는 예비 단계 역할을 한다. 그 후, 2단계에서 우리는 이러한 하드 박스의 80%를 소프트 박스로 대체한다. 소프트 박스는 딱딱한 것을 좌, 우, 상, 하의 네 방향으로 랜덤하고 독립적으로 확장하여 생성된다. 각 방향에 대한 확장 마진은 \\(\\mathrm{Beta}(1,8)\\) 분포에 의해 결정되어 평균 확장이 프레임의 너비 또는 높이의 1/9인 반면 최대 확장은 프레임의 경계까지 확장될 수 있다. 1단계와 2단계는 모두 4.3절에서 설명한 자기 추적 기법을 사용하며, 마지막으로 3단계에서는 자기 추적 없이 2단계 훈련을 계속한다.\n' +
+      '\n' +
+      '### Inference\n' +
+      '\n' +
+      '추론 단계 동안, (첫 번째 및 마지막과 같은) 선택된 몇 개의 프레임들만이 사용자 정의 박스들을 포함한다. 강력한 제어를 위해 다른 프레임에 소프트 박스를 삽입합니다. 이것은 먼저 빈 프레임들에 사용자 정의 박스들의 선형 보간을 적용한 다음, (섹션 4.4에 기술된 바와 같이) 박스 영역들을 확장하고 이들을 "소프트 박스"로서 마킹함으로써 보간된 박스들을 이완시킴으로써 행해진다. 이 접근법은 객체가 의도된 궤적을 대략적으로 따르도록 보장하면서, 동시에 변형을 도입하기에 충분한 유연성을 모델에 제공한다. 사용자가 프레임에 하드 박스를 드로잉하고 그에 대한 모션 경로를 정의하는 경우, 후속 프레임마다 인터폴레이션된 박스를 구성하기 위해 박스를 경로를 따라 슬라이딩하게 한 후, 이들을 이완시켜 소프트 박스 제약조건을 형성한다. 그림 5는 두 경우 모두 소프트 박스 구성을 위한 시각적 예시를 보여준다.\n' +
+      '\n' +
+      '## 5 Experiments\n' +
+      '\n' +
+      '### Experiment Settings\n' +
+      '\n' +
+      '기본 모델은 픽셀댄스[41]와 모델스코프[31]의 두 가지 기본 모델로 Boximator를 훈련한다. 실험에서는 텍스트 프롬프트, 상자 제약 조건 및 선택적으로 첫 번째 비디오 프레임을 입력 조건으로 사용합니다. 픽셀댄스는 첫 번째 프레임을 입력 조건으로 직접 사용할 수 있다. ModelScope는 직접적인 영상 입력을 지원하지 않지만, 잡음 제거 단계마다 잡음의 첫 번째 프레임인 \\(z\\)을 Ground-truth 프레임의 레이턴트로 대체하여 영상 상에서 조건을 설정할 수 있다. 두 경우 모두 원래 모델 가중치를 동결하고 제어 모듈만 훈련한다. 자세한 교육 및 추론 세부 정보는 부록 A를 참조하십시오.\n' +
+      '\n' +
+      '데이터세트 우리는 MSR-VTT[37], ActivityNet[3] 및 UCF-10111[28] 데이터세트를 사용하여 모델을 테스트한다. MSR-VTT 테스트 세트는 예제당 20개의 프롬프트가 있는 2,990개의 샘플로 구성된다. 텍스트 제약 조건의 경우 [15, 41]에 이어 샘플당 하나의 프롬프트를 무작위로 선택하여 하나의 비디오를 생성합니다. 상자 제약 조건의 경우 MSR-VTT는 경계 상자 주석을 포함하지 않으므로 참조(접지-진리) 경계 상자를 자동으로 작성합니다. 먼저, 텍스트 프롬프트에서 명사 청크를 식별한다. 그런 다음 첫 번째 프레임에 경계 상자를 가져오기 위해 접지 DINO[20]를 사용하고 이 상자를 후속 프레임으로 확장하기 위해 DEVA[5]를 사용한다.\n' +
+      '\n' +
+      '그림 5: 추론의 소프트 박스. 우리는 부드러운 상자를 보간하고 한 쌍의 사용자 지정 상자(상위 행) 또는 모션 경로와 결합된 사용자 지정 상자(하위 행)를 기반으로 이완한다.\n' +
+      '\n' +
+      'MSR-VTT에 대한 자동 주석이 시끄러울 수 있음을 고려하여 결과의 신뢰성을 높이기 위해 ActivityNet 검증 세트의 일부를 수동으로 주석을 달았다. 특히 눈에 띄는 객체 모션이 포함된 796개의 비디오 클립을 선택했습니다. 첫 번째 프레임의 경계 상자는 이미 ActivityNet Entities 데이터 세트에 의해 주석이 달렸고[44], 우리는 경계 상자 주석을 16개 프레임 모두에 수동으로 확장했다.\n' +
+      '\n' +
+      '평가 메트릭은 FVD(Frechet Video Distance)를 사용하여 비디오 품질을 측정하고[29], CLIP 유사도 스코어(CLIPSIM)를 사용하여 텍스트 정렬을 측정한다[36]. FVD 메트릭은 FPS가 4인 각 Ground truth 비디오의 16개 프레임을 무작위로 선택하여 계산하며, 모션 제어를 평가하기 위해 평균 정밀도(AP) 메트릭을 사용한다. 첫 번째 프레임과 마지막 프레임에 지상 진실 상자를 제약 조건으로 사용하여 비디오를 생성합니다. 비디오를 생성한 후, 앞서 언급한 DINO+DEVA 검출 시스템으로 바운딩 박스를 검출한다. 객체가 모든 프레임에 걸쳐 일관되게 추적되는 경우, 검출된 바운딩 박스와 첫 번째/마지막 프레임의 그라운드 진리 박스를 비교한다. AP는 MS COCO 프로토콜에 따라 계산된다[18]. 첫 번째 프레임이 주어진 조건일 때, 우리는 마지막 프레임의 상자만 비교한다. 또한 0.5에서 0.95까지 10개의 인터섹션 over 유니온(IoU) 임계값에 대한 평균 AP로 계산된 평균 정밀도(mAP)를 보고한다.\n' +
+      '\n' +
+      '### Quantitative Evaluation\n' +
+      '\n' +
+      '비디오 품질표 1은 MSR-VTT 데이터 세트의 최근 비디오 합성 모델과 모델을 비교한다. 텍스트-비디오 합성에서, 우리의 Boximator 모델은 기본 모델보다 우수하여 픽셀댄스 및 모델스코프를 사용하여 각각 237 및 239의 경쟁 FVD 점수를 달성했다. 이러한 개선은 동결된 기본 모델 가중치를 사용함에도 불구하고 아마도 제어 모듈의 모션 데이터에 대한 훈련으로 인해 동적 장면 처리가 향상되었기 때문일 것이다.\n' +
+      '\n' +
+      '표 1의 결과는 추가 조건이 입력에 추가될 때 FVD 점수가 향상됨을 나타낸다. 구체적으로, 박스 제약 조건(Box)의 도입은 비디오 품질을 향상시킨다(PixelDance: \\(237\\to 174\\); ModelScope: \\(239\\to 216\\)). 이러한 개선은 비디오 생성을 위한 보다 현실적인 레이아웃을 제공하는 박스 제약으로 인한 것이라고 가정한다. 그러나, 생성이 첫 번째 프레임(F0)에 기초할 때, FVD에 대한 박스 제약의 영향은 감소된다(PixelDance: \\(113\\to102\\); ModelScope: \\(142\\to132\\)). 레이아웃이 이미 F0에 의해 설정되었기 때문일 수 있습니다.\n' +
+      '\n' +
+      '우리의 모델은 최신 시스템과 동등한 CLIPSIM 점수를 달성합니다. 추가 조건(F0 또는 Box와 같은)이 도입될 때 CLIP-SIM 점수가 약간 감소하는 것을 발견했다. 이는 기본 모델이 텍스트와 비디오를 정렬하는 데 최적화되어 있는 반면, 본 모델은 여러 유형의 정렬을 동시에 처리하기 때문에 발생합니다. 유사한 관찰이 FACTOR 논문[15]에 보고되었다.\n' +
+      '\n' +
+      '동작 제어 정밀도표 1은 또한 동작 제어 정밀도에 대한 결과를 제시한다. 모든 경우에 박스 제약 조건(박스)을 추가하면 평균 정밀도(AP) 점수가 크게 향상됩니다. 이는 모형이 상자 구속조건을 효과적으로 이해하고 적용함을 나타낸다. FACTOR 논문 [15]는 MSR-VTT에 대한 mAP 점수도 보고했다. 비록 우리의 결과는 객체 주석의 차이로 인해 그들의 결과와 직접적으로 비교되지는 않지만, 참조를 위해 표 1에 그들의 수({{}^{*}\\으로 표시됨)를 포함시켰다.\n' +
+      '\n' +
+      '표 2는 ActivityNet에 대한 결과를 나타낸다. 우리는 의도적으로 중요한 객체 움직임을 특징으로 하는 ActivityNet에서 테스트 비디오를 선택했다. 그 결과, 박스 제약을 추가하기 전과 후의 AP 점수의 격차는 MSR-VTT에 비해 더 넓다. 박스 제약이 있는 mAP 점수는 MSR-VTT에서 1.9-3.7배 더 높은 것과 대조적으로 ActivityNet에서 박스가 없는 것보다 4.4-8.9배 더 높다.\n' +
+      '\n' +
+      '우리의 실험에서 AP 점수는 동작 제어의 성공률과 같지 않다는 점에 유의하는 것이 중요하다. AP를 계산하기 위해 참조 객체 박스를 비디오 합성 모델에 의해 생성되고 DINO+DEVA 시스템에 의해 검출된 것과 비교한다. 이 디텍터는 무결하지 않습니다. 개체를 놓치거나 관련 없는 개체를 탐지하거나 모든 프레임에서 개체를 일관되게 추적하지 못할 수 있습니다. 검출의 이러한 잠재적인 오류는 최종 AP 점수에 영향을 미칠 수 있다. 따라서 절대값보다는 방법 간의 AP 점수 차이에 초점을 맞추는 것이 더 통찰력이 있다.\n' +
+      '\n' +
+      '### Human Evaluation\n' +
+      '\n' +
+      '우리는 100개의 샘플에 대해 4명의 인간 평가자를 대상으로 사용자 선호도 연구를 수행했다. 각 세션에서는 텍스트 프롬프트와 첫 번째 프레임을 입력으로 사용하는 기본 모델(PixelDance)에 의해 생성된 비디오와 박스 제약 조건을 추가로 사용하는 Boximator 모델에 의해 생성된 비디오 두 개를 무작위 순서로 보여주었다. 평가자들은 비디오 품질과 동작 제어에 따라 선호도를 평가하도록 요청받았다. 평가의 세부 기준은 부록 C에 제시되어 있다. 표 3에 나타난 바와 같이 Boximator 모델이 상당한 마진으로 선호되었다. 그것은 사례의 76%에서 동작 제어에서 탁월했으며, 사례의 2.2%에서만 기본 모델에 의해 능가했다. 박스메이터 모델의 비디오 품질도 (+18.4%) 선호되었으며, 이는 박스 제약으로 인한 역동적이고 생생한 콘텐츠 때문일 수 있다. 일부 샘플 비디오는 부록 C를 참조하십시오.\n' +
+      '\n' +
+      '### Ablation Study\n' +
+      '\n' +
+      '우리는 디자인 선택의 영향을 이해하기 위해 절제 연구를 수행한다. 처음에는 자체 추적을 훈련 과정에서 제외합니다. 이는 가시적인 경계 박스 없이 원본 비디오를 예측하도록 모델을 훈련시킨다는 것을 의미한다. 우리는 자기 추적을 생략하는 것이 제어 토큰을 해당 객체와 연관시키는 모델의 능력을 크게 도전한다는 것을 관찰한다. 표 4에서 보는 바와 같이 박스 제약 조건 하에서의 평균 정밀도(AP)는 급격하게 하락하여 박스 제약 조건이 없는 AP보다 약간 더 나은 수준에 도달한다.\n' +
+      '\n' +
+      '다음으로 추론 시 소프트 박스를 사용하는 역할에 대해 살펴본다. 섹션 4.5에 설명된 표준 추론 방법에 따르면, 우리는 프레임 2-15에 이완된 소프트 박스를 삽입하는데, 여기서 사용자는 어떠한 박스 제약도 지정하지 않는다. 표 4는 이러한 이완된 소프트 박스를 제거하는 것(제어 토큰을 \\(\\mathbf{t}_{\\mathrm{null}}\\)으로 대체함으로써)이 평균 정밀도 점수의 현저한 감소를 초래함을 나타낸다. 삽입된 소프트 박스가 이동 방향에 대한 대략적인 가이드 역할을 한다고 가정한다. 이 가이드가 없으면 모델이 실수를 더 많이 하는 경향이 있습니다.\n' +
+      '\n' +
+      '마지막으로 기본 모델 무게 동결의 영향을 조사한다. 비교를 위해 U-Net의 모든 파라미터가 최적화된 새로운 모델을 학습시켰다. 우리는 새로운 모델이 대략 동일한 품질의 비디오를 생성하여 표 1의 표준 모델과 유사한 FVD 점수를 얻었다. 모션 제어 정밀도의 경우 표 4와 같이 이 새로운 모델은 MSR-VTT에서 기본 모델과 유사하게, ActivityNet에서 더 낮은 점수를 받았다. 요약하면, 우리의 결과는 모든 U-Net 매개변수를 훈련할 필요가 없음을 시사한다.\n' +
+      '\n' +
+      '### Case Study\n' +
+      '\n' +
+      '이 절에서는 복잡한 시나리오를 처리하는 모델의 능력을 강조합니다. 도 6(a)는 유전자를 입증하는 도면\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l l|c c c} \\hline \\hline\n' +
+      '**Models** & Extra Input & FVD(\\(\\downarrow\\)) & CLIPSIM(\\(\\uparrow\\)) & mAP/AP\\({}_{50}\\)/AP\\({}_{75}\\)(\\(\\uparrow\\)) \\\\ \\hline MagicVideo [43] & - & 1290 & - & - \\\\ LVDM [12] & - & 742 & 0.2381 & - \\\\ ModelScope [31] & - & 550 & 0.2930 & - \\\\ Show-1 [42] & - & 538 & 0.3072 & - \\\\ PixelDance [41] & - & 381 & **0.3125** & - \\\\ Phenaki [30] & - & 384 & 0.2870 & - \\\\ FACTOR-traj [15] & Box & 317 & 0.2787 & 0.290\\({}^{*}\\)/-/- \\\\ \\hline \\hline  & - & **237** & 0.3039 & 0.094/0.193/0.076 \\\\ PixelDance + Boxinator & Box & 174 & 0.2947 & 0.349/0.479/0.359 \\\\  & F0 & 113 & 0.2890 & 0.194/0.330/0.177 \\\\  & F0 + Box & 102 & 0.2874 & 0.365/0.521/0.384 \\\\ \\hline  & - & 239 & 0.3013 & 0.096/0.195/0.084 \\\\ ModelScope + Boxinator & Box & 216 & 0.2948 & 0.312/0.470/0.309 \\\\  & F0 & 142 & 0.2865 & 0.141/0.260/0.126 \\\\  & F0 + Box & 132 & 0.2852 & 0.300/0.456/0.299 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 1: MSR-VTT에 대한 제로샷 결과. **F0**는 조건으로서 첫 번째 프레임이 주어진 것을 의미한다. **박스**는 박스 제약조건을 의미한다. 결과는 Boxinator가 기본 모델의 비디오 품질(FVD)을 유지하거나 개선한다는 것을 보여준다. 모든 경우 상자 구속조건(Box)을 추가하면 경계 상자 정렬의 평균 정밀도(AP) 점수가 크게 향상됩니다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c} \\hline \\hline\n' +
+      '**Methods** & mAP (Box) & mAP (F0+Box) \\\\ \\hline \\multirow{4}{*}{PixelDance} & \\multicolumn{2}{c}{MSR-VTT} \\\\  & Box & 0.349 & 0.365 \\\\ \\cline{1-1}  & w/o self-tracking & 0.118 & 0.187 \\\\ \\cline{1-1}  & w/o soft boxes & 0.235 & 0.274 \\\\ \\cline{1-1}  & w/o freezing weights & 0.354 & 0.343 \\\\ \\hline \\hline  & \\multicolumn{2}{c}{ActivityNet} \\\\ PixelDance + Boxinator & 0.445 & 0.394 \\\\ \\cline{1-1}  & w/o self-tracking & 0.083 & 0.085 \\\\ \\cline{1-1}  & w/o soft boxes & 0.248 & 0.220 \\\\ \\cline{1-1}  & w/o freezing weights & 0.404 & 0.331 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 4: 절제 연구: 자체 추적 및 소프트 박스를 제거하는 것은 모두 박스 정렬 메트릭에서 상당한 감소를 초래한다. 모든 모델 가중치를 훈련하는 것은 추가적인 이점을 주지 않는다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l l|c c} \\hline \\hline\n' +
+      '**Base Models** & Extra Input & mAP/AP\\({}_{50}\\)/AP\\({}_{75}\\)(\\(\\uparrow\\)) \\\\ \\hline \\multirow{4}{*}{PixelDance} & - & 0.050/0.103/0.041 \\\\  & Box & 0.445/0.638/0.459 \\\\  & F0 & 0.079/0.165/0.072 \\\\  & F0 + Box & 0.394/0.607/0.409 \\\\ \\hline \\multirow{4}{*}{ModelScope} & - & 0.054/0.118/0.040 \\\\  & Box & 0.361/0.563/0.372 \\\\  & F0 & 0.069/0.128/0.068 \\\\  & F0 + Box & 0.304/0.522/0.291 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 2: ActivityNet에 대한 박스 정렬 결과. 모든 경우에, 박스 제약을 추가하는 것은 AP 점수를 상당히 향상시킨다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c} \\hline \\hline\n' +
+      '**Metricia** & Boxinator wins & Draw & Base model wins \\\\ \\hline Video Quality & 35.2\\% & 48.0\\% & 16.8\\% \\\\ Motion Control & 76.0\\% & 21.8\\% & 2.2\\% \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 3: 100개의 샘플에 대한 인간 측면 블라인드 비교.\n' +
+      '\n' +
+      '4개의 상자를 기반으로 하는 반복 작업입니다. 박스메이터는 텍스트 프롬프트에 지정된 대로 대상 객체(돼지)로 각 상자를 성공적으로 채웁니다. 이것은 상자 제약이 없는 모델이 두 마리의 돼지만 생산하는 두 번째 행과 대조된다. 실제로, 이전 연구는 텍스트 조건 확산 모델이 상자 제약 없이 정확한 객체 수 제어와 어려움을 겪는다는 것을 발견했다[39].\n' +
+      '\n' +
+      '도 6(b)는 아기가 전체 프레임에 걸쳐 이동되는 동적 장면을 도시한다. 상자는 모델을 유도하여 모션을 생성했으며, 이는 상자 제약 없이 생성하기 어려운 것으로 나타났다(다음 행 참조). 그림 6(c)는 상자 기반 시각적 접지의 일반화 가능성을 강조한다. 여기서, 사용자는 객체 조합을 제어하기를 원한다: 말에 탄 남자. 모델은 합성 객체를 프레임의 왼쪽 가장자리로 이동하여 이 구속조건을 해석합니다. 마지막으로 그림 6(d)는 새로운 객체를 장면에 도입하는 모델의 능력을 보여준다. 사용자는 왼쪽 경계를 따라 세그먼트 선을 그려 남성의 진입점을 나타냅니다. 모델은 왼쪽 가장자리에서 들어오는 사람을 중앙에서 멈추게 하는 데 성공했습니다.\n' +
+      '\n' +
+      '## 6 Conclusion\n' +
+      '\n' +
+      '본 논문에서는 비디오 합성에서 객체 움직임을 제어하기 위한 일반적인 방법인 Boximator를 제안하였다. 박스메이터는 두 가지 유형의 상자를 사용하여 사용자가 추가 텍스트를 입력하지 않고도 임의 객체를 선택하고 동작을 정의할 수 있습니다. 원본 모델 가중치를 수정하지 않고도 모든 비디오 확산 모델에 구축될 수 있으므로 진화하는 기본 모델로 성능이 향상될 수 있다. 또한, 제어 모듈에 대한 학습을 상당히 간소화하는 자기 추적 방법을 제안하였다. 우리는 우리의 디자인 선택 및 훈련 기술이 인간의 포즈 및 핵심 포인트로의 컨디셔닝과 같은 다른 형태의 제어를 가능하게 하도록 적응될 수 있다고 믿는다.\n' +
+      '\n' +
+      '도 6: 사례 연구: (a) 네 개의 박스들에 기초한 생성 및 모션 제어; (b) 프레임의 상당한 부분에 영향을 미치는 모션; (c) 객체들의 조합(예를 들어, "말을 탄 남자") 상에 정의된 박스; (d) 새로운 객체들을 장면에 추가하는 단계.\n' +
+      '\n' +
+      '윤리적, 사회적 위험\n' +
+      '\n' +
+      '비디오 생성 기술, 특히 고급 비디오 확산 모델은 잠재적인 윤리적 및 사회적 위험을 수반한다. 여기에는 잘못된 정보와 개인 정보 침해로 이어질 수 있는 딥페이크 생성, AI 생성 콘텐츠의 편향, 잠재적으로 불공정하거나 차별적인 결과로 이어질 수 있는 편향, 지적 재산권과 창조 산업에 미치는 영향, 인간의 창의성의 가치를 훼손할 수 있다. 이러한 기술의 개발자와 사용자가 이러한 위험을 인식하고 책임 있는 사용을 보장하는 것이 중요합니다.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* [1] Max Bain, Arsha Nagrani, Gul Varol, and Andrew Zisserman. Frozen in time: A joint video and image encoder for end-to-end retrieval. In _Proceedings of the IEEE/CVF International Conference on Computer Vision_, pages 1728-1738, 2021.\n' +
+      '* [2] Andreas Blattmann, Tim Dockhorn, Sumith Kulal, Daniel Mendelevitch, Maciej Kilian, Dominik Lorenz, Yam Levi, Zion English, Vikram Voleti, Adam Letts, et al. Stable video diffusion: Scaling latent video diffusion models to large datasets. _arXiv preprint arXiv:2311.15127_, 2023.\n' +
+      '* [3] Fabian Caba Heilbron, Victor Escorcia, Bernard Ghanem, and Juan Carlos Niebles. Activitynet: A large-scale video benchmark for human activity understanding. In _Proceedings of the ieee conference on computer vision and pattern recognition_, pages 961-970, 2015.\n' +
+      '* [4] Xinyuan Chen, Yaohui Wang, Lingjun Zhang, Shaobin Zhuang, Xin Ma, Jiashuo Yu, Yali Wang, Dahua Lin, Yu Qiao, and Ziwei Liu. Seine: Short-to-long video diffusion model for generative transition and prediction. _arXiv preprint arXiv:2310.20700_, 2023.\n' +
+      '* [5] Ho Kei Cheng, Seoung Wug Oh, Brian Price, Alexander Schwing, and Joon-Young Lee. Tracking anything with decoupled video segmentation. In _Proceedings of the IEEE/CVF International Conference on Computer Vision_, pages 1316-1326, 2023.\n' +
+      '* [6] Hao Fei, Shengqiong Wu, Wei Ji, Hanwang Zhang, and Tat-Seng Chua. Empowering dynamics-aware text-to-video diffusion with large language models. _arXiv preprint arXiv:2308.13812_, 2023.\n' +
+      '* [7] Mengyang Feng, Jinlin Liu, Kai Yu, Yuan Yao, Zheng Hui, Xiefan Guo, Xianhui Lin, Haolan Xue, Chen Shi, Xiaowen Li, et al. Dreamoving: A human video generation framework based on diffusion models. _arXiv e-prints_, pages arXiv-2312, 2023.\n' +
+      '* [8] Songwei Ge, Seungjun Nah, Guilin Liu, Tyler Poon, Andrew Tao, Bryan Catanzaro, David Jacobs, Jia-Bin Huang, Ming-Yu Liu, and Yogesh Balaji. Preserve your own correlation: A noise prior for video diffusion models. In _Proceedings of the IEEE/CVF International Conference on Computer Vision_, pages 22930-22941, 2023.\n' +
+      '* [9] Rohit Girdhar, Mannat Singh, Andrew Brown, Quentin Duval, Samaneh Azadi, Sai Saketh Rambhatla, Akbar Shah, Xi Yin, Devi Parikh, and Ishan Misra. Emu video: Factorizing text-to-video generation by explicit image conditioning. _arXiv preprint arXiv:2311.10709_, 2023.\n' +
+      '* [10] Jiaxi Gu, Shicong Wang, Haoyu Zhao, Tianyi Lu, Xing Zhang, Zuxuan Wu, Songcen Xu, Wei Zhang, Yu-Gang Jiang, and Hang Xu. Reuse and diffuse: Iterative denoising for text-to-video generation. _arXiv preprint arXiv:2309.03549_, 2023.\n' +
+      '* [11] Yuwei Guo, Ceyuan Yang, Anyi Rao, Maneesh Agrawala, Dahua Lin, and Bo Dai. Sparsectrl: Adding sparse controls to text-to-video diffusion models. _arXiv preprint arXiv:2311.16933_, 2023.\n' +
+      '* [12] Yingqing He, Tianyu Yang, Yong Zhang, Ying Shan, and Qifeng Chen. Latent video diffusion models for high-fidelity video generation with arbitrary lengths. _arXiv preprint arXiv:2211.13221_, 2022.\n' +
+      '* [13] Jonathan Ho, William Chan, Chitwan Saharia, Jay Whang, Ruiqi Gao, Alexey Gritsenko, Diederik P Kingma, Ben Poole, Mohammad Norouzi, David J Fleet, et al. Imagen video: High definition video generation with diffusion models. _arXiv preprint arXiv:2210.02303_, 2022.\n' +
+      '* [14] Jonathan Ho, Tim Salimans, Alexey Gritsenko, William Chan, Mohammad Norouzi, and David J Fleet. Video diffusion models. In _Advances in Neural Information Processing Systems_, pages 8633-8646. Curran Associates, Inc., 2022.\n' +
+      '* [15] Hsin-Ping Huang, Yu-Chuan Su, Deqing Sun, Lu Jiang, Xuhui Jia, Yukun Zhu, and Ming-Hsuan Yang. Fine-grained controllable video generation via object appearance and context. _arXiv preprint arXiv:2312.02919_, 2023.\n' +
+      '* [16] Dan Kondratyuk, Lijun Yu, Xiuye Gu, Jose Lezama, Jonathan Huang, Rachel Hornung, Hartwig Adam, Hassan Akbari, Yair Alon, Vighnesh Birodkar, et al. Videopoet: A large language model for zero-shot video generation. _arXiv preprint arXiv:2312.14125_, 2023.\n' +
+      '* [17] Yuheng Li, Haotian Liu, Qingyang Wu, Fangzhou Mu, Jianwei Yang, Jianfeng Gao, Chunyuan Li, and Yong Jae Lee. Gligen: Open-set grounded text-to-image generation. In _Proceedings of the IEEE/CVFConference on Computer Vision and Pattern Recognition_, pages 22511-22521, 2023.\n' +
+      '* [18] Tsung-Yi Lin, Michael Maire, Serge Belongie, James Hays, Pietro Perona, Deva Ramanan, Piotr Dollar, and C Lawrence Zitnick. Microsoft coco: Common objects in context. In _Computer Vision-ECCV 2014: 13th European Conference, Zurich, Switzerland, September 6-12, 2014, Proceedings, Part V 13_, pages 740-755. Springer, 2014.\n' +
+      '* [19] Haotian Liu, Chunyuan Li, Qingyang Wu, and Yong Jae Lee. Visual instruction tuning. _arXiv preprint arXiv:2304.08485_, 2023.\n' +
+      '* [20] Shilong Liu, Zhaoyang Zeng, Tianhe Ren, Feng Li, Hao Zhang, Jie Yang, Chunyuan Li, Jianwei Yang, Hang Su, Jun Zhu, et al. Grounding dino: Marrying dino with grounded pre-training for open-set object detection. _arXiv preprint arXiv:2303.05499_, 2023.\n' +
+      '* [21] Wan-Duo Kurt Ma, J. P. Lewis, and W. Bastiaan Kleijn. Trailbazer: Trajectory control for diffusion-based video generation. 2023.\n' +
+      '* [22] Ben Mildenhall, Prutul P Srinivasan, Matthew Tancik, Jonathan T Barron, Ravi Ramamoorthi, and Ren Ng. Nerf: Representing scenes as neural radiance fields for view synthesis. _Communications of the ACM_, 65(1):99-106, 2021.\n' +
+      '* [23] Zhiwu Qing, Shiwei Zhang, Jiayu Wang, Xiang Wang, Yujie Wei, Yingya Zhang, Changxin Gao, and Nong Sang. Hierarchical spatio-temporal decoupling for text-to-video generation. _arXiv preprint arXiv:2312.04483_, 2023.\n' +
+      '* [24] Olaf Ronneberger, Philipp Fischer, and Thomas Brox. U-net: Convolutional networks for biomedical image segmentation. In _Medical Image Computing and Computer-Assisted Intervention-MICCAI 2015: 18th International Conference, Munich, Germany, October 5-9, 2015, Proceedings, Part III 18_, pages 234-241. Springer, 2015.\n' +
+      '* [25] Shelly Sheynin, Adam Polyak, Uriel Singer, Yuval Kirstain, Amit Zohar, Oron Ashual, Devi Parikh, and Yaniv Taigman. Emu edit: Precise image editing via recognition and generation tasks. _arXiv preprint arXiv:2311.10089_, 2023.\n' +
+      '* [26] Uriel Singer, Adam Polyak, Thomas Hayes, Xi Yin, Jie An, Songyang Zhang, Qiyuan Hu, Harry Yang, Oron Ashual, Oran Gafni, et al. Make-a-video: Text-to-video generation without text-video data. _arXiv preprint arXiv:2209.14792_, 2022.\n' +
+      '* [27] Jiaming Song, Chenlin Meng, and Stefano Ermon. Denoising diffusion implicit models. _arXiv preprint arXiv:2010.02502_, 2020.\n' +
+      '* [28] Khurram Soomro, Amir Roshan Zamir, and Mubarak Shah. Ucf101: A dataset of 101 human actions classes from videos in the wild. _arXiv preprint arXiv:1212.0402_, 2012.\n' +
+      '* [29] Thomas Unterthiner, Sjoerd Van Steenkiste, Karol Kurach, Raphael Marinier, Marcin Michalski, and Sylvain Gelly. Towards accurate generative models of video: A new metric & challenges. _arXiv preprint arXiv:1812.01717_, 2018.\n' +
+      '* [30] Ruben Villegas, Mohammad Babaeizadeh, Pieter-Jan Kindermans, Hernan Moraldo, Han Zhang, Mohammad Taghi Saffar, Santiago Castro, Julius Kunze, and Dumitru Erhan. Phenaki: Variable length video generation from open domain textual description. _arXiv preprint arXiv:2210.02399_, 2022.\n' +
+      '* [31] Jiuniu Wang, Hangjie Yuan, Dayou Chen, Yingya Zhang, Xiang Wang, and Shiwei Zhang. Modelscope text-to-video technical report. _arXiv preprint arXiv:2308.06571_, 2023.\n' +
+      '* [32] Tan Wang, Linjie Li, Kevin Lin, Chung-Ching Lin, Zhengyuan Yang, Hanwang Zhang, Zicheng Liu, and Lijuan Wang. Disco: Disentangled control for referring human dance generation in real world. _arXiv preprint arXiv:2307.00040_, 2023.\n' +
+      '* [33] Weimin Wang, Jiawei Liu, Zhijie Lin, Jiangqiao Yan, Shuo Chen, Chetwin Low, Tuyen Hoang, Jie Wu, Jun Hao Liew, Hanshu Yan, et al. Magicvideo-v2: Multi-stage high-aesthetic video generation. _arXiv preprint arXiv:2401.04468_, 2024.\n' +
+      '* [34] Xiang Wang, Hangjie Yuan, Shiwei Zhang, Dayou Chen, Jiuniu Wang, Yingya Zhang, Yujun Shen, Deli Zhao, and Jingren Zhou. Videocomposer: Compositional video synthesis with motion controllability. _arXiv preprint arXiv:2306.02018_, 2023.\n' +
+      '* [35] Zhouxia Wang, Ziyang Yuan, Xintao Wang, Tianshui Chen, Menghan Xia, Ping Luo, and Ying Shan. Motionctrl: A unified and flexible motion controller for video generation. _arXiv preprint arXiv:2312.03641_, 2023.\n' +
+      '* [36] Chenfei Wu, Lun Huang, Qianxi Zhang, Binyang Li, Lei Ji, Fan Yang, Guillermo Sapiro, and Nan Duan. Godiva: Generating open-domain videos from natural descriptions. _arXiv preprint arXiv:2104.14806_, 2021.\n' +
+      '* [37] Jun Xu, Tao Mei, Ting Yao, and Yong Rui. Msr-vtt: A large video description dataset for bridging video and language. In _Proceedings of the IEEE conference on computer vision and pattern recognition_, pages 5288-5296, 2016.\n' +
+      '* [38] Zhongcong Xu, Jianfeng Zhang, Jun Hao Liew, Hanshu Yan, Jia-Wei Liu, Chenxu Zhang, Jiashi Feng, and Mike Zheng Shou. Magicanimate: Temporally consistent human image animation using diffusion model. _arXiv preprint arXiv:2311.16498_, 2023.\n' +
+      '\n' +
+      '* [39] Zhengyuan Yang, Jianfeng Wang, Zhe Gan, Linjie Li, Kevin Lin, Chenfei Wu, Nan Duan, Zicheng Liu, Ce Liu, Michael Zeng, et al. Reco: Region-controlled text-to-image generation. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 14246-14255, 2023.\n' +
+      '* [40] Shengming Yin, Chenfei Wu, Jian Liang, Jie Shi, Houqiang Li, Gong Ming, and Nan Duan. Dragnnuwa: Fine-grained control in video generation by integrating text, image, and trajectory. _arXiv preprint arXiv:2308.08089_, 2023.\n' +
+      '* [41] Yan Zeng, Guoqiang Wei, Jiani Zheng, Jiaxin Zou, Yang Wei, Yuchen Zhang, and Hang Li. Make pixels dance: High-dynamic video generation. _arXiv preprint arXiv:2311.10982_, 2023.\n' +
+      '* [42] David Junhao Zhang, Jay Zhangjie Wu, Jia-Wei Liu, Rui Zhao, Lingmin Ran, Yuchao Gu, Difei Gao, and Mike Zheng Shou. Show-1: Marrying pixel and latent diffusion models for text-to-video generation. _arXiv preprint arXiv:2309.15818_, 2023.\n' +
+      '* [43] Daquan Zhou, Weimin Wang, Hanshu Yan, Weiwei Lv, Yizhe Zhu, and Jiashi Feng. Magicvideo: Efficient video generation with latent diffusion models. _arXiv preprint arXiv:2211.11018_, 2022.\n' +
+      '* [44] Luowei Zhou, Yannis Kalantidis, Xinlei Chen, Jason J Corso, and Marcus Rohrbach. Grounded video description. In _CVPR_, 2019.\n' +
+      '\n' +
+      '## 부록 추가 구현 세부사항\n' +
+      '\n' +
+      '제어 모듈은 NeRF[22]를 따라 푸리에 임베딩을 사용하여 박스 좌표, 객체 ID 및 하드/소프트 플래그를 인코딩한다. 우리는 모든 입력 차원이 0과 1 사이에서 스케일링되는지 확인한다. 이 범위 내의 임의의 주어진 입력 \\(x\\)에 대해, 그것의 푸리에 임베딩은 다음과 같이 정의된다:\n' +
+      '\n' +
+      '\\[\\mathrm{Fourier}(x)=[\\cos(x\\cdot 100^{0/8}),\\ldots,\\cos(x\\cdot 100^{7/8}),\\sin(x\\cdot 100^{0/8}),\\ldots,\\sin(x\\cdot 100^{7/8})]\n' +
+      '\n' +
+      '각 입력의 이러한 푸리에 임베딩을 결합하여 128의 차원을 갖는 전체 임베딩을 형성한다. 섹션 4.1에서 언급한 바와 같이, 이러한 임베딩은 다층 퍼셉트론(MLP)을 통해 처리된다. 이 MLP는 각각 512의 차원을 갖는 3개의 은닉 층을 갖는다. 마지막으로, 출력 제어 토큰은 시각적 토큰의 차원인 1024와 일치하도록 조정된다.\n' +
+      '\n' +
+      '학습 및 추론 세부사항 우리 모델은 초당 4프레임으로 실행되는 256x256 픽셀의 해상도로 16프레임 시퀀스에 대해 학습합니다. 최대 객체 수를 \\(N=8\\)으로 제한한다. 훈련은 16개의 엔비디아 테슬라 A100 GPU에 걸쳐 배치 크기가 128인 아담 최적화기를 사용한다. 4.4절에 요약된 바와 같이, 훈련은 1단계는 50k 반복, 2단계는 50k 반복, 3단계는 10k 반복의 세 단계로 이루어지며, 1단계는 2×10×10×4×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10×10 모든 단계는 7,500개의 웜업 단계가 있는 선형 학습 속도 스케줄러를 사용한다. 박스 컨디셔닝은 선택 사항이기 때문에, 우리는 박스 주석 없이 비디오의 학습 데이터의 25%를 사용한다. 첫 번째 프레임 컨디셔닝도 선택 사항이기 때문에 훈련 샘플의 절반이 비디오의 첫 번째 프레임을 조건으로 포함하도록 한다.\n' +
+      '\n' +
+      '모든 실험에 대해 50개의 추론 단계가 있는 DDIM 추론 알고리즘[27]을 사용한다. 분류기 없는 안내를 가능하게 하기 위해 모든 제어 토큰에 \\(\\mathbf{t}_{\\mathrm{null}}\\)을 대입하여 음의 조건을 구성한다. 분류기 없는 안내 척도는 9로 설정했습니다.\n' +
+      '\n' +
+      '## 부록 B UCF-101 결과\n' +
+      '\n' +
+      'UCF-101에 대한 평가를 위해 PixelDance[41]의 실험 설정을 따르며, 구체적으로 UCF-101 테스트 세트에서 2,048개의 비디오를 샘플링하여 각각에 대한 설명 텍스트 프롬프트를 생성한 다음 10,240개의 16-프레임 비디오를 생성했다. 우리는 각 비디오에서 16개의 프레임을 샘플링하여 원본 2,048개의 비디오에서 FVD 실제 특징을 계산한다. 참조 경계 상자는 MSR-VTT와 동일한 방법을 사용하여 자동으로 주석이 달렸다. 생성된 비디오가 주어지면 경계 상자 검출 및 계산된 평균 정밀도(AP) 점수를 위해 DINO+DEVA를 사용했다. 주목할 점은 UCF-101의\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l l|c c} \\hline \\hline\n' +
+      '**Models** & Extra Input & FVD(\\(\\downarrow\\)) & mAP/AP\\({}_{50}\\)/AP\\({}_{75}\\)(\\(\\uparrow\\)) \\\\ \\hline MagicVideo [43] & - & 699 & - \\\\ LVDM [12] & - & 641 & - \\\\ ModelScope [31] & - & 410 & - \\\\ Make-A-Video [26] & - & 367 & - \\\\ VidRD [10] & - & 363 & - \\\\ PYOCO [8] & - & 355 & - \\\\ Dysen-VDM [6] & - & 325 & - \\\\ PixelDance [41] & - & **242** & - \\\\ Stable Video Diffusion [2] & - & **242** & - \\\\ \\hline \\hline  & - & 270 & 0.060/0.127/0.044 \\\\ PixelDance + Box & Box & 263 & 0.228/0.354/0.229 \\\\  & F0 & 132 & 0.171/0.272/0.163 \\\\  & F0 + Box & 142 & 0.284/0.419/0.279 \\\\ \\hline  & - & 310 & 0.063/0.131/0.047 \\\\ ModelScope + Box & Box & 311 & 0.192/0.308/0.184 \\\\  & F0 & 196 & 0.132/0.223/0.119 \\\\  & F0 + Box & 194 & 0.212/0.343/0.205 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 5: UCF-101에 대한 제로샷 결과.\n' +
+      '\n' +
+      '프롬프트는 MSR-VTT 및 ActivityNet에 대한 것보다 더 상세하다. 자동 주석은 텍스트 프롬프트를 사용하여 객체 이름을 추출하므로, 더 긴 프롬프트는 더 시끄럽지만 비디오당 상자로 이어집니다.\n' +
+      '\n' +
+      '표 B는 MSR-VTT와 일치하는 경향을 보여주는 UCF-101 결과를 제시한다. 박스메이터 모델은 기본 모델에 비해 FVD 점수를 대략적으로 유지하거나 개선한다. 첫 번째 프레임(F0)을 조건으로 사용하여 FVD 점수를 현저하게 증가시켰지만, 박스 제약은 UCF-101의 박스의 더 시끄러운 특성 때문에 FVD에 최소한의 영향을 미쳤다.\n' +
+      '\n' +
+      '모든 시나리오에서 박스 제약을 사용하면 MSR-VTT 및 ActivityNet의 에코 결과인 AP 점수가 크게 증가했다. 그러나 UCF-101의 절대 AP 값은 다른 데이터 세트보다 낮았는데, 이는 아마도 상자 주석의 품질이 낮기 때문일 것이다.\n' +
+      '\n' +
+      '## 부록 C 인적 평가 상세\n' +
+      '\n' +
+      '웹비드(훈련 세트 제외)에서 두드러진 카메라 또는 객체 움직임을 특징으로 하는 고품질 비디오 100개를 선택하고 경계 상자에 수동으로 주석을 달았다. 그런 다음 표준 PixelDance 모델과 PixelDance+Boximator를 사용하여 비디오 캡션과 첫 번째 프레임을 입력으로 하여 새로운 비디오를 생성한다. Boximator 모델은 처음 프레임과 마지막 프레임의 바운딩 박스를 추가로 사용하였다. 4명의 인간 평가자는 생성 모델을 모호하게 하기 위해 무작위 순서로 제시된 "비디오 1" 및 "비디오 2"로 표시된 재생된 비디오를 평가했다. 레이터는 "비디오 1이 더 좋다", "비디오 2가 더 좋다" 또는 "선호하지 않는다" 중 하나를 선택하여 비디오의 품질과 동작 제어를 평가했다.\n' +
+      '\n' +
+      '비디오 품질 평가기는 각 비디오를 시각적 왜곡, 블러 또는 기타 품질 결함 및 프레임에 걸쳐 일관성 없는 객체 출현과 같은 시간적 불일치에 대해 평가했다. 두 영상 모두 이러한 이슈로부터 자유로운 경우, 평가자들은 더 풍부한 콘텐츠를 가진 영상을 선호하였다. 예를 들어, 한 비디오가 흥미로운 동작을 나타내고 다른 비디오가 대부분 정지 상태로 유지되는 두 비디오를 비교할 때, 평가자는 더 역동적인 비디오를 선호할 것으로 예상된다.\n' +
+      '\n' +
+      '모션 컨트롤 평가는 각 비디오가 초기 및 최종 프레임에서 바운딩 박스에 의해 설정된 모션 제약을 만족하는지 여부에 초점을 맞추었다. 이러한 제약 조건을 충족하는 비디오에 대한 선호도가 부여되었다. 둘 다 또는 둘 다 비디오가 제약 조건을 충족하지 않으면, 평가자는 "선호하지 않음"을 선택할 것으로 예상된다.\n' +
+      '\n' +
+      '일부 샘플 비디오 및 이들의 평가 결과는 도 7 내지 도 9에 디스플레이된다.\n' +
+      '\n' +
+      '도 7: 인간 평가로부터의 샘플 비디오들(파트 1). 각 그룹에는 Boximator 모델에 의해 생성된 첫 번째 행과 기본 모델에 의해 생성된 두 번째 행이 표시됩니다. 투표 결과는 X/Y/Z로 표시되며, 이는 평가자의 선호도를 나타낸다: Boximator 모델의 경우 X, 선호되지 않는 모델의 경우 Y, 기본 모델의 경우 Z.\n' +
+      '\n' +
+      '도 8: 인간 평가로부터의 샘플 비디오들(파트 2).\n' +
+      '\n' +
+      '도 9: 인간 평가로부터의 샘플 비디오들(파트 3).\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>

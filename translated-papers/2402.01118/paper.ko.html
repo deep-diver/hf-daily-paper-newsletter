@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# 포켓엘몬: 포켓몬 전투를 위한 인간패리티 에이전트\n' +
+      '\n' +
+      '대규모 언어 모델\n' +
+      '\n' +
+      ' 시하오 후천성황링류\n' +
+      '\n' +
+      '조지아공과대학교\n' +
+      '\n' +
+      '미국 GA 30332 애틀랜타\n' +
+      '\n' +
+      '{sihaohu, thuang, ling.liu}@gatech.edu\n' +
+      '\n' +
+      '[https://poke-llm-on.github.io/](https://poke-llm-on.github.io/)\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      '포켓몬 전투에서 입증된 바와 같이 전술 전투 게임에서 인간 패리티 성능을 달성하는 최초의 LLM 체형 에이전트인 포켓엘몬을 소개합니다. PokELLMon의 설계는 세 가지 핵심 전략을 통합한다: (i) 전투에서 파생된 텍스트 기반 피드백을 즉시 소비하여 정책을 반복적으로 정제하는 상황 강화 학습; (ii) 환각에 대응하기 위해 외부 지식을 검색하고 에이전트가 시기적절하고 적절하게 행동할 수 있도록 하는 지식 증강 생성; (iii) 에이전트가 강력한 상대와 마주하고 전투를 피하고자 할 때 _panic switching_ 현상을 완화하기 위한 일관된 액션 생성. 우리는 인간과의 온라인 대결을 통해 포켓엘몬의 인간다운 전투 전략과 적시 의사 결정을 입증하여 사다리 대회에서 49%, 초청 전투에서 56%의 승률을 달성했음을 보여준다. 구현 및 플레이 가능한 전투 로그는 [https://github.com/git-disl/PokeLLMon](https://github.com/git-disl/PokeLLMon)에서 사용할 수 있다.\n' +
+      '\n' +
+      '머신러닝, ICML\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      'Generative AI and Large Language Models(LLM)는 NLP 태스크에서 전례 없는 성공을 보여주었다(Ouyang et al., 2022; Brown et al., 2020; Xi et al., 2023; Wang et al., 2023b). 앞으로 다가올 발전 중 하나는 LLM이 텍스트에서 행동으로 발전 공간이 확장된 물리적 세계에서 자율적으로 어떻게 행동할 수 있는지 탐구하는 것이며, 이는 인공지능 추구의 중추적인 패러다임을 나타낸다(Goertzel and Pennachin, 2007; Goertzel, 2014).\n' +
+      '\n' +
+      '게임은 인간 행동과 유사한 방식으로 가상 환경과 상호작용하기 위해 LLM-체화 에이전트(Duan et al., 2022; Batra et al., 2020)를 개발하기에 적합한 테스트-베드이다. 예를 들어, 생성 에이전트(Park et al., 2023)는 "The Sims"와 같은 샌드박스에서 다양한 역할을 가정하는 LLM으로 소셜 실험을 수행하며, 여기서 에이전트는 행동과 사회적 상호작용을 인간을 미러링한다. Mincraft에서 의사결정 에이전트(Wang et al., 2023a;c; Singh et al., 2023)는 세계를 탐험하고 과제 해결 및 도구 제작을 위한 새로운 기술을 개발하도록 설계된다.\n' +
+      '\n' +
+      '기존 게임에 비해 전술 전투 게임(Ma et al., 2023)은 승률을 직접 측정할 수 있고 AI나 인간 플레이어와 같은 일관된 상대를 항상 사용할 수 있기 때문에 LLM의 게임 플레이 능력을 벤치마킹하기에 더 적합하다. 잘 알려진 포켓몬 게임에서 트레이너의 전투 능력을 평가하는 메커니즘 역할을 하는 포켓몬 전투는 LLM이 전술 전투 게임을 하는 첫 번째 시도로서 몇 가지 독특한 이점을 제공한다.\n' +
+      '\n' +
+      '(1) 상태 및 동작 공간은 이산적이며 텍스트 무손실 상태로 번역될 수 있다. **도 1은 포켓몬 전투에 대한 예시적인 예이다: 각 턴에서, 플레이어는 각 측면으로부터 포켓몬의 현재 상태가 주어졌을 때 수행하기 위한 액션을 생성하도록 요청된다. 동작공간은 4개의 동작과 5개의 가능한 포켓몬으로 구성된다; (2) 턴 기반 포맷은 집중적인 게임 플레이의 요구를 제거하고, LLM의 추론 시간 비용에 대한 스트레스를 완화하며, 성능은 LLM의 추론 능력에만 의존한다; (3) 포켓몬 전투는 단순한 메커니즘에도 불구하고 전략적이고 복잡하다: 숙련된 플레이어는 모든 포켓몬의 종/유형/안정성/통계/항목/이동 등 다양한 요소를 고려한다. 랜덤 배틀에서, 각각의 포켓몬은\n' +
+      '\n' +
+      '도 1: 각 턴에서, 플레이어는 어떤 액션을 수행할지, _i.e._, _Dragonite_를 필드에서 이동 또는 다른 포켓몬으로 전환할지를 결정하도록 요청된다.\n' +
+      '\n' +
+      '뚜렷한 특성을 가진 대규모 후보 풀(1,000개 이상)에서 무작위로 선정되어 플레이어에게 포켓몬 지식과 추론 능력을 모두 요구한다.\n' +
+      '\n' +
+      '**범위 및 기여도:** 본 논문의 범위는 인간 플레이어가 포켓몬 전투에 참여하는 방식을 모방한 LLM 체형 에이전트를 개발하는 것이다. 목적은 LLM 체형 에이전트를 좋은 플레이어로 만드는 주요 요인을 탐색하고 인간 플레이어와의 전투에서 장단점을 조사하는 것이다. LLM이 자율적으로 게임을 할 수 있도록, 전투 상태를 파싱하여 텍스트 디스크립션으로 변환하고 생성된 액션을 서버에 다시 전달할 수 있는 환경을 구현한다. 기존 LLM을 평가하여 _hallucination_의 존재와 _panic switching_ 현상을 식별한다.\n' +
+      '\n' +
+      '_Hallucination_: 에이전트는 실수로 포켓몬을 타입 단점으로 내보낼 수도 있고, 상대를 상대로 비효과적인 동작을 계속 사용할 수도 있다. 그 결과, 가장 진보된 LLM인 GPT-4는 휴리스틱 봇을 상대할 때 26%의 승률을 달성하는 반면, 인간 플레이어의 승률은 60%이다. 이를 위해 본 논문에서는 (1) 상황 강화 학습(In-context reinforcement learning: In-context reinforcement learning: In-context reinforcement learning: Instantly_ derived with text-based feedback: _instantly_)을 에이전트에게 제공하여 훈련 없이 액션 생성 정책을 보다 구체화하는 새로운 형태의 "reward" 역할을 한다; (2) 지식 증강 생성: 에이전트에게 형태적 이점 관계나 이동/가능성 설명과 같은 외부 지식을 제공하는 포켓몬 게임에서 백과사전인 Pokedex를 장착하여 익숙하지 않은 포켓몬의 정보를 검색하는 인간 플레이어를 시뮬레이션한다.\n' +
+      '\n' +
+      '_Panic switching_: 우리는 에이전트가 강력한 포켓몬을 만났을 때, 패닉하는 경향이 있고, 전투를 피하기 위해 연속적인 턴에서 상이한 포켓몬을 스위칭하는 것과 같은 일관되지 않은 액션들을 발생시킨다는 것을 발견한다(Wei et al., 2022) 추론으로 특히 두드러지는 현상이다. 일관성 있는 행동 생성은 지나치게 생각하지 않고 가장 일관된 행동을 투표하여 문제를 완화한다. 이러한 관찰은 스트레스 상황에서 어려움을 과도하게 생각하고 과장하는 것이 공황으로 이어지고 행동을 방해할 수 있는 인간의 행동을 반영한다.\n' +
+      '\n' +
+      '온라인 전투는 포켈몬의 인간 경쟁적인 전투 능력을 보여준다: 그것은 사다리 대회에서 49%의 승률과 초대된 전투에서 56%의 승률을 달성한다. 또한, 인간 플레이어의 소모 전략과 속임수에 대한 취약성을 드러낸다.\n' +
+      '\n' +
+      '요약하면, 이 논문은 네 가지 독창적인 기여를 한다:\n' +
+      '\n' +
+      '* LLM이 포켓몬 전투를 자율적으로 플레이할 수 있는 환경을 구현 및 출시합니다.\n' +
+      '* 정책을 즉각적이고 반복적으로 다듬기 위한 상황 내 강화 학습과 환각을 퇴치하기 위한 지식 증강 생성을 제안한다.\n' +
+      '* 우리는 생각 사슬을 가진 에이전트가 강력한 상대와 대면할 때 공황을 경험하고 일관된 액션 생성이 이 문제를 완화할 수 있음을 발견한다.\n' +
+      '*PokELMon은 우리가 아는 한, 전술 전투 게임에서 인간패리티 성능을 가진 최초의 LLM 체형 에이전트이다.\n' +
+      '\n' +
+      '게임 플레이어의 2 LLMs\n' +
+      '\n' +
+      '**커뮤니케이션 게임:**커뮤니케이션 게임은 플레이어 간의 커뮤니케이션, 추론 및 때로는 속임수를 중심으로 합니다. 기존 연구에 따르면 LLM은 Werewolf(Xu et al., 2023), Avalane(Light et al., 2023), World War II(Hua et al., 2023) 및 Diplomacy(Bakhtin et al., 2022)와 같은 보드 게임에서 전략적 행동을 보여준다.\n' +
+      '\n' +
+      '**개방형 게임:**개방형 게임은 플레이어가 게임 세계를 자유롭게 탐색하고 다른 사람과 상호 작용할 수 있도록 한다. Generative Agent(Park et al., 2023)는 LLM-체화 에이전트가 인간-유사 패턴을 미러링하는 행동 및 사회적 상호작용을 나타낸다는 것을 보여준다. MineCraft에서 Voyager(Wang et al., 2023)는 커리큘럼 메커니즘을 도입하여 세계를 탐색하고 과제 해결을 위한 코드를 생성하고 실행한다. DEPS(Wang et al., 2023)는 70+ 태스크를 달성하기 위한 "Describe, Explain, Plan and Select"의 접근법을 제안한다. AutoGPT(Significant Gravitas) 및 MetaGPT(Hong et al., 2023)와 같은 계획 기반 프레임워크가 탐사 작업에도 채택될 수 있다.\n' +
+      '\n' +
+      '** 전술 전투 게임:** 다양한 게임 유형 중에서 전술 전투 게임(Akata et al., 2023; Ma et al., 2023)은 승률을 직접 측정할 수 있고, 일관된 상대를 항상 이용할 수 있기 때문에 LLMs의 게임 플레이 능력을 벤치마킹하는데 특히 적합하다. 최근 LLM은 텍스트 기반 인터페이스와 요약 연쇄 접근 방식을 사용하여 내장된 AI에 대해 스타크래프트 II(Ma et al., 2023)를 재생하기 위해 사용된다. 이에 비해, PokELMon은 (1) 포켓몬 전투 상태를 텍스트로 변환하는 것은 무손실이다; (2) 턴 기반 포맷은 LLM의 추론 시간 비용을 고려할 때 실시간 스트레스를 제거하며; (3) 훈련된 인간 플레이어에 대한 전투는 난이도를 새로운 높이로 높인다.\n' +
+      '\n' +
+      '## 3 Background\n' +
+      '\n' +
+      '### Pokemon\n' +
+      '\n' +
+      '**종:** 1,000종 이상의 포켓몬 종(벌, 2024c)이 있으며 각각 고유한 능력, 유형(들), 통계(통계) 및 전투 동작을 가지고 있다. **도**2는 두 개의 대표적인 포켓몬을 나타낸다: _Charizard_와 _Venusaur_.\n' +
+      '\n' +
+      '**유형:** 각 포켓몬 종은 최대 두 가지 원소 유형을 가지고 있어 장단점을 결정한다. **그림**3은 18종의 공격 동작과 공격된 포켓몬 간의 장/약점 관계를 나타낸다. 충분한 경우, _Charizard_의 "Fire Blast"와 같은 화재형 이동은 _Venusaur_와 같은 잔디형 포켓몬에 이중 피해를 줄 수 있는 반면, _Charizard_는 물형 이동에 취약하다.\n' +
+      '\n' +
+      '**Stats:**Stats는 포켓몬이 전투에서 얼마나 잘하는지 결정한다. (1) Hit Points(HP): 포켓몬이 실신하기 전에 취할 수 있는 손상을 결정한다; (2) Attack(Atk): 공격 움직임의 강도에 영향을 미친다; (3) Defense(Def): 공격에 대한 저항을 지시한다; (4) Speed(Spe): 전투에서 움직임의 순서를 결정한다.\n' +
+      '\n' +
+      '**능력:**능력은 전투에 영향을 줄 수 있는 수동적인 효과입니다. 예를 들어, _Charizard_의 능력은 "Blaze"이며, 이는 HP가 낮을 때 화재 유형의 움직임의 힘을 강화한다.\n' +
+      '\n' +
+      '**Move:** 포켓몬은 공격 동작 또는 상태 동작으로 분류되는 네 가지 전투 동작을 학습할 수 있습니다. 공격 동작은 파워 값 및 정확도로 즉각적인 손상을 다루고, 특정 타입과 연관되는데, 특정 타입은 종종 포켓몬의 타입과 상관되지만 반드시 정렬되지는 않는다; 상태 동작은 즉각적인 손상을 야기하지 않고, 스탯 변경, 포켓몬의 치유 또는 보호, 또는 전투 조건, _etc_와 같은 다양한 방식으로 전투에 영향을 미친다. 독특한 효과를 가진 총 919개의 움직임이 있다(벌, 2024b).\n' +
+      '\n' +
+      '### Battle Rule\n' +
+      '\n' +
+      '일대일 랜덤 배틀(위키피디아, 2023)에서, 두 명의 배틀러가 각각 무작위로 선택된 6개의 포켓몬과 대결한다. 처음에, 각각의 전투는 포켓몬 하나를 경기장으로 내보내고, 다른 것들은 미래의 스위치들을 위해 예비한다. 목표는 상대의 모든 포켓몬을 (HP를 0으로 줄임으로써) 기절시키는 동시에 자신의 포켓몬 중 적어도 하나가 기절하지 않은 채로 유지되도록 하는 것이다. 배틀은 턴 기반입니다: 각 턴이 시작될 때 두 플레이어 모두 수행할 액션을 선택합니다. 행동은 (1) 움직임을 취하거나 (2) 다른 포켓몬으로 전환하는 두 가지 범주로 나뉜다. 배틀 엔진은 액션을 실행하고 다음 단계를 위한 배틀 상태를 업데이트한다. 회전 후 포켓몬이 실패하고 배틀러가 다른 포켓몬을 기절하지 않은 경우, 배틀 엔진은 스위치를 강제하는데, 이는 다음 단계를 위한 플레이어의 액션으로 간주되지 않는다. 강제 전환 후에도 플레이어는 여전히 움직임을 선택하거나 다른 전환을 할 수 있습니다.\n' +
+      '\n' +
+      '## 4 전투환경\n' +
+      '\n' +
+      '**배틀 엔진:** 환경은 포켓몬 대결(pok, 2024)이라는 배틀 엔진 서버와 상호 작용하며, 이는 인간 플레이어를 위한 웹 기반 GUI뿐만 아니라 정의된 포맷의 메시지와 상호 작용하기 위한 웹 API를 제공한다.\n' +
+      '\n' +
+      '**배틀 환경:** LLM이 포켓몬 전투를 자율적으로 플레이할 수 있도록 지원하는 (사호비치, 2023a) 기반의 전투 환경을 구현한다. **도**4는 전체 프레임워크가 어떻게 동작하는지를 예시한다. 턴이 시작될 때, 환경은 마지막 턴으로부터의 실행 결과를 포함하여 서버로부터 액션-요청 메시지를 얻는다. 환경은 먼저 메시지를 파싱하고 로컬 상태 변수를 업데이트한 후, 상태 변수를 텍스트로 변환한다. 본문 서술은 주로 (1) 포켓몬의 속성을 포함하는 팀 정보, 포켓몬의 속성을 포함하는 팀 정보, 포켓몬의 속성을 포함하는 팀 정보, 포켓몬의 속성을 포함하는 팀 정보, 포켓몬의 속성을 포함하는 팀 정보, 포켓몬의 속성을 포함하는 팀 정보, 포켓몬의 속성을 포함하는 팀 정보, 포켓몬의 속성을 포함하는 팀 정보, 포켓몬의 속성을 포함하는 팀 정보, 포켓몬의 속성을 포함하는 팀 정보, 포켓몬의 속성을 포함하는 팀 정보, 포켓몬의 속성을 포함하는 팀 정보, 포켓몬의 속성을 포함하는 팀 정보, 포켓몬의 속성을 포함하는 팀 정보, 포켓몬의 속성을 포함하는 팀 정보, 포켓몬의 속성을 포함하는 팀 정보, 포켓몬의 속성을 포함하는 팀 정보, 포켓몬의 속성을 포함하는 팀 정보, 포켓몬의 속성을 포함하는 팀 정보, 포켓몬의 속성을 포함하는 팀 정보, 포켓몬의 속성을 포함하는 팀 정보, 포켓몬의 속성을 포함하는 팀 정보, 포켓몬의 속성을 포함하는 팀 정보, 포켓몬의 속성을 포함하는 팀 정보, 포켓몬의 속성을 포함하는 팀 정보, 포켓몬의 속성을 포함하는 팀 정보, 포켓몬의 속성을 포함하는 팀 정보, 포켓몬의 속성을 포함하는 LLM들은 번역된 상태를 입력으로서 취하고 다음 단계를 위한 액션을 출력한다. 액션은 서버로 전송되고 인간 플레이어가 선택한 액션과 함께 실행된다.\n' +
+      '\n' +
+      '##5 예비평가\n' +
+      '\n' +
+      '포켓몬 전투와 관련된 도전에 대한 통찰력을 얻기 위해 GPT-3.5(Ouyang et al., 2022), GPT-4(Achiam et al., 2023), LLaMA-2(Touvron et al., 2023)를 포함한 기존 LLM의 능력을 평가한다.\n' +
+      '\n' +
+      '### Pokemon Battles\n' +
+      '\n' +
+      'LLM을 인간 선수와의 직접 경기에 배치하는 것은 인간이 생각하는 시간(평균 1전 4분)이 필요하기 때문에 시간이 많이 걸린다. 시간을 절약하기 위해 우리는 휴리스를 채택합니다.\n' +
+      '\n' +
+      '그림 3: Type advantage/weakness 관계. “\\(+\\)”는 초효과적(2x 손상), “\\(-\\)”은 비효과적(0.5x 손상), “\\(\\times\\)”은 효과 없음(0x 손상)을 나타낸다. 표시되지 않은 것은 표준(1x) 손상입니다.\n' +
+      '\n' +
+      '도 2: 두 개의 대표적인 포켓몬: _Charizard_ 및 _Venusaur_. 각 포켓몬에는 유형, 능력, 스탯 및 4개의 전투 동작이 있습니다.\n' +
+      '\n' +
+      '사호빅(Sahovic, 2023b) 봇은 처음에 래더 대회에서 인간 선수들과 싸운 다음 봇을 사용하여 기존 LLM을 벤치마킹한다. 이 봇은 상태 부스팅 동작, 진입 위험 설정, 포켓몬의 스탯, 움직임의 힘, 유형 장점/약점을 고려하여 가장 효과적인 동작을 선택하도록 프로그래밍된다.\n' +
+      '\n' +
+      '통계 결과는 **표**1에 제시되어 있으며, 여기서 전투 점수는 전투가 끝날 때 상대방의 실신한 포켓몬과 선수의 실신한 포켓몬의 수의 합으로 정의된다. 결과적으로, 상대 선수의 전투 점수는 12에서 선수의 전투 점수를 뺀 것과 같다. 랜덤은 매번 랜덤하게 액션을 생성하는 간단한 전략이며, MaxPower는 파워 값이 가장 높은 움직임을 선택한다. 분명히, GPT-3.5와 LLaMA-2는 랜덤보다 약간 더 좋고 심지어 GPT-4조차도 래더 대회에서 잘 훈련된 인간 선수들을 따라 봇을 이길 수 없다.\n' +
+      '\n' +
+      'LLM 플레이 전투를 관찰하고 그들의 행동과 함께 생성된 설명을 분석함으로써 환각의 발생을 식별한다(Rawte et al., 2023; Cabello et al., 2023): LLM은 존재하지 않는 유형-장점 관계를 잘못 주장할 수 있거나 심지어는 풀형 포켓몬을 화재형 포켓몬과 직면하게 보내는 것과 같은 유형 간의 이점 관계를 역전시킬 수 있다. 유형 이점을 가진 포켓몬을 선택하면 더 많은 피해를 처리하고 덜 지속할 수 있기 때문에 포켓몬 전투에서 유형 이점/약점에 대한 명확한 이해가 중요하다.\n' +
+      '\n' +
+      '환각 시험\n' +
+      '\n' +
+      'LLM의 출력에서 환각을 평가하기 위해 유형 이점/약점 예측의 작업을 구성한다. 이 작업은 특정 유형의 공격이 A. 초효과(2배 손상), B. 표준(1배 손상), C. 비효과(0.5배 손상) 또는 D. 무효과(0배 손상)인지 확인하기 위해 LLM에 요청하는 것을 포함한다. 324(18x18) 테스트 쌍은 **그림**3을 기반으로 구성된다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c} \\hline \\hline\n' +
+      '**Player** & **Win rate \\(\\uparrow\\)** & **Score \\(\\uparrow\\)** & **Turn \\#** & **Battle \\#** \\\\ \\hline Human & 59.84\\% & 6.75 & 18.74 & 254 \\\\ Random & 1.2\\% & 2.34 & 22.37 & 200 \\\\ MaxPower & 10.40\\% & 3.79 & 18.11 & 200 \\\\ LLaMA-2 & 8.00\\% & 3.47 & 20.98 & 200 \\\\ GPT-3.5 & 4.00\\% & 2.61 & 20.09 & 100 \\\\ GPT-4 & 26.00\\% & 4.65 & 19.46 & 100 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 1: 봇과의 전투에서 LLM의 성능.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c|c c c|c c|c c c|c c c} \\hline \\hline\n' +
+      '**Model** & \\multicolumn{3}{c|}{**LLaMA-2**} & \\multicolumn{3}{c|}{**GPT-3.5**} & \\multicolumn{3}{c}{**GPT-4**} \\\\ \\hline Class & A & B & C & D & A & B & C & D & A & B & C & D \\\\ \\hline A & 5 & 46 & 0 & 0 & 0 & 0 & 49 & 2 & 37 & 8 & 5 & 1 \\\\ B & 25 & 179 & 0 & 0 & 2 & 16 & 185 & 11 & 0 & 1885 & 17 & 2 \\\\ C & 15 & 46 & 0 & 0 & 0 & 2 & 87 & 2 & 3 & 24 & 22 & 2 \\\\ D & 1 & 7 & 0 & 0 & 0 & 7 & 1 & 0 & 0 & 8 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 2: 타입 이점 예측을 위한 혼동 행렬들.\n' +
+      '\n' +
+      '도 4: LLM들이 인간 플레이어들과 전투할 수 있게 하는 프레임워크: 그것은 전투 서버로부터 수신된 메시지들을 파싱하고 상태 로그들을 텍스트로 변환한다. LLM은 이러한 상태 설명 및 이력 턴 로그를 입력으로 하고 다음 단계에 대한 액션을 생성한다. 그런 다음 액션은 전투 서버로 전송되고 상대 플레이어가 선택한 액션과 함께 실행된다.\n' +
+      '\n' +
+      '## 6 PokELLMon\n' +
+      '\n' +
+      '**개요:** PokELLMon의 전체 프레임워크는 **도**5에 예시되어 있다. 각각의 턴에서, PokELLMon은 이전 액션들 및 대응하는 텍스트 기반 피드백을 사용하여 정책을 _iteratively_정제하고, 또한 유형 이점/약점 관계들 및 이동/가능성 효과들과 같은 외부 지식으로 현재 상태 정보를 증강한다. 위의 정보가 입력으로서 주어지면, 그것은 독립적으로 다수의 액션들을 생성하고 가장 일관된 액션들을 실행을 위한 최종 출력으로서 선택한다.\n' +
+      '\n' +
+      '### Context Reinforcement Learning (ICRL)\n' +
+      '\n' +
+      '인간 플레이어는 현재 상태뿐만 아니라 움직임에 의한 공격에 이어 두 차례 연속 턴에 걸쳐 포켓몬의 HP가 변경되는 것과 같은 이전 행동으로부터의 (암시적) 피드백에 기초하여 결정을 내린다. 피드백이 제공되지 않으면 에이전트는 계속해서 동일한 잘못된 동작을 고수할 수 있다. **그림**6에 예시된 바와 같이, 에이전트는 물 유형 이동으로 인한 손상을 무효화할 수 있는 "Dry Skin" 능력을 가진 포켓몬인 상대 _Toxicroak_에 대해 물 유형 공격 이동인 "Crabhammer"를 사용한다. 배틀 애니메이션에 디스플레이되는 "면역" 메시지는 "건조한 피부"에 대한 지식 없이도 인간 플레이어가 행동을 변경하도록 촉구할 수 있지만, 상태 설명에 포함되지 않는다. 그 결과, 에이전트는 같은 행동을 반복하며, 실수로 상대에게 트리플 _Toxicroak_의 공격 스탯에 두 번의 자유 회전을 주어 패배로 이어진다.\n' +
+      '\n' +
+      '강화 학습(Schulman et al., 2017; Mnih et al., 2016; Hafner et al., 2023)은 정제 정책을 위한 액션을 평가하기 위해 숫자 보상을 요구한다. LLM은 언어를 이해하고 좋은 것과 나쁜 것을 구별할 수 있으므로 텍스트 기반 피드백 설명은 새로운 형태의 "보상"을 제공한다. 이전으로부터의 텍스트 기반 피드백을 컨텍스트로 변환함으로써, 에이전트는 서빙 동안 자신의 "정책" _iteratively_ 및 _instantly_, 즉 In-Context Reinforcement Learning(ICRL)을 정제할 수 있다.\n' +
+      '\n' +
+      '실제로, 우리는 4가지 유형의 피드백을 생성한다: (1) 공격 움직임으로 인한 실제 피해를 반영하는 두 번의 연속 회전에 걸친 HP의 변화; (2) 공격 움직임의 효과, 즉 공격 움직임이 유형 장점이나 능력/움직임 효과로 인해 초효과적인지, 효과적이지 않은지, 효과가 없는지를 나타내는 효과; (3) 상대 포켓몬에 대한 정확한 통계량을 사용할 수 없기 때문에 속도의 대략적인 추정치를 제공하는 이동 실행의 우선 순위; (4) 실행된 움직임의 실제 효과: 상태와 특정 공격 움직임 모두 통계량 증가 또는 디버프, HP 회복, 독, 화상 또는 동결과 같은 결과를 초래할 수 있다. _etc_ **그림**4는 ICLR에 대한 생성된 텍스트 기반 피드백의 여러 인스턴스를 나타낸다.\n' +
+      '\n' +
+      '### KAG(Knowledge-Augmented Generation)\n' +
+      '\n' +
+      'ICRL은 환각의 영향을 완화할 수 있지만 피드백을 받기 전에는 여전히 치명적인 결과를 초래할 수 있다. 예를 들어, 에이전트가 화재형 포켓몬에 대항하여 풀형 포켓몬을 내보낸다면, 전자는 에이전트가 그것이 잘못된 결정이라는 것을 깨닫기 전에 단번에 패배할 가능성이 높다. 환각을 더욱 감소시키기 위해, Retrieval-Augmented Generation(Lewis et al., 2020; Guu et al., 2020; Patil et al., 2023)은 증강을 위해 외부 지식을 채용한다.\n' +
+      '\n' +
+      '그림 5: PokELLMon은 세 가지 전략을 갖추고 있다: (1) 전투에서 즉각적인 피드백을 활용하여 생성을 반복적으로 정제하는 ICRL; (2) 외부 지식을 검색하여 환각을 퇴치하고 시기 적절하고 적절하게 행동하는 KAG; (3) 공황 전환 문제를 방지하기 위한 일관된 액션 생성.\n' +
+      '\n' +
+      '그림 6: 에이전트는 동일한 공격 동작을 반복적으로 사용하지만, "건조한 피부"의 능력으로 인해 상대 포켓몬에게 제로 효과를 갖는다.\n' +
+      '\n' +
+      '그림 7: 차례로 3에서 에이전트는 "Pyshock"을 사용하며, 이는 반대편 포켓몬에 제로 손상을 일으킨다. ICRL을 사용하면 에이전트가 다른 포켓몬으로 전환됩니다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c c} \\hline \\hline\n' +
+      '**Player** & **Win rate \\(\\uparrow\\)** & **Score \\(\\uparrow\\)** & **Turn \\#** & **Battle \\#** \\\\ \\hline Human & 59.84\\% & 6.75 & 18.74 & 254 \\\\ Origin & 26.00\\% & 4.65 & 19.46 & 100 \\\\ ICRL & 36.00\\% & 5.25 & 20.64 & 100 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 3: 봇과의 전투에서 ICRL의 성능.\n' +
+      '\n' +
+      '대대로요 이 절에서는 환각을 근본적으로 완화하기 위해 두 가지 유형의 외부 지식을 소개한다.\n' +
+      '\n' +
+      '**유형 우위/약점 관계:****그림**4의 원래 상태 설명에서 우리는 포켓몬의 모든 유형 정보에 주석을 달고 에이전트가 스스로 유형 우위 관계를 추론하도록 이동한다. 추론에 포함된 환각을 줄이기 위해 "_Charizard_는 잔디형 포켓몬에 강하지만 화재형 움직임에 약하다"와 같은 설명으로 반대 포켓몬과 포켓몬의 유형 장점과 약점에 명시적으로 주석을 달았다.\n' +
+      '\n' +
+      '**움직임/가능성 효과:** 뚜렷한 효과를 가진 수많은 움직임과 능력을 감안할 때 숙련된 인간 플레이어라도 모두 외우기는 어렵다. 예를 들어, "드래곤 댄스"는 사용자의 공격과 속도를 한 단계 높일 수 있는 반면, "헤이즈"는 포켓몬의 부스팅된 통계를 재설정하고 화상을 입는 것과 같은 비정상적인 상태를 제거할 수 있다는 이름만으로는 상태 이동의 효과를 추론하기 어렵다. 공격 움직임도 피해를 처리하는 것 외에도 추가적인 영향을 미칠 수 있다.\n' +
+      '\n' +
+      '우리는 벌바피디아(벌, 2024b; a)로부터 동작, 능력에 대한 모든 효과 설명을 수집하여 포켓몬 게임에서 백과사전인 포케덱스에 저장한다. 전장의 각 포켓몬에 대해, 그 능력 효과 및 이동 효과는 포케덱스에서 검색되고 상태 설명에 추가된다.\n' +
+      '\n' +
+      '**표**4는 두 가지 유형의 지식으로 증강된 세대의 결과를 보여주는데, 유형 우위 관계(KAG[Type])는 승률을 36%에서 55%로 크게 향상시키는 반면, 이동/가능성 효과 설명도 4 AP만큼 승률을 향상시킨다. 이 두 가지를 결합하여 KAG는 휴리스틱 봇 대비 58%의 승률을 달성하여 인간과 경쟁적인 수준에 접근한다.\n' +
+      '\n' +
+      '외부 지식을 통해 에이전트가 적절한 시간에 매우 특별한 동작을 사용하기 시작하는 것을 관찰한다. **도**8에 도시된 예로서, 스틸 타입 _Klefki_는 그라운드 타입 포켓몬인 반대편 _Rhydon_의 그라운드 타입 공격에 취약하다. 일반적으로 이러한 단점에서 에이전트는 다른 포켓몬으로 전환하는 것을 선택할 것이지만, 5회전 동안 지면형 움직임에 면역이 되도록 사용자를 부상시키는 무브 "Magnet Rise"를 사용하도록 선택한다. 그 결과, 대향하는 _Rhydon_의 지상식 공격 "지진"은 무효가 된다.\n' +
+      '\n' +
+      '일관성 있는 액션 생성\n' +
+      '\n' +
+      '기존 연구들(Wei et al., 2022; Yao et al., 2022; Shinn et al., 2023; Bommasani et al., 2021; Hu et al., 2023)은 추론 및 프롬프트가 복잡한 태스크들을 해결하는 LLMs들의 능력을 향상시킬 수 있다는 것을 보여준다. 본 논문에서는 One-shot action을 생성하는 대신 Chain-of-Thought(Wei et al., 2022)(CoT), Self-Consistency(Wang et al., 2022)(SC) 및 Tree-of-Thought(Yao et al., 2023)(ToT)를 포함하는 기존의 프롬프트 접근 방식을 평가한다. CoT의 경우, 에이전트는 초기에 현재의 전투 상황을 분석하는 생각을 생성하고 그 생각을 조건으로 하는 행동을 출력한다. SC(k=3)의 경우 에이전트는 3회의 액션을 생성하고 가장 많이 투표된 답변을 출력으로 선택한다. ToT(k=3)의 경우 에이전트는 세 가지 액션 옵션을 생성하고 스스로 평가한 가장 좋은 옵션을 선택한다.\n' +
+      '\n' +
+      '섹션 3.2에서 소개된 바와 같이, 각 턴마다 단일 액션이 취해질 수 있으며, 이는 에이전트가 스위칭을 선택하지만 상대방이 공격을 선택하면 스위치-인 포켓몬이 피해를 지속할 수 있다는 것을 의미한다. 일반적으로 전환은 에이전트가 전투 외 포켓몬의 유형 이점을 활용하기로 결정할 때 발생하며, 따라서 스위치-인 포켓몬은 일반적으로 상대 포켓몬의 움직임에 유형 내성이 있기 때문에 취한 피해는 지속 가능하다. 그러나 CoT 추론을 가진 에이전트가 강력한 반대 포켓몬에 직면할 때, 그 동작은 연속적인 턴으로 다른 포켓몬으로 전환함으로써 일관성이 없게 되며, 이를 _panic switching_라고 한다. _ 패닉 전환_움직이고 패배로 이어질 기회를 낭비한다. 예시적인 예가 도시되어 있다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c c} \\hline \\hline\n' +
+      '**Player** & **Win rate \\(\\uparrow\\)** & **Score \\(\\uparrow\\)** & **Turn \\#** & **Battle \\#** \\\\ \\hline Human & 59.84\\% & 6.75 & 18.74 & 254 \\\\ Origin & 36.00\\% & 5.25 & 20.64 & 100 \\\\ KAG[Type] & 55.00\\% & 6.09 & 19.28 & 100 \\\\ KAG[Effect] & 40.00\\% & 5.64 & 20.73 & 100 \\\\ KAG & 58.00\\% & 6.53 & 18.84 & 100 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 4: 봇과의 전투에서 KAG의 성능.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c} \\hline \\hline\n' +
+      '**Player** & **Win rate \\(\\uparrow\\)** & **Score \\(\\uparrow\\)** & **Turn \\#** & **Battle \\#** \\\\ \\hline Human & 59.84\\% & 6.75 & 18.74 & 254 \\\\ Origin & 58.00\\% & 6.53 & 18.84 & 100 \\\\ CoT & 54.00\\% & 5.78 & 19.60 & 100 \\\\ SC (k=3) & **64.00**\\% & 6.63 & 18.86 & 100 \\\\ ToT (k=3) & 60.00\\% & 6.42 & 20.24 & 100 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 5: 봇과의 전투에서 접근 촉진의 성능.\n' +
+      '\n' +
+      '그림 8: 에이전트는 이동 효과를 이해하고 적절하게 사용한다: _Klefki_는 _Rhydon_의 지상형 공격에 취약하다. 에이전트는 스위칭 대신 5회전 동안 지상형 공격으로부터 자신을 보호하는 움직임인 "Magnet Rise"를 사용하여 반대편 _Rhydon_의 지상형 공격 "Earthake"를 무효화한다.\n' +
+      '\n' +
+      '[MISSING_PAGE_EMPTY:7]\n' +
+      '\n' +
+      '"독성", "복구" 및 "보호"와 같은 움직임의 이해는 물론 (유형 약점이 없거나 방어력이 높은 경우 등) 사용에 적합한 타이밍이다. 배틀 애니메이션의 예는 [https://poke-llm-on.github.io](https://poke-llm-on.github.io)에서 찾을 수 있다.\n' +
+      '\n' +
+      '**약점:**포켈몬은 단기적인 이익을 얻을 수 있는 행동을 취하기 때문에, 깨기 위해 장기적인 노력이 필요한 인간 선수들의 소모 전략에 취약하게 만드는 경향이 있다. **그림**11의 두 전투에서 볼 수 있듯이, 많은 턴 후에 에이전트의 팀 전체가 인간 선수들의 포켓몬에 패배하여 수비를 크게 증진시키고 빈번한 회복에 관여한다. **표**8은 인간 플레이어가 소모 전략을 사용하거나 사용하지 않는 전투에서 포켈몬의 성능을 보고한다. 분명히 소모 전략이 없는 전투에서는 래더 플레이어를 능가하는 반면 인간이 소모 전략을 수행할 때 대부분의 전투에서 패배한다.\n' +
+      '\n' +
+      '\'리커버리\' 무브는 한 턴에서 50% HP를 회복하는데, 이는 공격이 한 턴에서 상대 포켓몬에게 50% 이상의 HP 손상을 일으킬 수 없다면 절대 실신하지 않는다는 것을 의미한다. 딜레마를 타개하는 핵심은 먼저 포켓몬의 공격을 매우 높은 단계로 끌어올린 다음 복구 불가능한 피해를 유발하는 공격으로, 여러 차례에 걸친 공동 노력이 필요한 장기 목표다. 포켈몬은 현재 설계는 향후 작업에 포함될 많은 타임스텝에 걸쳐 장기 계획을 염두에 두지 않기 때문에 장기 계획에 약하다.\n' +
+      '\n' +
+      '마지막으로, 우리는 경험 많은 인간 플레이어가 에이전트를 나쁜 행동으로 잘못 이끌 수 있음을 관찰한다. ***도**12에 도시된 바와 같이, 우리의 _Zygarde_는 강화된 공격 동작을 사용할 수 있는 한 번의 기회를 갖는다. 2번 턴이 끝나면 상대 _Mawile_가 실신하여 강제 스위치로 이어지며 상대는 _Kyuren_에서 스위치를 선택한다. 이 스위치는 _Kyuren_가 드래곤형 공격에 취약하기 때문에 에이전트가 차례로 드래곤형 움직임을 사용하여 유인하는 트릭이다. 3번, 상대는 처음에 드래곤형 공격에 면역이 된 포켓몬인 _Tapu Bulu_에서 스위치하여 향상된 공격 기회를 낭비합니다. 에이전트는 현재 상태 정보만을 기반으로 결정을 내리는 반면, 경험 많은 플레이어는 상태 정보뿐만 아니라 상대의 다음 액션 예측에도 컨디션을 유지하기 때문에 속는다.\n' +
+      '\n' +
+      '트릭을 통해 보고 상대의 다음 행동을 예측하려면 실제 전투 환경에서 에이전트가 훈육되어야 하는데, 이것이 우리 작업의 미래 단계입니다.\n' +
+      '\n' +
+      '## 8 Conclusion\n' +
+      '\n' +
+      '본 논문에서는 LLM이 인간에 대한 유명한 포켓몬 전투를 자율적으로 수행할 수 있도록 한다. 전술 전투 게임에서 인간 유능한 성능을 달성하는 최초의 LLM 체형 에이전트인 포켈몬을 소개합니다. 본 논문에서는 PokELMon의 설계에서 3가지 핵심 전략을 소개한다: (i) 훈련 없이 액션 생성 정책을 수정하기 위해 텍스트 기반 피드백을 "보상"으로 소비하는 In-Context Reinforcement Learning; (ii) 환각을 방지하기 위해 외부 지식을 검색하고 에이전트가 적시에 적절하게 행동하도록 보장하는 지식 증강 생성; (iii) 강력한 상대방을 만날 때 _panic switching_ 이슈를 방지하는 일관성 있는 액션 생성. PokELMon의 아키텍처는 _general_이며 다른 많은 게임에서 LLM 체형 에이전트의 설계에 적합하여 환각과 행동 불일치의 문제를 해결할 수 있다.\n' +
+      '\n' +
+      '온라인 전투에서는 포켈몬이 인간다운 전투 능력과 전략을 발휘해 사다리 대회에서 49%, 초청전에서 56%의 승률을 달성한 것으로 나타났다. 또한 향후 작업으로 간주되는 인간 플레이어의 소모 전략과 속임수에 대한 취약성을 발견한다.\n' +
+      '\n' +
+      '그림 11: 포켓몬은 소모 전략에 시달린다: 상대 선수들은 종종 고방어 포켓몬을 회수한다. 딜레마를 극복하려면 여러 차례에 걸쳐 공동 효과가 필요하다.\n' +
+      '\n' +
+      '그림 12: 숙련된 인간 플레이어가 먼저 드래곤형 포켓몬을 발송하여 드래곤형 공격을 사용하도록 에이전트를 잘못 지시하고 즉시 드래곤형 공격에 면역된 다른 포켓몬으로 전환한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c c} \\hline \\hline\n' +
+      '**Ladder** & **Win rate \\(\\uparrow\\)** & **Score \\(\\uparrow\\)** & **Turn \\#** & **Battle \\#** \\\\ \\hline w. Attrition & 18.75\\% & 4.29 & 33.88 & 16 \\\\ w/o Attrition & 53.93\\% & 6.02 & 15.95 & 89 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 8: 소모 전략에 의해 영향을 받는 전투 성능\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* 능력 목록(2024) 능력 목록, 2024a. URL[https://bulbapedia.bulbagarden.net/wiki/Ability#List_of_Abilities](https://bulbapedia.bulbagarden.net/wiki/Ability#List_of_Abilities)\n' +
+      '* 이동 목록(2024b) 이동 목록, 2024b. URL[https://bulbapedia.bulbagarden.net/wiki/List_of_moves](https://bulbapedia.bulbagarden.net/wiki/List_of_moves)\n' +
+      '*전국포덱스번호별포켓몬 리스트(2024c). URL[https://bulbapedia.bulbagarden.net/wiki/List_of_Pokmon_by_National_Pokdex_number](https://bulbapedia.bulbagarden.net/wiki/List_of_Pokmon_by_National_Pokdex_number)\n' +
+      '* 포켓몬 대결(2024) 포켓몬 대결, 2024. URL[https://play.pokemonshowdown.com](https://play.pokemonshowdown.com)\n' +
+      '* Achiam et al. (2023) Achiam, J., Adler, S., Agarwal, S., Ahmad, L., Akkaya, I., Aleman, F. L., Almeida, D., Altenschmidt, J., Altman, S., Anadkat, S., et al. Gpt-4 기술 보고서. _ arXiv preprint arXiv:2303.08774_, 2023.\n' +
+      '* Akata et al. (2023) Akata, E., Schulz, L., Coda-Forno, J., Oh, S. J., Bethge, M., and Schulz, E. _ arXiv preprint arXiv:2305.16867_, 2023.\n' +
+      '* Bakhtin et al. (2022) Bakhtin, A., Brown, N., Dinan, E., Farina, G., Flaherty, C., Fried, D., Goff, A., Grey, J., Hu, H., et al. Human-level play in the game of diplomacy by combining language models with strategic reasoning. _ Science_, 378(6624):1067-1074, 2022.\n' +
+      '* Batra et al. (2020) Batra, D., Chang, A. X., Chernova, S., Davison, A. J., Deng, J., Koltun, V., Levine, S., Malik, J., Mordatch, I., Mottaghi, R., et al. Rearrangement: challenge for embodied ai. _ arXiv preprint arXiv:2011.01975_, 2020.\n' +
+      '* Bommasani et al. (2021) Bommasani, R., Hudson, D. A., Adeli, E., Altman, R., Arora, S., von Arx, S., Bernstein, M. S., Bohg, J., Bosselut, A., Brunskill, E., et al. arXiv preprint arXiv:2108.07258_, 2021.\n' +
+      '* Brown et al. (2020) Brown, T., Mann, B., Ryder, N., Subbiah, M., Kaplan, J. D., Dhariwal, P., Neelakantan, A., Shyam, P., Sastry, G., Askell, A., et al. Language models is few-shot learners. _ 신경 정보 처리 시스템_, 33:1877-1901, 2020의 발전.\n' +
+      '* Cabello et al. (2023) Cabello, L., Li, J., and Chalkidis, I. Pokemonchat: Auditing chatgpt for pok\\\'emon universe knowledge. _ arXiv preprint arXiv:2306.03024_, 2023.\n' +
+      '* Duan et al. (2022) Duan, J., Yu, S., Tan, H. L., Zhu, H., and Tan, C. A survey of embodied ai: From simulator to research tasks. _ IEEE Transactions on Emerging Topics in Computational Intelligence_, 6(2):230-244, 2022.\n' +
+      '* Goertzel(2014) Goertzel, B. Artificial General Intelligence: concept, state of art, and future prospects. _ Journal of Artificial General Intelligence_, 5(1):1, 2014.\n' +
+      '* Goertzel & Pennachin (2007) Goertzel, B. and Pennachin, C. _Artificial general intelligence_, volume 2. Springer, 2007.\n' +
+      '* Guu et al. (2020) Guu, K., Lee, K., Tung, Z., Pasupat, P., and Chang, M. 증강 언어 모델 사전 교육을 검색합니다. In _International conference on machine learning_, pp. 3929-3938. PMLR, 2020.\n' +
+      '* Hafner et al. (2023) Hafner, D., Pasukonis, J., Ba, J., and Lillicrap, T. 세계 모델을 통해 다양한 도메인을 마스터합니다. _ arXiv preprint arXiv:2301.04104_, 2023.\n' +
+      '* Hong et al. (2023) Hong, S., Zheng, X., Chen, J., Cheng, Y., Wang, J., Zhang, C., Wang, Z., Yau, S. K. S., Lin, Z., Zhou, L., et al. Metagpt: Meta programming for multi-agent collaborative framework. _ arXiv preprint arXiv:2308.00352_, 2023.\n' +
+      '* Hu et al. (2023) Hu, S., Huang, T., Ilhan, F., Tekin, S. F., and Liu, L. 대규모 언어 모델 기반 스마트 계약 취약점 탐지: 새로운 관점 arXiv preprint arXiv:2310.01152_, 2023.\n' +
+      '* Hua et al. (2023) Hua, W., Fan, L., Li, L., Mei, K., Ji, J., Ge, Y., Hemphill, L., and Zhang, Y. 전쟁과 평화(waragent): 세계 전쟁의 대규모 언어 모델 기반 다중 에이전트 시뮬레이션. _ arXiv preprint arXiv:2311.17227_, 2023.\n' +
+      '* Lewis et al. (2020) Lewis, P., Perez, E., Piktus, A., Petroni, F., Karpukhin, V., Goyal, N., Kuttler, H., Lewis, M., Yih, W. -t., Rocktaschel, T., et al. Retrieval-augmented generation for knowledge-intensive nlp tasks. _ 2020년, 신경망 정보 처리 시스템_, 33:9459-9474의 발전.\n' +
+      '* Light et al. (2023) Light, J., Cai, M., Shen, S., and Hu, Z. 텍스트에서 전술로: 아발론 게임을 하는 암스를 평가하는 것. _ arXiv preprint arXiv:2310.05036_, 2023.\n' +
+      '* Ma et al. (2023) Ma, W., Mi, Q., Yan, X., Wu, Y., Lin, R., Zhang, H., and Wang, J. Large language models play starcraft ii: Benchmarks and chain of summarization approach. _ arXiv preprint arXiv:2312.11865_, 2023.\n' +
+      '*Mnih et al. (2016) Mnih, V., Badia, A. P., Mirza, M., Graves, A., Lillicrap, T., Harley, T., Silver, D., and Kavukcuoglu, K. 심층 강화 학습을 위한 비동기식 방법. In _International conference on machine learning_, pp. 1928-1937. PMLR, 2016.\n' +
+      '* Ouyang et al. (2022) Ouyang, L., Wu, J., Jiang, X., Almeida, D., Wainwright, C., Mishkin, P., Zhang, C., Agarwal, S., Slama, K., Ray, A., et al. training language models to follow instructions with human feedback. _ 신경 정보 처리 시스템_, 35:27730-27744, 2022에서의 발전.\n' +
+      '* Ouyang et al. (2023)Park, J. S., O\'Brien, J., Cai, C. J., Morris, M. R., Liang, P., and Bernstein, M. S. Generative agents: Interactive simulacra of human behavior. In _Proceedings of the 36th Annual ACM Symposium on User Interface Software and Technology_, pp. 1-22, 2023.\n' +
+      '* Patil et al. (2023) Patil, S. G., Zhang, T., Wang, X., and Gonzalez, J. E. Gorilla: Large language model connected with massive apis. _ arXiv preprint arXiv:2305.15334_, 2023.\n' +
+      '* Rawte et al. (2023) Rawte, V., Sheth, A., and Das, A. A survey of hallucination in large foundation models. _ arXiv preprint arXiv:2309.05922_, 2023.\n' +
+      '* Sahovic(2023a) Sahovic, H. Poke-env: poekemon ai in python, 2023a. URL[https://github.com/hsahovic/poke-env](https://github.com/hsahovic/poke-env)\n' +
+      '* Sahovic(2023b) Sahovic, H. poke-env: Heuristicbot, 2023b. URL[https://github.com/hsahovic/poke-env/blob/master/src/poke_env/player/baselines.py](https://github.com/hsahovic/poke-env/blob/master/src/poke_env/player/baselines.py)\n' +
+      '* Schulman et al. (2017) Schulman, J., Wolski, F., Dhariwal, P., Radford, A., and Klimov, O. 근위 정책 최적화 알고리즘. _ ArXiv:1707.06347_, 2017.\n' +
+      '* Shinn et al. (2023) Shinn, N., Labash, B., and Gopinath, A. Reflexion: autonomous agent with dynamic memory and self-reflection. _ arXiv preprint arXiv:2303.11366_, 2023.\n' +
+      '* 중요한 중력(2023) 중요한 중력. 오토GPT URL[https://github.com/Significant-Gravitas/AutoGPT](https://github.com/Significant-Gravitas/AutoGPT)\n' +
+      '* Singh et al. (2023) Singh, I., Blukis, V., Mousavian, A., Goyal, A., Xu, D., Tremblay, J., Fox, D., Thomason, J., and Garg, A. Progrpompt: Generating situated robot task plan using large language models. In _2023 IEEE International Conference on Robotics and Automation (ICRA)_, pp. 11523-11530. IEEE, 2023.\n' +
+      '* Touvron et al. (2023) Touvron, H., Martin, L., Stone, K., Albert, P., Almahairi, A., Babaei, Y., Bashlykov, N., Batra, S., Bhargava, P., Bhosale, S., et al. Llama 2: Open foundation and fine-tuned chat models. _ arXiv preprint arXiv:2307.09288_, 2023.\n' +
+      '* Wang et al. (2023a) Wang, G., Xie, Y., Jiang, Y., Mandlekar, A., Xiao, C., Zhu, Y., Fan, L., and Anandkumar, A. Voyager: Anopen-ended embodied agent with large language models. _ arXiv preprint arXiv:2305.16291_, 2023a.\n' +
+      '* Wang et al. (2023b) Wang, L., Ma, C., Feng, X., Zhang, Z., Yang, H., Zhang, J., Chen, Z., Tang, J., Chen, X., Lin, Y., et al. A survey for large language model based autonomous agents. _ arXiv preprint arXiv:2308.11432_, 2023b.\n' +
+      '* Wang et al. (2022) Wang, X., Wei, J., Schuurmans, D., Le, Q., Chi, E., Narang, S., Chowdhery, A., and Zhou, D. Self-consistency improves the chain of thought reasoning in language models. _ ArXiv:2203.11171_, 2022.\n' +
+      '* Wang et al. (2023c) Wang, Z., Cai, S., Liu, A., Ma, X., and Liang, Y. 설명, 설명, 계획 및 선택: 대규모 언어 모델과의 대화형 계획은 오픈 월드 멀티태스크 에이전트를 가능하게 한다. _ arXiv preprint arXiv:2302.01560_, 2023c.\n' +
+      '* Wei et al. (2022) Wei, J., Wang, X., Schuurmans, D., Bosma, M., Xia, F., Chi, E., Le, Q. V., Zhou, D., et al. Chain-of-thought prompting elicits reasoning in large language models. _ 신경 정보 처리 시스템_, 35:24824-24837, 2022에서의 발전.\n' +
+      '* 위키피디아(2023) 위키피디아. Poekemon의 게임플레이, 2023. URL[https://en.wikipedia.org/wiki/Gameplay_of_Pok%C3%A9mon](https://en.wikipedia.org/wiki/Gameplay_of_Pok%C3%A9mon)\n' +
+      '* Xi et al.(2023) Xi, Z., Chen, W., Guo, X., He, W., Ding, Y., Hong, B., Zhang, M., Wang, J., Jin, S., Zhou, E., et al. The rise and potential of large language model based agents: A survey. _ arXiv preprint arXiv:2309.07864_, 2023.\n' +
+      '*Xu et al. (2023) Xu, Y., Wang, S., Li, P., Luo, F., Wang, X., Liu, W., and Liu, Y. 커뮤니케이션 게임을 위한 대규모 언어 모델 탐색: 늑대인간에 대한 실증적 연구 arXiv preprint arXiv:2309.04658_, 2023.\n' +
+      '* Yao et al. (2022) Yao, S., Zhao, J., Yu, D., Du, N., Shafran, I., Narasimhan, K., and Cao, Y. 반응: 추론과 언어 모델에서의 연기의 동기화. _ arXiv preprint arXiv:2210.03629_, 2022.\n' +
+      '* Yao et al. (2023) Yao, S., Yu, D., Zhao, J., Shafran, I., Griffiths, T. L., Cao, Y., and Narasimhan, K. 생각의 나무: 큰 언어 모델을 사용하여 문제를 해결합니다. _ arXiv preprint arXiv:2305.10601_, 2023.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
