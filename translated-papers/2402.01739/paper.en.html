@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# OpenMoE: An Early Effort on Open Mixture-of-Experts Language Models\n' +
+      '\n' +
+      '**Fuzhao Xue\\({}^{1}\\)**  **Zian Zheng\\({}^{1}\\)**  **Yao Fu\\({}^{2}\\)**  **Jinjie Ni\\({}^{1}\\)**  **Zangwei Zheng\\({}^{1}\\)**\n' +
+      '\n' +
+      '**Wangchunshu Zhou\\({}^{3}\\)**  **Yang You\\({}^{1}\\)**\n' +
+      '\n' +
+      '\\({}^{1}\\)National University of Singapore\n' +
+      '\n' +
+      '\\({}^{2}\\)University of Edinburgh\n' +
+      '\n' +
+      '\\({}^{3}\\)ETH Zurich\n' +
+      '\n' +
+      'Email: f.xue@u.nus.edu\n' +
+      '\n' +
+      '\\({}^{1}\\)National University of Singapore\n' +
+      '\n' +
+      '\\({}^{2}\\)University of Edinburgh\n' +
+      '\n' +
+      '\\({}^{3}\\)ETH Zurich\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      'To help the open-source community have a better understanding of Mixture-of-Experts (MoE) based large language models (LLMs), we train and release OpenMoE, a series of fully open-sourced and reproducible decoder-only MoE LLMs, ranging from 650M to 34B parameters and trained on up to over 1T tokens. Our investigation confirms that MoE-based LLMs can offer a more favorable cost-effectiveness trade-off than dense LLMs, highlighting the potential effectiveness for future LLM development.\n' +
+      '\n' +
+      'One more important contribution of this study is an in-depth analysis of the routing mechanisms within our OpenMoE models, leading to three significant findings: Context-Independent Specialization, Early Routing Learning, and Drop-towards-the-End. We discovered that routing decisions in MoE models are predominantly based on token IDs, with minimal context relevance. The token-to-expert assignments are determined early in the pre-training phase and remain largely unchanged. This imperfect routing can result in performance degradation, particularly in sequential tasks like multi-turn conversations, where tokens appearing later in a sequence are more likely to be dropped. Finally, we rethink our design based on the above-mentioned observations and analysis. To facilitate future MoE LLM development, we propose potential strategies for mitigating the issues we found and further improving off-the-shelf MoE LLM designs.3\n' +
+      '\n' +
+      '[FOOTNOIntroduction\n' +
+      '\n' +
+      'Large Language Model (LLM) has exhibited remarkable performance on various NLP tasks [27, 35], and has even become a part of our daily lives through chatbot applications such as ChatGPT, Bard, and Copilot. However, LLMs are computationally expensive in both training and inference. As LLMs become increasingly prevalent, enhancing their performance without proportionally increasing computational resources is a critical challenge. In response to this challenge, Fedus _et al_. [15] and Riquelme _et al_. [36] proposed the Mixture-of-Experts (MoE) to scale up the trainable parameters of the transformer with little additional computation overhead. Recent advancements in MoE-based language models, such as GLaM [14] and ST-MoE [59] have demonstrated superior performance in various tasks. However, before the release of OpenMoE, there were few open-sourced MoE language models trained with trillion-level diverse datasets.\n' +
+      '\n' +
+      'In this work, we set forth three primary goals: (1) To offer a first-attempt solution in detail for training a decoder-only MoE model within the existing framework of training LLMs. (2) To perform an in-depth analysis of the MoE routing mechanisms, thereby providing the research community with deeper insights into the behaviors and potential limitations of MoE-based LLMs. (3) To pave the way for future MoE LLM development. Through this early endeavor, we aim to stimulate and accelerate the growth of the open-source MoE community.\n' +
+      '\n' +
+      '**Releasing OpenMoE.** First, we release OpenMoE, a series of open-sourced MoE-based LLMs, including: (1) OpenMoE-Base/16E: a small model with 0.65B parameters for debugging purposes. 16E means 16 experts per MoE layer; (2) OpenMoE-8B/32E: this variant features 8B parameters in total, activating around 2B parameters per token in Transformer blocks, and is pre-trained on over 1 trillion tokens; (3) OpenMoE-8B/32E-Chat, a chat version of OpenMoE-8B/32E, fine-tuned with a 100K subset of the WildChat [2] dataset; (4) OpenMoE-34B/32E: a larger scale model, activating 6B parameters per token in Transformer blocks and trained with 200B tokens, serving as a testament to the scalability of our approach. Detailed configuration can be found in Appendix B Our OpenMoE-8B/32E models achieved comparable performance with OpenLLaMA-3B [18] and TinyLLaMA-1.1B [54], two dense open LLMs used higher training cost. Notably, On the MT-Bench [56], OpenMoE-8B/32E-Chat outperformed the two dense LLMs significantly on the single-turn conversation. In addition, we release 5 intermediate checkpoints of OpenMoE-8B/32E, each trained with 200B more tokens than the previous one, to support and encourage future research. Section 2 and 3 will discuss the design, training details, and evaluation results of OpenMoE.\n' +
+      '\n' +
+      '**Exploring Advanced Training Strategies.** As part of our research endeavor, we are committed to exploring more advanced Techniques in LLM training: (1) Different from the common practice of training models on in-house or text-dominated open-sourced data, we train OpenMoE with a substantial proportion of code, constituting up to 52.25% during the early stages of pre-training; (2) Moving beyond the conventional next-token prediction training objective, we investigate UL2 training objective [45], motivated by its proven effectiveness in previous work [1] and its good alignment with coding data [5]. We acknowledge that the performance of our model, while acceptable, does not significantly exceed our expectations, which may be attributed to some sub-optimal design choices. Nevertheless, we believe that this exploratory work offers substantial value to the open-source community, particularly in assessing the potential and effectiveness of these under-explored techniques.\n' +
+      '\n' +
+      '**Studying MoE Routing In-depth.** While MoE is effective, there remains a lack of study on why MoE performs well. From a high level, MoE introduces more trainable parameters than its dense counterpart. To keep the FLOPs fixed when scaling the number of parameters, MoE applies a routing layer that sparsely and adaptively assigns each token to a few experts. This process of sparse expert selection is crucial to MoE\'s functionality. Unfortunately, despite existing pieces of literature briefly visualizing the routing decision [26, 31, 36, 40, 59], we still don\'t have a clear understanding of how the router works and how the routing decision impacts the results in MoE models, especially for the post-ChatGPT LLMs trained on a mixture of datasets from diverse domains. In this work, we study this problem based on various taxonomies, including domain, language, task, and token. Our key findings are as follows: (1) **Context-independent Specialization**: MoE tends to simply cluster tokens based on similar token-level semantics, implying that, regardless of context, a certain token is more likely to be routed to a certain expert; (2) **Early Routing Learning**: Token ID routing specialization is established early in pre-training and remains largely fixed, resulting in tokens being consistently processed by the same experts throughout the training; (3) **Drop-towards-the-End**:Since each expert has a fixed max capacity, tokens appearing later in the sequence face a higher risk of being dropped if the expert is already at capacity. This issue is more severe in instruction-tuning datasets. These datasets often exhibit a domain gap compared to the pre-training data, meaning that the balanced token assignment strategies established and solidified during early pre-training may not be sampled effective in instruction-tuning scenarios. This is concerning as instruction data plays an important role in deploying LLMs to real-world applications. Section 4 discusses the above phenomenons in detail.\n' +
+      '\n' +
+      '**Rethinking Our Mistakes and Proposing Potential Solutions.** In retrospect, our project encountered several mistakes and made sub-optimal decisions (_e.g.,_ aggressive data mixture), as detailed in Section 5. As an early open-source effort, we believe that sharing these experiences and insights is crucial, perhaps even more important than solely focusing on successful strategies. Based on our empirical findings during training and subsequent visualization analysis (Section 4), we have developed a set of potential solutions. We sincerely hope these insights can help the community develop better models in the future.\n' +
+      '\n' +
+      'The structure of this paper mirrors the lifecycle of the OpenMoE project, encompassing all its phases. This includes the initial design (Section 2), training and evaluation (Section 3, in-depth analysis (Section 4), and a rethinking of the OpenMoE project (Section 5).\n' +
+      '\n' +
+      '## 2 Designing OpenMoE\n' +
+      '\n' +
+      'First, we introduce our initialized design of OpenMoE models regarding the pre-training data, model architecture, training objective, and supervised fine-tuning data.\n' +
+      '\n' +
+      '### Pre-training Dataset: More Code than Usual\n' +
+      '\n' +
+      'Modern LLMs are usually trained by a combination of datasets from various domains, _i.e.,_ data mixture [7; 9; 20; 34; 47]. Except for the LLMs customized towards coding (_e.g.,_ StarCoder [28], CodeLLaMA [38]), most existing models\' pre-training data is dominated by text data. For instance, the sampling rate of the GitHub dataset is only 4.5% for LLaMA [47]. However, we argue that the code data is highly important for two reasons. First, the code data is likely to improve the ability of complex reasoning with chain-of-thought [16]. More importantly, different from natural language, which is sometimes blurry and easy to misunderstand, code is always precise. This enables code to be a more efficient language for machines to convey information concisely without misunderstanding between different (embodied) AI agents, and as a result, code has great potential to dominate LLM communications in real-life applications. Therefore, we design a more code-dominated pre-training data mixture. As shown in Table 1, we extracted 50% of data from the RedPajama [11] and 50% of data from the duplication version of The Stack [24]. Our experimental results show that the version I data mixture might be a bit aggressive in its code proportion. We fix these issues at the later stage of pre-training, please see the following Section 3.2 for details.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c} \\hline \\hline  & **Version I** & **Version II** & **Version III** \\\\\n' +
+      '**Model** & OpenMoE-Base, OpenMoE-8B/32E & OpenMoE-34B/32E \\\\\n' +
+      '**Period** & before 780B tokens \\(\\rightarrow\\) after 780B tokens & from start to end \\\\ \\hline\n' +
+      '**Dataset** & & & \\\\ RedPajama & 50.0\\% & 83.5\\% & 67.5\\% \\\\ C4 & 7.50\\% & 15.0\\% & 15.0\\% \\\\ Wikipedia & 2.25\\% & 6.50\\% & 4.50\\% \\\\ Stackexchange & 1.00\\% & 2.50\\% & 1.00\\% \\\\ ArXiv & 1.25\\% & 4.50\\% & 4.50\\% \\\\ Books & 2.25\\% & 6.50\\% & 4.50\\% \\\\ GitHub & 2.25\\% & 5.00\\% & 5.00\\% \\\\ Commoncrawl & 33.5\\% & 43.5\\% & 33.0\\% \\\\ Wikipedia-en & 0.00\\% & 6.50\\% & 2.50\\% \\\\ The Stack Dedup & 50.0\\% & 10.0\\% & 30.0\\% \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 1: Three versions of OpenMoE pre-training data mixture.\n' +
+      '\n' +
+      '### Model Architecture: Decoder-only ST-MoE\n' +
+      '\n' +
+      '**Tokenizer.** We applied umT5 [10] tokenizer with 256K vocab size for two reasons: (1) umT5 tokenizer with a large multi-lingual vocab supports low-resource language better than the tokenizers using a small vocab (_e.g.,_ LLaMA tokenizer with 32K vocab); (2) comparing to some old tokenizers, such as BERT [23] and T5 [35] tokenizer, umT5 tokenizer has byte fallback feature to support out-of-vocab tokens better.\n' +
+      '\n' +
+      '**Token-choice Routing.** We generally follow ST-MoE [59] for our model architecture and routing design to ensure training stability, which is extremely important when training larger models. Given \\(E\\) trainable experts and input representation \\(x\\in\\mathbb{R}^{D}\\), the output of MoE model can be formulated as:\n' +
+      '\n' +
+      '\\[\\mathrm{MoE}(x)=\\sum_{i=1}^{E}g(x)_{i}e_{i}(x), \\tag{1}\\]\n' +
+      '\n' +
+      'where \\(e_{i}(\\cdot)\\) is a non-linear transformation \\(\\mathbb{R}^{D}\\rightarrow\\mathbb{R}^{D}\\) of the \\(i^{\\mathrm{th}}\\) expert, and \\(g(\\cdot)_{i}\\) is the \\(i^{\\mathrm{th}}\\) element of the output of the trainable router \\(g(\\cdot)\\), a non-linear mapping \\(\\mathbb{R}^{D}\\rightarrow\\mathbb{R}^{E}\\). Usually, both \\(e(\\cdot)\\) and \\(g(\\cdot)\\) are parameterized by neural networks. Please note each expert is an FFN layer instead of a complete Transformer model in most MoE-based Transformer models, including ours.\n' +
+      '\n' +
+      '**Top-2 Selection.** According to the formulation above, when \\(g(\\cdot)\\) is a sparse vector, only part of the experts would be activated and updated by back-propagation during training. We set the gating layer as a top-K selection as:\n' +
+      '\n' +
+      '\\[\\mathrm{g}(x)=\\mathrm{TopK}(\\mathrm{softmax}(f(x))), \\tag{2}\\]\n' +
+      '\n' +
+      'where \\(f(\\cdot)\\) is routing linear transformation \\(\\mathbb{R}^{D}\\rightarrow\\mathbb{R}^{E}\\). When \\(K\\ll E\\), most elements of \\(\\mathrm{g}(x)\\) would be zero so that sparse conditional computation is achieved. We set \\(K=2\\) following Zoph _et al._[59].\n' +
+      '\n' +
+      '**Residual MoE.** Each vanilla Transformer block can be written as:\n' +
+      '\n' +
+      '\\[x^{\\prime} =\\mathrm{LayerNorm}_{i}^{\\mathrm{att}}(x), \\tag{3}\\] \\[x =\\mathrm{MHA}(x^{\\prime})+x,\\] \\[x^{\\prime\\prime} =\\mathrm{LayerNorm}_{i}^{\\mathrm{ffn}}(x),\\] \\[x =\\mathrm{FFN}(x^{\\prime\\prime})+x,\\]\n' +
+      '\n' +
+      'In OpenMoE, for each MoE-based Transformer block, we use one residual MoE layer to ensure that one fixed FFN layer is always activated for every token. That is:\n' +
+      '\n' +
+      '\\[x^{\\prime} =\\mathrm{LayerNorm}_{i}^{\\mathrm{att}}(x), \\tag{4}\\] \\[x =\\mathrm{MHA}(x^{\\prime})+x,\\] \\[x^{\\prime\\prime} =\\mathrm{LayerNorm}_{i}^{\\mathrm{ffn}}(x),\\] \\[x =\\mathrm{MoE}(x^{\\prime\\prime})+\\mathrm{FFN}(x^{\\prime\\prime})+x,\\]\n' +
+      '\n' +
+      'Note we use MoE-based Transformer blocks in an interleaved manner instead of placing MoE in every Transformer block. In our setting, we use MoE every 4 layers in OpenMoE-Base/16E and OpenMoE 34B/32E and use MoE every 6 layers for OpenMoE-8B/32E. This setting is inspired by the findings in ViT-MoE [36], _i.e.,_ using MoE every layer introduces more computational overhead during routing, and then induces a worse cost-effective trade-off than interleaved MoE usage.\n' +
+      '\n' +
+      '**Load Balance Loss and Router Z-loss.** ST-MoE [59] follows Shazeer _et al._[40], using MoE load balance loss to ensure a balanced number of tokens assigned to different experts so that MoE models can achieve better parallelism. For each routing operation, given \\(E\\) experts and \\(N\\) batches with \\(B=NL\\) tokens, the following auxiliary loss is added to the total model loss during training:\n' +
+      '\n' +
+      '\\[L_{b}=E\\cdot\\sum_{i=1}^{E}m_{i}\\cdot P_{i}, \\tag{5}\\]\n' +
+      '\n' +
+      'where \\(m\\) is a vector, \\(P_{i}\\) is \\(\\mathrm{softmax}(f(x))\\). \\(i\\) denotes the expert ID. The \\(i^{\\mathrm{th}}\\) element is the fraction of tokens dispatched to expert \\(i\\):\n' +
+      '\n' +
+      '\\[m_{i}=\\frac{1}{B}\\sum_{j=1}^{B}\\mathrm{h}(x_{j})_{i}, \\tag{6}\\]where \\(\\mathrm{h}(\\cdot)\\) is an index vector selected by \\(\\mathrm{TopK}\\) in Eq. 2. \\(\\mathrm{h}(x_{j})_{i}\\) is the \\(i^{\\mathrm{th}}\\) element of \\(\\mathrm{h}(x_{j})\\). It is noticeable that, different from \\(g(x)_{i}\\) in Eq. 2, \\(m_{i}\\) and \\(\\mathrm{h}(x_{j})_{i}\\) are non-differentiable. However, a differentiable loss function is required to optimize MoE in an end-to-end fashion, so we use the routing score \\(\\mathrm{softmax}(f(x))\\) in Eq. 2 (_i.e.,_\\(P_{i}\\) in Eq. 5)to make the routing decision differentiable and then learnable.\n' +
+      '\n' +
+      'In addition to the load balance loss, Zoph _et al._[59] proposed router z-loss for more stable MoE training:\n' +
+      '\n' +
+      '\\[L_{z}(x)=\\frac{1}{B}\\sum_{i=1}^{B}\\left(\\log\\sum_{j=1}^{E}e^{x_{j}^{(i)}} \\right)^{2} \\tag{7}\\]\n' +
+      '\n' +
+      'This router z-loss can penalize large logits input to the gating network and encourage the absolute magnitude of numbers to be small so that it can reduce the round-off errors in MoE layers. Please refer to ST-MoE paper [59] for a detailed explanation.\n' +
+      '\n' +
+      'Taken together, our final training loss can be written as:\n' +
+      '\n' +
+      '\\[L=L_{CE}+L_{b}+L_{z} \\tag{8}\\]\n' +
+      '\n' +
+      'where \\(L_{CE}\\) is the cross-entropy loss in language model pre-training.\n' +
+      '\n' +
+      '### Training Objective: UL2 and CasualLM\n' +
+      '\n' +
+      'Instead of adopting vanilla casual language modeling (CasualLM) directly, we explore UL2 [44], a more diverse language model pre-training objective combining span corruption (SpanCorrupt) and prefix language modeling (PrefixLM) [35]. It is noteworthy that the SpanCorrupt in UL2 is more diverse than the vanilla SpanCorrupt because it mixes various span lengths and corruption rates. We have two reasons to explore UL2 in OpenMoE. First, UL2 has shown promising results in PaLM-2 [1]. More importantly, the aggressive token masking is very similar to the code completion task in the real world, such as Copilot. Bavarian _et al._[5] also found that the similar filling-in-the-middle (FiM) objective can model the code better than the vanilla training objective. Since we used more code in our pre-training data mixture, adapting UL2 that covers FiM is a more reasonable choice intuitively.\n' +
+      '\n' +
+      'Our detailed UL2 training objective configuration is shown in Table 2. We use only 20% low mask ratio (\\(r\\)=0.15) because there are fewer output tokens during training, which may slow down the learning. We also use more PrefixLM than the default UL2 setting because we think the zero-shot and in-context learning ability enhanced by PrefixLM training is important. We faced some difficulties when training with UL2 in OpenMoE, which will be discussed in Section 3.2.\n' +
+      '\n' +
+      '### Supervised Fine-tuning\n' +
+      '\n' +
+      'Although alignment is not the focus of this OpenMoE project, we still conduct supervised fine-tuning (SFT) with a subset of the open-sourced WildChat dataset [2] to enhance the instruction following ability and study the behavior of the MoE model before and after SFT. We only pick the instruction-response pairs from GPT-4 in WildChat because of the lack of computation resources at the late stage of OpenMoE development. The subset includes 58K conversations and each conversation includes 1.8 turns on average.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c} \\hline\n' +
+      '**Training Objective** & **Percentage** \\\\ \\hline\n' +
+      '**PrefixLM, \\(r\\)=0.5** & 50\\% \\\\\n' +
+      '**SpanCorrupt** & \\\\ \\(\\mu\\)=3, \\(r\\)=0.15 & 10\\% \\\\ \\(\\mu\\)=8, \\(r\\)=0.15 & 10\\% \\\\ \\(\\mu\\)=3, \\(r\\)=0.5 & 10\\% \\\\ \\(\\mu\\)=8, \\(r\\)=0.5 & 10\\% \\\\ \\(\\mu\\)=64, \\(r\\)=0.5 & 10\\% \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 2: UL2’s mixture-of-denoisers configuration, \\(\\mu\\) is average span length and \\(r\\) is the mask ratio.\n' +
+      '\n' +
+      '### Other Designs\n' +
+      '\n' +
+      'Following recent LLMs, we adopt RoPE [43] for position embedding and SwiGLU [39] for activation function for FFNs in both dense and MoE Transformer blocks. More detailed model configuration and training hyperparameters for OpenMoE models can be found in Appendix B. We applied data parallelism, tensor parallelism [41, 50], and expert parallelism [25] for training models at scale. We train OpenMoE models on Google Cloud TPU with 64 to 512 v3 chips depending on the availability.\n' +
+      '\n' +
+      '## 3 Training OpenMoE\n' +
+      '\n' +
+      '### Ablation Study\n' +
+      '\n' +
+      'As an initial evaluation of our design decisions, we conducted an ablation study using the OpenMoE-Base/16E model. It\'s important to note that while these results provide early insights, we cannot be certain of their generalizability to larger models, primarily due to computational resource constraints that preclude larger-scale ablations.\n' +
+      '\n' +
+      'Our findings indicate that several elements -- the MoE approach, the UL2 training objective, and the increased emphasis on code data -- all contribute positively to the base version\'s performance in zero-shot TriviaQA tasks. The model using LLaMA tokenizer [47] outperforms the one with umT5 tokenizer. This outcome is considered acceptable, even though a larger vocabulary size might slightly impair performance. We believe that supporting low-resource languages is crucial, as foundational models should be accessible and beneficial to a diverse global audience. After this sanctity check, we proceed to scale OpenMoE up to OpenMoE-8B/32E.\n' +
+      '\n' +
+      'We also conduct an ablation study to compare the progress of learning the data from different domains. As shown in Figure 1, we can observe that models are easier to achieve higher accuracy and lower loss on code data. On Github, although our model is small, it can still achieve over 80% token prediction accuracy. We infer that this is because of the long-tail token distribution in code data. For instance, a large number of tokens in code are "\\(\\mathfrak{n}\\)" and "\\(\\mathfrak{t}\\)", which are relatively easier to predict.\n' +
+      '\n' +
+      'Figure 1: Comparison of the validation loss and accuracy on different pre-training datasets. We can observe that models are easier to achieve higher accuracy and lower loss on code data.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c} \\hline \\hline\n' +
+      '**Method** & **EM** & **F1** \\\\ \\hline OpenMoE & 1.4 & 4.5 \\\\ w/o MoE & 0.1 & 0.3 \\\\ w/o UL2 (PrefixLM only) & 0.0 & 0.0 \\\\ w/o Code data & 0.7 & 1.1 \\\\ w/ LLaMA tokenizer & 2.2 & 5.7 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 3: Ablation study with OpenMoE-Base/16E on zero-shot TriviaQA [22].\n' +
+      '\n' +
+      '### Training Progress\n' +
+      '\n' +
+      '**UL2 Saturation** During training, we found that, although UL2 can help the model to learn faster at the early stage of training, it is easier to saturate at the later training stage of OpenMoE-8B/32E. As shown in Figure 2, if we zoom in, we can find that OpenMoE-8B/32E improves very slowly from 35K to 39K steps. We suggest that this may be because, although UL2 is more diverse, the SpanCorrupt is still relatively easy compared to CasualLM. Therefore, we fall back to CasualLM after 390K steps (780B) tokens. In addition, since code data aligns better with UL2 and our initial code data mixture is relatively aggressive, we also decreased our code data sampling ratio to 15%. The Second version data mixture is reported in Table 1.\n' +
+      '\n' +
+      'Obviously, in Figure 2, after 780B tokens, there is a significant drop in the token prediction accuracy after 390K steps for OpenMoE-8B/32E. This is caused by the more difficult CasualLM objective and less easy code data. Note that, although we encountered a saturation issue at the later stage of OpenMoE-8B/32E training, we think such an easy-to-hard curriculum may be helpful for LLM training. Therefore, we still adapted UL2 for 25K steps (50B tokens) in OpenMoE-34B/32E. We used a relatively moderate code-heavy data mixture in OpenMoE-34B/32E. As shown in Table 1, we utilize 35% of code data in total. Due to the computation resource limitation, we train OpenMoE-34B/32E with only 200B tokens to verify its scalability. We leave training a large-scale OpenMoE with more tokens as future work if possible.\n' +
+      '\n' +
+      '### Evaluation on Benchmarks\n' +
+      '\n' +
+      '#### 3.3.1 Raw Model Evaluation\n' +
+      '\n' +
+      'Before all, we highlight that we did not hack the benchmarks at all and the pre-training is purely on the open-sourced datasets mentioned above. Since our model is relatively small in terms of training budget, we mainly evaluate the raw model on established but not that hard benchmarks, _i.e.,_ TriviaQA [22], HumanEval [8], WMT16-En-Ro [6], BigBench-Lite (24 tasks) [4], and a subset of the lm-evaluation-harness collection [17] with 13 tasks. For popular but relatively challenging benchmarks like 5-shot MMLU [19], our OpenMoE-8B/32E achieves around 26.2% accuracy, which means the model is almost randomly guessing from the four options. We mainly compare with the open-sourced models with more training cost, _i.e.,_ TinyLLaMA-1.1B [54] and OpenLLaMA-3B [18]. On BigBench-Lite, we also compare with GPT-3 [7], Big-G [4] and Big-G-Sparse [4]. Big-G and Big-G-Sparse are two sets of Google in-house Transformer models evaluated on BigBench-Lite, and Big-G-Sparse models are MoE-based Transformers.\n' +
+      '\n' +
+      'We first report our results on Commonsense QA (TriviaQA), Coding (HumanEval), and Low-resource Machine Translation (WMT16 En-Ro). We think these three benchmarks are meaningful for us because (1) Commonsense is to check whether OpenMoE can memorize more commonsense given its efficient parameter scaling advantage; (2) Coding is important because of its prevalent use cases in solving coding-related user prompts, LLM as agents, and embodied AI; (3) Low-resource Machine Translation is important because we want to share the benefits of foundation models to everyone on\n' +
+      '\n' +
+      'Figure 2: Token prediction accuracy of OpenMoE models. OpenMoE-8B/32E uses UL2 before 390K steps and falls back to CasualLM after 790K steps. OpenMoE-34B/32E uses UL2 until 50B tokens.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:8]\n' +
+      '\n' +
+      'In Figure 3, the relative cost is computed based on multiplying activated parameters (Act. Params) in Transformer blocks and the number of training tokens. The size of the color dots denotes the number of activated parameters, and the size of the shadow denotes the number of total parameters for MoE models. We can observe that OpenMoE achieved a better cost-effectiveness trade-off on BigBench-Lite, in terms of both training and inference cost.\n' +
+      '\n' +
+      'We also evaluate OpenMoE on the 13 tasks from the LM-Evaluation-Harness collection. As shown in Table 7, both OpenMoE and TinyLLaMA performed worse than OpenLLaMA. However, the scores achieved by OpenMOE are acceptable. We suggest that the initial high sampling rate on the code data may harm the results on these text-dominated benchmarks, which is one of the issues we will discuss in Section 5.\n' +
+      '\n' +
+      '#### 3.3.2 Chat Model Evaluation\n' +
+      '\n' +
+      'We further evaluate our model on MTBench, an established ChatBot benchmark that is able to examine models comprehensively. We report both single-turn and multi-turn results in Figure 3(a) and Table 8. We can observe that OpenMoE outperforms baselines by a large margin on the single-turn results, especially on coding tasks. However, OpenMoE\'s performance drops more on the second turn, which results in worse multi-turn results in Figure 3(b). We found that this probably be caused by the token drop of a long sequence. Please see the following Section 4 for a detailed analysis.\n' +
+      '\n' +
+      '## 4 Analyzing OpenMoE\n' +
+      '\n' +
+      'We generally think MoE is an effective way to scale parameters up with a fixed computation budget. However, we have little idea about what the experts in MoE specialize in. In this section, we conduct an in-depth analysis of OpenMoE in multiple aspects to study the routing behavior.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c} \\hline \\hline\n' +
+      '**Model** & **Act. Params** & **Total Tokens** & **Multi-lingual Tokens** & **WMT16 En-Ro** \\\\ \\hline TinyLLaMA-1.1B & 0.9B & 3.0T & 75B & 2.6 \\\\ OpenLLaMA-3B & 2.9B & 1.0T & 24B & 1.9 \\\\ OpenMoE-8B/32E & 2.1B & 1.1T & 38B & 3.1 \\\\ OpenMoE-34B/32E & 6.4B & 0.2T & 9B & 3.4 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 6: Results on WMT16 En-Ro (BLEU score). We also report the number of explicit multi-lingual tokens in the pre-training dataset, _i.e.,_ the multi-lingual version of Wikipedia from the RedPajama dataset.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c} \\hline \\hline\n' +
+      '**Dataset** & **TinyLLaMA-1.1B** & **OpenLLaMA-3B** & **OpenMoE-8B/32E** \\\\ \\hline ANLI-R1 & 34.2 & 33.0 & 32.7 \\\\ ANLI-R2 & 32.4 & 36.0 & 33.2 \\\\ ANLI-R3 & 35.1 & 38.0 & 33.9 \\\\ HellaSwag & 59.2 & 52.0 & 45.5 \\\\ WinoGrande & 59.1 & 63.0 & 60.3 \\\\ PIQA & 73.3 & 77.0 & 74.2 \\\\ ARC-Easy & 55.2 & 68.0 & 64.1 \\\\ ARC-Challenge & 30.1 & 34.0 & 30.3 \\\\ Boolq & 57.8 & 66.0 & 61.2 \\\\ TruthfulQA & 37.6 & 35.0 & 36.0 \\\\ OpenbookQA & 21.8 & 26.0 & 24.6 \\\\ RTE & 51.9 & 55.0 & 53.4 \\\\ WiC & 50.1 & 50.0 & 49.8 \\\\ \\hline Average & 45.9 & **48.7** & 46.1 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 7: Evaluate OpenMoE-8B/32E on lm-evaluation-harness. The results of OpenLLaMA are from its homepage, which only provides two effective digits.\n' +
+      '\n' +
+      '### What are the Experts Specializing in?\n' +
+      '\n' +
+      '**Does MoE specialize in domain level?** We first visualize the routing decision of the tokens from different subsets in the RedPajama dataset. Note that all visualization results are from the third MoE layer by default because we did not observe significant differences across layers. We can observe that the tokens from different subsets (_i.e._, domains) are uniformed distributed on the plot. That is, although \\(E_{21}\\) slightly prefers code tokens and \\(E_{10}\\) like books a little, most experts in MoE are not specialized based on the domains.\n' +
+      '\n' +
+      '**Does MoE specialize in language level?** We move forward toward finer-grain data to check whether MoE specializes in different coding languages and natural languages. In Figure 6, we compare 4 different coding languages, _i.e._, Assembly, Blitzmax, Java, and Python. Similar to the domain level,\n' +
+      '\n' +
+      'Figure 4: Evaluate OpenMoE on MTBench.\n' +
+      '\n' +
+      'Figure 5: Visualization of the routing decision on the RedPajama dataset. \\(E_{i}\\) denotes the ratio of tokens routed to \\(t_{\\mathrm{th}}\\) expert.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c} \\hline \\hline Model & MT-Bench 1st Turn & MT-Bench 2nd Turn & MT-Bench Avg \\\\ \\hline GPT-J-6B (0.4T) & 2.51 & 2.35 & 2.43 \\\\ TinyLAMa-1.1B (3T) & 4.08 & 2.54 & 3.31 \\\\ OpenLLaMA-3B (1T) & 4.36 & **3.62** & **3.99** \\\\ OpenMoE-8B/32E (1.1T) & **4.69** & 3.26 & **3.98** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 8: Average scores on MT-Bench.\n' +
+      '\n' +
+      'even for Assembly and Blitzmax, _i.e.,_ two low-resource languages compared with Java and Python, they still did not exhibit significant expert specialization.\n' +
+      '\n' +
+      'We further study the expert specialization on different natural languages. We adopted a multi-lingual parallel corpus, _i.e.,_ TED-Parallel-Corpus 4 as the platform. In Figure 7, we found that there is a relatively clear specialization among different experts. For instance, zh-cn (Chinese, Simplified) and zh-tw (Chinese, Traditional) both have a strong preference for \\(E_{5}\\) and \\(E_{16}\\); ja (Japanese), and ko (Korean) both prefer \\(E_{14}\\).\n' +
+      '\n' +
+      'Footnote 4: [https://github.com/ajinkyakulkarnil14/TED-Multilingual-Parallel-Corpus](https://github.com/ajinkyakulkarnil14/TED-Multilingual-Parallel-Corpus)\n' +
+      '\n' +
+      '**Does MoE specialize in task level?** Based on the findings above, finer-grained data has clearer expert specialization observation. We then visualize the routing decision on MT-Bench conversation data in Figure 8. We can see a similar specialization as above, especially for the math data. We suggest that the main reason is that the math tasks include more special tokens than other tasks.\n' +
+      '\n' +
+      '**Does MoE specialize in Position ID?** Routers in MoE make decisions based on the token representations. The token representations are from token embeddings and position embeddings. We thus\n' +
+      '\n' +
+      'Figure 6: Visualization of the routing decision on TheStack dataset. \\(E_{i}\\) denotes the ratio of tokens routed to \\(i_{\\mathrm{th}}\\) expert.\n' +
+      '\n' +
+      'Figure 7: Visualization of the routing decision on TED-Parallel-Corpus including 12 languages, _i.e.,_ ar (Arabic), de (German), es (Spanish), fr (French), he (Hebrew), it (Italian), ja (Japanese), ko (Korean), nl (Dutch), ru (Russian), zh-cn (Chinese Simplified), zh-tw (Chinese, Traditional), \\(E_{i}\\) denotes the ratio of tokens routed to the \\(i_{\\mathrm{th}}\\) expert.\n' +
+      '\n' +
+      'visualize the routing decisions on different positions in Figure 8(a) and Figure 8(b). We can observe:(1) there are indeed some specializations in different Position IDs; (2) consecutive positions prefer similar experts, such as the \\(E_{10}\\) and \\(E_{19}\\) in Figure 8(b).\n' +
+      '\n' +
+      '**Does MoE specialize in Token ID?** Since we are using the umT5 tokenizer, tokens from different languages usually have different token IDs. Therefore, we further study whether the router in MoE mainly makes its decisions based on the Token ID. We visualize the routing decisions of a few representative tokens in Figure 10. All these tokens show a very strong specialization on only a few experts. This is a very interesting finding because the tokens with the same Token ID have very diverse contexts in different sentences. For instance, the token "ed" can be the suffix of many different words, _e.g._, "preferred", and "led". The token "an" can also be part of "an apple" or "another". However, all these tokens have very strong specialization on only a few fixed experts. That means, MoE simply routes based on the Token ID instead of high-level semantics. We name this observation as **Context-independent Specialization** in the following sections. To verify that the Context-independent Specialization also exists for other Token IDs, we plot the routing decision standard deviation in Appendix E.\n' +
+      '\n' +
+      'Figure 8: Visualization of the routing decision on MT-Bench. We adopt the conversation history when evaluating OpenMoE MT-Bench as the visualization data source. \\(E_{i}\\) denotes the ratio of tokens routed to the \\(i_{\\mathrm{th}}\\) expert.\n' +
+      '\n' +
+      'Figure 9: Visualization of the routing decision at different Position IDs. \\(E_{i}\\) denotes the ratio of tokens routed to the \\(i_{\\mathrm{th}}\\) expert.\n' +
+      '\n' +
+      '### Token Specialization Study\n' +
+      '\n' +
+      '**Are experts clustering similar tokens?** As we discussed above, the tokens with the same Token ID are always routed to the same expert no matter what the context is, _i.e.,_ Context-independent Specialization. We thus investigate whether the experts prefer the Token IDs corresponding to the tokens with similar low-level semantics. We list the top 10 favorite tokens for each expert in Table 9. We can observe that similar tokens are clustered in experts. For instance, "can". "will", and "would" are all in expert 31. "have". "has", and "had" are all included in expert 30. This visualization can also explain many observations above. An example is that, in most figures above, we can find most coding and math data prefer expert 21. Here it reveals the real reason. Expert 21 has a strong preference for "=", "and", and "n", which appear more frequently in math and code.\n' +
+      '\n' +
+      '**When did the model learn the specialization?** According to the Context-independent Specialization observed above, the model is not learning how to route based on high-level semantics. Therefore, we raise another question, when did the model learn and fix the routing decision for the tokens? We compare the routing decisions of different OpenMoE intermediate checkpoints in Figure 10(a) and Figure 10(b). We can see that the expert preferences are almost totally overlapped for different checkpoints, which means that the model has started to fix its routing at the very early stage of training. Even if we change the training data mixture (from 52.25% code to 20% code) and training objective (from UL2 to CasualLM), the routing decision is still fixed. We infer that the reason is that, when the token is usually assigned to one specific expert, the loss would increase a lot if the token is sent to another unseen expert, which pushes the model to assign the token back to the original expert. Therefore, the routing probably has been learned at the warmup stage or so, and kept throughout the whole following training stage.\n' +
+      '\n' +
+      '### Token Drop During Routing\n' +
+      '\n' +
+      '**Drop-towards-the-End** In MoE models, we usually set a pre-defined max capacity \\(C\\) for every expert to ensure a balanced workload, which means each expert cannot process more than \\(C\\) tokens.\n' +
+      '\n' +
+      'Figure 10: Visualization of the routing decision at different Token IDs. \\(E_{i}\\) denotes the ratio of tokens routed to the \\(i_{\\mathrm{th}}\\) expert.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c|c} \\hline \\hline Expert ID & Top Tokens \\\\ \\hline\n' +
+      '0 & \\(\\texttt{n}\\), \\(\\texttt{n}\\), \\(\\texttt{n}\\), \\(\\texttt{n}\\), \\(\\texttt{n}\\), \\(\\texttt{n}\\), \\(\\texttt{n}\\), \\(\\texttt{n}\\), \\(\\texttt{n}\\), \\(\\texttt{n}\\), \\(\\texttt{n}\\) \\\\\n' +
+      '1 & \\(\\texttt{n}\\), \\(\\texttt{n}\\), \\(\\texttt{n}\\), \\(\\texttt{n}\\), \\(\\texttt{n}\\), \\(\\texttt{n}\\), \\(\\texttt{n}\\) \\\\\n' +
+      '21 & \\(\\texttt{n}\\), \\(\\texttt{n}\\), \\(\\texttt{n}\\), \\(\\texttt{n}\\), \\(\\texttt{n}\\), \\(\\texttt{n}\\) \\\\\n' +
+      '30 & 1, \\(\\texttt{ed}\\), \\(\\texttt{d}\\), \\(\\texttt{have}\\), \\(\\texttt{ing}\\), \\(\\texttt{n}\\), \\(\\texttt{n}\\), \\(\\texttt{has}\\), \\(\\texttt{s}\\), \\(\\texttt{n}\\), \\(\\texttt{had}\\) \\\\\n' +
+      '31 & \\(\\texttt{to}\\), \\(\\texttt{can}\\), \\(\\texttt{s}\\), \\(\\texttt{of}\\), \\(\\texttt{ing}\\), \\(\\texttt{will}\\), \\(\\texttt{not}\\), \\(\\texttt{e}\\), \\(\\texttt{ed}\\), \\(\\texttt{would}\\) \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 9: Top Tokens selected by each expert.\n' +
+      '\n' +
+      'This can ensure the throughput when training and deploying the MoE model with expert parallelism, _i.e.,_ distributing different experts to different GPUs. However, this will also introduce an issue, the later tokens would be dropped if the previous tokens have filled the expert. In decoder-only MoE architecture, due to the auto-regressive nature, the later tokens in a sequence may be dropped more. For instance, if one expert prefers "n" token, and a sequence starts with many "n"s and also has a lot of "n\'s in the following output generated, the expert would be filled with "n" tokens quickly and all other tokens appeared later, which should be assigned to this expert, would be dropped. To verify this, we visualize the ratio of tokens dropped at different position IDs. As shown in Figure 11(a), the general pre-training datasets, _e.g.,_ RedPajama and TheStack achieved balanced token assignment, only having a small proportion of tokens dropped, even for the Position ID after 1500. However, for multi-lingual and instruction-following datasets, a large ratio of tokens is dropped. We suggest the reason is, as we discussed above, the routing decision is fixed at the early stage of training and does not change anymore, so the load balance is also achieved based on the pre-training dataset. The instruction following data can be seen as a type of out-of-domain (OOD) data of the MoE router, which would induce an unbalanced token assignment so that many tokens appearing later would be dropped.\n' +
+      '\n' +
+      '**Can supervised fine-tuning with instruction-following data alleviate this Drop-towards-the-End issue?** Since the Drop-towards-the-End issue is mainly caused by the OOD data, it is natural to think and study whether it is possible to convert the instruction-following data to in-domain data by tuning MoE with the instruction dataset. Therefore, we compare the models before and after\n' +
+      '\n' +
+      'Figure 11: Visualization of token IDs’ routing decision of different intermediate checkpoints. \\(E_{i}\\) denotes the ratio of tokens routed to the \\(i_{\\mathrm{th}}\\)\n' +
+      '\n' +
+      'Figure 12: Comparing the ratio of tokens dropped at different position IDs.\n' +
+      '\n' +
+      'supervised fine-tuning in Figure 12b. We can see the models do not have a significant difference in the Drop-towards-the-End issue. This matches well with our insight above, _i.e._, the routing behavior learned and fixed at the very early stage of LLM pre-training.\n' +
+      '\n' +
+      '## 5 Rethinking OpenMoE\n' +
+      '\n' +
+      'Working on this project is a long journey for authors. We indeed made some mistakes during design and development, but we also achieved some new insights in the analysis. We thus write down everything we found without any reservation in this paper to help future practitioners. Then, in this section, we discuss how to train a better model in the future, which are the most important takeaways of our work.\n' +
+      '\n' +
+      '**How much code shall we use?** To be honest, we do not have a very precise answer. Conducting an ablation study is extremely expensive because of the cost of pre-training LLM at scale. The conclusion may also strongly depend on the model size and data quality. However, according to our observation, over 50% code looks too aggressive which may harm the abilities on text tasks, but considering the importance of writing code, we suggest using around 30% code as we used in OpenMoE-34B/32E.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|l|r r|r r|r} \\hline \\hline\n' +
+      '**Dataset** & **Subset** & \\multicolumn{2}{c|}{**LLaMA Tokenizer**} & \\multicolumn{2}{c|}{**umT5 Tokenizer**} & \\multicolumn{1}{c}{**umTS/LLaMA**} \\\\  & & **\\#Tokens** & **Vocab Used** & **\\#Tokens** & **Vocab Used** & \\\\ \\hline RedPajama & arxiv & 125,339 & 8,327 & 131,059 & 8,762 & 1.046 \\\\  & book & 137,972 & 11,603 & 131,072 & 15,202 & 0.950 \\\\  & c4 & 28,592 & 5,439 & 26,428 & 5,554 & 0.924 \\\\  & cc & 78,450 & 8,738 & 73,403 & 9,927 & 0.936 \\\\  & github & 54,707 & 4,769 & 59,732 & 4,539 & 1.092 \\\\  & stackexchange & 40,659 & 4,714 & 43,195 & 4,317 & 1.062 \\\\  & wikipedia & 37,406 & 7,179 & 30,555 & 8,748 & 0.817 \\\\ \\hline TheStack & assembly & 49,143 & 3,066 & 50,738 & 3,130 & 1.032 \\\\  & blitzmax & 78,259 & 4,200 & 80,658 & 4,209 & 1.031 \\\\  & java & 64,236 & 4,229 & 69,902 & 3,905 & 1.088 \\\\  & python & 66,243 & 5,095 & 70,795 & 4,799 & 1.069 \\\\ \\hline MTBench & writing & 6,062 & 1,700 & 5,786 & 1,535 & 0.954 \\\\  & roleplay & 4,309 & 1,291 & 4,076 & 1,172 & 0.946 \\\\  & reasoning & 2,369 & 478 & 2,309 & 429 & 0.975 \\\\  & math & 5,163 & 290 & 5,154 & 282 & 0.998 \\\\  & coding & 4,955 & 651 & 5,256 & 631 & 1.061 \\\\  & extraction & 7,058 & 1,376 & 6,817 & 1,234 & 0.966 \\\\  & stem & 4,783 & 1,151 & 4,527 & 1,039 & 0.946 \\\\  & humanities & 6,398 & 1,451 & 5,946 & 1,320 & 0.929 \\\\ \\hline Multi-lingual & ar & 256,952 & 187 & 88,406 & 8,037 & 0.344 \\\\ TED & de & 103,270 & 4,880 & 80,593 & 8,470 & 0.780 \\\\  & es & 101,212 & 4,745 & 78,713 & 8,519 & 0.778 \\\\  & fr & 115,057 & 5,156 & 95,978 & 8,164 & 0.834 \\\\  & he & 242,446 & 239 & 86,891 & 4,074 & 0.358 \\\\  & it & 109,591 & 4,593 & 84,201 & 8,833 & 0.768 \\\\  & ja & 144,825 & 931 & 63,491 & 6,860 & 0.438 \\\\  & ko & 257,107 & 596 & 106,770 & 2,736 & 0.415 \\\\  & nl & 102,703 & 4,234 & 75,084 & 7,540 & 0.731 \\\\  & ru & 107,144 & 2,502 & 74,445 & 9,658 & 0.695 \\\\  & zh-cn & 149,581 & 1,058 & 88,107 & 3,611 & 0.589 \\\\  & zh-tw & 173,415 & 1,107 & 93,693 & 3,619 & 0.540 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 10: Compare umT5 tokenizer and LLaMA tokenizer on the subsets extracted from different datasets. Vocab used denotes the number of token IDs activated when tokenizing the whole subset. The umT5/LLaMA means, when tokenizing the same subset, the ratio of the number of tokens generated by umT5 and LLaMA.\n' +
+      '\n' +
+      '**Tokenizer Selection** Our large tokenizer vocabulary introduces computation overhead at the last output layer after Transformer blocks. Although this overhead would become relatively small after scaling the Transformer model up, it is still valuable to make the tokenizer selection smarter. We conduct a quantitative analysis of the tokenizer with the datasets we used in Section 4. As shown in Table 10, umT5 tokenizer is indeed much better than LLaMA tokenizer on the multi-lingual dataset, especially on the low-resource language. It is also slightly better than LLaMA on the instruction-following data. However, it did not match well with our expectation that it could save more tokens for the code data. In addition, we observe that the token usage in both tokenizers is extremely long-tail distributed, which indicates that there is a large room to improve the tokenizer and following algorithms. As we know, learning from long-tailed data is hard [55]. Since we only have a little multi-lingual data in our pre-training data mixture, the computation cost of predicting the logits of those low-resource tokens is wasted. Based on our sub-optimal choice, we also need a solid tokenizer benchmark, which would help people evaluate tokenizers systematically. And we can then pick the best tokenizer before training the model.\n' +
+      '\n' +
+      '**More Efficient MoE Architecture** According to our observation, MoE routing is almost context-independent (_i.e.,_ Context-independent Specialization), we suggest that we can (1) remove the trainable router after warmup stage; (2) adopt parallel Transformer layer [9; 48] computing FFN layer based on the input directly instead of using the output of attention layer; (3) overlapping the attention layer computation and MoE layer all-to-all communication. (1) and (3) will improve the hardware utilization and (2) can enable (3) without performance drop when scaling up [9].\n' +
+      '\n' +
+      '**Mix instruction-following data during pre-training warm-up to control load balance and alleviate Drop-towards-the-End.** According to our results on multi-turn MT-Bench, it is very important to alleviate the Drop-towards-the-End issue. To this end, the key is to make the MoE achieve load balance on instruction-following data. Again, since the MoE learns and fixes the routing behavior at the early stage of pre-training, a straightforward solution is mixing the instruction-tuning data into the pre-training corpus during warm-up. This data mixing is not to align the model to learn how to follow instructions. Instead, we hope the model achieves the balanced token routing on instruction-tuning data, which paves the way to our final usage case of LLMs.\n' +
+      '\n' +
+      '## 6 Conclusion\n' +
+      '\n' +
+      'In this work, we explore how to train MoE for open-sourced communities. We achieved positive results that verified the effectiveness of MoE-based LLM in the post-ChatGPT stage. We disclosed all details, and our model is fully reproducible with the open-sourced code and data. More importantly, we conducted an in-depth analysis on our MoE-based LLM and found important "Context-independent Specialization" "Early Routing Learning" and "Drop-towards-the-End". We also rethink the mistakes we made and propose possible solutions for future developers. We sincerely hope this work can help the open-source community have a better understanding of MoE models. All the best!\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* [1] R. Anil _et al._, "Palm 2 technical report," _arXiv preprint arXiv:2305.10403_, 2023.\n' +
+      '* [2] Anonymous, "(inthe)wildchat: 570k chatGPT interaction logs in the wild," in _The Twelfth International Conference on Learning Representations_, 2024. [Online]. Available: [https://openreview.net/forum?id=B18u7ZR1bM](https://openreview.net/forum?id=B18u7ZR1bM).\n' +
+      '* [3] M. Artetxe _et al._, "Efficient large scale language modeling with mixtures of experts," _arXiv preprint arXiv:2112.10684_, 2021.\n' +
+      '* [4] B.-b. authors, "Beyond the imitation game: Quantifying and extrapolating the capabilities of language models," _Transactions on Machine Learning Research_, 2023, issn: 2835-8856. [Online]. Available: [https://openreview.net/forum?id=uyTL5Bvosj](https://openreview.net/forum?id=uyTL5Bvosj).\n' +
+      '* [5] M. Bavarian _et al._, "Efficient training of language models to fill in the middle," _arXiv preprint arXiv:2207.14255_, 2022.\n' +
+      '* [6] O. r. Bojar _et al._, "Findings of the 2016 conference on machine translation," in _Proceedings of the First Conference on Machine Translation_, Berlin, Germany: Association for Computational Linguistics, Aug. 2016, pp. 131-198. [Online]. Available: [http://www.aclweb.org/anthology/W/W16/W16-2301](http://www.aclweb.org/anthology/W/W16/W16-2301).\n' +
+      '\n' +
+      '* [7] T. B. Brown _et al._, "Language models are few-shot learners," _arXiv preprint arXiv:2005.14165_, 2020.\n' +
+      '* [8] M. Chen _et al._, "Evaluating large language models trained on code," 2021. arXiv: 2107.03374 [cs.LG].\n' +
+      '* [9] A. Chowdhery _et al._, "Palm: Scaling language modeling with pathways," _arXiv preprint arXiv:2204.02311_, 2022.\n' +
+      '* [10] H. W. Chung _et al._, "Unimax: Fairer and more effective language sampling for large-scale multilingual pretraining," _arXiv preprint arXiv:2304.09151_, 2023.\n' +
+      '* [11] T. Computer, _Redpajama: An open source recipe to reproduce lanna training dataset_, 2023. [Online]. Available: [https://github.com/togethercomputer/RedPajama-Data](https://github.com/togethercomputer/RedPajama-Data).\n' +
+      '* [12] D. Dai _et al._, "Deepseekmoe: Towards ultimate expert specialization in mixture-of-experts language models," _arXiv preprint arXiv:2401.06066_, 2024.\n' +
+      '* [13] A. Dosovitskiy _et al._, "An image is worth 16x16 words: Transformers for image recognition at scale," _arXiv preprint arXiv:2010.11929_, 2020.\n' +
+      '* [14] N. Du _et al._, "Glam: Efficient scaling of language models with mixture-of-experts," in _International Conference on Machine Learning_, PMLR, 2022, pp. 5547-5569.\n' +
+      '* [15] W. Fedus, B. Zoph, and N. Shazeer, "Switch transformers: Scaling to trillion parameter models with simple and efficient sparsity," _J. Mach. Learn. Res_, vol. 23, pp. 1-40, 2021.\n' +
+      '* [16] H. Fu Yao; Peng and T. Khot, "How does gpt obtain its ability? tracing emergent abilities of language models to their sources," _Yao Fu\'s Notion_, Dec. 2022. [Online]. Available: [https://yaofu.notion.site/How-does-gpt-Obtain-its-ability-Tracing-Emergent-Abilities-of-Language-Models-to-their-Sources-b9a57ac0fcf74f30a1ab9a5a36faiddc1](https://yaofu.notion.site/How-does-gpt-Obtain-its-ability-Tracing-Emergent-Abilities-of-Language-Models-to-their-Sources-b9a57ac0fcf74f30a1ab9a5a36faiddc1).\n' +
+      '* [17] L. Gao _et al._, _A framework for few-shot language model evaluation_, version v0.4.0, Dec. 2023. doi: 10.5281/zenodo.10256836. [Online]. Available: [https://zenodo.org/records/10256836](https://zenodo.org/records/10256836).\n' +
+      '* [18] X. Geng and H. Liu, _Openllama: An open reproduction of lama_, May 2023. [Online]. Available: [https://github.com/openlm-research/open_llama](https://github.com/openlm-research/open_llama).\n' +
+      '* [19] D. Hendrycks _et al._, "Measuring massive multitask language understanding," _arXiv preprint arXiv:2009.03300_, 2020.\n' +
+      '* [20] J. Hoffmann _et al._, "Training compute-optimal large language models," _arXiv preprint arXiv:2203.15556_, 2022.\n' +
+      '* [21] A. Q. Jiang _et al._, "Mixtral of experts," _arXiv preprint arXiv:2401.04088_, 2024.\n' +
+      '* [22] M. Joshi, E. Choi, D. Weld, and L. Zettlemoyer, "TriviaQA: A large scale distantly supervised challenge dataset for reading comprehension," in _Proceedings of the 55th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)_, R. Barzilay and M.-Y. Kan, Eds., Vancouver, Canada: Association for Computational Linguistics, Jul. 2017, pp. 1601-1611. doi: 10.18653/v1/P17-1147. [Online]. Available: [https://aclanthology.org/P17-1147](https://aclanthology.org/P17-1147).\n' +
+      '* [23] J. D. M.-W. C. Kenton and L. K. Toutanova, "Bert: Pre-training of deep bidirectional transformers for language understanding," in _Proceedings of naacL-HLT_, vol. 1, 2019, p. 2.\n' +
+      '* [24] D. Koetkov _et al._, "The stack: 3 tb of permissively licensed source code," _Preprint_, 2022.\n' +
+      '* [25] D. Lepikhin _et al._, "Gshard: Scaling giant models with conditional computation and automatic sharding," _arXiv preprint arXiv:2006.16668_, 2020.\n' +
+      '* [26] M. Lewis, S. Bhosale, T. Dettmers, N. Goyal, and L. Zettlemoyer, "Base layers: Simplifying training of large, sparse models," in _International Conference on Machine Learning_, PMLR, 2021, pp. 6265-6274.\n' +
+      '* [27] J. Li, Z. Zhang, and H. Zhao, "Self-prompting large language models for open-domain qa," _arXiv preprint arXiv:2212.08635_, 2022.\n' +
+      '* [28] R. Li _et al._, "Starcoder: May the source be with you!" _arXiv preprint arXiv:2305.06161_, 2023.\n' +
+      '* [29] Y. Liu _et al._, "Roberta: A robustly optimized bert pretraining approach," _arXiv preprint arXiv:1907.11692_, 2019.\n' +
+      '* [30] Y. Lou, F. Xue, Z. Zheng, and Y. You, "Cross-token modeling with conditional computation," _arXiv preprint arXiv:2109.02008_, 2021.\n' +
+      '\n' +
+      '* [31] B. Mustafa, C. Riquelme, J. Puigcerver, R. Jenatton, and N. Houlsby, "Multimodal contrastive learning with limoe: The language-image mixture of experts," _Advances in Neural Information Processing Systems_, vol. 35, pp. 9564-9576, 2022.\n' +
+      '* [32] E. Nijkamp _et al._, "Xgen-7b technical report," _arXiv preprint arXiv:2309.03450_, 2023.\n' +
+      '* [33] J. Puigcerver, C. Riquelme, B. Mustafa, and N. Houlsby, "From sparse to soft mixtures of experts," _arXiv preprint arXiv:2308.00951_, 2023.\n' +
+      '* [34] J. W. Rae _et al._, "Scaling language models: Methods, analysis & insights from training gopher," _arXiv preprint arXiv:2112.11446_, 2021.\n' +
+      '* [35] C. Raffel _et al._, "Exploring the limits of transfer learning with a unified text-to-text transformer," _Journal of Machine Learning Research_, vol. 21, no. 140, pp. 1-67, 2020. [Online]. Available: [http://jmlr.org/papers/v21/20-074.html](http://jmlr.org/papers/v21/20-074.html).\n' +
+      '* [36] C. Riquelme _et al._, "Scaling vision with sparse mixture of experts," _Advances in Neural Information Processing Systems_, vol. 34, pp. 8583-8595, 2021.\n' +
+      '* [37] S. Roller, S. Sukhbaatar, J. Weston, _et al._, "Hash layers for large sparse models," _Advances in Neural Information Processing Systems_, vol. 34, pp. 17 555-17 566, 2021.\n' +
+      '* [38] B. Roziere _et al._, "Code llama: Open foundation models for code," _arXiv preprint arXiv:2308.12950_, 2023.\n' +
+      '* [39] N. Shazeer, "Glu variants improve transformer," _arXiv preprint arXiv:2002.05202_, 2020.\n' +
+      '* [40] N. Shazeer _et al._, "Outrageously large neural networks: The sparsely-gated mixture-of-experts layer," _arXiv preprint arXiv:1701.06538_, 2017.\n' +
+      '* [41] M. Shoeybi, M. Patwary, R. Puri, P. LeGresley, J. Casper, and B. Catanzaro, "Megatron-lm: Training multi-billion parameter language models using model parallelism," _arXiv preprint arXiv:1909.08053_, 2019.\n' +
+      '* [42] L. Soldaini _et al._, "Dolma: An Open Corpus of Three Trillion Tokens for Language Model Pretraining Research," _arXiv preprint_, 2023.\n' +
+      '* [43] J. Su, M. Ahmed, Y. Lu, S. Pan, W. Bo, and Y. Liu, "Roformer: Enhanced transformer with rotary position embedding," _Neurocomputing_, vol. 568, p. 127 063, 2024.\n' +
+      '* [44] Y. Tay _et al._, "Ul2: Unifying language learning paradigms," in _The Eleventh International Conference on Learning Representations_, 2022.\n' +
+      '* [45] Y. Tay _et al._, "Unifying language learning paradigms," _arXiv preprint arXiv:2205.05131_, 2022.\n' +
+      '* [46] L.-M. Team, _Llama-moe: Building mixture-of-experts from llama with continual pre-training_, Dec. 2023. [Online]. Available: [https://github.com/pjlab-sys4nlp/lllama-moe](https://github.com/pjlab-sys4nlp/lllama-moe).\n' +
+      '* [47] H. Touvron _et al._, "Llama: Open and efficient foundation language models," _arXiv preprint arXiv:2302.13971_, 2023.\n' +
+      '* [48] B. Wang and A. Komatsuzaki, _GPT-J-6B: A 6 Billion Parameter Autoregressive Language Model_, [https://github.com/kingoflolz/mesh-transformer-jax](https://github.com/kingoflolz/mesh-transformer-jax), May 2021.\n' +
+      '* [49] G. Wenzek _et al._, "CCNet: Extracting high quality monolingual datasets from web crawl data," English, in _Proceedings of the Twelfth Language Resources and Evaluation Conference_, N. Calzolari _et al._, Eds., Marseille, France: European Language Resources Association, May 2020, pp. 4003-4012, isbn: 979-10-95546-34-4. [Online]. Available: [https://aclanthology.org/2020.lrec-1.494](https://aclanthology.org/2020.lrec-1.494).\n' +
+      '* [50] Y. Xu _et al._, "Gspmd: General and scalable parallelization for ml computation graphs," _arXiv preprint arXiv:2105.04663_, 2021.\n' +
+      '* [51] F. Xue, X. He, X. Ren, Y. Lou, and Y. You, "One student knows all experts know: From sparse to dense," _arXiv preprint arXiv:2201.10890_, 2022.\n' +
+      '* [52] F. Xue, Z. Shi, F. Wei, Y. Lou, Y. Liu, and Y. You, "Go wider instead of deeper," in _Proceedings of the AAAI Conference on Artificial Intelligence_, vol. 36, 2022, pp. 8779-8787.\n' +
+      '* [53] P. Yu _et al._, "Efficient language modeling with sparse all-mlp," _arXiv preprint arXiv:2203.06850_, 2022.\n' +
+      '* [54] P. Zhang, G. Zeng, T. Wang, and W. Lu, _Tinyllama: An open-source small language model_, 2024. arXiv: 2401.02385 [cs.CL].\n' +
+      '* [55] Y. Zhang, B. Kang, B. Hooi, S. Yan, and J. Feng, "Deep long-tailed learning: A survey," _IEEE Transactions on Pattern Analysis and Machine Intelligence_, 2023.\n' +
+      '* [56] L. Zheng _et al._, "Judging llm-as-a-judge with mt-bench and chatbot arena," _arXiv preprint arXiv:2306.05685_, 2023.\n' +
+      '\n' +
+      '* [57] Y. Zhou _et al._, "Brainformers: Trading simplicity for efficiency," in _International Conference on Machine Learning_, PMLR, 2023, pp. 42 531-42 542.\n' +
+      '* [58] Y. Zhou _et al._, "Mixture-of-experts with expert choice routing," _Advances in Neural Information Processing Systems_, vol. 35, pp. 7103-7114, 2022.\n' +
+      '* [59] B. Zoph _et al._, "St-moe: Designing stable and transferable sparse expert models," _URL https://arxiv. org/abs/2202.08906_, 2022.\n' +
+      '\n' +
+      '## Appendix A Frequent Asked Questions\n' +
+      '\n' +
+      'We list the potentially frequently asked questions and the point-to-point5 answers as follows:\n' +
+      '\n' +
+      '### Why not show the token specialization of the checkpoints at the warmup stage?\n' +
+      '\n' +
+      'We did not expect that the routing would be learned and fixed so early. During training, due to limited storage quota, we only keep the checkpoints every 200B tokens.\n' +
+      '\n' +
+      '### Why not compare with advanced open MoE models like Mixtral and DeepSeek-MoE?\n' +
+      '\n' +
+      'First, our model was announced and released over 4 months earlier than Mistral and even more than DeepSeek-MoE. Second, different from models used in-house training data, our model is fully transparent. We also disclose all details and code to ensure everyone can train a comparable OpenMoE model from scratch.\n' +
+      '\n' +
+      '### Why not use MoE upcycling?\n' +
+      '\n' +
+      'MoE is more efficient in training instead of inference, because of better parallelism induced by large batch size. Building MoE on top of dense LLMs is a smart and faster way to get an MoE model, but not a more efficient way from a long-term view. Instead, maybe distilling MoE into a dense model [51] would be helpful if there is little performance drop.\n' +
+      '\n' +
+      '### Why not use AdamW optimizer and Cosine Learning Rate Schedule?\n' +
+      '\n' +
+      'We applied Adafactor optimizer and Inverse Square Root learning rate schedule following STMoE [59]. We tried AdamW Optimizer but found that would introduce unstable issues (_i.e.,_ NAN loss) frequently, which may introduce a significant amount of hyper-parameter sweep. Considering the limited computational resources we have, we decide to simply follow the well-studied learning rate schedule from ST-MoE [59].\n' +
+      '\n' +
+      '### Why not use better and larger datasets?\n' +
+      '\n' +
+      'When launching this project in 2023 May, there were only a few available open-source pre-training datasets. However, the scale and quality of open-sourced pre-training datasets are getting better. For instance, Soldaini _et al._[42] released 3T tokens with careful cleaning. Computer [11] also released a huge dataset with 30T tokens in total. We believe training on the future better data will improve the LLM performance generally by a large margin.\n' +
+      '\n' +
+      'Hyper-parameters\n' +
+      '\n' +
+      'For OpenMoE-8B/32E, we set the head dimension as 128 instead of 64, which may be too large for a model using 2B activated Transformer parameters. We suggest that using 64 may induce a better cost-effectiveness trade-off than ours. For the number of parameters in the table above, since most parameters in Transformer blocks are from attention layer and FFN layer, we only account the trainable parameters from these two for simplicity.\n' +
+      '\n' +
+      'Different from existing LLMs trained with AdamW, we used Adafactor, a more memory-efficient optimizer. Although it performs slightly worse than AdamW with the same training steps, the memory efficiency enables us to use less model parallelism and more data parallelism. In this case, using Adafactor makes our training cheaper than using AdamW to train the same model on the same data. However, we highlight that the margin of this gap is unclear because it highly depends on the hardware and model size. For our infrastructure, _i.e.,_ TPUv3, this gap should be relatively larger due to the limited on-chip memory (16 GB per core).\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c c c c c c} \\hline \\hline\n' +
+      '**Model** & **Layout** & \\(H\\) & \\(H_{\\text{FFN}}\\) & \\(N_{\\text{Head}}\\) & \\(H_{\\text{Head}}\\) & \\(L\\) & **\\#Param** & **\\#ActParam w/E** & **\\#ActParam** \\\\ \\hline OpenMoE-8B/32E & Every 4 & 768 & 3072 & 12 & 64 & 12 & 650M & 339M & 142M \\\\ OpenMoE-8B/32E & Every 6 & 2048 & 8192 & 24 & 128 & 24 & 8.78 & 2.68 & 2.18 \\\\ OpenMoE-34B/32E & Every 4 & 3072 & 12288 & 24 & 128 & 32 & 34B & 6.88 & 6.08 \\\\ \\hline TinLAM & - & 2048 & 5632 & 32 & 64 & 22 & 1.08 & 1.08 & 0.98 \\\\ OpenLAM-3B & - & 3200 & 8640 & 32 & 64 & 26 & 3.08 & 3.08 & 2.98 \\\\ LiAM-7B & - & 4096 & 11008 & 32 & 128 & 32 & 6.68 & 6.48 & 6.48 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 11: Model Configurations. \\(H\\) is the hidden size. “Layout” means the way of using the MoE layer. For instance, “Every 4” means we use one MoE layer for every 4 transformer blocks. \\(H_{\\text{FFN}}\\) is the FFN intermediate size. \\(N_{\\text{Head}}\\) and \\(H_{\\text{Head}}\\) are the number of attention heads and attention head dimensions. \\(L\\) is the number of layers. #Param is the total parameters. #ActParam is the number of parameters we used to process each token in Transformer blocks. #ActParam w/ E is the sum of the #ActParam and the number of parameters in the token embedding layer.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c} \\hline \\hline  & **Base/16E** & **8B/32E** & **34B/32E** \\\\ \\hline Optimizer & \\multicolumn{3}{c}{Adafactor} \\\\ Batch Size & 128 & 2048 & 2048 \\\\ Training Steps & 500K & 500K & 100K \\\\ Peak Learning Rate & \\multicolumn{3}{c}{0.01} \\\\ Learning Rate Schedule & \\multicolumn{3}{c}{Inverse Square Root Decay} \\\\ Warmup Steps & \\multicolumn{3}{c}{10K} \\\\ Sequence Length & \\multicolumn{3}{c}{2048} \\\\ Load Balance Loss Weight & \\multicolumn{3}{c}{0.01} \\\\ Z-Loss Weight & \\multicolumn{3}{c}{0.001} \\\\ Router Z-Loss Weight & \\multicolumn{3}{c}{0.0001} \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 12: OpenMoE training hyper-parameters.\n' +
+      '\n' +
+      'Related Work\n' +
+      '\n' +
+      '### Before OpenMoE\n' +
+      '\n' +
+      'MoE is not new. One representative early effort is, Shazeer _et al._[40] embed the MoE layer into a recurrent language model. Due to the scalability of Transformer architecture, GShard [25] integrates MoE into Transformer layer and uses expert parallelism to train MoE-based Transformer at scale. Switch Transformer [15] is the earliest open-source MoE-based LM to our best knowledge, which used encoder-decoder architecture and trained with C4 [35] dataset. Due to the success of Switch Transformer on large-scale pre-training, MoE got more attention, and more advanced routing algorithms were invented. For instance, BASE Layers [26] formulates token-to-expert allocation as a linear assignment problem, allowing an optimal assignment in which each expert receives an equal number of tokens. Roller _et al._[37] simply modifies the feedforward layer to hash to different sets of weights depending on the current token and achieves promising results compared to learning-based routing. Different Token-based routing above, Zhou _et al._[58] propose to let experts select their favorite tokens, _i.e.,_ Expert-Choice Routing. Expert-choice Routing achieves more balanced token assignment and better cost-effectiveness trade-off.\n' +
+      '\n' +
+      'Beyond the routing algorithm, there is also some work focusing on scaling MoE efficiently. Artetxe _et al._[3] trained their MoE models mainly on the datasets used in RoBERTa [29] and CC100 [49] (112B tokens in total). GaLM [14] further scale decoder-only MoE model with an in-house high-quality dataset with 1.6T tokens. Brainformer [57] proposes an evolutionary search to discover MoE attributes, _e.g.,_ the best way to interleave layers and layer capacities, when to fuse layers, and when to specialize layers with MoE modules and show its effectiveness at different scales.\n' +
+      '\n' +
+      'In addition to language modeling, Vision Transformer (ViT) [13] can also be enhanced by MoE architecture. ViT-MoE [36] verifies the scalability of MoE on ViT models. WideNet [52] shares MoE-based Transformer blocks with individual layer normalization to achieve better parameter efficiency. SoftMoE [33] further improves the routing algorithm by applying soft token selection, which not only keeps the efficiency but also stabilizes the routing gradient. There are also some efforts devoted to include MoE into non-Transformer architecture, _e.g.,_ Sparse-MLP [30] for computer vision and s-MoE for language modeling [53].\n' +
+      '\n' +
+      '### After OpenMoE\n' +
+      '\n' +
+      'We released our model and implementation much earlier than writing this report. As shown in Table 13, after our release, there are some partially open-sourced models released, _e.g.,_ Mixtral [21] and Deepseek-MoE [12]. As we known, these models are significantly better in terms of final results. However, since these models are trained with in-house data, we have no idea about how things happened. We believe, although our results are not that amazing, the fully open-sourced nature and the in-depth analysis are both meaningful for the community.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l l l l} \\hline \\hline\n' +
+      '**Model Name** & **Dataset Size** & **Reproducible** & **Release Date** \\\\ \\hline Switch Transformer [15] & 156B & Yes & Feb 2021 \\\\ Meta-MoE [3] & 112B & Yes & Dec 2021 \\\\ \\hline OpenMoE (Ours) & 1.1T & Yes & Aug 2023 \\\\ \\hline Mixtral of Experts [21] & Unknown & No & Dec 2023 \\\\ LLaMA-MoE [46] & 200B & Yes & Dec 2023 \\\\ DeepSeek-MoE [12] & 2T & No & Jan 2024 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 13: Open-sourced MoE LLMs timeline. We use the model release date as the key to sort the open-sourced MoE LLMs. Dataset Size is the number of tokens in the pre-training dataset, _i.e.,_ the number of tokens for one epoch. LLaMA-MoE is continued pre-trained on off-the-shelf LLaMA family models. We account its continue training dataset only.\n' +
+      '\n' +
+      '[MISSING_PAGE_EMPTY:23]\n' +
+      '\n' +
+      '## Appendix E Routing Decision Standard Deviation\n' +
+      '\n' +
+      'In Figure 13 and 14, we can clearly see that the token IDs have a larger standard deviation on routing decisions than position IDs. Also, most token IDs have a relatively large standard deviation, which means most of the token IDs have Context-independent Routing.\n' +
+      '\n' +
+      'Figure 14: The routing decision standard deviation at different token IDs. We only take the token IDs with over 128 tokens, because the extremely low-resourced tokens always have large routing decision standard deviation. The token IDs never appeared also have variance at all.\n' +
+      '\n' +
+      'Figure 13: The routing decision standard deviation at different position IDs.\n' +
+      '\n' +
+      '[MISSING_PAGE_EMPTY:25]\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>

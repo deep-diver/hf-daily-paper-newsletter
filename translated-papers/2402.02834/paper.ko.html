@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# 단축된 LLaMA: 대용량 언어 모델을 위한 간단한 깊이 프루닝\n' +
+      '\n' +
+      ' 김보경({}^{1}\\) 건민({}^{1}\\) 김태호({}^{1}\\) 티볼트 카스텔스({}^{1}\\)\n' +
+      '\n' +
+      '최신국({}^{1}\\) 준호신({}^{1}\\) 송형규\n' +
+      '\n' +
+      '\\({}^{1}\\)Nota Inc.\n' +
+      '\n' +
+      '{복경.김, 건민.김, 티킴, 티볼트, 신국.초이, 준호.신, 형규.song}@nota.ai\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      '현대 대형 언어 모델(LLM)의 구조적 가지치기(Structured pruning)는 높은 계산 요구를 감소시키는 방법으로 등장했다. 너비 프루닝은 층들의 수를 유지하면서 (예를 들어, 어텐션 헤드들을 제거함으로써) 투영 가중치 매트릭스들의 크기를 감소시킨다. 반면에 깊이 가지치기는 나머지 가중치의 크기를 변경하지 않고 유지하면서 전체 레이어 또는 블록을 제거합니다. 현재 대부분의 연구는 너비 전용 또는 너비 및 깊이 가지치기의 혼합에 중점을 두고 있으며 두 단위(width _vs._ depth) 간의 비교 분석이 거의 없다. LLM 추론 효율성에 미치는 영향과 관련하여. 본 연구에서는 단순 깊이 가지치기 기법이 제로 샷 태스크 성능 측면에서 최근 폭 가지치기 기법과 경쟁할 수 있음을 보인다. 우리의 가지치기 방법은 특히 폭 가지치기가 비효율적인 LLM을 실행하기 위해 제한된 배치 크기를 요구하는 메모리 제한 조건에서 추론 속도를 향상시킨다. 이 작업이 로컬 및 에지 장치에 LLM을 배치하는 데 도움이 되기를 바랍니다.\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      '대형 언어 모델(LLM)[23, 24, 25, 26]의 발전은 언어 기반 작업에 상당한 개선을 가져왔으며, 강력한 챗봇[23, 25]과 같은 다재다능한 응용 프로그램을 가능하게 했다. 그러나 LLM의 배포는 집중적인 계산 요구로 인해 제약을 받는다. LLM에 보다 접근 가능하고 효율적으로 실용화하기 위해 최근 몇 년 동안 다양한 최적화 전략이 활발히 연구되고 있다(설문 조사는 [27, 28] 참조). 이 작업은 불필요한 가중치의 그룹을 제거하고 하드웨어 진단 가속을 용이하게 할 수 있는 _structured_ pruning[12, 13]에 중점을 둔다.\n' +
+      '\n' +
+      '10억 파라미터 LLM을 압축하는 맥락에서, LLM-Pruner[14] 및 FLAP[11]은 층들의 수를 유지하면서 결합된 구조들(예를 들어, 주의 헤드들 및 그들의 연관된 가중치 연결들)을 프루닝함으로써 네트워크 폭을 좁힌다. Sheared-LLaMA[15]는 일부 레이어를 완전히 제거함으로써 네트워크 폭뿐만 아니라 그 깊이를 감소시킨다. 폭과 깊이 측면을 모두 포함하는 가지치기 방법[15, 16, 17]이 존재함에도 불구하고, 이 두 요인(폭 _vs._ 깊이)을 비교하는 세부 분석에 공백이 남아 있다. 특히 LLM 추론 효율성에 미치는 영향과 관련하여.\n' +
+      '\n' +
+      'LLM 추론은 실질적인 모델 크기 외에도 입력과 이전에 생성된 토큰을 기반으로 토큰을 하나씩 예측하는 자기 회귀 디코딩 메커니즘에 의해 구별된다. 이러한 순차 생성 프로세스는 종종 메모리-바운드 특성을 나타내어 GPU 컴퓨팅 능력의 상당한 과소 활용으로 이어진다[26, 18]. 배치 크기를 확장하는 것은 GPU 활용률 및 처리량을 향상시키는 표준 방법이지만, 이 접근법은 메모리 제약이 있는 저사양의 GPU에서는 실행 불가능하다. 우리는 특히 작은 배치 크기를 요구하는 하드웨어 제한 하에서 LLM의 추론 속도를 개선하는 것을 목표로 하며, 여기서 폭 전용 가지치기 방법이 부적절하다는 것을 관찰한다.\n' +
+      '\n' +
+      '깊이 가지치기는 더 크고 거친 단위의 제거로 인해 너비 가지치기에 비해 성능에 덜 효과적인 것으로 간주되는 경우가 많다. 이러한 일반적인 견해와 달리, 우리는 LoRA 재훈련 단계와 결합된 간단한 깊이 가지치기 방법을 보여준다[14].\n' +
+      '\n' +
+      '그림 1: NVIDIA H100 GPU에서 가지치기된 LLaMA-7B 모델의 효율성. FLAP [11] 및 LLM-Pruner [14]의 너비 가지치기보다, 우리의 깊이 가지치기는 WikiText2(왼쪽)에서 경쟁적인 PPL로 더 빠른 추론을 달성하고 더 나은 지연-처리량 트레이드-오프(오른쪽; \\(M\\): 배치 크기)를 제공한다. 추가 결과는 C절을 참조하십시오.\n' +
+      '\n' +
+      'LLM-프루너[14], FLAP[1] 및 완다[15, 16]의 구조화된 가지치기 변형을 포함한 LLM에 대한 최근 폭 가지치기 연구와 비교될 수 있다. 또한, 특히 하드웨어 제한이 제한된 배치 크기를 갖는 LLM을 실행해야 할 때 깊이 가지치기가 추론 속도를 현저하게 향상시킨다는 것을 제시한다(도 1 참조). 우리의 기여는 다음과 같이 요약된다:\n' +
+      '\n' +
+      '* 배치 크기가 제한된 시나리오에서, 우리의 작업은 폭 가지치기가 LLM의 자기회귀 생성에서 실제 속도 향상을 달성하기 어렵다는 것을 보여준다. 이 측면은 이전 작품에서 미개척되어 왔다.\n' +
+      '* LLMs의 깊이 가지치기를 위한 간단하면서도 효과적인 전략을 소개한다. 우리는 가지치기 가능한 단위의 선택, 중요도 평가의 기준, 재교육 빈도 등 다양한 설계 요인을 탐색한다.\n' +
+      '* 여러 개의 트랜스포머 블록을 제외하여 얻은 우리의 소형 LLM은 추론 가속을 달성한다. 범용이며 제로 샷 작업에서 미세 폭 프루닝된 모델과 비교 가능하게 수행됩니다.\n' +
+      '\n' +
+      '##2 문제 : Small-batch LLM 추론\n' +
+      '\n' +
+      '대부분의 LLM은 초기 프롬프트와 이전에 생성된 토큰의 시퀀스를 기반으로 토큰을 순차적으로 생성하는 자기회귀 모델이다. 토큰-바이-토큰 생성 프로세스는 종종 큰 행렬들(가중치들)과 더 작은 행렬들 또는 벡터들(활성화들)을 곱하는 것을 포함한다. 추론 효율성을 위한 주요 병목점은 수학적 계산의 속도(\'emory-bound\'라고 함)가 아닌 메모리 액세스 연산으로 GPU 컴퓨팅 파워의 차선책 사용으로 이어진다[17]. 배치 크기를 늘리는 것이 GPU 계산 및 처리량을 향상시키는 표준 방법이지만 고급 시스템 수준 최적화[17, 18, 19]가 적용되지 않는 한 그림 2,1에 표시된 대로 OOM(out-of-memory) 오류가 발생할 위험이 있다.\n' +
+      '\n' +
+      '각주 1: HF-트랜스포머 라이브러리 [16]을 사용하여, \\(10\\) 워밍업 후 \\(20\\) 배치 런에 대해 \\(12\\) 입력 토큰으로 LLM을 실행했다. Top: Peak GPU 계산 활용도[17]. 하단: 평균 대기 시간이 20\\(20\\) 런 초과입니다.\n' +
+      '\n' +
+      '본 연구에서는 하드웨어 제약으로 인한 소규모 배치 조건에서 LLM의 추론을 가속화하는 데 중점을 둔다. 이러한 상황은 메모리 제한 로컬 장치에 LLM을 배치하는 것과 관련이 있으며, 이는 사용자 경험 및 데이터 프라이버시 보호를 향상시킬 수 있다. 우리는 (i) 폭 가지치기를 통해 무게 모양을 줄이는 것이 생성 속도를 향상시키지 않으며 결과적인 무게 치수가 GPU 성능에 적합하지 않을 때 심지어 그것을 저하시킬 수 있으며 (ii) 주목할만한 속도 이득은 다수의 모듈을 완전히 배제하는 깊이 가지치기를 통해서만 달성할 수 있음을 보여준다.\n' +
+      '\n' +
+      '도 3: 가지치기 입도의 비교. 폭 가지치기는 행렬 수준 연산 수를 유지하면서 가중치 행렬의 크기를 줄입니다. 깊이 프루닝은 전체 트랜스포머 블록, 또는 개별 MHA 및 FFN 모듈을 제거하여 메모리 액세스 및 매트릭스 레벨 동작을 더 적게 유도한다.\n' +
+      '\n' +
+      '그림 2: 상단: GPU는 다른 NVIDIA GPU에서 LLaMA-7B를 실행하는 (a)-(c)와 (d) Vicuna-13B의 활용을 계산한다. LLM 추론은 일반적으로 메모리 액세스 연산에 의해 제약되어 GPU 계산 사용량을 낮춘다. 배치 크기를 늘리면 GPU 활용률 및 처리량이 향상될 수 있지만, 이를 너무 멀리 밀어붙이면 OOM 문제가 유발됩니다. 하단: 배치 크기 및 목표 출력 길이가 다양한 지연 결과(\\(L\\)로 표시됨) 우리의 깊이 가지치기(파란색 선)는 원래 모델(회색)보다 생성 속도를 향상시키는 반면, 너비 가지치기[18]는 효과적이지 않다(녹색). 점선은 가지치기된 모델이 원래 모델에 대한 OOM 오류를 유발하는 더 큰 배치 크기로 작동할 수 있음을 보여준다. 그 결과는 7B 모델의 경우 \\(27\\%\\), 13B 모델의 경우 \\(29\\%\\)의 가지치기 비율로 얻어졌다.\n' +
+      '\n' +
+      ' \n' +
+      '\n' +
+      '##3 방법 : 블록 프루닝\n' +
+      '\n' +
+      'LLM은 다중 트랜스포머 블록의 스택[23]이며, 이들 각각은 한 쌍의 다중-헤드 어텐션(MHA) 및 피드-포워드 네트워크(FFN) 모듈을 포함한다(도 3 참조). 우리는 추론 지연을 줄이기 위해 이 트랜스포머 블록을 가지치기 가능한 단위로 선택한다. 우리의 접근법은 간단하고 저렴하다: 간단한 메트릭으로 중요하지 않은 블록을 식별한 후, 우리는 단발성 가지치기 및 가벼운 재교육을 수행한다.\n' +
+      '\n' +
+      '블록 수준의 중요도 평가###\n' +
+      '\n' +
+      '우리는 각 블록의 유의성을 평가하기 위해 다음 기준을 고려하여 궁극적으로 테일러+ 및 PPL 메트릭을 선택한다(표 5 참조). 구체적으로, 선형 가중치 행렬은 \\(\\mathbf{W}^{k,n}=\\left[W_{i,j}^{k,n}\\right]\\)의 크기((d_{\\mathrm{out}},d_{\\mathrm{in}})\\)로 표시되며, 여기서 \\(k\\)는 \\(n\\)번째 변환기 블록 내에서 동작 유형(예를 들어, MHA에서의 질의 투영 또는 FFN에서의 상향 투영)을 나타낸다. 가중치 중요도 스코어들은 출력 뉴런 레벨[23]에서 계산되고, 이어서 블록-레벨 중요도를 평가하기 위해 이들 스코어들을 합산한다.\n' +
+      '\n' +
+      '각주 2: 다양한 집계 전략(즉, 모듈 및 블록 수준에 걸쳐 합, 평균, 제품 및 최대 연산)에 대한 탐색에서 점수를 합산하는 것은 다양한 가지치기 비율에서 효과적이었다.\n' +
+      '\n' +
+      '**크기(Mag.**)** 이 메트릭[15]은 더 작은 규범을 가진 가중치가 덜 유익하다고 가정할 때 가지치기 문헌의 기본 기준선이다. 블록 수준 분석을 위해 \\(I_{\\mathrm{Magnitude}}^{n}=\\sum_{k}\\sum_{i}\\sum_{j}\\left|W_{i,j}^{k,n}\\right|\\)을 계산한다.\n' +
+      '\n' +
+      '**Taylor.** 가중치 매개변수의 제거로 인한 오류를 평가하는 것은 그 중요성을 식별하는 데 도움이 된다. 주어진 교정 데이터세트 \\(D\\)에 대해, 이것은 훈련손실 \\(\\left|\\mathcal{L}[16, 17]: \\(\\left|\\mathcal{L}(W_{i,j}^{k,n};D)-\\mathcal{L}(W_{i,j}^{k,n}=0;D)\\right|\\approx\\frac{\\partial\\mathcal{L}(D)}{\\partial W_{i,j}^{k,n}}W_{i,j}^{k,n}}n}\\의 변화로서 표현될 수 있으며, 여기서 [14]에 의해 2차 미분들은 생략된다. 우리는 블록 점수를 \\(I_{\\mathrm{Taylor}}^{n}=\\sum_{k}\\sum_{i}\\sum_{j}\\left|\\frac{\\partial\\mathcal{L}(D)}{\\partial W_{i,j}^{k,n}W_{i,j}^{k,n}\\right|\\으로 정의한다.\n' +
+      '\n' +
+      '**Mag+ 및 Taylor+.** 앞서 언급한 메트릭을 사용하여 초기 블록은 중요하지 않은 것으로 표시되지만, 이들의 제거는 심각한 성능 저하로 이어진다. 일반적인 휴리스틱 [17, 16]과 유사하게, 우리는 가지치기 후보에서 제외함으로써 처음 네 블록 및 마지막 두 블록 [14]를 보존한다.\n' +
+      '\n' +
+      '**복잡도(PPL).** 중복 블록은 모델의 출력에 덜 기여하고, 이들의 제거는 언어 모델링 작업에 일반적으로 사용되는 메트릭인 PPL에서 더 작은 열화를 초래한다. 이러한 맥락에서, 우리는 각 블록을 물리적으로 제거하고 보정 집합 \\(D\\): \\(I_{\\mathrm{PPL}}^{n}=\\exp\\left\\{-\\frac{1}}SL}\\sum_{s}\\sum_{l}\\log p_{\\theta^{n}(x_{l}^{(s)}|x_{<l}^{(s)}}\\right\\}\\)을 사용하여 PPL에 미치는 영향을 모니터링한다. 여기서 \\(n\\)번째 블록이 없는 모델을 나타내며, \\(s=1,\\dots,S\\) 및 \\(l=1,\\dots,L\\)은 수열 및 토큰에 대한 인덱스이다. PPL의 사용은 다음-토큰 예측 손실로부터 유도됨으로써 모델의 거동을 반영할 수 있다; 그것은 역-전파 기울기들[14] 및 헤시안 반전들[23]을 계산하거나 또는 마스크 학습 단계[14]를 수반할 필요성을 회피하고, 순방향 패스만을 필요로 한다. 그림 4에서 볼 수 있듯이 여러 블록이 제거 가능한 것으로 식별되어 PPL 메트릭에 약간의 영향만 보인다. 초기 및 최종 블록을 제거하면 성능이 크게 저하되므로 프루닝되지 않도록 해야 한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c|c|c|c|c} \\hline \\multicolumn{1}{c|}{Model} & \\#Param & \\#Block\\({}^{\\dagger}\\) & \\#Head\\({}^{\\dagger}\\) & FFN-D\\({}^{\\dagger}\\) \\\\ \\hline \\multicolumn{1}{c|}{Original 7B} & 6.7B & 32 & 32 & 11008 \\\\ \\hline \\multicolumn{1}{c|}{} & \\multicolumn{1}{c|}{Wanda-sp} & 5.5B & 32 & 26 & 8807 \\\\ \\multicolumn{1}{c|}{} & \\multicolumn{1}{c|}{FLAP} & 5.4B & 32 & 26.94\\({}^{\\dagger}\\) & 8577.44\\({}^{\\dagger}\\),2078 \\\\ \\multicolumn{1}{c|}{} & LLM-Pruner & 5.4B & 32 & 24 & 8256 \\\\ \\cline{2-5} \\multicolumn{1}{c|}{} & Ours & 5.5B & 26 & 32 & 11008 \\\\ \\hline \\multicolumn{1}{c|}{} & \\multicolumn{1}{c|}{Wanda-sp} & 4.9B & 32 & 23 & 7816 \\\\ \\multicolumn{1}{c|}{} & \\multicolumn{1}{c|}{FLAP} & 4.9B & 32 & 24.64\\({}^{\\dagger}\\),86 & 7497.12\\({}^{\\dagger}\\),2358.0 \\\\ \\multicolumn{1}{c|}{} & LLM-Pruner & 4.9B & 32 & 21 & 7155 \\\\ \\cline{2-5} \\multicolumn{1}{c|}{} & Ours & 4.9B & 23 & 32 & 11008 \\\\ \\hline \\multicolumn{1}{c|}{} & \\multicolumn{1}{c|}{Wanda-sp} & 4.5B & 32 & 21 & 7156 \\\\ \\multicolumn{1}{c|}{} & \\multicolumn{1}{c|}{FLAP} & 4.5B & 32 & 23.08\\({}^{\\dagger}\\) & 6781.12440.6 \\\\ \\multicolumn{1}{c|}{} & LLM-Pruner & 4.4B & 32 & 18 & 6054 \\\\ \\cline{2-5} \\multicolumn{1}{c|}{} & Ours & 4.5B & 21 & 32 & 11008 \\\\ \\hline \\multicolumn{1}{c|}{} & \\multicolumn{1}{c|}{Original 13B} & 13.0B & 40 & 40 & 13824 \\\\ \\hline \\multicolumn{1}{c|}{} & \\multicolumn{1}{c|}{Wanda-sp} & 10.5B & 40 & 32 & 11060 \\\\ \\multicolumn{1}{c|}{} & \\multicolumn{1}{c|}{FLAP} & 10.5B & 40 & 33.78\\({}^{\\dagger}\\) & 10778.742316.0 \\\\ \\multicolumn{1}{c|}{} & LLM-Pruner & 10.3B & 40 & 30 & 10368 \\\\ \\cline{2-5} \\multicolumn{1}{c|}{} & \\multicolumn{1}{c|}{Ours} & 10.5B & 32 & 40 & 13824 \\\\ \\hline \\multicolumn{1}{c|}{} & \\multicolumn{1}{c|}{Wanda-sp} & 9.5B & 40 & 29 & 9954 \\\\ \\multicolumn{1}{c|}{} & \\multicolumn{1}{c|}{FLAP} & 9.5B & 40 & 31.14\\({}^{\\dagger}\\),06 & 9570.842601.0 \\\\ \\multicolumn{1}{c|}{} & LLM-Pruner & 9.2B & 40 & 26 & 8985 \\\\ \\cline{2-5} \\multicolumn{1}{c|}{} & \\multicolumn{1}{c|}{Ours} & 9.5B & 29 & 40 & 13824 \\\\ \\hline \\multicolumn{1}{c|}{} & \\multicolumn{1}{c|}{Wanda-sp} & 8.4B & 40 & 26 & 8710 \\\\ \\multicolumn{1}{c|}{} & \\multicolumn{1}{c|}{FLAP} & 8.3B & 40 & 27.51\\({}^{\\dagger}\\),13 & 8326.62374.9 \\\\ \\multicolumn{1}{c|}{} & LLM-Pruner & 8.2B & 40 & 22 & 7603 \\\\ \\cline{1-1} \\multicolumn{1}{c|}{} & \\multicolumn{1}{c|}{Ours} & 8.3B & 25 & 40 & 13824 \\\\ \\hline \\multicolumn{1}{c|}{} & \\multicolumn{1}{c|}{\\({}^{\\dagger}\\)Reduction ratio for the number of parameters.} & & & & \\\\ \\multicolumn{1}{c|}{\\({}^{\\dagger}\\)Block: \\#Transformer blocks; \\#Head: \\#attention heads of MHA; FFN-D: intermediate size of FFN.} & & & \\\\ \\cline{1-1} \\multicolumn{1}{c|}{} & \\multicolumn{1}{c|}{Ours} & 9.5B & 29 & 40 & 13824 \\\\ \\hline \\multicolumn{1}{c|}{} & \\multicolumn{1}{c|}{Wanda-sp} & 8.4B & 40 & 26 & 8710 \\\\ \\multicolumn{1}{c|}{} & \\multicolumn{1}{c|}{FLAP} & 8.3B & 40 & 27.51\\({}^{\\dagger}\\),13 & 8326.62374.9 \\\\ \\multicolumn{1}{c|}{} & LLM-Pruner & 8.2B & 40 & 22 & 7603 \\\\ \\hline \\multicolumn{1}{c|}{} & \\multicolumn{1}{c|}{Ours} & 8.3B & 25 & 40 & 13824 \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 1: LLaMA-7B 및 Vicuna-{7B, 13B}-v1.3 상의 프루닝된 아키텍처. 완다-sp[23, 23, 23], LLM-Pruner[14]가 네트워크 폭을 감소시키지만, 본 방법은 네트워크 깊이를 감소시킨다. LLM-Pruner의 모듈 수준 가지치기 비율(25%, 35%, 45%)을 벤치마크로 사용하여 비교 가능한 매개변수 수에 대해 다른 매개변수를 조정한다.\n' +
+      '\n' +
+      '그림 4: 보정 세트에서 각 변압기 블록의 추정 중요도. 블럭이 낮음\n' +
+      '\n' +
+      '### One-shot Pruning\n' +
+      '\n' +
+      '블록 수준 중요도 점수를 정렬한 후, 우리는 한 단계에서 덜 중요한 블록을 가지치기한다. 모든 블록은 동일한 구성을 가지며 하나의 블록에 대한 파라미터 수를 계산하기 쉽기 때문에, 우리는 목표 모델 크기에 맞추기 위해 몇 개의 블록을 제거해야 하는지 쉽게 결정한다.\n' +
+      '\n' +
+      '### Cost-efficient Retraining\n' +
+      '\n' +
+      '우리는 낮은 순위 적응(LoRA) 방법으로 가지치기된 모델을 효율적으로 재훈련한다[11, 10]. 적응된 네트워크의 가중치 행렬은 \\(W_{0}+\\Delta W=W_{0}+BA\\)로 표현되며, 여기서 \\(W_{0}\\)은 \\((d_{\\mathrm{out}},d_{\\mathrm{in}})의 형상을 갖는 초기 사전 훈련된 가중치를 나타낸다. 갱신 행렬 \\(\\Delta W\\)은 차원이 \\((d_{\\mathrm{out}},r)\\)과 \\((r,d_{\\mathrm{in}})\\)인 두 개의 훈련 가능한 부분으로 분해되며, 여기서 \\(r\\)은 낮은 순위를 나타낸다. 우리는 LoRA가 깊이 가지치기 모델의 성능을 회복할 가능성이 있음을 보여준다.\n' +
+      '\n' +
+      'LoRA 기반 재교육은 단 몇 시간 만에 단일 GPU에서 효율적으로 완료할 수 있다. 예를 들어, 7B 파라미터로부터 20% 프루닝된 모델을 재트레이닝하는 것은 약 2시간 및 22GB VRAM이 소요되는 반면, 13B 요구로부터 21% 감소된 모델은 약 3시간 및 35GB VRAM이 소요된다.\n' +
+      '\n' +
+      '##4 실험 설정\n' +
+      '\n' +
+      '모델.우리의 테스트베드는 유명한 오픈소스 LLM인 LLaMA-7B[13]와 Vicuna-{7B, 13B}-v1.3[14]를 포함한다.\n' +
+      '\n' +
+      'Baseline.We compare the two pruning units, network width _vs._ 심도, 동일한 보정 데이터 세트를 사용합니다. 폭 가지치기 기본 방법은 아래에 설명되어 있으며 구현을 위해 공식 코드를 활용한다. 표 1은 유사한 수의 파라미터 하에서 프루닝된 아키텍처를 나타낸다.3\n' +
+      '\n' +
+      '각주 3: 우리는 LLM-Pruner의 모듈 수준 가지치기 비율(25%, 35%, 45%)의 매개변수 번호를 참조로 사용하고 방법과 다른 기준선에 대한 가지치기 비율을 조정했다.\n' +
+      '\n' +
+      '* LLM-Pruner [11]은 테일러 기반 중요도 메트릭을 사용하여 MHA에서 주의 헤드 및 FFN에서 중간 뉴런을 제거한다. 검사된 블록에 걸쳐 균일한 치수를 유지하면서 동일한 모듈 내에서 제거 가능한 그룹을 선택하기 위해 로컬 프루닝이 수행된다. 그들의 관행을 고수하면서 처음과 마지막 몇 블록은 가지치기를 하지 않은 채로 남아 있다. 그들의 가지치기 모델과 우리의 모델은 LoRA와 동일하게 재교육된다.\n' +
+      '* FLAP[1]은 가중치 열을 제거한 후 특징 맵의 복구 가능성을 탐색하기 위해 변동 기반 중요도 메트릭을 사용한다. 글로벌 프루닝\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c|c c|c c|c c} \\hline \\hline \\multirow{3}{*}{Model} & \\multicolumn{3}{c|}{Zero-shot Performance} & \\multicolumn{3}{c|}{H100 80GB\\({}^{\\ddagger}\\)} & \\multicolumn{3}{c}{RTX3090 24GB\\({}^{\\ddagger}\\)} \\\\ \\cline{2-7}  & \\multicolumn{2}{c|}{PPL\\(\\downarrow\\)} & \\multicolumn{2}{c|}{Ave Acc\\(\\uparrow\\)} & \\multicolumn{2}{c|}{Latency\\(\\downarrow\\)} & \\multicolumn{2}{c|}{Throughput\\(\\uparrow\\)} & \\multicolumn{2}{c}{Latency\\(\\downarrow\\)} & \\multicolumn{2}{c}{Throughput\\(\\uparrow\\)} \\\\  & WikiText2 & PTB & (\\%)\\({}^{\\dagger}\\) & (s) & (tokens/s) & (s) & (tokens/s) \\\\ \\hline \\multicolumn{7}{c}{LLaMA-7B (6.7B)} & 12.6 & 22.1 & 66.3 & 2.4 & 53.7 & 5.1 & 25.0 \\\\ \\hline \\multirow{7}{*}{20\\%} & Wanda-sp & 21.4 & 47.2 & 51.8 & 3.1 & 41.7 & 7.6 & 16.7 \\\\  & FLAP & **17.0** & **30.1** & 59.5 & 3.2 & 40.5 & 7.7 & 16.5 \\\\ Pruned & LLM-Pruner & 17.6 & 30.4 & 61.8 & 3.0 & 43.2 & 6.0 & 21.4 \\\\ (5.5B) & Ours: Taylor+ & 20.2 & 32.3 & **63.5** & **1.9** & **66.0** & **4.5** & **28.4** \\\\  & Ours: PPL & 17.7 & 30.7 & 61.9 & **1.9** & **66.0** & **4.5** & **28.4** \\\\ \\hline \\multirow{7}{*}{27\\%} & Wanda-sp & 50.4 & 106.9 & 42.1 & 3.1 & 41.7 & 8.1 & 16.0 \\\\  & FLAP & 21.3 & 37.1 & 55.8 & 3.2 & 40.2 & 7.8 & 16.5 \\\\ Pruned & LLM-Pruner & **20.5** & 36.1 & 58.7 & 2.9 & 44.0 & 5.6 & 22.9 \\\\ (4.9B) & Ours: Taylor+ & 29.9 & 42.0 & **59.8** & **1.7** & **73.9** & **3.7** & **34.9** \\\\  & Ours: PPL & 20.7 & **36.0** & 57.6 & **1.7** & **73.9** & **3.7** & **34.9** \\\\ \\hline \\multirow{7}{*}{35\\%} & Wanda-sp & 133.6 & 210.1 & 36.9 & 3.1 & 41.6 & 8.0 & 16.1 \\\\  & FLAP & 25.6 & 44.4 & 52.7 & 3.2 & 40.5 & 8.1 & 15.8 \\\\ \\cline{1-1}  & LLM-Pruner & 24.2 & 40.7 & **55.5** & 2.9 & 44.4 & 6.1 & 21.1 \\\\ (4.5B) & Ours: Taylor+ & 33.2 & 58.5 & 55.4 & **1.6** & **80.1** & **3.4** & **37.8** \\\\ \\cline{1-1}  & Ours: PPL & **23.1** & **38.8** & 55.2 & **1.6** & **80.1** & **3.4** & **37.8** \\\\ \\hline \\hline \\end{tabular} \\({}^{\\dagger}\\)Average accuracy on seven commonsense reasoning tasks.\n' +
+      '\n' +
+      '단일 GPU에서 12개의 입력 토큰, 128개의 출력 토큰 및 1의 배치 크기로 측정되었다.\n' +
+      '\n' +
+      '\\end{table}\n' +
+      '표 2: 압축된 LLaMA-7B의 제로샷 결과. 완다-sp[23, 14], LLM-Pruner[11]의 너비 가지치기 방법은 GPU 비친화적인 가중치 크기[1]로 인해 추론 효율이 저하되는 경우가 많다. 대조적으로, 우리의 깊이 가지치기 접근법은 생성 속도를 향상시키고 제로 샷 태스크 성능에서 잘 경쟁한다. 자세한 결과는 A절을 참조하십시오.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c|c c|c} \\hline \\hline \\multirow{3}{*}{Model} & \\multicolumn{3}{c|}{Zero-shot Performance} \\\\ \\cline{2-4}  & & \\multicolumn{2}{c|}{PPL\\(\\downarrow\\)} & \\multicolumn{2}{c}{Ave Acc\\(\\uparrow\\)} \\\\  & & WikiText2 & PTB & (\\%)\\({}^{\\dagger}\\) \\\\ \\hline Vicuna-7B-v1.3 (6.7B) & 17.1 & 63.2 & 65.9 \\\\ \\hline \\multirow{20}{*}{20\\%} & Wanda-sp & 24.4 & 104.0 & 58.5 \\\\  & FLAP & 22.0 & 74.9 & 61.4 \\\\ Pruned & LLM-Pruner & 19.6 & 76.4 & 60.1 \\\\ (5.5B) & Ours: Taylor+ & 21.0 & 72.3 & **62.5** \\\\  & Ours: PPL & **18.8** & **67.9** & 60.7 \\\\ \\hline \\multirow{3}{*}{27\\%} & Wanda-sp & 36.5 & 177.6 & 50.9 \\\\  & FLAP & 27.9 & 88.3 & 57.1 \\\\ \\cline{1-1}  & LLM-Pruner & **22.7** & 87.9 & 57.1 \\\\ (4.9B) & Ours: Taylor+ & 29.8 & 92.0 & **60.2** \\\\ (4.9B) & Ours: PPL & 23.0 & **78.2** & 56.1 \\\\ \\hline \\multirow{3}{*}{35\\%} & Wanda-sp & 73.2 & 386.5 & 39.4 \\\\ (4.9B) & FLAP & 34.6 & 104.8 & 53.7 \\\\ \\cline{1-1}  & LLM-Pruner & 27.6 & 102.0 & 53.5 \\\\ (4.5B) & Ours: Taylor+ & 35.0 & 110.3 & **55.0** \\\\ \\cline{1-1}  & Ours: PPL & **26.6** & **89.4** & 53.3 \\\\ \\hline \\hline \\end{tabular} \\({}^{\\dagger}\\)Average accuracy on seven commonsense reasoning tasks.\n' +
+      '\n' +
+      '\\end{table}\n' +
+      '표 3: 압축된 Vicuna-7B의 제로샷 결과. 자세한 결과는 A절을 참조하십시오.\n' +
+      '\n' +
+      '이 적용되면 별개의 모듈에 걸쳐 서로 다른 너비가 발생한다(평균 및 표준 편차 값은 표 1 참조). 재교육 대신 성능 복원을 위해 프루닝된 특징 맵에 추가 바이어스 항이 추가된다.\n' +
+      '* 완다-sp는 구조화된 가지치기를 위해 조정된 완다 [24]의 변형으로서 [1]에 제시된다. 원래 메트릭은 무게 크기와 입력 활성화 규범의 곱을 기반으로 했으며, 이는 지역 재구성 목표를 다루는 것으로 해석될 수 있다. 완다-sp는 다른 모듈 간의 공통 차원을 사용하면서 구조화된 방식으로 이 메트릭을 확장한다.\n' +
+      '\n' +
+      '데이터.[11]에 이어, 우리는 가지치기 단계 동안 블록 수준 유의성을 계산하기 위해 북코퍼스[12]에서 무작위로 10개의 샘플을 선택한다. 우리는 또한 공정한 비교를 보장하기 위해 기준선 방법에 이 보정 데이터 세트를 사용한다. LoRA 재훈련 단계에서는 정제된 알파카[1]의 50K 샘플을 사용한다.\n' +
+      '\n' +
+      '평가.[13]에 이어 Im-평가-harness 패키지[1]을 사용하여 상식 추론 데이터 세트(즉, BoolQ[1], PIQA[15], HelaSwag[11], WinoGrande[16], ARC-easy[1], ARC-challenge[10], OpenbookQA[12])에서 제로 샷 정확도를 측정한다. 우리는 또한 위키텍스트2 [14]와 PTB [13]에 제로샷 PPL을 보고한다.\n' +
+      '\n' +
+      '레이턴시 및 처리량. 메트릭을 측정하기 위해 [15]를 따릅니다. 배치 크기\\(M\\)와 출력 시퀀스 길이\\(L\\)(입력 길이를 제외)이 주어지면 지연 시간\\(T\\)은 주어진 프롬프트를 처리하고 출력 토큰을 생성하는 데 필요한 시간을 나타낸다. 처리량은 \\(ML/T\\)로 계산된다. 초기 10번의 준비 배치 후 20번의 실행에서 얻은 평균 결과를 보고한다.\n' +
+      '\n' +
+      '구현.허깅 페이스의 트랜스포머 라이브러리를 사용한다[20]. 프루닝 및 재트레이닝 단계를 위해 NVIDIA A100 GPU가 사용된다. NVIDIA RTX3090에서 7B 크기의 모델을 포함하는 실험을 수행할 수 있으며, 추론 단계에서는 xFormers에 최적화된 주의와 고급 옵션의 사용을 제외하고 기본 구성을 선택한다. 자세한 내용은 섹션 D를 참조하십시오.\n' +
+      '\n' +
+      '## 5 Results\n' +
+      '\n' +
+      '### 기존 작업과의 비교\n' +
+      '\n' +
+      '표 2, 표 3, 표 4는 서로 다르게 가지치기된 모델의 제로샷 다운스트림 태스크 성능과 추론 효율을 보여준다. 폭 가지치기 방법[11, 12, 13]을 통해 가중치 행렬의 크기를 줄이는 것은 LLM 추론에서 제한된 입력(배치) 스케일을 갖는 생성 속도가 메모리 액세스 동작의 빈도에 크게 의존하기 때문에 지연 개선으로 이어지지 않는다. 이 문제는 매트릭스가 완전히 제거되지 않는 한 매트릭스의 크기를 줄이는 것만으로 해결하기 어렵다. 일부 경우들에서, GPU-불친화적인 동작 치수들로 인해 원래의 모델에 비해 추론 속도를 심지어 악화시킨다(예를 들어, FFN의 숨겨진 크기들은 종종 표 1에 도시된 바와 같이 8로 분할되지 않으며, 이는 GPU 텐서 코어들 [1]의 효과적인 활용을 방해한다).\n' +
+      '\n' +
+      '반면에, 깊이 프루닝은 여러 트랜스포머 블록의 완전한 제거를 통해 속도 향상을 나타내며, 활성화와 가중치 사이의 메모리 액세스 및 매트릭스 레벨 연산을 줄인다. 또한 [11]과 동일한 재교육 설정에서 우리 모델은 미세 폭 가지치기 모델과 동등하게 제로 샷 점수를 달성한다.\n' +
+      '\n' +
+      '### Ablation Study\n' +
+      '\n' +
+      '블록 프루닝의 중요도 평가 기준\n' +
+      '\n' +
+      '<표 5>는 다양한 유의성 기준을 이용한 블록 가지치기 결과를 제시하고 있다. \'+\' 레이블이 없는 기본 방법은 필수적인 초기 블록을 유지하지 못하여 성능이 저하된다. 이러한 임계 블록을 보존하는 Mag+ 방법은 점수를 부분적으로 향상시키지만, 그 효과는 다른 방법에 비해 여전히 열등하여 체중 크기에만 의존할 수 있음을 나타낸다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c|c c|c c|c c} \\hline \\hline \\multirow{3}{*}{Model} & \\multirow{2}{*}{Model} & \\multicolumn{2}{c|}{Zero-shot Performance} & \\multicolumn{2}{c|}{H100 80GB\\({}^{\\ddagger}\\)} & \\multicolumn{2}{c}{RTX3090 24GB\\({}^{\\ddagger}\\)} \\\\ \\cline{3-8}  & & PPL\\(\\downarrow\\) & Ave Acc\\(\\uparrow\\) & Latency\\(\\downarrow\\) & Throughput\\(\\uparrow\\) & Latency\\(\\downarrow\\) & Throughput\\(\\uparrow\\) \\\\  & WikiText2 & PTB & (\\%)\\({}^{\\dagger}\\) & (s) & (tokens/s) & (s) & (tokens/s) \\\\ \\hline Vicuna-13B-v1.3 (13.0B) & 14.7 & 51.6 & 68.3 & 2.8 & 45.5 & OOM & OOM \\\\ \\hline \\multirow{3}{*}{21\\%} & Wanda-sp & 19.0 & 71.8 & 63.6 & 3.8 & 34.1 & 9.8 & 12.9 \\\\  & FLAP & 18.8 & 65.3 & 63.3 & 3.9 & 32.6 & 10.2 & 12.6 \\\\ Pruned & LLM-Pruner & **16.0** & 57.0 & 65.3 & 3.8 & 34.0 & 7.5 & 17.3 \\\\ (10.5B) & Ours: Taylor+ & 18.1 & 61.6 & **66.7** & **2.3** & **55.7** & **5.4** & **23.9** \\\\  & Ours: PPL & 16.1 & **56.5** & 64.9 & **2.3** & **55.7** & **5.4** & **23.9** \\\\ \\hline \\multirow{3}{*}{29\\%} & Wanda-sp & 23.4 & 84.9 & 60.0 & 3.8 & 33.7 & 9.5 & 13.5 \\\\  & FLAP & 22.8 & 78.8 & 61.6 & 3.9 & 33.0 & 10.7 & 12.1 \\\\ Pruned & LLM-Pruner & 19.0 & 66.4 & 62.7 & 3.6 & 35.8 & 8.6 & 15.0 \\\\ (9.5B) & Ours: Taylor+ & 22.0 & 70.3 & **65.1** & **2.1** & **62.0** & **5.3** & **24.2** \\\\  & Ours: PPL & **18.1** & **62.2** & 62.0 & **2.1** & **62.0** & **5.3** & **24.2** \\\\ \\hline \\multirow{3}{*}{37\\%} & Wanda-sp & 36.6 & 123.5 & 52.7 & 3.8 & 33.8 & 10.5 & 12.6 \\\\  & FLAP & 28.7 & 96.2 & 58.3 & 3.9 & 32.9 & 9.7 & 13.2 \\\\ Pruned & LLM-Pruner & 22.2 & 74.0 & 59.7 & 3.6 & 35.6 & 7.1 & 18.0 \\\\ (8.3B) & Ours: Taylor+ & 34.2 & 90.4 & **61.4** & **1.8** & **69.7** & **4.0** & **31.7** \\\\  & Ours: PPL & **22.1** & **73.6** & 59.1 & **1.8** & **69.7** & **4.0** & **31.7** \\\\ \\hline \\hline \\end{tabular} \\({}^{\\dagger}\\)Average accuracy on seven commonsense reasoning tasks.\n' +
+      '\n' +
+      '단일 GPU에서 12개의 입력 토큰, 128개의 출력 토큰 및 1의 배치 크기로 측정되었다.\n' +
+      '\n' +
+      '\\end{table}\n' +
+      '표 4: 압축된 Vicuna-13B의 제로샷 결과. 자세한 결과는 A절을 참조하십시오.\n' +
+      '\n' +
+      '결정을 내리는데 부적절하다. Taylor+ 기준은 상식 추론 작업에서 정확도를 향상시키는 반면, PPL 방법은 가지치기 후보의 휴리스틱 선택에 의존하지 않고 더 나은 생성 품질을 유도한다.\n' +
+      '\n' +
+      '깊이 프루닝을 위한 구조단위\n' +
+      '\n' +
+      '트랜스포머 블록보다 세립 단위인 개별 MHA, FFN 모듈도 프런닝이 가능하다. 그 효과를 조사하기 위해 각 모듈이 교정 세트의 PPL에 미치는 영향을 측정하고 불필요한 모듈을 선택적으로 제거한다. 동일한 LoRA 재교육 절차가 수행된다.\n' +
+      '\n' +
+      '표 6은 상이한 입도에서 깊이 가지치기 결과를 나타낸다. 5B 이상의 파라미터를 갖는 모델의 경우, 개별 MHA 및 FFN 모듈을 제거하면 전체 트랜스포머 블록을 제거하는 것에 비해 다운스트림 작업 정확도는 향상되지만 PPL은 더 나빠진다. 5B보다 작은 모델의 경우 블록 수준 가지치기는 검사된 모든 메트릭 측면에서 우수한 결과를 달성한다. 이것은 더 미세한 단위를 제거하면 더 나은 성능을 얻을 수 있다는 일반적인 믿음과 다르다.\n' +
+      '\n' +
+      '모듈의 협력적 역할(즉, MHA가 의존 관계를 캡처[21]하는 반면, 연결을 건너뛰고 FFN은 순전히 주의 집중 기반 네트워크[14]에서 순위 붕괴를 방지함)을 감안할 때, 이들을 격리하여 처리하는 것이 차선책일 수 있다. 표 6의 5.3B 모델을 예로 들면, 모듈 수준의 가지치기는 일부 위치에서 연속적인 FFN을 초래하여 단어 상호 작용을 처리하는 모델의 능력을 잠재적으로 손상시킬 수 있다. 대조적으로, 블록-레벨 제거와 함께, 정보의 손실은 유사한 기능을 제공하는 이웃 블록에 의해 보상될 수 있다.\n' +
+      '\n' +
+      '원샷 _vs._ 반복적인 프루닝\n' +
+      '\n' +
+      '원샷 가지치기(one-shot pruning)의 경우, 다수의 블록들이 원래의 모델에서 동시에 제거되고, 이어서 단지 한 단계의 재훈련이 뒤따른다. 반복적인 프루닝을 위해, 후속 재트레이닝과 결합된 하나의 블록의 제거가 반복적으로 수행된다. 여기서는 어떤 블록을 제거할지를 선택하기 위해 PPL 기반 중요도 기준을 사용한다.\n' +
+      '\n' +
+      '그림 5는 재교육 과정 전후의 가지치기된 네트워크를 비교한 것이다. 반복적으로 가지치기된 모델은 원샷 가지치기된 모델보다 더 나은 가지치기 후 결과를 산출한다. 그러나 원샷 프루닝 후 단일 재트레이닝 세션은 반복 프루닝과 유사한 성능을 가져온다. 재교육 예산이 크게 줄어든 것에 비추어, 우리는 단발성 가지치기를 선택한다.\n' +
+      '\n' +
+      '보정 데이터 볼륨\n' +
+      '\n' +
+      '교정 세트는 폭 가지치기 기준선의 가중치 유의성과 가지치기 단계 동안 본 방법의 블록 수준 중요성을 평가하기 위해 사용된다.\n' +
+      '\n' +
+      '표 7은 BookCorpus 데이터셋에서 교정 샘플 수를 달리하여 얻은 결과를 제시하고 있다. 점수는 조사된 방법에 대해 비교적 안정적으로 유지되며, 이는 10개의 샘플이 충분할 수 있음을 시사한다. 그러나 테일러+ 방법은 1K 샘플을 사용할 때 다운스트림 작업 정확도가 떨어져 향후 연구를 위한 보정 데이터 특성 탐사를 남긴다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c|c|c|c} \\hline \\hline Depth Pruning & \\multirow{2}{*}{\\#Param} & \\multicolumn{2}{c|}{PPL\\(\\downarrow\\)} & \\multicolumn{1}{c}{Ave Acc\\(\\uparrow\\)} \\\\ Unit & & WikiText2 & PTB & (\\%)\\({}^{\\dagger}\\) \\\\ \\hline Individual MHA \\& FFN & 5.7B & 20.8 & 34.8 & **63.1** \\\\ Transformer Block & 5.7B & **16.9** & **29.3** & 62.8 \\\\ \\hline Individual MHA \\& FFN & 5.3B & 25.2 & 41.3 & **61.1** \\\\ Transformer Block & 5.3B & **18.6** & **33.1** & 60.6 \\\\ \\hline Individual MHA \\& FFN & 4.6B & 38.9 & 58.7 & 52.5 \\\\ Transformer Block & 4.5B & **23.1** & **38.8** & **55.2** \\\\ \\hline Individual MHA \\& FFN & 4.0B & 63.2 & 88.9 & 48.3 \\\\ Transformer Block & 3.9B & **31.1** & **47.3** & **50.6** \\\\ \\hline \\hline \\end{tabular} \\({}^{\\dagger}\\)Average accuracy on seven commonsense reasoning tasks.\n' +
+      '\n' +
+      '\\end{table}\n' +
+      '표 6: LLaMA-7B 상의 깊이 가지치기 입도의 비교. 개별 MHA 및 FFN 모듈 대신 전체 트랜스포머 블록을 제거하면 일반적으로 더 나은 결과를 얻을 수 있다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c|c c c} \\hline \\hline \\multirow{2}{*}{\\begin{tabular}{c} Evaluation \\\\ Metric \\\\ \\end{tabular} } & \\multirow{2}{*}{Method} & \\multicolumn{4}{c}{\\# Calibration Samples} \\\\  & & 10 & 50 & 100 & 1000 \\\\ \\hline \\multirow{3}{*}{PPL\\(\\downarrow\\) on} & Wanda-sp & 21.4 & 21.4 & 21.7 & 20.8 \\\\  & FLAP & **17.0** & 17.5 & 17.5 & **17.3** \\\\  & LLM-Pruner & 17.6 & **17.2** & **17.0** & OOM\\({}^{\\ddagger}\\) \\\\  & Ours: Taylor+ & 20.2 & 20.2 & 19.0 & 19.6 \\\\  & Ours: PPL & 17.7 & **17.2** & 17.4 & 17.4 \\\\ \\hline \\multirow{3}{*}{\n' +
+      '\\begin{tabular}{c} Ave Acc\\(\\uparrow\\) \\\\ (\\%)\\({}^{\\dagger}\\) \\\\ \\end{tabular} } & Wanda-sp & 51.8 & 52.9 & 52.0 & 53.0 \\\\  & FLAP & 59.5 & 59.7 & 59.9 & 60.8 \\\\ \\cline{1-1}  & LLM-Pruner & 61.8 & 61.6 & 61.7 & OOM\\({}^{\\ddagger}\\) \\\\ \\cline{1-1}  & Ours: Taylor+ & **63.5** & **63.5** & **63.9** & **61.7** \\\\ \\cline{1-1}  & Ours: PPL & 61.9 & 61.5 & 61.7 & **61.7** \\\\ \\hline \\hline \\end{tabular} \\({}^{\\dagger}\\)Average accuracy on seven commonsense reasoning tasks.\n' +
+      '\n' +
+      'A100(80GB)의 메모리 외 오류는 공식 코드를 사용한다.\n' +
+      '\n' +
+      '\\end{table}\n' +
+      '표 7: 교정 데이터 볼륨의 영향. 20% 프루닝된 LLaMA-7B의 결과가 보고된다.\n' +
+      '\n' +
+      '도 5: LLaMA-7B 상의 원샷 및 반복 블록 프루닝의 비교. 원샷 프루닝의 재트레이닝 단계는 반복 프루닝과 성능 격차를 효과적으로 해소한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c|c|c c|c} \\hline \\hline \\multicolumn{2}{c|}{Block Pruning} & \\multicolumn{2}{c|}{PPL\\(\\downarrow\\)} & \\multicolumn{1}{c}{Ave Acc\\(\\uparrow\\)} \\\\ Criterion & WikiText2 & PTB & (\\%)\\({}^{\\dagger}\\) \\\\ \\hline \\multirow{3}{*}{\\begin{tabular}{c} 20\\% \\\\ Pruned \\\\ (5.5B) \\\\ \\end{tabular} } & Mag- & 7720.7 & 10618.7 & 34.4 \\\\  & Mag- & 19.4 & 36.3 & 56.1 \\\\  & Taylor & 3631.7 & 4327.9 & 35.5 \\\\  & Taylor+ & 20.2 & 32.3 & **63.5** \\\\  & PPL & **17.7** & **30.7** & 61.9 \\\\ \\hline \\multirow{3}{*}{\n' +
+      '\\begin{tabular}{c} 35\\% \\\\ Pruned \\\\ (4.5B) \\\\ \\end{tabular} } & Mag & 8490.1 & 14472.1 & 34.9 \\\\  & Mag- & 36.9 & 61.1 & 49.3 \\\\ \\cline{1-1}  & Taylor & 7666.8 & 10913.1 & 35.3 \\\\ \\cline{1-1}  & Taylor+ & 33.2 & 58.5 & **55.4** \\\\ \\cline{1-1}  & PPL & **23.1** & **38.8** & 55.2 \\\\ \\hline \\hline \\end{tabular} \\({}^{\\dagger}\\)Average accuracy on seven commonsense reasoning tasks.\n' +
+      '\n' +
+      'A100(80GB)의 메모리 외 오류는 공식 코드를 사용한다.\n' +
+      '\n' +
+      '\\end{table}\n' +
+      '표 5: LLaMA-7B에 대한 가지치기 기준의 비교. Taylor+ 방법은 상식 추론 정확도에서 뛰어난 반면, PPL 기준은 더 나은 생성 성능을 이끈다.\n' +
+      '\n' +
+      '### Additional Analysis\n' +
+      '\n' +
+      '표 8은 입력 프롬프트가 [14]로부터 소싱된 생성 예를 제시한다. 언어적 흐름과 화제 일관성의 측면에서 가지치기된 모델은 원래 모델의 문장과 동등한 문장을 산출한다. 그러나 [14]에서도 언급했듯이 사실적 질문에 응답하거나 더 긴 콘텐츠를 제작할 때 출력 품질이 저하된다. 이를 극복하기 위해서는 보다 강력한 재교육 방법을 통합하는 것이 향후 가치 있는 방향일 수 있다.\n' +
+      '\n' +
+      '표 9는 12개의 입력 토큰이 주어진 NVIDIA H100에서 깊이 프루닝된 모델의 GPU 메모리 요구 사항의 이득을 보여준다. 배치 크기가 클수록 관찰된 개선이 더 크다. 특히, 우리의 가지치기 모델은 원래 13B 매개변수 모델과 달리 512의 출력 길이와 64의 배치 크기를 처리할 수 있다.\n' +
+      '\n' +
+      '##6 관련 업무\n' +
+      '\n' +
+      '지식 증류[12, 13], 양자화[15, 16], 시스템 수준 추론 가속[13, 14]을 포함하여 효율적인 LLM을 위해 수많은 기술이 개발되었다. 본 연구에서는 모델 압축 분야에서 오랜 명성을 가지고 있는 네트워크 가지치기[11]에 초점을 맞춘다. 비교적 작은 규모의 컨볼루션 네트워크[13, 14] 및 트랜스포머 모델[15, 16, 17]에서의 사용을 넘어, 프루닝은 최근 현대 LLM에 적용되기 시작했다. 여러 연구 [15, 16]은 개별 뉴런을 제로화하여 비구조화 및 반구조화 [1] 가지치기를 사용한다. SparseGPT[15]는 헤시안 인버스를 계산하여 가지치기 위한 계층별 재구성 문제를 해결한다. 완다[16]은 무게 크기에 입력 특징 규범을 곱하는 것을 포함하는 가지치기 기준을 도입한다. 제로 마스크를 사용하는 가지치기 모델의 그럴듯한 성능에도 불구하고 실제 속도를 보장하기 위해 희소 매트릭스 작업에 대한 전문 지원이 필요하다.\n' +
+      '\n' +
+      '대조적으로, 구조화된 프루닝은 전체 계층 [15], MHA 주의 헤드 [13, 14], FFN의 숨겨진 크기 [12, 15], 및 일부 하이브리드 형태 [13, 14, 15, 16, 17]과 같은 조직화된 패턴을 제거함으로써, 하드웨어-진단 방식으로 추론 효율을 향상시킨다. LLM을 압축하기 위해 FLAP[14] 및 LLM-Pruner[14]는 네트 측면에서 결합된 구조를 제거한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{p{85.4pt}|p{142.3pt}} \\hline Model & Generated Text \\\\ \\hline LLaMA-7B & AI can create a logo in seconds. Why are these new technologies threatening our jobs? AI can do most menial tasks in just a few seconds or minutes. These tasks can be very tedious for human beings to do. For instance, AI can... \\\\ \\hline Wanda-sp & AI can create a logo in seconds rather than years. To this point, this is only the beginning of what AI will do to change our human lives. As time goes on, it’s quite likely that we’ll see even greater use of robots. Even if this all sounds... \\\\ \\hline FLAP & AI can create a logo in seconds and it doesn’t cost you a penny. The new era of technology has opened up many exciting opportunities. Technology, like AI is being utilized for different purposes in different ways, and now,... \\\\ \\hline LLM-Pruner & AI can create a logo in seconds, design a website from scratch and even write blog posts without any human intervention. This revolution is changing the way humans communicate and express ideas. In our view, this technology is a... \\\\ \\hline Ours: Taylor+ & AI can create a logo in seconds or design a new website. There is a lot of software that exists in these two categories. It has become easier and faster for people to use. However, there is still the requirement for the designer or creative... \\\\ \\hline Ours: PPL & AI can create a logo in seconds, and it can design entire websites, all without human intervention. However, there is still a lot of work to be done to perfect this technology, including the development of natural language processing,... \\\\ \\hline Vicuna-13B & AI can create a logo in seconds with its complex algorithms and pre-set designs. But it can never truly understand the essence of a business, the emotions that go into creating a logo or the creativity and uniqueness that comes from... \\\\ \\hline Wanda-sp & AI can create a logo in seconds using a logo design tool. However, a talented graphic designer can create a unique and meaningful logo that stands out from the crowd, captures the essence of the business, and appeals to the target... \\\\ \\hline FLAP & AI can create a logo in seconds. If you don’t like it, you can change it yourself or pay for a designer to do it for you. However, it’s important to note that a logo is more than just an image. It’s a visual representation of a brand or... \\\\ \\hline LLM-Pruner & AI can create a logo in seconds with just one click, but design is a human art, something that is beyond AI capabilities. The logo design is an important part of a company’s identity, and it’s a decision that affects the company’s visual... \\\\ \\hline Ours: Taylor+ & AI can create a logo in seconds, with or without a human’s input. Some people might like this, because they can create a logo for a small business on a budget. Other people, like myself, think that the human touch is important in art... \\\\ \\hline Ours: PPL & AI can create a logo in seconds by combining a variety of different styles and shapes and patterns that make up the logos. However, a logo that is truly a reflection of your brand needs to be designed by a human, a graphic designer.... \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 8: 압축된 (상부) LLaMA-7B 및 (하부) Vicuna-13B로부터의 생성 예. 추가 결과는 섹션 B를 참조하십시오.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{p{85.4pt}|p{142.3pt} p{142.3pt} p{142.3pt} p{142.3pt} p{142.3pt}} \\hline Model & \\multicolumn{3}{c|}{\\(L128\\)} & \\multicolumn{3}{c}{\\(L512\\)} \\\\  & \\(M1\\) & \\(M16\\) & \\(M64\\) & \\(M1\\) & \\(M16\\) & \\(M64\\) \\\\ \\hline\n' +
+      '7B & 12.8GB & 16.0GB & 25.8GB & 13.3GB & 25.0GB & 61.8GB \\\\ \\hline\n' +
+      '20\\% & 10.5GB & 13.1GB & 21.1GB & 10.9GB & 20.4GB & 50.4GB\\\\\n' +
+      '27\\% & 9.4GB & 11.6GB & 18.8GB & 9.7GB & 18.1GB & 44.6GB\n' +
+      '35\\% & 8.6GB & 10.7GB & 17.2GB & 9.0GB & 16.6GB & 40.8GB \\\\ \\hline\n' +
+      '13B & 24.8GB & 29.6GB & 44.9GB & 25.5GB & 43.7GB & OOM \\\\ \\hline\n' +
+      '21\\% & 19.9GB & 23.8GB & 36.0GB & 20.5GB & 35.0GB & OOM\\\\\n' +
+      '29\\% & 18.1GB & 21.7GB & 32.7GB & 18.6GB & 31.8GB & 73.5GB\n' +
+      '37\\% & 15.7GB & 18.8GB & 28.3GB & 16.1GB & 27.5GB & 63.5GB \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 9: 시퀀스 길이(\\(L\\)) 및 배치 크기(\\(M\\))를 변화시키기 위한 GPU 메모리 요구 사항. 7B 및 13B 모델과 가지치기 비율이 다른 모델의 결과가 보고된다. 우리의 접근 방식은 원래 모델의 메모리 요구를 효과적으로 줄입니다.\n' +
+      '\n' +
+      '작업 폭을 유지하면서 층 수를 유지합니다. Sheared-LLaMA[21]은 네트워크의 폭과 깊이 모두에서 가지치기 가능한 구성요소를 식별하는 것을 목표로 하는 마스크 학습 단계를 도입한다. 본 연구는 경쟁적 결과를 얻으면서 지연 시간을 현저하게 가속화할 수 있는 수십억 매개 변수 LLM에 대한 깊이 전용 가지치기의 상대적으로 미개발된 영역을 탐구한다.\n' +
+      '\n' +
+      '## 7 Conclusion\n' +
+      '\n' +
+      '블록 가지치기 방법을 도입하여 네트워크 폭과 깊이가 LLM 압축에 미치는 영향에 대한 심층 비교 분석을 수행한다. 우리의 작업은 다양한 설계 선택을 평가하여 결정되는 트랜스포머 블록의 원샷 제거를 포함한다. 단순함에도 불구하고, 우리의 방법은 최근 폭 가지치기 기술의 제로 샷 기능과 일치한다. 또한, 폭 가지치기가 부족한 제한된 배치 크기로 LLM을 실행해야 하는 자원 제한 시나리오에서 상당한 추론 속도를 제공한다. 향후 연구에서는 보정 데이터에 대한 심층 연구와 함께 전체 매개변수 업데이트 및 지식 증류를 포함하여 보다 강력한 재교육 방법을 조사할 것이다.\n' +
+      '\n' +
+      '## Acknowledgments\n' +
+      '\n' +
+      '네츠프레소 R&D 프로젝트 진행에 기여한 GPU 자원을 아낌없이 지원해준 마이크로소프트 스타트업 창업허브 프로그램과 광주 인공지능산업클러스터진흥원(AICA)에 감사드린다.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* [An _et al._2024] Yongqi An, Xu Zhao, Tao Yu, Ming Tang, and Jinqiao Wang. 대형 언어 모델에 대한 변동 기반 적응형 구조 가지치기입니다. 2024년, _AAAI_에서\n' +
+      '*[Andersch _et al._2019] Michael Andersch, Valerie Sarge, and Paulius Micikevicius. 텐서 코어 dl 성능 가이드입니다. 2019년 _NVIDIA GTC_에서.\n' +
+      '* [아오준 주2021] 준난 주젠보 류젠위안 선홍성 리아오준 마유쿤. n:m 세립형 구조화된 희소 신경망을 처음부터 학습한다. 2021년 _ICLR_에서.\n' +
+      '* [Bisk _et al._2020] 요나탄 비스크, 로완 젤러스, 로난 르 브라스, 지안펑 가오, 최예진. 피카: 자연어로 물리적 상식에 대한 추론. 2020년 _AAAI_.\n' +
+      '*[Chiang _et al._2023] Wei-Lin Chiang, Zhuohan Li, Zi Lin, Ying Sheng, Zhanghao Wu, Hao Zhang, Lianmin Zheng, et al. Vicuna: An open-source chatbot impressing gpt-4 with 90%* chatgpt quality, 2023.\n' +
+      '*[Chowdhery _et al._2022] Aakanksha Chowdhery, Sharan Narang, Jacob Devlin, Maarten Bosma, Gaurav Mishra, Adam Roberts, Paul Barham, Hyung Won Chung, et al. Palm: Scaling language modeling with pathways. _ ArXiv:2204.02311_, 2022.\n' +
+      '*[Clark _et al._2018] Peter Clark, Isaac Cowhey, Oren Etzioni, Tushar Khot, Ashish Sabharwal, Carissa Schoenick, and Oyvind Tafjord. 질문에 답하는 걸 해결했다고 생각해? try arc, the ai2 reasoning challenge. _ arXiv preprint arXiv:1803.05457_, 2018.\n' +
+      '* [Clark _et al._2019] Christopher Clark, Kenton Lee, Ming-Wei Chang, Tom Kwiatkowski, Michael Collins, Kristina Toutanova. BoolQ: 자연스러운 예/아니오 질문의 놀라운 어려움을 탐구하는 것. 2019년 _NAACL_에서\n' +
+      '*[Dao2023] Tri Dao. 플래시어텐션-2: 더 나은 병렬성과 작업 분할로 더 빠른 주의를 기울인다. _ arXiv preprint arXiv:2307.08691_, 2023.\n' +
+      '* [Dettmers _et al._2022] Tim Dettmers, Mike Lewis, Younes Belkada, and Luke Zettlemoyer. Llm.int8(): 스케일에서 변압기에 대한 8비트 행렬 곱셈. 2022년 _NeurIPS_에서.\n' +
+      '* [Dong _et al._2021] Yihe Dong, Jean-Baptiste Cordonnier, and Andreas Loukas. 주의력만 필요한 것은 아니다: 순수한 주의력은 깊이에 따라 두 배로 기하급수적으로 순위가 떨어진다. 2021년 _ICML_에서.\n' +
+      '* [EleutherAI2023] EleutherAI. 언어 모델 평가 하네스(패키지 버전 3326c54). [https://github.com/EleutherAI/lm-evaluation-harness] (https://github.com/EleutherAI/lm-evaluation-harness), 2023.\n' +
+      '*[Fan _et al._2020] Angela Fan, Edouard Grave, and Armand Joulin. 구조화된 드롭아웃으로 요구 시 변압기 깊이를 줄입니다. 2020년 _ICLR_에서\n' +
+      '* [Fang _et al._2023] Gongfan Fang, Xinyin Ma, Mingli Song, Michael Bi Mi, and Xinchao Wang. 깊이 그래프: 모든 구조적 가지치기를 향해. _CVPR_, 2023.\n' +
+      '* [Frantar and Alistarh2023] Ellias Frantar and Dan Alistarh. SparseGPT: 대규모 언어 모델은 원샷으로 정확하게 가지치기할 수 있다. 2023년 _ICML_에서\n' +
+      '* [Frantar _et al._2023] Ellias Frantar, Saleh Ashkboos, Torsten Hoefler, and Dan Alistarh. OPTQ: 생성 사전 훈련된 변압기에 대한 정확한 양자화. 2023년 _ICLR_에서\n' +
+      '* [Fu _et al._2023] Yao Fu, Hao Peng, Litu Ou, Ashish Sabharwal, and Tushar Khot. 다단계 추론을 위해 더 작은 언어 모델을 전문으로 합니다. 2023년 _ICML_에서\n' +
+      '*[Gale _et al._2019] Trevor Gale, Erich Elsen, and Sara Hooker. 심층 신경망의 희소성 상태. _ICML Workshop_, 2019.\n' +
+      '*[Google2023] Google. 우리의 ai 여정의 중요한 다음 단계. [https://blog.google/technology/ai/bard-google-ai-search-updates/] (https://blog.google/technology/ai/bard-google-ai-search-updates/), 2023.\n' +
+      '* [He _et al._2019] Yang He, Ping Liu, Ziwei Wang, Zhilan Hu, and Yi Yang. 심층 컨볼루션 신경망 가속을 위한 기하학적 중앙값을 통한 필터 프루닝. 2019년 _CVPR_에서.\n' +
+      '*[Hsieh _et al._2023] Cheng-Yu Hsieh, Chun-Liang Li, Chih-Kuan Yeh, Hootan Nakhost, et al. Distilling step-by-step! 학습 데이터가 적고 모델 크기가 작을수록 더 큰 언어 모델을 능가합니다. ACL_의 _Findings, 2023.\n' +
+      '*[Hu _et al._2022] Edward J. Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, and Weizhu Chen. 로라: 대형 언어 모델들의 낮은 순위 적응. 2022년 _ICLR_에서\n' +
+      '* [Jin _et al._2023] Yunho Jin, Chun-Feng Wu, David Brooks, and Gu-Yeon Wei. S3: 더 높은 처리량에 대한 생성 추론 동안 gpu 활용도를 증가시킨다. _NeurIPS_, 2023.\n' +
+      '* [Kurtic _et al._2023] Eldar Kurtic, Ellias Frantar, and Dan Alistarh. Ziplm: 추론 인식 언어 모델의 구조화된 가지치기. _NeurIPS_, 2023.\n' +
+      '*[Kwon _et al._2022] Kwon, Sehoon Kim, Michael W. 마호니, 조셉 하순, 커트 커처, 아미르 골라미 변압기를 위한 빠른 훈련 후 가지치기 프레임워크입니다. 2022년 _NeurIPS_에서.\n' +
+      '* [Kwon _et al._2023] Woosuk Kwon, Zhuohan Li, Siyuan Zhang, Ying Sheng, Lianmin Zheng, Cody Hao Yu, Joseph E. Gonzalez, Hao Zhang, 및 Ion Stoica. 페이지어텐션으로 서비스를 제공하는 대용량 언어 모델을 위한 효율적인 메모리 관리 2023년 _SOSP_에서\n' +
+      '* [라구나스 _et al._2021] 프랑수아 라구나스, 엘라 찰릭스, 빅터 산, 알렉산더 M. 러쉬 더 빠른 변압기를 위해 가지치기 차단 2021년 _EMNLP_에서.\n' +
+      '* [LeCun _et al.1989] Yann LeCun, John Denker, Sara Solla. 최적의 뇌 손상 1989년 _NeurIPS_에서.\n' +
+      '*[Lee _et al._2021] 이재호, 박세준, 상우모, 안성수, 신진우 크기 기반 가지치기에 대한 계층 적응 희소성입니다. 2021년 _ICLR_에서.\n' +
+      '* [Li _et al._2017a] Hao Li, Asim Kadav, Igor Durdanovic, Hanan Samet, and Hans Peter Graf. 효율적인 콘넷을 위한 필터 가지치기 2017년 _ICLR_에서.\n' +
+      '* [Li _et al._2017b] Hao Li, Asim Kadav, Igor Durdanovic, Hanan Samet, and Hans Peter Graf. 효율적인 콘넷을 위한 필터 가지치기 2017년 _ICLR_에서.\n' +
+      '* [Liu _et al._2021] Zejian Liu, Fanrong Li, Gang Li, 및 Jian Cheng. Ebert: 동적 구조화된 가지치기를 이용한 효율적인 버트 추론. In _Findings of ACL_, 2021.\n' +
+      '*[Ma _et al._2023] Xinyin Ma, Gongfan Fang, and Xinchao Wang. Llm-pruner: 대형 언어 모델의 구조적 가지치기. _NeurIPS_, 2023.\n' +
+      '* [Marcus _et al.1993] Mitchell P. Marcus, Beatrice Santorini, and Mary Ann Marcinkiewicz. 주석이 달린 영어의 대규모 말뭉치 구축 : 펜 트리뱅크. _ Computational Linguistics_, 19(2):313-330, 1993).\n' +
+      '*[Merity _et al._2017] Stephen Merity, Caiming Xiong, James Bradbury, and Richard Socher. 포인터 센티넬 혼합물 모델입니다. 2017년 _ICLR_에서.\n' +
+      '* [Michel _et al._2022] Paul Michel, Omer Levy, 그리고 Graham Neubig. 16명의 머리가 한 명보다 더 나은가요? 2022년 _NeurIPS_에서.\n' +
+      '* [Mihaylov _et al._2018] Todor Mihaylov, Peter Clark, Tushar Khot, and Ashish Sabharwal. 갑옷이 전기를 통할 수 있나요? 열린 책 질문 응답을 위한 새 데이터 세트 _EMNLP_, 2018.\n' +
+      '* [Molchanov _et al._2019] Pavlo Molchanov, Arun Mallya, Stephen Tyree, Iuri Frosio, and Jan Kautz. 신경망 가지치기를 위한 중요도 추정 2019년 _CVPR_에서.\n' +
+      '*[Nova _et al._2023] Azade Nova, Hanjun Dai, and Dale Schuurmans. 라벨이 지정되지 않은 데이터를 사용하여 기울기가 없는 구조화된 가지치기. 2023년 _ICML_에서\n' +
+      '*[NVIDIA2018] NVIDIA. 유용한 nvidia-smi 쿼리[https://enterprise-support.nvidia.com/s/article/Useful-nvidia-smi-Queries-2] (https://enterprise-support.nvidia.com/s/article/Useful-nvidia-smi-Queries-2), 2018.\n' +
+      '*[OpenAI2022] OpenAI. chatgpt. [https://openai.com/blog/chatgpt]를 소개합니다. (https://openai.com/blog/chatgpt), 2022.\n' +
+      '*[OpenAI2023] OpenAI. Gpt-4 기술 보고서입니다 arXiv preprint arXiv:2303.08774_, 2023.\n' +
+      '* [Sakaguchi _et al._2019] Keisuke Sakaguchi, Ronan Le Bras, Chandra Bhagavatula, and Yejin Choi. Winogrande: 적대적 winograd schema challenge at scale. _ ArXiv preprint arXiv:1907.10641_, 2019.\n' +
+      '* [Santacroce _et al._2023] Michael Santacroce, Zixin Wen, Yelong Shen, and Yuanzhi Li. 생성 언어 모델의 구조적 가지치기에서 중요한 것은? _ arXiv preprint arXiv:2302.03773_, 2023.\n' +
+      '*[Scao _et al._2022] Teven Le Scao, Angela Fan, Christopher Akiki, Ellie Pavlick, Suzana Ilic, Daniel Hesslow, et al. Bloom: A 176b-parameter open-access multilingual language model. _ ARXiv 프리프린트 arXiv:2211.05100_, 2022.\n' +
+      '* [Sheng _et al._2023] Ying Sheng, Lianmin Zheng, Binhang Yuan, Zhuohan Li, Max Ryabinin, et al. Flexgen: 단일 gpu를 갖는 대형 언어 모델의 고처리량 생성 추론. 2023년 _ICML_에서\n' +
+      '* [Sun _et al._2024] Mingjie Sun, Zhuang Liu, Anna Bair, and J. Zico Kolter. 대형 언어 모델에 대한 간단하고 효과적인 가지치기 접근법입니다. 2024년 _ICLR_에서\n' +
+      '*[Taori _et al._2023] Rohan Taori, Ishaan Gulrajani, Tianyi Zhang, Yann Dubois, Xuechen Li, Carlos Guestrin, et al. Stanford alpaca: an instruction-following llama model. [https://github.com/tatsu-lab/stanford_alpaca] (https://github.com/tatsu-lab/stanford_alpaca), 2023.\n' +
+      '*[Touvron _et al._2023] Hugo Touvron, Thibaut Lavril, Gautier Izacard, Xavier Martinet, Marie-Anne Lachaux, et al. Llama: Open and efficient foundation language models. _ arXiv preprint arXiv:2302.13971_, 2023.\n' +
+      '*[Vaswani _et al._2017] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Lukasz Kaiser, and Illia Polosukhin. 주목만 해주시면 됩니다. 2017년 _NeurIPS_에서.\n' +
+      '*[Voita _et al._2019] Elena Voita, David Talbot, Fedor Moiseev, Rico Sennrich, and Ivan Titov. 멀티 헤드 셀프 어텐션을 분석: 전문화된 헤드가 무거운 리프팅을 하고 나머지는 가지치기할 수 있습니다. 2019년 _ACL_에서.\n' +
+      '* [Wan _et al._2023] Zhongwei Wan, Xin Wang, Che Liu, Samiul Alam, Yu Zheng, Zhongnan Qu, Shen Yan, Yi Zhu, Quanlu Zhang, Mosharaf Chowdhury, and Mi Zhang. 효율적인 대규모 언어 모델: 설문조사. _ arXiv preprint arXiv:2312.03863_, 2023.\n' +
+      '\n' +
+      '*[Wolf _et al._2020] Thomas Wolf, Lysandre Debut, Victor Sanh, Julien Chaumond, Clement Delangue, et al. Transformers: State-of-the-art natural language processing. _EMNLP:System Demonstrations_, 2020.\n' +
+      '* [Xia _et al._2022] Mengzhou Xia, Zexuan Zhong, and Danqi Chen. 구조화된 가지치기는 컴팩트하고 정확한 모델을 학습합니다. 2022년 _ACL_에서\n' +
+      '* [Xia _et al._2024] Mengzhou Xia, Tianyu Gao, Zhiyuan Zeng, and Danqi Chen. 전단 라마: 구조화된 가지치기를 통한 언어 모델 사전 훈련 가속화. 2024년 _ICLR_에서\n' +
+      '* [Yu _et al._2022] Shixing Yu, Tianlong Chen, Jiayi Shen, Huan Yuan, Jianchao Tan, Sen Yang, Ji Liu, and Zhangyang Wang. 통합 시각 트랜스포머 압축입니다. 2022년 _ICLR_에서\n' +
+      '* [Zellers _et al._2019] Rowan Zellers, Ari Holtzman, 요나탄 Bisk, Ali Farhadi, and Yejin Choi. 헬라스바그: 기계가 정말로 당신의 문장을 끝낼 수 있을까요? 2019년 _ACL_에서.\n' +
+      '*[Zhang_et al._2022] Susan Zhang, Stephen Roller, Naman Goyal, Mikel Artetxe, Moya Chen, et al. Opt: Open pre-trained transformer language models. _ arXiv preprint arXiv:2205.01068_, 2022.\n' +
+      '*[Zhu _et al._2015] Yukun Zhu, Ryan Kiros, Rich Zemel, Ruslan Salakhutdinov, et al. Aligning books and movies: Towards to story-like visual explanations by viewing movies and reading books. _ICCV_, 2015.\n' +
+      '* [Zhu _et al._2023] Xunyu Zhu, Jian Li, Yong Liu, Can Ma, and Weiping Wang. 대형 언어 모델의 모델 압축에 대한 조사. _ arXiv preprint arXiv:2308.07633_, 2023.\n' +
+      '\n' +
+      '[MISSING_PAGE_EMPTY:11]\n' +
+      '\n' +
+      'Generation Examples\n' +
+      '\n' +
+      '## 부록 B 생성 예\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|l} \\hline \\hline Model & Generated Text \\\\ \\hline LLaMA-7B & What’s great about the holiday season, it’s a time when people focus less on work and more on families and friends. The holidays are a time when people can really focus on giving and helping others, which is something that the holidays are supposed to be about. In my blog post this week, I’ll be taking a look at a variety of causes that... \\\\ \\hline Wanda-sp & What’s great about the holiday season, though, is its warm and inviting people, and what a chance to meet and share a cuppa with others who understand and have shared similar experiences, a feeling of empathy if you will, and a great opportunity to help others on a difficult journey. So I can say, all is well. But I’m not giving up the fight... \\\\ \\hline FLAP & What’s great about the holiday season, and what makes it such an awesome time of the year, is that it’s the time of the year when people are so generous, and so goodhearted. When you get together with friends and family, and you go through the various things that you’re able to do, when you’re able to give people gifts, when people can see... \\\\ \\hline LLM-Pruner & What’s great about the holiday season, is you can enjoy the company of friends and family. This is the perfect opportunity to gather together, and share all the special memories that you have together. These moments are the ones that make the holiday special. No matter what happens, or what you end up doing, it’s always good to get... \\\\ \\hline Ours: Taylor+ & What’s great about the holiday season, is that it’s a time of year when people can actually take a step back from the normal day-to-day routines and take some time out to relax and enjoy some well-deserved rest and rejuvenation. This might include indulging in a more comfortable or luxury holiday experience and this article aims to help... \\\\ \\hline Ours: PPL & What’s great about the holiday season, in my mind, is that it brings together friends, family, and food. The holiday season is a great time to show some love and have some fun with the people that matter most. Whether you are celebrating Christmas, Hanukah, or New Years, the festivities will be full of joy and memories that will last... \\\\ \\hline \\hline LLaMA-7B & AI can create a logo in seconds. Why are these new technologies threatening our jobs? AI can do most menial tasks in just a few seconds or minutes. These tasks can be very tedious for human beings to do. For instance, AI can identify patterns in large amounts of data so that complex statistical analysis can be carried out faster than a... \\\\ \\hline Wanda-sp & AI can create a logo in seconds rather than years. To this point, this is only the beginning of what AI will do to change our human lives. As time goes on, it’s quite likely that we’ll see even greater use of robots. Even if this all sounds too dramatic, this may still happen. And AI is the best thing that can make it to happen. in 2019. All you... \\\\ \\hline FLAP & AI can create a logo in seconds and it doesn’t cost you a penny. The new era of technology has opened up many exciting opportunities. Technology, like AI is being utilized for different purposes in different ways, and now, technology is becoming a solution to problems that would have been tedious or expensive only a few years ago.... \\\\ \\hline LLM-Pruner & AI can create a logo in seconds, design a website from scratch and even write blog posts without any human intervention. This revolution is changing the way humans communicate and express ideas. In our view, this technology is a great asset but we’ll need to be smart in how we use it to prevent abuse or automation leading to job loss. So,... \\\\ \\hline Ours: Taylor+ & AI can create a logo in seconds or design a new website. There is a lot of software that exists in these two categories. It has become easier and faster for people to use. However, there is still the requirement for the designer or creative director to ensure that the designs are relevant and meaningful to the brand. The Future: AI for creative design... \\\\ \\hline Ours: PPL & AI can create a logo in seconds, and it can design entire websites, all without human intervention. However, there is still a lot of work to be done to perfect this technology, including the development of natural language processing, machine learning and computer vision, as well as ensuring that AI designers are creating work that can be... \\\\ \\hline \\hline LLaMA-7B & Neural network pruning is defined as the process of removing certain weights or neurons in a neural network to reduce the size of the neural network, and improve the training process. Neural networks pruning techniques have been applied successfully on classification, optimization, planning, and speech recognition tasks. A pruned... \\\\ \\hline Wanda-sp & Neural network pruning is defined as any method that removes the redundant information by applying the neural network network. It is the term used to identify the systematic variables when an individual tries to find an algorithm. In addition, it is the method of classification used to define any set of algorithms that have been... \\\\ \\hline FLAP & Neural network pruning is defined as a selection of neurons or weights in a neural network so that the information of the network is reduced to a specified level, and a process of re-training a neural network. The latter one is the most popular method, especially the neural network pruning. In recent years, this field has been studied in... \\\\ \\hline LLM-Pruner & Neural network pruning is defined as reducing the complexity and size of an over-parameterized neural network. The pruning reduces the FLOPs and improves performance for the particular task. Pruning techniques have gained popularity in recent years due to their wide range of applications. This paper aims to explore the pruning... \\\\ \\hline Ours: Taylor+ & Neural network pruning is defined as reducing the weight connections and biases of a neural network, while retaining high performance. Pruning is an effective approach to reducing the number of parameters and improving the efficiency of neural networks. Recently, the concept of neural network shrinking has gained considerable... \\\\ \\hline Ours: PPL & Neural network pruning is defined as the process of removing redundant neurons and connections between nodes in a neural network, while keeping the performance or accuracy to the maximum extent possible. This optimization is aimed at reducing the size and memory consumption of the network while maintaining its ability to perform task... \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 11: 원래 LLaMA-7B 및 20% 압축 모델로부터의 생성 예.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|l} \\hline Model & Generated Text \\\\ \\hline Vicuna-13B & What’s great about the holiday season, beyond the obvious time off and the chance to spend time with loved ones, is the opportunity to slow down and reflect on the year that’s passed. It’s a time to look back at all the accomplishments and growth you’ve experienced, and to set your sights on the year ahead. As a small business owner, the... \\\\ \\hline Wanda-sp & What’s great about the holiday season, besides spending time with family and friends, is that it’s a time of giving. It’s a time to show appreciation for those in your life who make a difference and bring joy to your world. Whether it’s a gift of love, a gift of time, or a gift of money, it’s important to remember that giving is not just about... \\\\ \\hline FLAP & What’s great about the holiday season, especially the days leading up to Christmas, is the opportunity to take a pause and recharge. It’s a time to reflect on the year and all the experiences we’ve had, good or bad. It’s a time to reflect on the people we love and the impact they’ve had on our lives. It’s a time to reflect on what we want... \\\\ \\hline LLM-Pruner & What’s great about the holiday season, aside from the gifts and the holiday parties, is the opportunity to spend time with family and loved ones. One of the things that I love most about holiday seasons is the traditions that surround them, from decorating the tree to making special holiday meals, there’s a sense of nostalgia and warmth that... \\\\ \\hline Ours: Taylor+ & What’s great about the holiday season, is that it allows us to reflect on the year gone by and reflect on the moments that made it special. And while some people might choose to celebrate with the traditional traditions, some choose to do something different. One way to spice up your holiday season is by taking a trip to a far-off place. Why not... \\\\ \\hline Ours: PPL & What’s great about the holiday season, in addition to the fun food, festivities, and spending time with loved ones, is that it creates the perfect opportunity to show people how much you appreciate them. From giving them a gift, to baking their favorite treat, or just taking a moment to acknowledge them in front of others – there’s something... \\\\ \\hline \\hline Vicuna-13B & AI can create a logo in seconds with its complex algorithms and pre-set designs. But it can never truly understand the essence of a business, the emotions that go into creating a logo or the creativity and uniqueness that comes from human input. It’s time to put the human touch back into branding, where a designer and client can collaborate to... \\\\ \\hline Wanda-sp & AI can create a logo in seconds using a logo design tool. However, a talented graphic designer can create a unique and meaningful logo that stands out from the crowd, captures the essence of the business, and appeals to the target audience. A good logo can also make a difference in how customers perceive the business and can even increase... \\\\ \\hline FLAP & AI can create a logo in seconds. If you don’t like it, you can change it yourself or pay for a designer to do it for you. However, it’s important to note that a logo is more than just an image. It’s a visual representation of a brand or organization, and it communicates certain values and characteristics to the viewer. Therefore, it’s essential to... \\\\ \\hline LLM-Pruner & AI can create a logo in seconds with just one click, but design is a human art, something that is beyond AI capabilities. The logo design is an important part of a company’s identity, and it’s a decision that affects the company’s visual branding and reputation for years to come. The logo is the visual representation of a company’s values... \\\\ \\hline Ours: Taylor+ & AI can create a logo in seconds, with or without a human’s input. Some people might like this, because they can create a logo for a small business on a budget. Other people, like myself, think that the human touch is important in art and design. A human designer can create a unique and meaningful logo by incorporating personal... \\\\ \\hline Ours: PPL & AI can create a logo in seconds by combining a variety of different styles and shapes and patterns that make up the logos. However, a logo that is truly a reflection of your brand needs to be designed by a human, a graphic designer. They will bring a creative vision that will make your logo unique, appealing and memorable. They can add... \\\\ \\hline \\hline Vicuna-13B & Neural network pruning is defined as the process of removing redundant or unnecessary connections in a neural network to reduce its size and computational complexity while preserving its performance. The primary motivation behind pruning is to improve the efficiency of deep learning models, especially in resource-constrained... \\\\ \\hline Wanda-sp & Neural network pruning is defined as a method for removing connections in order to reduce the model size, thus allowing for computationally efficient models while retaining accuracy. This technique is useful in reducing the number of neurons in a neural network, which allows for fewer computations during training and reduces the... \\\\ \\hline FLAP & Neural network pruning is defined as the process of reducing the size of a neural network by removing the least significant weights or neurons. The main motivation for pruning is to reduce the computational cost of neural networks while maintaining their accuracy. The key challenge of pruning is to identify the most effective... \\\\ \\hline LLM-Pruner & Neural network pruning is defined as a technique that aims to reduce the size of a neural network by removing redundant and irrelevant connections between the neurons in the network. This approach is based on the observation that a large portion of the connections within the network is redundant and does not contribute to the overall... \\\\ \\hline Ours: Taylor+ & Neural network pruning is defined as the removal of redundant connections within a neural network to achieve a better model fit while retaining the network’s general accuracy. The goal of pruning is to reduce the computational cost and memory footprint of the network. One commonly used pruning method is called weight magnitude... \\\\ \\hline Ours: PPL & Neural network pruning is defined as the task of removing unnecessary or redundant connections in a neural network while retaining its accuracy and performance. This is often done to reduce the memory usage and computational complexity of a neural network, which can be critical when running on devices with limited resources. In... \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 12: 오리지널 Vicuna-13B-v1.3 및 21% 압축 모델의 생성 예제.\n' +
+      '\n' +
+      '## 부록 C 추론 효율 추가 결과\n' +
+      '\n' +
+      '## 부록 D 구현 상세\n' +
+      '\n' +
+      '우리는 한 개의 NVIDIA A100 GPU(80GB VRAM)에 허깅 페이스의 트랜스포머 라이브러리[20]를 활용한다. 7B-파라미터 모델을 포함하는 모든 실험은 단일 NVIDIA RTX 3090(24GB VRAM)에서 수행될 수 있다.\n' +
+      '\n' +
+      '* 가지치기 단계에서 작은 보정 세트(서열 길이가 128인 BookCorpus[14]의 샘플 10개 포함)를 사용하여 트랜스포머 블록의 중요성을 평가한다. PPL 기반 기준에 대해, 교정 샘플은 단일 블록이 제거된 네트워크에 공급되고, 이 단계는 타겟 모델의 모든 블록에 걸쳐 반복된다. Taylor+ 방법의 경우 보정 데이터를 원래 네트워크로 공급하여 역방향 기울기 행렬을 수집한다. 7B 및 13B 크기의 모델에 대해 1~2시간 이내에 효율적으로 가지치기를 완료합니다.\n' +
+      '* 재교육 단계에서, 우리는 [14]에 따라 모든 투영 가중치 매트릭스에 LoRA 어댑터[15]를 적용한다. 우리는 LoRA 순위 8, 학습률 0.0001, 배치 크기 64/2 에폭스를 사용한다. 재교육 비용은 특히 낮으며 전체 프로세스가 단일 GPU에서 실행됩니다. 예를 들어, 7B 파라미터로부터 20%-프루닝된 모델을 재트레이닝하는 것은 약 2시간이 소요되고 22GB GPU 메모리를 이용하는 반면, 13B 파라미터로부터 21%-프루닝된 모델은 약 3시간 및 35GB VRAM을 필요로 한다.\n' +
+      '* 추론 단계에서, 우리는 xFormers-최적화된 주의력 또는 추가적인 고급 특징들을 사용하지 않고 디폴트 구성들을 유지한다.\n' +
+      '\n' +
+      '그림 6: NVIDIA H100 GPU에서 가지치기된 모델의 추론 효율성. 우리의 깊이 가지치기는 다양한 입력 및 출력의 시퀀스 길이에 대해 우수한 지연-처리량 트레이드오프를 달성한다. 대조적으로, FLAP[13] 및 LLM-프루너[14]의 폭 가지치기(width pruning)는 GPU-불친화적인 가중치 치수[1]로 인해 효율 결과를 저하시킨다(예를 들어, FFN의 숨겨진 크기는 종종 8로 분할되지 않는다). \\(M\\)으로 표시된 마커는 배치 크기를 나타낸다. 점선은 가지치기된 모델이 원래 모델에서 발생하는 메모리 외 오류를 방지하여 더 큰 배치 크기로 작동할 수 있음을 나타낸다.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
