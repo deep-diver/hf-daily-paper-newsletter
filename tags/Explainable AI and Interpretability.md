@@ -17,3 +17,5 @@
 - [ReGAL: Refactoring Programs to Discover Generalizable Abstractions](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/14/2024-01-31+ReGAL%3A+Refactoring+Programs+to+Discover+Generalizable+Abstractions.yaml) / 2024-01-31
 - [Can Large Language Models Understand Context?](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/16/2024-02-02+Can+Large+Language+Models+Understand+Context%3F.yaml) / 2024-02-02
 - [K-Level Reasoning with Large Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/17/2024-02-05+K-Level+Reasoning+with+Large+Language+Models.yaml) / 2024-02-05
+- [OpenMoE: An Early Effort on Open Mixture-of-Experts Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/18/2024-02-06+OpenMoE%3A+An+Early+Effort+on+Open+Mixture-of-Experts+Language+Models.yaml) / 2024-02-06
+- [Rethinking Interpretability in the Era of Large Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/18/2024-02-06+Rethinking+Interpretability+in+the+Era+of+Large+Language+Models.yaml) / 2024-02-06

@@ -1,0 +1,1 @@
+- [Video-LaVIT: Unified Video-Language Pre-training with Decoupled Visual-Motional Tokenization](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/18/2024-02-06+Video-LaVIT%3A+Unified+Video-Language+Pre-training+with+Decoupled+Visual-Motional+Tokenization.yaml) / 2024-02-06
