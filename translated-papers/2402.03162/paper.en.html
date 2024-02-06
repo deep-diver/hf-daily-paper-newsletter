@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# Direct-a-Video: Customized Video Generation with User-Directed Camera Movement and Object Motion\n' +
+      '\n' +
+      'Shiyuan Yang 1,3, Liang Hou2, Haibin Huang2, Chongyang Ma2,\n' +
+      '\n' +
+      'Pengfei Wan2, Di Zhang2, Xiaodong Chen3, Jing Liao1\n' +
+      '\n' +
+      '1 City University of Hong Kong, 2 Kuaishou Technology, 3 Tianjin University\n' +
+      '\n' +
+      '[https://direct-a-video.github.io/](https://direct-a-video.github.io/)\n' +
+      '\n' +
+      'Footnote 1: Corresponding author.\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      'Recent text-to-video diffusion models have achieved impressive progress. In practice, users often desire the ability to control object motion and camera movement independently for customized video creation. However, current methods lack the focus on separately controlling object motion and camera movement in a decoupled manner, which limits the controllability and flexibility of text-to-video models. In this paper, we introduce Direct-a-Video, a system that allows users to independently specify motions for one or multiple objects and/or camera movements, as if directing a video. We propose a simple yet effective strategy for the decoupled control of object motion and camera movement. Object motion is controlled through **spatial cross-attention** modulation using the model\'s inherent priors, requiring no additional optimization. For camera movement, we introduce new **temporal cross-attention** layers to interpret quantitative camera movement parameters. We further employ an augmentation-based approach to train these layers in a self-supervised manner on a small-scale dataset, eliminating the need for explicit motion annotation. Both components operate independently, allowing individual or combined control, and can generalize to open-domain scenarios. Extensive experiments demonstrate the superiority and effectiveness of our method. Code will be made available upon acceptance.\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      'Text-to-image (T2I) diffusion models have already demonstrated astonishingly high quality and diversity in image generation and editing [23, 43, 45, 47, 63]. The rapid development of T2I diffusion models has also spurred the recent emergence of text-to-video (T2V) diffusion models [3, 22, 49, 53, 2], which are normally extended from pretrained T2I models for video generation and editing. On the other hand, the advent of controllable techniques in T2I models, such as ControlNet [66], T2I-adapter [39] and GLIGEN [33], has allowed users to specify the spatial layout of generated images through conditions like sketch maps,depth maps, or bounding boxes etc., significantly enhancing the spatial controllability of T2I models. Such spatial controllable techniques have also been successfully extended to spatial-temporal control for video generation. One of the representative works in this area is VideoComposer [56], which can synthesize a video given a sequence of sketch or motion vector maps.\n' +
+      '\n' +
+      'Despite the success of text-to-video synthesis, current T2V methods often lack support for user-defined and disentangled control over camera movement and object motion, which limits the flexibility in video motion control. In a video, both objects and the camera exhibit their respective motions. Object motion originates from the subject\'s activity, while camera movement influences the transition between frames. The overall video motion becomes well-defined only when both camera movement and object motion are determined. For example, focusing solely on object motion, such as generating a video clip where an object moves to the right within the frame, can lead to multiple scenarios. The camera may remain stationary while the object itself moves right, or the object may be stationary while the camera moves left, or both the object and the camera may be moving at different speeds. This ambiguity in the overall video motion can arise. Therefore, the decoupling and independent control of camera movement and object motion not only provide more flexibility but also reduce ambiguity in the video generation process. However, this aspect has received limited research attention thus far.\n' +
+      '\n' +
+      'To control camera movement and object motion in T2V generation, a straightforward approach would be to follow the supervised training route similar to works like VideoComposer [56]. Following such kind of scheme involves training a conditional T2V model using videos annotated with both camera and object motion information. However, this would bring the following challenges: (1) In many video clips, object motion is often coupled with camera movements due to their inherent correlation. For example, when a foreground object moves to some direction, the camera typically pans in the same direction due to the preference to keep the main subject at the center of the frame. Training on such coupled camera and object motion data makes it difficult for the model to distinguish between camera movements and and object motion. (2) Obtaining large-scale video datasets with complete camera movement and object motion annotations is challenging due to the laborious and costly nature of performing frame-by-frame object tracking and camera pose estimation. Additionally, training a video model on a large-scale dataset can be computationally expensive.\n' +
+      '\n' +
+      'In this work, we introduce Direct-a-Video, a text-to-video framework that enables users to independently specify the camera movement and the motion of one or more objects, allowing them to create their desired motion pattern as if they were directing a video (Figure 1). To achieve this, we propose a strategy for decoupling camera movement and object motion control by employing two orthogonal controlling mechanisms. In essence, we learn the camera movement through a self-supervised and lightweight training approach. Conversely, during inference, we adopt a training-free method to control object motion. Our strategy skillfully avoids the need for intensive collection of motion annotations and video grounding datasets.\n' +
+      '\n' +
+      'In camera movement control, we train an additional module to learn the frame transitions. Specifically, we introduce new temporal cross-attention layers, known as the camera module, which functions similarly to spatial cross-attention in interpreting textual language. This camera module interprets "camera language", specifically camera panning and zooming parameters, enabling precise control over camera movement. However, acquiring datasets with camera movement annotations can pose a challenge. To overcome this laborious task, we employ a self-supervised training strategy that relies on camera movement augmentation. This approach eliminates the need for explicit motion annotations. Importantly, we train these new layers while preserving the original model weights, ensuring that the extensive prior knowledge embedded within the T2V model remains intact. Although the model is initially trained on a small-scale video dataset, it acquires the capability to quantitatively control camera movement in diverse, open-domain scenarios.\n' +
+      '\n' +
+      'In object motion control, a significant challenge arises from the availability of well-annotated grounding datasets for videos, curating such datasets is often a labor-intensive process. To bypass these issues, we draw inspiration from previous attention-based image-layout control techniques in T2I models [31]. We utilize the internal priors of the T2V model through spatial cross-attention modulation, which is a training-free approach, thereby eliminating the need for collecting grounding datasets and annotations for object motion. To facilitate user interaction, we enable users to specify the spatial-temporal trajectories of objects by drawing bounding boxes at the first and last frames, as well as the intermediate path. Such interaction is simpler and more user-friendly compared to previous pixel-wise control methods [56].\n' +
+      '\n' +
+      'Given that our approach independently controls camera movement and object motion, thereby effectively decouples the two, offering users enhanced flexibility to individually or simultaneously manipulate these aspects in video creation.\n' +
+      '\n' +
+      'In summary, our contributions are as follows:\n' +
+      '\n' +
+      '* We propose a unified framework for controllable video generation that decouples camera movement and object motion, allowing users to independently or jointly control both aspects.\n' +
+      '\n' +
+      '* For camera movement, we introduce a novel temporal cross-attention module dedicated to camera movement conditioning. This camera module is trained through self-supervision, enabling users to quantitatively specify the camera\'s horizontal and vertical panning speeds, as well as its zooming ratio.\n' +
+      '* For object motion, our approach utilizes a training-free spatial cross-attention modulation, enabling users to easily define the motion trajectories for one or more objects by drawing bounding boxes.\n' +
+      '\n' +
+      '## 2 Related Work\n' +
+      '\n' +
+      '### Text-to-Video Synthesis\n' +
+      '\n' +
+      'The success of text-to-image (T2I) models has revealed their potential for text-to-video (T2V) generation. T2V models are often evolved from T2I models by incorporating temporal layers. Early T2V models [25, 22, 49] perform the diffusion process in pixel space, which requires multiple cascaded models to generate high-resolution or longer videos, resulting in high computational complexity. Recent T2V models draw inspiration from latent diffusion [45] and operate in a lower-dimensional and more compact latent space [3, 69, 13, 53, 18]. The most recent Stable VideoD-iffusion [2] utilizes curated training data and is capable of generating high-quality videos.\n' +
+      '\n' +
+      'On the other hand, the development of T2I editing techniques [19, 38, 15, 46, 32] has facilitated zero/few-shot video editing tasks. These techniques convert a given source video to a target video through approaches such as weight fine-tuning [59], dense map conditioning [64, 13, 67, 16], sparse point conditioning [17, 51], attention feature editing [42, 34, 4, 55], and canonical space processing [41, 5, 30]. Some works specifically focus on synthesizing human dance videos using source skeleton sequences and reference portraits [6, 27, 62, 14, 54], which have yielded impressive results.\n' +
+      '\n' +
+      '### Video Generation with Controllable Motion\n' +
+      '\n' +
+      'As motion is an important factor in video, research on video generation with motion control has garnered increasing attention. We can categorize the works in this field into three groups based on the type of input media: image-to-video, video-to-video, and text-to-video.\n' +
+      '\n' +
+      'Image-to-video.Some methods focus on transforming static images into videos, and a popular approach for motion control is through key point dragging [65, 9, 12]. While this interaction method is intuitive and user-friendly, it has limitations due to the local and sparse nature of the key points. Consequently, its capacity for controlling motion at a large granularity is significantly restricted.\n' +
+      '\n' +
+      'Video-to-video.These works primarily focus on motion transfer, which involves learning a specific subject action from source videos and applying it to target videos using various techniques, including fine-tuning the model on a set of reference videos with similar motion patterns [60, 68, 29, 58], or borrowing spatial features (e.g., sketch, depth maps) [56, 10] or sparse features (e.g., DIFT point embedding) [17] from source videos. These methods highly rely on the motion priors from the source videos, which, however, are not always practically available.\n' +
+      '\n' +
+      'Text-to-video.In the case where the source video is unavailable, generating videos from text with controllable motion is a meaningful but relatively less explored task. Our work focuses on this category. Existing approaches in this category include AnimateDiff [18], which utilizes ad-hoc motion LoRA modules [26] to enable specific camera movements. However, it lacks quantitative control in camera movement and also does not support object motion control. A concurrent work, Peekaboo [28], allows control over the trajectory of the object through attention modulation but does not support camera movement control. VideoComposer [56] provides global motion guidance by conditioning on pixel-wise motion vectors. However, the dense control manner offered by VideoComposer is not intuitive and fails to explicitly disentangle camera and object motion, resulting in cumbersome user interaction. MotionCtrl [57], another concurrent work, permits sparse point-driven object control and trajectory-driven camera control. However, its training process is labor-intensive, requiring the tracking of marked points on moving objects. Moreover, it struggles to control multiple different objects with varied motion directions due to constraints from the training data. In contrast, our approach does not require motion annotations and can achieve control over multiple objects with various motion directions and camera movements. This significantly enhances the flexibility and usability of video synthesis.\n' +
+      '\n' +
+      '## 3 Method\n' +
+      '\n' +
+      '### Overview\n' +
+      '\n' +
+      'Task formulation.In this paper, we focus on text-to-video generation with user-directed camera movement and/or object motion. First of all, user should provide a text prompt which may optionally contain one or more object words \\(O_{1},O_{2},...O_{N}\\). To determine the camera movement, user can specify an x-pan ratio \\(c_{x}\\), a y-pan ratio \\(c_{y}\\), and a zoom ratio \\(c_{z}\\). To determine the motion of \\(n\\)-th object \\(O_{n}\\), user needs to specify a starting box \\(\\mathbf{B}_{n}^{1}\\), an ending box \\(\\mathbf{B}_{n}^{L}\\) (\\(L\\) is the video length), and an intermediate track \\(\\zeta_{n}\\) connecting \\(\\mathbf{B}_{n}^{1}\\) and \\(\\mathbf{B}_{n}^{L}\\), our system then generates a sequence of boxes \\([\\mathbf{B}_{n}^{1},...,\\mathbf{B}_{n}^{L}]\\) centered along the track \\(\\zeta_{n}\\) via interpolation to define the spatial-temporal journey of the object.\n' +
+      '\n' +
+      'Consequently, our model synthesizes a video that adheres to the prescribed camera movement and/or object motion, creating customized and dynamic visual narrative.\n' +
+      '\n' +
+      'Overall pipeline.Our overall pipeline is illustrated in Figure 2. The camera movement is learned in the training stage and the object motion is implemented in the inference stage. During the training, we use video samples captured by a stationary camera, which are then augmented to simulate camera movement according to \\([c_{x},c_{y},c_{z}]\\). The augmented videos are subsequently used as input to the U-Net. Additionally, the camera parameters are also encoded and injected into a newly introduced trainable temporal cross-attention layer to condition the camera movement (detailed in Section 3.2). During the inference, with trained camera embedder and module, users can specify the camera parameters to control its movement. Concurrently, we incorporate the object motion control in a training-free manner: given the object words from the user\'s prompt and the corresponding boxes, we modulate the frame-wise and object-wise spatial cross-attention maps to redirect the object spatial-temporal size and location (detailed in Section 3.3). It is noteworthy that the modulation in inference stage does not involve additional optimization, thus the incremental time and memory cost is negligible.\n' +
+      '\n' +
+      '### Camera Movement Control\n' +
+      '\n' +
+      'We choose three types of camera movement: horizontal pan, vertical pan, and zoom, parameterized as a triplet \\(\\mathbf{c}_{\\mathrm{cam}}=[c_{x},c_{y},c_{z}]\\) to serve as the control signal for camera movement. This not only allows for quantitative control, but is also user-friendly: users can specify the triplet as simple as typing a text prompt.\n' +
+      '\n' +
+      'Data construction and augmentation.Extracting camera movement information from existing video can be computationally expensive since the object motion needs to be identified and filtered out. As such, we propose a self-supervised training approach using camera augmentation driven by \\(\\mathbf{c}_{\\mathrm{cam}}\\), thereby bypassing the need for intensive movement annotation.\n' +
+      '\n' +
+      'We first formally define the camera movement parameters. \\(c_{x}\\) represents the x-pan ratio, and is defined as the total x-shift of the frame center from the first to the last frame relative to the frame width, \\(c_{x}>0\\) for panning rightward (e.g., \\(c_{x}=0.5\\) for a half-width right shift). Similarly, \\(c_{y}\\) is the y-pan ratio, representing the total y-shift of the frame center over the frame height, \\(c_{y}>0\\) for panning downward. \\(c_{z}\\) denotes the zoom ratio, defined as the scaling ratio of the last frame relative to the first frame, \\(c_{z}>1\\) for zooming-in. We set the range of \\(c_{x}\\),\\(c_{y}\\) to \\([-1,1]\\) and \\(c_{z}\\) to \\([0.5,2]\\), which are generally sufficient for covering regular camera movement range.\n' +
+      '\n' +
+      'In practice, for given \\(\\mathbf{c}_{\\mathrm{cam}}\\), we simulate camera movement by applying shifting and scaling to the cropping window on videos captured with a stationary camera. This data augmentation exploits readily available datasets like MovieShot [44]. Further details of this process, including\n' +
+      '\n' +
+      'Figure 2: The overall pipeline of Direct-a-Video. The camera movement is learned in the training stage and the object motion is implemented in the inference stage. **Left**: During training, we apply augmentation to video samples to simulate camera movement using panning and zooming parameters. These parameters are embedded and injected into newly introduced temporal cross-attention layers as the camera movement conditioning, eliminating the need for camera movement annotation. **Right**: During inference, along with camera movement, user inputs a text prompt containing object words and associated box trajectories. We use spatial cross-attention modulation to guide the spatial-temporal placement of objects, all without additional optimization. Note that our approach, by independently controlling camera movement and object motion, effectively decouples the two, thereby enabling both individual and joint control.\n' +
+      '\n' +
+      'pseudo code and sampling scheme of \\(\\mathbf{c}_{\\mathrm{cam}}\\) are provided in the appendix.\n' +
+      '\n' +
+      'Camera embedding.To encode \\(\\mathbf{c}_{\\mathrm{cam}}\\) into a camera embedding, we use a camera embedder that includes a Fourier embedder [37] and two MLPs. One MLP jointly encodes the panning movement \\(c_{x}\\), \\(c_{y}\\), while the other encodes the zooming movement \\(c_{z}\\). We empirically found that separately encoding panning and zooming helps the model distinguish between these two distinct types of camera movements effectively, and we validate this design in Section 4.5. The embedding process can be formulated as \\(\\mathbf{e}_{xy}=\\mathrm{MLP}_{xy}(\\mathcal{F}([c_{x},c_{y}]))\\),\\(\\mathbf{e}_{z}=\\mathrm{MLP}_{z}(\\mathcal{F}(c_{z}))\\), where \\(\\mathcal{F}\\) denotes Fourier embedder, both \\(\\mathbf{e}_{xy}\\) and \\(\\mathbf{e}_{z}\\) have the same feature dimensions, By concatenating them, we obtain the camera embedding \\(\\mathbf{e}_{\\mathrm{cam}}=[\\mathbf{e}_{xy},\\mathbf{e}_{z}]\\), which has a sequence length of two.\n' +
+      '\n' +
+      'Camera module.We now consider where to inject the camera embedding. Previous studies have highlighted the role of temporal layers in managing temporal transitions [18, 68]. As such, we inject camera control signals via temporal layers. Inspired by the way spatial cross-attention interprets textual information, we introduce new trainable temporal cross-attention layers specifically for interpreting camera information, dubbed as camera modules, which are appended after the existing temporal self-attention layers within each U-Net block of the T2V model, as depicted in Figure 2. Similar to textual cross-attention, in this module, the queries are mapped from visual frame features \\(\\mathbf{F}\\), we separately map the keys and values from panning embedding \\(\\mathbf{e}_{xy}\\) and zooming embedding \\(\\mathbf{e}_{z}\\) for the same reason stated in the previous section. Through temporal cross-attention, the camera movement is infused into the visual features, which is then added back as a gated residual. We formulate this process as follows:\n' +
+      '\n' +
+      '\\[\\mathbf{F}=\\mathbf{F}+\\tanh(\\alpha)\\cdot\\text{TempCrossAttn}(\\mathbf{F}, \\mathbf{e}_{\\mathrm{cam}}) \\tag{1}\\]\n' +
+      '\n' +
+      '\\[\\text{TempCrossAttn}(\\mathbf{F},\\mathbf{e}_{\\mathrm{cam}})=\\mathrm{Softmax} \\left(\\frac{\\mathbf{Q}[\\mathbf{K}_{xy},\\mathbf{K}_{z}]^{T}}{\\sqrt{d}}\\right)[ \\mathbf{V}_{xy},\\mathbf{V}_{z}], \\tag{2}\\]\n' +
+      '\n' +
+      'where \\([,]\\) denotes concatenation in sequence dimension, \\(\\mathbf{K}_{xy}\\),\\(\\mathbf{K}_{z}\\) are key vectors, \\(\\mathbf{V}_{xy}\\),\\(\\mathbf{V}_{z}\\) are value vectors mapped from the \\(\\mathbf{e}_{xy}\\), \\(\\mathbf{e}_{z}\\) respectively, \\(d\\) is the feature dimension of \\(\\mathbf{Q}\\), and \\(\\alpha\\) is a learnable scalar initialized as 0, ensuring that the camera motion is gradually learned from the pretrained state.\n' +
+      '\n' +
+      'To learn camera movement while preserving the model\'s prior knowledge, we freeze the original weights and train only the newly added camera embedder and camera module. These are conditioned on camera movement \\(\\mathbf{c}_{\\mathrm{cam}}\\), and video caption \\(c_{\\mathrm{txt}}\\). The training employs the diffusion noise-prediction loss:\n' +
+      '\n' +
+      '\\[\\mathcal{L}=\\mathbb{E}_{\\mathbf{x}_{0},\\mathbf{c}_{\\mathrm{cam}},c_{\\mathrm{txt }},t,\\boldsymbol{\\epsilon}\\sim\\mathcal{N}(0,I)}\\left[\\left\\|\\boldsymbol{ \\epsilon}-\\boldsymbol{\\epsilon}_{\\theta}\\left(\\mathbf{x}_{t},\\mathbf{c}_{ \\mathrm{cam}},c_{\\mathrm{txt}},t\\right)\\right\\|_{2}^{2}\\right], \\tag{3}\\]\n' +
+      '\n' +
+      'where \\(\\mathbf{x}_{0}\\) is the augmented input sample, \\(t\\) denotes the diffusion timestep, \\(\\mathbf{x}_{t}=\\alpha_{t}\\mathbf{x}_{0}+\\sigma_{t}\\boldsymbol{\\epsilon}\\) is the noised sample at \\(t\\), \\(\\alpha_{t}\\) and \\(\\sigma_{t}\\) are time-dependent DDPM hyper-parameters [23], \\(\\boldsymbol{\\epsilon}_{\\theta}\\) is the model parameterized by \\(\\theta\\).\n' +
+      '\n' +
+      '### Object Motion Control\n' +
+      '\n' +
+      'We choose the bounding box as the control signal for object motion due to its advantageous balance of usability and accessibility. Boxes are more efficient than dense conditions (e.g., sketch maps), as they do not require drawing skills, and they provide specification of object\'s size, a feature that sparse conditions (e.g., key points) lack.\n' +
+      '\n' +
+      'While it is theoretically possible to train a box-conditioned T2V model similar to GLIGEN [33]. However, unlike images, there is a stark contrast in the availability of well-annotated grounding datasets for videos, which are much fewer and cover limited categories. To bypass this issue, we opt to fully leverage the inherent priors of pretrained T2V models by steering the diffusion process to our desired result. Previous T2I works have demonstrated the ability to control an object\'s spatial position by editing cross-attention maps [1, 31, 36, 8]. Similarly, we employ the spatial cross-attention modulation in T2V model for object motion crafting.\n' +
+      '\n' +
+      'In cross-attention layers, the query features \\(\\mathbf{Q}\\) are derived from visual tokens, the key \\(\\mathbf{K}\\) and value features \\(\\mathbf{V}\\) are mapped from textual tokens. \\(\\mathbf{Q}\\mathbf{K}^{\\top}\\) constitutes an attention map, where the value at index \\([i,j]\\) reflects the response of the i-th image token feature to the j-th textual token feature. We modulate the attention map \\(\\mathbf{Q}\\mathbf{K}^{\\top}\\) as follows:\n' +
+      '\n' +
+      '\\[\\text{CrossAttnModulate}(\\mathbf{Q},\\mathbf{K},\\mathbf{V})=\\text{Softmax}\\left( \\frac{\\mathbf{Q}\\mathbf{K}^{\\top}+\\lambda\\mathbf{S}}{\\sqrt{d}}\\right)\\mathbf{V}, \\tag{4}\\]\n' +
+      '\n' +
+      'where \\(\\lambda\\) represents modulation strength, \\(d\\) is the feature dimension of \\(\\mathbf{Q}\\), and \\(\\mathbf{S}\\) is the modulation term of the same size as \\(\\mathbf{Q}\\mathbf{K}^{\\top}\\). It comprises two types of modulation: amplification and suppression.\n' +
+      '\n' +
+      'Attention amplification.Considering the \\(n\\)-th object in the \\(k\\)-th frame, enclosed by the bounding box \\(\\mathbf{B}_{n}^{k}\\), since we aim to increase the probability of the object\'s presence in this region, we could amplify the attention values for the corresponding object words (indexed as \\(\\mathbf{T}_{n}\\) in the prompt) within the area \\(\\mathbf{B}_{n}^{k}\\). Note that if there exists a background word, we treat it in the same way, and its region corresponds to the complement of the union of all the objects\' regions. Following the conclusion from DenseDiff [31], the scale of this amplification should be inversely related to the area of \\(\\mathbf{B}_{n}^{k}\\), i.e., smaller box area are subject to a larger increase in attention. Since our attention amplification is performed on box-shaped regions, which does not align with the object\'s natural contours, we confine the amplification to the early stages (for timesteps \\(t\\geq\\tau\\), \\(\\tau\\) is the amplification cut-off timestep), as the early stage mainly focuses on generating coarse layouts. For \\(t<\\tau\\), we relax this control to enable the diffusion process to gradually refine the shape and appearance details.\n' +
+      '\n' +
+      'Attention suppression.To mitigate the influence of irrelevant words on the specified region and prevent the unintended dispersion of object features to other areas, we suppress attention values for unmatched query-key token pairs (except start token and end token otherwise the video quality would be compromised). Different from attention amplification, attention suppression is applied throughout the entire sampling process to prevent mutual semantic interference, an potential issue in multi-object generation scenarios where the semantics of one object might inadvertently bleed into another. We will present the results and analysis in the ablation studies (Section 4.5).\n' +
+      '\n' +
+      'Formally, the attention modulation term for the \\(n\\)-th object in the \\(k\\)-th frame \\(\\mathbf{S}_{n}^{k}[i,j]\\) is formulated as:\n' +
+      '\n' +
+      '\\[\\mathbf{S}_{n}^{k}[i,j]=\\begin{cases}1-\\frac{|\\mathbf{B}_{n}^{k}|}{|\\mathbf{ QK}|},&\\text{if }i\\in\\mathbf{B}_{n}^{k}\\text{ and }j\\in\\mathbf{T}_{n}\\text{ and }t\\geq\\tau\\\\ 0,&\\text{if }i\\in\\mathbf{B}_{n}^{k}\\text{ and }j\\in\\mathbf{T}_{n}\\text{ and }t<\\tau\\\\ -\\infty,&\\text{otherwise}\\end{cases} \\tag{5}\\]\n' +
+      '\n' +
+      'where \\(|\\mathbf{X}|\\) denotes the number of elements in matrix \\(\\mathbf{X}\\). We perform such modulation for each object in every frame so that the complete spatial-temporal object trajectory can be determined. Note that although this modulation is independently performed in each frame, we observe that the generated videos remain continuous, thanks to the pretrained temporal layers which maintains temporal continuity.\n' +
+      '\n' +
+      '## 4 Experiment\n' +
+      '\n' +
+      '### Experimental Setup\n' +
+      '\n' +
+      'Implementation details.We adopt pretrained Zeroscope T2V model [53] as our base model, integrating our proposed trainable camera embedder and module to facilitate camera movement learning. Please refer to the appendix for training details. During the inference, we use DDIM sampler [50] with \\(T=50\\) sampling steps and a classifier-free guidance scale of 9 [24]. The default attention control weight \\(\\lambda\\) and cut-off timestep \\(\\tau\\) are 25 and \\(0.95T\\) respectively. The output video size is 320x512x24.\n' +
+      '\n' +
+      'Datasets.For camera movement training, we use a subset from MovieShot [44]. This subset contains 22k static-shot movie trailers, i.e., the camera is fixed but the subject is flexible to move, which ensures that the training samples are devoid of original camera movement. Despite the limited number and category of the training samples, our trained camera module is still able to adapt to general scenes. For camera control evaluation, we collected 200 scene prompts from the prompt set provided by [11]. For object control evaluation, we curated a benchmark of 200 box-prompt pairs, comprising varied box sizes, locations, and trajectories, with prompts primarily focusing on natural animals and objects.\n' +
+      '\n' +
+      'Metrics.(1) To assess video generation quality, we employ FID-vid [21] and FVD [52], the reference set are 2048 videos from MSRVTT [61] for camera movement task and 800 videos from AnimalKingdom [40] for object motion task. (2) To measure the object-box alignment, we uniformly extract 8 frames per video sample and calculate the CLIP image-text similarity (CLIP-sim) [20] within the box area only, with a templated prompt "a photo of [obj]", where [obj] corresponds to the object phrase. (3) To evaluate the camera and object motion alignment, we introduce the flow error. Specifically, we utilize VideoFlow [48], a state-of-the-art optical flow model to extract flow maps from generated videos. These are then compared against the ground truth flow (which are derived from given camera movement and object boxes). The flow error is calculated on entire frame for camera movement evaluation and box area only for object motion evaluation.\n' +
+      '\n' +
+      'Baselines.We compare our method with recent diffusion-based T2V models with the camera movement or object motion controllability, including AnimateDiff [18] (for camera movement), Peekaboo [28] (for object motion), and VideoComposer [56] (joint control).\n' +
+      '\n' +
+      '### Camera Movement Control\n' +
+      '\n' +
+      'For camera movement control, we conduct comparisons with AnimateDiff and VideoComposer. For AnimateDiff, we use official pretrained LoRA motion modules, each dedicated to a specific type of camera movement but lacking support for precise control. For VideoComposer, we hand-craft a motion vector map based on the camera movement parameters, as demonstrated in its paper.\n' +
+      '\n' +
+      'Qualitative comparison.We present side-by-side visual comparison with baselines in Figure 3. As can be seen, all the methods are capable of generating videos with the single type of camera movement, but AnimateDiff does not support hybrid camera movement (e.g., pan+zoom) since its loaded motion module is dedicated to one type of camera movement only, while our method and VideoComposercan combine or switch the camera movement by altering the motion input, without the need for re-loading extra modules. In terms of precise control, both our method and VideoComposer can quantitatively control the camera speed, but VideoComposer requires providing a spatial vector map, which must be either hand-crafted or extracted from an existing video, potentially reducing its ease of use. Our approach, on the other hand, is more user-friendly, enabling users to specify camera speed as effortlessly as entering a text prompt. Moreover, in terms of disentanglement, our method\'s camera control does not impact foreground objects, as we do not impose any motion constraints on them. In contrast, VideoComposer employs a global motion vector map, which often binds objects together with background movement. As shown in the 3rd column of Figure 3, the zebra in our results exhibits its independent motion from the camera, whereas in VideoComposer\'s results (the 2nd column), the zebra is tied to the camera movement. Finally, our results also exhibit higher visual quality, a testament to the superiority of our base model.\n' +
+      '\n' +
+      'Quantitative comparison.We report FVD, FID-vid, and Flow error in Table 1. Note that AnimateDiff is excluded from the flow error comparison due to its lack of quantitative control. Our results achieve the best FVD and FID-vid scores, indicating superior visual quality compared to baselines, and show more precise camera control, evidenced by a lower flow error.\n' +
+      '\n' +
+      '### Object Motion Control\n' +
+      '\n' +
+      'For object motion control, we mainly compare with VideoComposer, as its motion vector map can also be used for generating object motion via box sequences. To achieve this, we first convert object box sequences into dense flow maps, which are then processed into motion vector maps compatible with its input format. We also qualitatively compare with concurrent work Peekaboo [28], as their code is not available at the time of writing, we use samples from their official website.\n' +
+      '\n' +
+      'Qualitative comparison.We present visual comparison with related baselines in Figure 4. For static object generation, VideoComposer fails to generate the object in desired location (see the panda example in the first column), without any motion hint, it works like a vanilla T2V model. While all methods are capable of generating a single moving object, challenges arise in multiple moving objects scenarios. Peekaboo is excluded from this comparison due to the lack of relevant examples. VideoComposer does not support specifying individual motion for each object unlike our method (see the shark and jellyfish examples in the 7th column, they do not appear at the expected locations). Moreover, its lack of explicit binding between objects and motion leads to two extra issues: semantic mixing and absence. Semantic mixing refers to the blending of one object\'s semantics with another. This is exemplified in the 9th column, where tiger\'s texture leaks into bear. Semantic absence occurs when an object does not appear as anticipated, a known issue in T2I/T2V models [7]. For instance, in the 11th column, the expected camel is miss\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c} \\hline \\hline  & FVD \\(\\downarrow\\) & FID-vid\\(\\downarrow\\) & Flow error\\(\\downarrow\\) \\\\ \\hline AnimateDiff [18] & 1685.40 & 82.57 & - \\\\ VideoComposer [56] & 1230.57 & 82.14 & 0.74 \\\\ Direct-a-Video (ours) & **888.91** & **48.96** & **0.46** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 1: Quantitative comparison for camera movement control evaluation.\n' +
+      '\n' +
+      'Figure 3: Qualitative comparison on camera movement control with related baselines. Our results in the third column show that the object motion (yellow lines) can be independent from the camera movement (cyan lines) unlike results by VideoComposer in the second column.\n' +
+      '\n' +
+      'ing, replaced instead by a jeep. In contrast, our method effectively addresses these issues through ad-hoc attention modulation for each object, facilitating easier control over multiple objects\' motion.\n' +
+      '\n' +
+      'Quantitative comparison.We report FVD, FID-vid, CLIP-sim, and Flow error in Table 2. The statistics indicate that our method outperforms VideoComposer in terms of both generation quality and object motion control.\n' +
+      '\n' +
+      '### Joint Control of Camera Movement and Object Motion\n' +
+      '\n' +
+      'Direct-a-Video features in jointly supporting the control of both camera movement and object motion, we demonstrate such capability in Figure 5. Given the same box sequence, our method can generate videos with varied combination of foreground-background motions. For example, Figure 5(a) illustrates that a static box does not always imply a static object, by setting different camera movements, our system can generate videos of a zebra standing still (2nd column), walking right (3rd column), or walking left (4th column). Similarly, Figure 5(b) suggests that a moving box does not necessarily indicate that the object itself is in motion, it could be stationary in its position while the camera is moving (last column). Existing works focused only on object often fail to differentiate between the object\'s inherent motion and apparent motion induced by camera movement. In contrast, our method enables users to distinctly specify both camera movement and object motion, offering enhanced flexibility in defining overall motion patterns. More examples are provided in Figure 10 and project page.\n' +
+      '\n' +
+      '### Ablation Study\n' +
+      '\n' +
+      'Attention amplification.This is crucial for object localization, the absence of attention amplification results in the model losing its grounding ability, i.e., the object would not follow the boxes, as shown in the first row in Figure 6, and a decrease of CLIP-sim score and an increase of flow error in Table 3.\n' +
+      '\n' +
+      'Attention suppression.This is introduced to mitigate the unintended semantic mixing in multi-object scenarios, particularly when objects share similar characteristics. This results from the design that attention amplification is applied only in the initial steps, and this constraint is subsequently relaxed. Without suppression, object A\'s prompt feature can also attend to object B\'s region, leading to semantic overlap. As shown in second row of Figure 6, where the tiger\'s texture erroneously appears on the bear\'s body. The third row shows that this issue can be resolved by enabling the attention suppression.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c|c c c c} \\hline \\hline  & FVD \\(\\downarrow\\) & FID-vid\\(\\downarrow\\) & CLIP-sim\\(\\uparrow\\) & Flow error \\(\\downarrow\\) \\\\ \\hline VideoComposer[56] & 1620.83 & 90.57 & 27.35 & 1.53 \\\\ Direct-a-Video (ours) & **1300.86** & **43.55** & **27.63** & **1.11** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 2: Quantitative comparison for object motion control evaluation.\n' +
+      '\n' +
+      'Figure 4: Qualitative comparison on object motion control with related baselines. Our method excels in handling cases involving more than one object.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c} \\hline \\hline Attn amp. & Attn sup. & CLIP-sim \\(\\uparrow\\) & Flow error \\(\\downarrow\\) \\\\ \\hline \\(\\times\\) & ✓ & 25.82 & 2.08 \\\\ ✓ & \\(\\times\\) & 27.49 & 1.19 \\\\ ✓ & ✓ & **27.63** & **1.11** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 3: Quantitative evaluation on attention amplification and suppression.\n' +
+      '\n' +
+      'Camera embedding design.To assess the effectiveness of separately encoding panning (\\(c_{x}\\), \\(c_{y}\\)) and zooming (\\(c_{z}\\)) movements in camera control as detailed in Section 3.2, we contrast this with a joint encoding approach. Here, \\([c_{x},c_{y},c_{z}]\\) are encoded into a single camera embedding vector using a shared MLP, followed by shared key-value projection matrix in the camera module. We train and evaluate the model with the same setting, we observed a reduced ability in camera movement control, with flow error increasing from 0.46 to 1.68. This underscores the advantages of separate encoding for distinct types of camera movements.\n' +
+      '\n' +
+      '### Limitations\n' +
+      '\n' +
+      'While our method provides disentangled control over object and camera motion, conflicts can sometimes arise in the inputs. For instance, in the top row of Figure 7, we attempt to maintain a static object (house) within a static box while simultaneously panning the camera to the left. Given these conflicting signals, our method ends up generating a moving house, which is unrealistic. This necessitates careful and reasonable user interaction. Another issue arises when handling colliding boxes. In scenarios like the one depicted in the bottom row of Figure 7, where two boxes overlap, the semantics of one object (the bear) can interfere with another (the tiger). This issue can be mitigated by modulating attention on an adaptively auto-segmented region during the\n' +
+      '\n' +
+      'Figure 5: Joint control of object motion and camera movement. Given the same box sequence, by setting different camera movement parameters, our approach is capable of synthesizing videos that exhibit a diverse combination of foreground motion (yellow lines) and background motion (cyan lines). User can create a well-defined overall video motion by distinctly specifying both object motion and camera movement using our method.\n' +
+      '\n' +
+      'Figure 6: Effect of attention amplification and suppression. Without amplification (first row), the objects do not adhere to boxes; Without suppression (second row), tiger’s texture mistakenly leaks into the bear’s body. These issue are resolved with both enabled (third row).\n' +
+      '\n' +
+      'diffusion sampling process, rather than relying on the initial box region. Finally, our present method of data augmentation limits the system\'s ability to produce realistic 3D camera movements. To overcome this constraint, we envisage the adoption of more sophisticated augmentation algorithms in our future work.\n' +
+      '\n' +
+      '## 5 Conclusion\n' +
+      '\n' +
+      'In this work, we propose Direct-a-Video, a text-to-video framework that addresses the previously unmet need for independent and user-directed control over camera movement and object motion. Our approach effectively decouples these two elements by integrating a self-supervised training scheme for temporal cross-attention layers tailored for camera movement control, with a training-free modulation for spatial cross-attention dedicated to object motion control. Experimental evaluations demonstrate the capability of our approach in separate and joint control of camera movement and object motion. This positions Direct-a-Video as an efficient and flexible tool for creative video generation with customized motion.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* [1] Yogesh Balaji, Seungjun Nah, Xun Huang, Arash Vahdat, Jiaming Song, Karsten Kreis, Miika Aittala, Timo Aila, Samuli Laine, Bryan Catanzaro, et al. ediffi: Text-to-image diffusion models with an ensemble of expert denoisers. _arXiv preprint arXiv:2211.01324_, 2022.\n' +
+      '* [2] Andreas Blattmann, Tim Dockhorn, Sumith Kulal, Daniel Mendelevitch, Maciej Kilian, Dominik Lorenz, Yam Levi, Zion English, Vikram Voletti, Adam Letts, et al. Stable video diffusion: Scaling latent video diffusion models to large datasets. _arXiv preprint arXiv:2311.15127_, 2023.\n' +
+      '* [3] Andreas Blattmann, Robin Rombach, Huan Ling, Tim Dockhorn, Seung Wook Kim, Sanja Fidler, and Karsten Kreis. Align your latents: High-resolution video synthesis with latent diffusion models. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 22563-22575, 2023.\n' +
+      '* [4] Duygu Ceylan, Chun-Hao P Huang, and Niloy J Mitra. Pix2video: Video editing using image diffusion. In _Proceedings of the IEEE/CVF International Conference on Computer Vision_, pages 23206-23217, 2023.\n' +
+      '* [5] Wenhao Chai, Xun Guo, Gaoang Wang, and Yan Lu. Stable-video: Text-driven consistency-aware diffusion video editing. In _Proceedings of the IEEE/CVF International Conference on Computer Vision_, pages 23040-23050, 2023.\n' +
+      '* [6] Di Chang, Yichun Shi, Quankai Gao, Jessica Fu, Hongyi Xu, Guoxian Song, Qing Yan, Xiao Yang, and Mohammad Soleymani. Magicdance: Realistic human dance video generation with motions & facial expressions transfer. _arXiv preprint arXiv:2311.12052_, 2023.\n' +
+      '* [7] Hila Chefer, Yuval Alaluf, Yael Vinker, Lior Wolf, and Daniel Cohen-Or. Attend-and-excite: Attention-based semantic guidance for text-to-image diffusion models. _ACM Transactions on Graphics (TOG)_, 42(4):1-10, 2023.\n' +
+      '* [8] Minghao Chen, Iro Laina, and Andrea Vedaldi. Training-free layout control with cross-attention guidance. In _Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision_, pages 5343-5353, 2024.\n' +
+      '* [9] Tsai-Shien Chen, Chieh Hubert Lin, Hung-Yu Tseng, Tsung-Yi Lin, and Ming-Hsuan Yang. Motion-conditioned diffusion model for controllable video synthesis. _arXiv preprint arXiv:2304.14404_, 2023.\n' +
+      '* [10] Weifeng Chen, Jie Wu, Pan Xie, Hefeng Wu, Jiashi Li, Xin Xia, Xuefeng Xiao, and Liang Lin. Control-a-video: Controllable text-to-video generation with diffusion models. _arXiv preprint arXiv:2305.13840_, 2023.\n' +
+      '* [11] Iya Chivileva, Philip Lynch, Tomas Ward, and Alan Smeaton. Text prompts and videos generated using 5 popular Text-to-Video models plus quality metrics including user quality assessments. 10 2023.\n' +
+      '* [12] Yufan Deng, Ruida Wang, Yuhao Zhang, Yu-Wing Tai, and Chi-Keung Tang. Dragvideo: Interactive drag-style video editing. _arXiv preprint arXiv:2312.02216_, 2023.\n' +
+      '* [13] Patrick Esser, Johnathan Chiu, Parmida Atighehchian, Jonathan Granskog, and Anastasis Germanidis. Structure and content-guided video synthesis with diffusion models. In _Proceedings of the IEEE/CVF International Conference on Computer Vision_, pages 7346-7356, 2023.\n' +
+      '* [14] Mengyang Feng, Jinlin Liu, Kai Yu, Yuan Yao, Zheng Hui, Xiefan Guo, Xianhui Lin, Haolan Xue, Chen Shi, Xiaowen Li, et al. Dreamoving: A human video generation framework based on diffusion models. _arXiv e-prints_, pages arXiv-2312, 2023.\n' +
+      '* [15] Rinon Gal, Yuval Alaluf, Yuval Atzmon, Or Patashnik, Amit H Bermano, Gal Chechik, and Daniel Cohen-Or. An image is worth one word: Personalizing text-to-image generation using textual inversion. _arXiv preprint arXiv:2208.01618_, 2022.\n' +
+      '* [16] Michal Geyer, Omer Bar-Tal, Shai Bagon, and Tali Dekel. Tokenflow: Consistent diffusion features for consistent video editing. _arXiv preprint arXiv:2307.10373_, 2023.\n' +
+      '* [17] Yuchao Gu, Yipin Zhou, Bichen Wu, Licheng Yu, Jia-Wei Liu, Rui Zhao, Jay Zhangjie Wu, David Junhao Zhang, Mike Zheng Shou, and Kevin Tang. Videoswap: Customized video subject swapping with interactive semantic point correspondence. _arXiv preprint arXiv:2312.02087_, 2023.\n' +
+      '* [18] Yuwei Guo, Ceyuan Yang, Anyi Rao, Yaohui Wang, Yu Qiao, Dahua Lin, and Bo Dai. Animatediff: Animate your\n' +
+      '\n' +
+      'Figure 7: Limitations of our method. **Top**: Conflicting inputs can lead to unreal results - a moving house. **Bottom**: Overlapping boxes may lead to object interfere - tiger with a bear head.\n' +
+      '\n' +
+      'personalized text-to-image diffusion models without specific tuning. _arXiv preprint arXiv:2307.04725_, 2023.\n' +
+      '* [19] Amir Hertz, Ron Mokady, Jay Tenenbaum, Kfir Aberman, Yael Pritch, and Daniel Cohen-Or. Prompt-to-prompt image editing with cross attention control. _arXiv preprint arXiv:2208.01626_, 2022.\n' +
+      '* [20] Jack Hessel, Ari Holtzman, Maxwell Forbes, Ronan Le Bras, and Yejin Choi. Clipscore: A reference-free evaluation metric for image captioning. _arXiv preprint arXiv:2104.08718_, 2021.\n' +
+      '* [21] Martin Heusel, Hubert Ramsauer, Thomas Unterthiner, Bernhard Nessler, and Sepp Hochreiter. Gans trained by a two time-scale update rule converge to a local nash equilibrium. _Advances in neural information processing systems_, 30, 2017.\n' +
+      '* [22] Jonathan Ho, William Chan, Chitwan Saharia, Jay Whang, Ruiqi Gao, Alexey Gritsenko, Diederik P Kingma, Ben Poole, Mohammad Norouzi, David J Fleet, et al. Imagen video: High definition video generation with diffusion models. _arXiv preprint arXiv:2210.02303_, 2022.\n' +
+      '* [23] Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising diffusion probabilistic models. _Advances in Neural Information Processing Systems_, 33:6840-6851, 2020.\n' +
+      '* [24] Jonathan Ho and Tim Salimans. Classifier-free diffusion guidance. _arXiv preprint arXiv:2207.12598_, 2022.\n' +
+      '* [25] Jonathan Ho, Tim Salimans, Alexey Gritsenko, William Chan, Mohammad Norouzi, and David J Fleet. Video diffusion models. _arXiv:2204.03458_, 2022.\n' +
+      '* [26] Edward J Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, and Weizhu Chen. Lora: Low-rank adaptation of large language models. _arXiv preprint arXiv:2106.09685_, 2021.\n' +
+      '* [27] Li Hu, Xin Gao, Peng Zhang, Ke Sun, Bang Zhang, and Liefeng Bo. Animate anyone: Consistent and controllable image-to-video synthesis for character animation. _arXiv preprint arXiv:2311.17117_, 2023.\n' +
+      '* [28] Yash Jain, Anshul Nasery, Vibhav Vineet, and Harkirat Behl. Peekaboo: Interactive video generation via masked-diffusion. _arXiv preprint arXiv:2312.07509_, 2023.\n' +
+      '* [29] Hyeonho Jeong, Geon Yeong Park, and Jong Chul Ye. Vmc: Video motion customization using temporal attention adaption for text-to-video diffusion models. _arXiv preprint arXiv:2312.00845_, 2023.\n' +
+      '* [30] Yoni Kasten, Dolev Ofri, Oliver Wang, and Tali Dekel. Layered neural atlases for consistent video editing. _ACM Transactions on Graphics (TOG)_, 40(6):1-12, 2021.\n' +
+      '* [31] Yunji Kim, Jiyoung Lee, Jin-Hwa Kim, Jung-Woo Ha, and Jun-Yan Zhu. Dense text-to-image generation with attention modulation. In _Proceedings of the IEEE/CVF International Conference on Computer Vision_, pages 7701-7711, 2023.\n' +
+      '* [32] Nupur Kumari, Bingliang Zhang, Richard Zhang, Eli Shechtman, and Jun-Yan Zhu. Multi-concept customization of text-to-image diffusion. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 1931-1941, 2023.\n' +
+      '* [33] Yuheng Li, Haotian Liu, Qingyang Wu, Fangzhou Mu, Jianwei Yang, Jianfeng Gao, Chunyuan Li, and Yong Jae Lee. Gligen: Open-set grounded text-to-image generation. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 22511-22521, 2023.\n' +
+      '* [34] Shaoteng Liu, Yucheon Zhang, Wenbo Li, Zhe Lin, and Jiaya Jia. Video-p2p: Video editing with cross-attention control. _arXiv preprint arXiv:2303.04761_, 2023.\n' +
+      '* [35] Ilya Loshchilov and Frank Hutter. Decoupled weight decay regularization. _arXiv preprint arXiv:1711.05101_, 2017.\n' +
+      '* [36] Wan-Duo Kurt Ma, JP Lewis, W Bastiaan Kleijn, and Thomas Leung. Directed diffusion: Direct control of object placement through attention guidance. _arXiv preprint arXiv:2302.13153_, 2023.\n' +
+      '* [37] Ben Mildenhall, Pratul P Srinivasan, Matthew Tancik, Jonathan T Barron, Ravi Ramamoorthi, and Ren Ng. Nerf: Representing scenes as neural radiance fields for view synthesis. _Communications of the ACM_, 65(1):99-106, 2021.\n' +
+      '* [38] Ron Mokady, Amir Hertz, Kfir Aberman, Yael Pritch, and Daniel Cohen-Or. Null-text inversion for editing real images using guided diffusion models. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 6038-6047, 2023.\n' +
+      '* [39] Chong Mou, Xintao Wang, Liangbin Xie, Jian Zhang, Zhongang Qi, Ying Shan, and Xiaohu Qie. T2i-adapter: Learning adapters to dig out more controllable ability for text-to-image diffusion models. _arXiv preprint arXiv:2302.08453_, 2023.\n' +
+      '* [40] Xun Long Ng, Kian Eng Ong, Qichen Zheng, Yun Ni, Si Yong Yeo, and Jun Liu. Animal kingdom: A large and diverse dataset for animal behavior understanding. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_, pages 19023-19034, June 2022.\n' +
+      '* [41] Hao Ouyang, Qiuyu Wang, Yuxi Xiao, Qingyan Bai, Juntao Zhang, Kecheng Zheng, Xiaowei Zhou, Qifeng Chen, and Yujun Shen. Codef: Content deformation fields for temporally consistent video processing. _arXiv preprint arXiv:2308.07926_, 2023.\n' +
+      '* [42] Chenyang Qi, Xiaodong Cun, Yong Zhang, Chenyang Lei, Xintao Wang, Ying Shan, and Qifeng Chen. Fatezero: Fusing attentions for zero-shot text-based video editing. _arXiv preprint arXiv:2303.09535_, 2023.\n' +
+      '* [43] Aditya Ramesh, Prafulla Dhariwal, Alex Nichol, Casey Chu, and Mark Chen. Hierarchical text-conditional image generation with clip latents. _arXiv preprint arXiv:2204.06125_, 2022.\n' +
+      '* [44] Anyi Rao, Jiaze Wang, Linning Xu, Xuekun Jiang, Qingqiu Huang, Bolei Zhou, and Dahua Lin. A unified framework for shot type classification based on subject centric lens. In _Computer Vision-ECCV 2020: 16th European Conference, Glasgow, UK, August 23-28, 2020, Proceedings, Part XI 16_, pages 17-34. Springer, 2020.\n' +
+      '* [45] Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Bjorn Ommer. High-resolution image synthesis with latent diffusion models. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 10684-10695, 2022.\n' +
+      '* [46] R. Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Bjorn Ommer. High-resolution image synthesis with latent diffusion models. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 10684-10695, 2022.\n' +
+      '* [47] R. Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Bjorn Ommer. High-resolution image synthesis with latent diffusion models. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 10684-10695, 2022.\n' +
+      '* [48] R. Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Bjorn Ommer. High-resolution image synthesis with latent diffusion models. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 10684-10695, 2022.\n' +
+      '* [49] R. Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Bjorn Ommer. High-resolution image synthesis with latent diffusion models. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 10684-10695, 2022.\n' +
+      '* [50] R. Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Bjorn Ommer. High-resolution image synthesis with latent diffusion models. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 10684-10695, 2022.\n' +
+      '* [51] R. Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Bjorn Ommer. High-resolution image synthesis with latent diffusion models. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 10684-10695, 2022.\n' +
+      '\n' +
+      '* [46] Nataniel Ruiz, Yuanzhen Li, Varun Jampani, Yael Pritch, Michael Rubinstein, and Kfir Aberman. Dreambooth: Fine tuning text-to-image diffusion models for subject-driven generation. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 22500-22510, 2023.\n' +
+      '* [47] Chitwan Saharia, William Chan, Saurabh Saxena, Lala Li, Jay Whang, Emily L. Denton, Kamyar Ghasemipour, Raphael Gontijo Lopes, Burcu Karagol Ayan, Tim Salimans, et al. Photorealistic text-to-image diffusion models with deep language understanding. _Advances in Neural Information Processing Systems_, 35:36479-36494, 2022.\n' +
+      '* [48] Xiaoyu Shi, Zhaoyang Huang, Weikang Bian, Dasono Li, Manyuan Zhang, Ka Chun Cheung, Simon See, Hongwei Qin, Jifeng Dai, and Hongsheng Li. Videoflow: Exploiting temporal cues for multi-frame optical flow estimation. _arXiv preprint arXiv:2303.08340_, 2023.\n' +
+      '* [49] Uriel Singer, Adam Polyak, Thomas Hayes, Xi Yin, Jie An, Songyang Zhang, Qiyuan Hu, Harry Yang, Oron Ashual, Oran Gafni, et al. Make-a-video: Text-to-video generation without text-video data. _arXiv preprint arXiv:2209.14792_, 2022.\n' +
+      '* [50] Jiaming Song, Chenlin Meng, and Stefano Ermon. Denoising diffusion implicit models. _arXiv preprint arXiv:2010.02502_, 2020.\n' +
+      '* [51] Luming Tang, Menglin Jia, Qianqian Wang, Cheng Perng Phoo, and Bharath Hariharan. Emergent correspondence from image diffusion. _arXiv preprint arXiv:2306.03881_, 2023.\n' +
+      '* [52] Thomas Unterthiner, Sjoerd Van Steenkiste, Karol Kurach, Raphael Marinier, Marcin Michalski, and Sylvain Gelly. Towards accurate generative models of video: A new metric & challenges. _arXiv preprint arXiv:1812.01717_, 2018.\n' +
+      '* [53] Jiuniu Wang, Hangjie Yuan, Dayou Chen, Yingya Zhang, Xiang Wang, and Shiwei Zhang. Modelscope text-to-video technical report. _arXiv preprint arXiv:2308.06571_, 2023.\n' +
+      '* [54] Tan Wang, Linjie Li, Kevin Lin, Yuanhao Zhai, Chung-Ching Lin, Zhengyuan Yang, Hanwang Zhang, Zicheng Liu, and Lijuan Wang. Disco: Disentangled control for realistic human dance generation. _arXiv preprint arXiv:2307.00040_, 2023.\n' +
+      '* [55] Wen Wang, Kangyang Xie, Zide Liu, Hao Chen, Yue Cao, Xinlong Wang, and Chunhua Shen. Zero-shot video editing using off-the-shelf image diffusion models. _arXiv preprint arXiv:2303.17599_, 2023.\n' +
+      '* [56] Xiang Wang, Hangjie Yuan, Shiwei Zhang, Dayou Chen, Jiuniu Wang, Yingya Zhang, Yujun Shen, Deli Zhao, and Jingren Zhou. Videocomposer: Compositional video synthesis with motion controllability. _arXiv preprint arXiv:2306.02018_, 2023.\n' +
+      '* [57] Zhouxia Wang, Ziyang Yuan, Xintao Wang, Tianshui Chen, Menghan Xia, Ping Luo, and Ying Shan. Motionctrl: A unified and flexible motion controller for video generation. _arXiv preprint arXiv:2312.03641_, 2023.\n' +
+      '* [58] Yujie Wei, Shiwei Zhang, Zhiwu Qing, Hangjie Yuan, Zhiheng Liu, Yu Liu, Yingya Zhang, Jingren Zhou, and Hongming Shan. Dreamvideo: Composing your dream videos with customized subject and motion. _arXiv preprint arXiv:2312.04433_, 2023.\n' +
+      '* [59] Jay Zhangjie Wu, Yixiao Ge, Xintao Wang, Stan Weixian Lei, Yuchao Gu, Yufei Shi, Wynne Hsu, Ying Shan, Xiaohu Qie, and Mike Zheng Shou. Tune-a-video: One-shot tuning of image diffusion models for text-to-video generation. In _Proceedings of the IEEE/CVF International Conference on Computer Vision_, pages 7623-7633, 2023.\n' +
+      '* [60] Ruiqi Wu, Liangyu Chen, Tong Yang, Chunle Guo, Chongyi Li, and Xiangyu Zhang. Lamp: Learn a motion pattern for few-shot-based video generation. _arXiv preprint arXiv:2310.10769_, 2023.\n' +
+      '* [61] Jun Xu, Tao Mei, Ting Yao, and Yong Rui. Msr-vtt: A large video description dataset for bridging video and language. In _Proceedings of the IEEE conference on computer vision and pattern recognition_, pages 5288-5296, 2016.\n' +
+      '* [62] Zhongcong Xu, Jianfeng Zhang, Jun Hao Liew, Hanshu Yan, Jia-Wei Liu, Chenxu Zhang, Jiashi Feng, and Mike Zheng Shou. Magicanimate: Temporally consistent human image animation using diffusion model. _arXiv preprint arXiv:2311.16498_, 2023.\n' +
+      '* [63] Han Yang, Ruimao Zhang, Xiaobao Guo, Wei Liu, Wangmeng Zuo, and Ping Luo. Towards photo-realistic virtual try-on by adaptively generating-preserving image content. In _Proceedings of the IEEE/CVF conference on computer vision and pattern recognition_, pages 7850-7859, 2020.\n' +
+      '* [64] Shuai Yang, Yifan Zhou, Ziwei Liu, and Chen Change Loy. Rerender a video: Zero-shot text-guided video-to-video translation. _arXiv preprint arXiv:2306.07954_, 2023.\n' +
+      '* [65] Shengming Yin, Chenfei Wu, Jian Liang, Jie Shi, Houqiang Li, Gong Ming, and Nan Duan. Dragunwa: Fine-grained control in video generation by integrating text, image, and trajectory. _arXiv preprint arXiv:2308.08089_, 2023.\n' +
+      '* [66] Lvmin Zhang, Anyi Rao, and Maneesh Agrawala. Adding conditional control to text-to-image diffusion models. In _Proceedings of the IEEE/CVF International Conference on Computer Vision_, pages 3836-3847, 2023.\n' +
+      '* [67] Min Zhao, Rongzhen Wang, Fan Bao, Chongxuan Li, and Jun Zhu. Controlvideo: Adding conditional control for one shot text-to-video editing. _arXiv preprint arXiv:2305.17098_, 2023.\n' +
+      '* [68] Rui Zhao, Yuchao Gu, Jay Zhangjie Wu, David Junhao Zhang, Jiawei Liu, Weijia Wu, Jussi Keppo, and Mike Zheng Shou. Motiondirector: Motion customization of text-to-video diffusion models. _arXiv preprint arXiv:2310.08465_, 2023.\n' +
+      '* [69] Daquan Zhou, Weimin Wang, Hanshu Yan, Weiwei Lv, Yizhe Zhu, and Jiashi Feng. Magicvideo: Efficient video generation with latent diffusion models. _arXiv preprint arXiv:2211.11018_, 2022.\n' +
+      '\n' +
+      '## Appendix A Implementation Details\n' +
+      '\n' +
+      '### Camera Augmentation details\n' +
+      '\n' +
+      'Extracting camera movement parameters from real-world videos are computationally intensive, often requiring the cumbersome process of separating object motion from camera movement. To bypass these challenges, we propose a method of camera augmentation that simulates camera movement by algorithmically manipulating a stationary camera\'s footage. In brief, the camera augmentation is implemented by altering the calculated cropping window across the video sequence captured by a stationary camera, thereby simulating the effect of camera movement in a computationally efficient manner. The detailed pseudo-code of this process is illustrated in Figure 9.\n' +
+      '\n' +
+      '### Training Details\n' +
+      '\n' +
+      'Camera movement parameters sampling.During the training, we adopt the following sampling scheme for camera movement parameters \\(\\mathbf{c}_{\\text{cam}}=[c_{x},c_{y},c_{z}]\\):\n' +
+      '\n' +
+      '\\[c_{x} \\sim\\begin{cases}0,&\\text{with probability }\\frac{1}{3},\\\\ \\text{Uniform}(-1,1),&\\text{with probability }\\frac{2}{3},\\end{cases}\\] \\[c_{y} \\sim\\begin{cases}0,&\\text{with probability }\\frac{1}{3},\\\\ \\text{Uniform}(-1,1),&\\text{with probability }\\frac{2}{3},\\end{cases}\\] \\[c_{z} \\sim\\begin{cases}1,&\\text{with probability }\\frac{1}{3},\\\\ 2^{\\omega},&\\text{with probability }\\frac{2}{3},\\text{ where }\\omega\\sim\\text{Uniform}(-1,1).\\end{cases}\\]\n' +
+      '\n' +
+      'Note that each component is sampled independently.\n' +
+      '\n' +
+      'Training scheme.We adopt pretrained Zeroscope T2V model [53] as our base model. To facilitate camera movement learning while retain the pretrained state, only the newly added layers are trainable, which include camera embedder and camera module. To speed up the training, we use a coarse-to-fine strategy: we first train on videos of size \\(256\\times 256\\times 8\\) (height x width x frames) for 100k iterations, then we resume training on videos of size \\(320\\times 512\\times 16\\) and \\(320\\times 512\\times 24\\) for 50k iterations each. The training is performed using a DDPM noise scheduler [23] with timestep \\(t\\) uniformly sampled from \\([400,1000]\\), such preference to higher timesteps helps to prevents overfitting to low-level details, which are deemed non-essential for understanding temporal transitions. We employ an AdamW optimizer [35] with a learning rate of 5e-5 and a batch size of 8 on 8 NVIDIA Tesla V100 GPUs.\n' +
+      '\n' +
+      '## Appendix B Additional Ablation Studies\n' +
+      '\n' +
+      'Which layers for attention amplification?To determine which layers to apply the attention amplification, we divide the U-Net into three parts: encoder (E), middle layer (M), and decoder (D). We applied attention amplification to various combinations of these three and assessed their impact on the CLIP score and Flow error. The results are presented in Table 4. We observed that the decoder tends to yield better semantic responsiveness, as indicated by higher CLIP scores, while the encoder is more effective in reducing flow error. The middle layer has a comparatively smaller influence, incorporating middle layer does not bring noticeable statistic change. Consequently, we apply attention amplification across all layers for its highest CLIP-sim score and lowest flow error.\n' +
+      '\n' +
+      'Attention amplification hyper-parameters.In attention amplification, the strength \\(\\lambda\\) and cut-off timestep \\(\\tau\\) are two hyper-parameters. Generally, lower \\(\\tau\\) and higher \\(\\lambda\\) will increase the strength of attention amplification. To determine a proper choice of hyper-parameters, we conduct tests with different combinations of \\(\\lambda\\) and \\(\\tau\\). Visual examples are provided in Figure 8. We observed that object responses are more sensitive to the value of \\(\\tau\\) than to \\(\\lambda\\). As illustrated in the 1st and 2nd rows, over-responsiveness in box regions typically occurs for \\(\\tau<0.9\\). This is because the early sampling stage in the diffusion model plays a significant role in determining the coarse layout of the output image or video; thus, applying amplification for an extended duration results in over-responsiveness in the box region. Empirically, we find that \\(\\tau\\in[0.9T,0.95T]\\) and \\(\\lambda\\in[10,25]\\) are generally appropriate for most cases.\n' +
+      '\n' +
+      'Functionaug_with_cam_motion(src_video, cx, cy, cx, h, w):\n' +
+      '\n' +
+      ' # Parameters:  # src_video: Sourcevideo, a tensor with dimensions [frames (f), 3, src_height, src_width]  # cx: Horizontal translation ratio (-1 to 1)  # cy: Vertical translation ratio (-1 to 1)  # cx: Zoom ratio (0.5 to 2)  # h: Height of the generated video  # w: Width of the generated video\n' +
+      '\n' +
+      ' # Get source frame number, width and height from src_video  f, src_h, src_w = src_video.shape[0], src_video.shape[2], src_video.shape[3]\n' +
+      '\n' +
+      ' # Initialize camera boxes for frame cropping  cam_boxes = zeros(f, 4) # f frames, 4: [x1,y1,x2,y2]\n' +
+      '\n' +
+      ' # Calculate dynamic cropping relative coordinates for each frame  # The first frame coordinates is the reference, which is always [0,0,1,1].  cam_boxes[; 0] = linspace(0, cx + (1 - 1/cz) / 2, f) # x1, top-left x  cam_boxes[; 1] = linspace(0, cy + (1 - 1/cz) / 2, f) # y1, top-left y  cam_boxes[; 2] = linspace(1, cx + (1 + 1/cz) / 2, f) # x2, bottom-right x  cam_boxes[; 3] = linspace(1, cy + (1 + 1/cz) / 2, f) # y2, bottom-right y\n' +
+      '\n' +
+      ' # Compute the minimum and maximum relative coordinates  min_x = min(cam_boxes[:, 0:2])  max_x = max(cam_boxes[:, 0:2])  min_y = min(cam_boxes[:, 1:2])  max_y = max(cam_boxes[:, 1:2])\n' +
+      '\n' +
+      ' # Normalize the cameraboxes  normalized_boxes = zeros_like(cam_boxes)  normalized_boxes[:, 0::2] = (cam_boxes[:, 0::2] - min_x) / (max_x - min_x)  normalized_boxes[:, 1::2] = (cam_boxes[:, 1::2] - min_y) / (max_y - min_y)\n' +
+      '\n' +
+      ' # Initialize atensor for the new frames  augmented_frames = zeros(f, 3, h, w)\n' +
+      '\n' +
+      ' # Process each frame  for i in range(f):  # Calculate the actual cropping coordinates  x1, y1, x2, y2 = normalized_boxes[i] * tensor([src_w, src_h, src_w, src_h])\n' +
+      '\n' +
+      ' # Crop the frame according to the coordinates  crop = src_video[i][:, int(y1):int(y2), int(x1):int(x2)]\n' +
+      '\n' +
+      ' # Resize the cropped frame and store it  augmented_frames[i] = interpolate(crop, size=(h, w), mode=\'bilinear\')\n' +
+      '\n' +
+      ' return augmented_frames\n' +
+      '\n' +
+      'Figure 9: Pseudo-code for the camera augmentation function.\n' +
+      '\n' +
+      'Figure 10: Additional results of camera movement control and object motion control.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>

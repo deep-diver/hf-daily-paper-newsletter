@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# DeepSeekMath: 공개 언어 모델에서 수학적 추론의 한계를 푸싱\n' +
+      '\n' +
+      'Zhihong Shao\\({}^{1,2,\\dagger}\\), Peiyi Wang\\({}^{1,3,\\dagger}\\), Qihao Zhu\\({}^{1,3,\\dagger}\\), Runxin Xu\\({}^{1}\\), Junxiao Song\\({}^{1}\\)\n' +
+      '\n' +
+      'Mingchuan Zhang({}^{1}\\), Y.K. Li\\({}^{1}\\), Y. Wu\\({}^{1}\\), Daya Guo\\({}^{1,*}\\)\n' +
+      '\n' +
+      '({}^{1}\\)DeepSeek-AI, \\({}^{2}\\)Tsinghua University, \\({}^{3}\\)Peking University, \\({}^{1}\\)DeepSeek-AI, \\({}^{2}\\)Tsinghua University, \\({}^{3}\\)Peking University\n' +
+      '\n' +
+      '{zhihongshao,wangpeiyi,zhuqh,guoday}@deepseek.com\n' +
+      '\n' +
+      '[https://github.com/deepseek-ai/DeepSeek-Math](https://github.com/deepseek-ai/DeepSeek-Math)\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      '수학적 추론은 복잡하고 구조화된 특성으로 인해 언어 모델에 상당한 도전을 제기한다. 본 논문에서는 자연어 및 코드 데이터와 함께 Common Crawl에서 조달한 120B 수학 관련 토큰으로 DeepSeek-Coder-Base-v1.5 7B를 사전 훈련하는 DeepSeekMath 7B를 소개한다. DeepSeekMath 7B는 외부 툴킷과 투표 기법에 의존하지 않고 경쟁 수준의 MATH 벤치마크에서 51.7%의 인상적인 점수를 얻었으며, Gemini-Ultra 및 GPT-4의 성능 수준에 접근했으며, DeepSeekMath 7B의 64개 샘플에 대한 자기 일치성은 MATH에서 60.9%를 달성했다. DeepSeekMath의 수학적 추론 능력은 두 가지 핵심 요소에 기인한다: 첫째, 우리는 세심하게 조작된 데이터 선택 파이프라인을 통해 공개적으로 이용 가능한 웹 데이터의 상당한 잠재력을 활용한다. 둘째, PPO의 메모리 사용을 동시에 최적화하면서 수학적 추론 능력을 향상시키는 Proximal Policy Optimization(PPO)의 변형인 Group Relative Policy Optimization(GRPO)를 소개한다.\n' +
+      '\n' +
+      '그림 1: 외부 툴킷 및 투표 기법을 사용하지 않고 경쟁 수준의 MATH 벤치마크(Hendrycks et al., 2021)에 대한 오픈 소스 모델의 Top1 정확도.\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      '대형 언어 모델(LLM)은 인공지능에서 수학적 추론에 대한 접근 방식에 혁명을 일으켰고, 정량적 추론 벤치마크(Hendrycks et al., 2021)와 기하학적 추론 벤치마크(Trinh et al., 2024) 모두에서 상당한 발전을 촉진했다. 더욱이, 이러한 모델들은 복잡한 수학적 문제를 해결하는 데 있어 인간을 돕는 데 유용한 것으로 입증되었다(도, 2023). 그러나 GPT-4(OpenAI, 2023) 및 Gemini-Ultra(Anil et al., 2023)와 같은 최첨단 모델은 공개적으로 사용할 수 없으며 현재 액세스 가능한 오픈 소스 모델은 성능에 상당히 뒤쳐져 있다.\n' +
+      '\n' +
+      '본 연구에서는 오픈소스 모델의 수학적 능력을 상당히 능가하는 도메인 특화 언어 모델인 DeepSeekMath를 소개하고 학술 벤치마크에서 GPT-4의 성능 수준에 접근한다. 이를 위해 120B 수학 토큰을 포함하는 대규모 고품질 사전 훈련 말뭉치인 DeepSeekMath 코퍼스를 생성한다. 이 데이터셋은 FastText 기반 분류기(Joulin et al., 2016)를 이용하여 Common Crawl(CC)로부터 추출된다. 초기 반복에서, 분류기는 포지티브 예들로서 OpenWebMath(Paster et al., 2023)로부터의 인스턴스들을 사용하여 트레이닝되는 한편, 네거티브 예들로서 기능하기 위해 다른 웹 페이지들의 다양한 선택을 통합한다. 그 후 분류기를 사용하여 CC에서 추가 양성 인스턴스를 마이닝하고 인간 주석을 통해 추가로 정제한다. 그런 다음 분류기는 성능을 개선하기 위해 이 향상된 데이터 세트로 업데이트된다. 평가 결과, 기본 모델 DeepSeekMath-Base 7B는 GSM8K(Cobbe et al., 2021)에서 64.2%, 경쟁 수준 MATH 데이터셋(Hendrycks et al., 2021)에서 36.2%를 달성하여 Minerva 540B(Lewkowycz et al., 2022a)보다 우수한 성능을 보였다. 또한, DeepSeekMath Corpus는 다국어이므로 중국어 수학 벤치마크의 개선을 주목한다(Wei et al., 2023; Zhong et al., 2023). 우리는 수학적 데이터 처리에 대한 우리의 경험이 연구 커뮤니티의 출발점이며 향후 개선의 여지가 크다고 생각한다.\n' +
+      '\n' +
+      'DeepSeekMath-Base는 DeepSeek-Coder-Base-v1.5 7B(Guo et al., 2024)로 초기화되는데, 이는 코드 트레이닝 모델로부터 시작하는 것이 일반적인 LLM에 비해 더 나은 선택임을 알 수 있기 때문이다. 또한, MMLU(Hendrycks et al., 2020) 및 BBH 벤치마크(Suzgun et al., 2022)에 대한 모델 능력을 향상시킴으로써 모델의 수학적 능력을 향상시킬 뿐만 아니라 일반적인 추론 능력을 증폭시킬 수 있음을 보인다.\n' +
+      '\n' +
+      '사전 학습 후, 수학적 명령어 튜닝을 DeepSeekMath-Base with chain-of-thought (Wei et al., 2022), program-of-thought (Chen et al., 2022; Gao et al., 2023), Tool-integrated reasoning (Gou et al., 2023) 데이터에 적용한다. 결과 모델 DeepSeekMath-Instruct 7B는 모든 7B 대응물을 능가하며 70B 오픈 소스 명령어 조정 모델과 비슷하다.\n' +
+      '\n' +
+      '또한, Proximal Policy Optimization(PPO)의 변형 강화 학습(RL) 알고리즘인 Group Relative Policy Optimization(GRPO)을 소개한다(Schulman et al., 2017). GRPO는 비평가 모델을 포기하고 대신 그룹 점수에서 기준선을 추정하여 훈련 자원을 크게 줄인다. GRPO는 강화학습 단계에서 도메인 내(GSM8K: 82.9% \\(\\rightarrow\\) 88.2%, MATH: 46.8% \\(\\rightarrow\\) 51.7%)와 도메인 외(CMATH: 84.6% \\(\\rightarrow\\) 88.8%)를 포함하여 강력한 DeepSeekMath-Instruct에 비해 상당한 개선을 얻었다. 또한 RFT(Rejection Sampling Fine-Tuning) (Yuan et al., 2023a), DPO(Direct Preference Optimization) (Rafailov et al., 2023), PPO 및 GRPO와 같은 다양한 방법을 이해하기 위한 통일된 패러다임을 제공한다. 이러한 통일된 패러다임에 기초하여, 우리는 이러한 모든 방법이 직접 또는 단순화된 RL 기술로 개념화된다는 것을 발견한다. 또한 이 패러다임의 필수 요소를 깊이 조사하기 위해 온라인 v.s. 오프라인 교육, 결과 v.s. 프로세스 감독, 단일 회전 v.s. 반복 RL 등과 같은 광범위한 실험을 수행한다. 마지막으로, 우리는 우리의 RL이 명령어 조정 모델의 성능을 향상시키는 이유를 설명하고 이러한 통일된 패러다임을 기반으로 보다 효과적인 RL을 달성하기 위한 잠재적인 방향을 요약한다.\n' +
+      '\n' +
+      '### Contributions\n' +
+      '\n' +
+      '우리의 기여는 강화 학습의 탐색 및 분석과 함께 확장 가능한 수학 사전 훈련을 포함한다.\n' +
+      '\n' +
+      '**척도에서 수학 사전 훈련**\n' +
+      '\n' +
+      '* 우리의 연구는 공개적으로 접근할 수 있는 공통 크롤 데이터가 수학적 목적을 위한 귀중한 정보를 포함한다는 강력한 증거를 제공한다. 세심하게 설계된 데이터 선택 파이프라인을 구현함으로써, 우리는 Minerva(Lewkowycz et al., 2022a)가 사용하는 수학 웹 페이지 크기의 거의 7배, 최근에 출시된 OpenWebMath(Paster et al., 2023)의 9배에 달하는 수학 콘텐츠에 대해 필터링된 웹 페이지들로부터 120B 토큰들의 고품질 데이터세트인 DeepSeekMath Corpus를 성공적으로 구축했다.\n' +
+      '* 우리의 사전 훈련된 베이스 모델 DeepSeekMath-Base 7B는 Minerva 540B(Lewkowycz et al., 2022a)와 유사한 성능을 달성하며, 이는 파라미터들의 수가 수학적 추론 능력의 유일한 핵심 인자는 아님을 나타낸다. 고품질 데이터에 미리 훈련된 더 작은 모델도 강력한 성능을 달성할 수 있습니다.\n' +
+      '* 우리는 수학 훈련 실험에서 얻은 결과를 공유합니다. 수학 훈련 이전의 코드 훈련은 도구 사용 유무에 관계없이 수학적 문제를 해결하는 모델의 능력을 향상시킨다. 이것은 오랜 질문에 대한 부분적인 답을 제공한다: 코드 트레이닝은 추론 능력을 향상시키나요? 우리는 적어도 수학적 추론을 위해 그렇게 한다고 믿는다.\n' +
+      '* arXiv 논문에 대한 교육이 일반적이지만, 특히 많은 수학 관련 논문에서는 이 논문에서 채택된 모든 수학적 벤치마크에 대해 주목할만한 개선점을 가져오지 않는다.\n' +
+      '\n' +
+      '**강화학습**의 탐색 및 분석\n' +
+      '\n' +
+      '* 효율적이고 효과적인 강화학습 알고리즘인 GRPO(Group Relative Policy Optimization)를 소개한다. GRPO는 비평가 모델을 포기하고 대신 그룹 점수에서 기준선을 추정하여 최대 정책 최적화(PPO)에 비해 훈련 자원을 크게 줄인다.\n' +
+      '* 우리는 GRPO가 명령어 튜닝 데이터만을 사용함으로써 명령어 튜닝 모델 DeepSeekMath-Instruct의 성능을 상당히 향상시킨다는 것을 입증한다. 또한, 강화 학습 과정에서 영역 외 성능의 향상을 관찰한다.\n' +
+      '* RFT, DPO, PPO, GRPO 등 다양한 방법을 이해하기 위한 통일된 패러다임을 제공합니다. 또한 이 패러다임의 필수 요소를 심층적으로 조사하기 위해 온라인 v.s. 오프라인 교육, 결과 v.s. 프로세스 감독, 단일 회전 v.s. 반복 강화 학습 등과 같은 광범위한 실험을 수행한다.\n' +
+      '* 우리의 통일된 패러다임을 바탕으로 강화 학습의 효과성에 대한 이유를 탐색하고, LLM의 보다 효과적인 강화 학습을 달성하기 위한 몇 가지 잠재적 방향을 요약한다.\n' +
+      '\n' +
+      '### 평가 및 메트릭 요약\n' +
+      '\n' +
+      '*** ** 영어 및 중국어 수학 추론**: 우리는 학년 수준에서 대학 수준까지의 수학 문제를 다루는 영어 및 중국어 벤치마크에 대한 모델에 대한 포괄적인 평가를 수행한다. 영어 벤치마크로는 GSM8K(Cobbe et al., 2021), MATH(Hendrycks et al., 2021), SAT(Azerbayev et al., 2023), OCW Courses(Lewkowycz et al., 2022a), MMLU-STEM(Hendrycks et al., 2020) 등이 있다. 중국 벤치마크는 MSSM-zh(Shi et al., 2023), CMATH(Wei et al., 2023), Gaokao-MathCloze(Zhong et al., 2023), 및 Gaokao-MathQA(Zhong et al., 2023)를 포함한다. 도구를 사용하지 않고 스스로 완성한 텍스트 솔루션을 생성할 수 있는 모델의 능력과 파이썬을 사용하여 문제를 해결하는 능력을 평가한다.\n' +
+      '\n' +
+      '영어 벤치마크에서 DeepSeeKMath-Base는 폐쇄 소스 Minerva 540B(Lewkowycz et al., 2022a)와 경쟁적이며, 수학 사전 훈련을 받았는지 여부에 관계없이 모든 오픈 소스 베이스 모델(예를 들어, Mistral 7B(Jiang et al., 2023) 및 Llemma-34B(Azerbayev et al., 2023))을 능가한다. 특히, DeepSeeKMath-Base는 영어 전용 수학 사전 훈련 데이터를 수집하기 위해 이전 작업(Azerbayev et al., 2023; Lewkowycz et al., 2022a)을 따르지 않기 때문에 중국 벤치마크에서 우수하며 고품질 비영어 데이터도 포함한다. 수학적 명령어 튜닝 및 강화 학습을 통해 결과 DeepSeeKMath-Instruct와 DeepSeeKMath-RL은 오픈 소스 커뮤니티 내에서 처음으로 경쟁 수준의 MATH 데이터 세트에서 50% 이상의 정확도를 얻을 수 있는 강력한 성능을 보여준다.\n' +
+      '**Formal Mathematics**: We evaluate DeepSeeKMath-Base using the informal-to-formal theorem 증명 task on miniF2F (Zheng et al., 2021) on Isabelle (Wenzel et al., 2008) with the proof assistant. DeepSeeKMath-Base는 강력한 소수 샷 자동 형식화 성능을 보여준다.\n' +
+      '**자연어 이해, 추론 및 코드**: 모델의 일반적인 이해, 추론 및 코딩 능력의 포괄적인 프로파일을 구축하기 위해, 다양한 주제를 포괄하는 57개의 객관식 태스크를 포괄하는 MMLU(Massive Multitask Language Understanding) 벤치마크(Hendrycks et al., 2020), 해결하기 위해 다단계의 추론이 대부분 필요한 23개의 도전적 태스크로 구성된 BIG-Bench Hard(BBH)(Suzgun et al., 2022) 및 코드 언어 모델을 평가하기 위해 널리 사용되는 HumanEval(Chen et al., 2021) 및 MBPP(Austin et al., 2021)로 구성된 DeepSeeKMath-Base on the Massive Multitask Language Understanding(MMLU) 벤치마크(Hendrycks et al., 2020)를 평가한다. 수학 사전 훈련은 언어 이해와 추론 수행 모두에 도움이 된다.\n' +
+      '\n' +
+      '##2 수학 사전 훈련\n' +
+      '\n' +
+      '### 데이터 수집 및 오염 제거\n' +
+      '\n' +
+      '이 절에서는 Common Crawl로부터 DeepSeeKMath 코퍼스를 구성하는 과정을 개관할 것이다. 도 2에 도시된 바와 같이, 우리는 시드 코퍼스(예를 들어, 작지만 고품질의 수학 관련 데이터 세트의 집합)로부터 시작하여 커먼 크롤로부터 대규모 수학 코퍼스를 체계적으로 수집하는 방법을 보여주는 반복 파이프라인을 제시한다. 이 접근법은 코딩과 같은 다른 도메인에도 적용 가능하다는 점에 주목할 필요가 있다.\n' +
+      '\n' +
+      '먼저, 초기 시드 코퍼스로 고품질의 수학 웹 텍스트 집합인 OpenWebMath(Paster et al., 2023)를 선택한다. 이 말뭉치를 이용하여 보다 많은 OpenWebMath 유사 수학 웹 페이지를 회상하기 위해 FastText 모델(Joulin et al., 2016)을 학습한다. 구체적으로, 시드 코퍼스에서 50만 개의 데이터 포인트를 포지티브 트레이닝 예제로, 커먼 크롤에서 또 다른 50만 개의 웹 페이지를 네거티브 트레이닝 예제로 무작위로 선택한다. 학습은 오픈소스 라이브러리1을 사용하여 벡터 차원 256, 학습률 0.1, 워드 n-gram의 최대 길이 3, 워드 발생 횟수 최소 3, 학습 에포크 수 3으로 구성하였으며, 원본 커먼 크롤의 크기를 줄이기 위해 URL 기반 중복제거 및 근접 중복제거 기법을 적용하여 40B HTML 웹 페이지를 생성하였다. 그런 다음 패스트텍스트 모델을 사용하여 중복 제거된 커먼 크롤에서 수학적 웹 페이지를 회상한다. 저품질 수학 내용을 필터링하기 위해 패스트텍스트 모델에서 예측한 점수에 따라 수집된 페이지의 순위를 매기고 상위 순위만 보존한다. 보존된 데이터의 볼륨은 상위 40B, 80B, 120B 및 160B 토큰에 대한 사전 훈련 실험을 통해 평가된다. 첫 번째 반복에서 상위 40B 토큰을 유지하기로 결정했습니다.\n' +
+      '\n' +
+      '데이터 수집의 첫 번째 반복 후에, 많은 수학적 웹 페이지들이 수집되지 않은 채로 남아 있는데, 이는 주로 패스트텍스트 모델이 충분한 다양성이 결여된 긍정적인 예들의 세트에 대해 트레이닝되기 때문이다. 따라서 우리는 빠른 텍스트 모델을 최적화할 수 있도록 시드 코퍼스를 풍부하게 하기 위해 추가적인 수학적 웹 소스를 식별한다. 구체적으로, 먼저 전체 공통 크롤을 서로 다른 도메인으로 구성합니다. 도메인은 동일한 기본 URL을 공유하는 웹 페이지로 정의됩니다. 각 도메인에 대해 첫 번째 반복에서 수집된 웹 페이지의 백분율을 계산한다. 웹 페이지의 10% 이상이 수집된 도메인은 수학 관련 도메인(예: mathoverflow.net)으로 분류된다. 그 후, 우리는 이러한 식별된 도메인(예: mathoverflow.net/questions) 내의 수학적 콘텐츠와 연관된 URL에 수동으로 주석을 달았다. 이러한 URL에 연결되었지만 수집되지 않은 웹 페이지가 시드 코퍼스에 추가됩니다. 이 접근법을 통해 우리는 더 많은 긍정적인 예를 수집할 수 있으며, 이에 따라 후속 반복에서 더 많은 수학적 데이터를 회상할 수 있는 개선된 패스트텍스트 모델을 훈련시킬 수 있다. 4번의 데이터 수집 반복 후, 우리는 총 120B 토큰으로 35.5M 수학적 웹 페이지로 끝난다. 네 번째 반복에서는 데이터의 거의 98%가 세 번째 반복에서 이미 수집되었음을 알 수 있으므로 데이터 수집을 중단하기로 결정한다.\n' +
+      '\n' +
+      '벤치마크 오염을 피하기 위해 Guo et al.(2024)을 따라 GSM8K(Cobbe et al., 2021) 및 MATH(Hendrycks et al., 2021)와 같은 영어 수학 벤치마크들 및 CMATH(Wei et al., 2023) 및 AGIEval(Zhong et al., 2023)과 같은 중국어 벤치마크들로부터 질문들 또는 답변들을 포함하는 웹 페이지들을 필터링한다. 필터링 기준은 다음과 같다: 평가 벤치마크에서 모든 하위 문자열과 정확히 일치하는 10그램 문자열을 포함하는 모든 텍스트 세그먼트는 수학 훈련 말뭉치에서 제거된다. 10그램보다 작지만 최소 3그램을 갖는 벤치마크 텍스트의 경우, 우리는 오염된 웹 페이지를 필터링하기 위해 정확한 매칭을 사용한다.\n' +
+      '\n' +
+      '그림 2: Common Crawl에서 수학적 웹 페이지를 수집하는 반복 파이프라인.\n' +
+      '\n' +
+      'DeepSeekMath 코퍼스의 품질 검증\n' +
+      '\n' +
+      '우리는 DeepSeekMath 말뭉치가 최근에 출시된 수학 훈련 말뭉치와 어떻게 비교되는지 조사하기 위해 사전 훈련 실험을 실행한다:\n' +
+      '\n' +
+      '***MathPile**(Wang et al., 2023c): 교과서, Wikipedia, ProofWiki, CommonCrawl, StackExchange, 및 arXiv로부터 집계된 다중 소스 코퍼스(8.9B 토큰)로서, 대다수(85% 이상)는 arXiv로부터 소싱되고;\n' +
+      '***OpenWebMath**(Paster et al., 2023): 수학적 콘텐츠에 대해 필터링된 CommonCrawl 데이터로 총 13.6B 토큰;\n' +
+      '***Proof-Pile-2**(Azerbayev et al., 2023): OpenWebMath, AlgebraicStack(수학적 코드의 10.3B 토큰), arXiv 논문(28.0B 토큰)으로 구성된 수학적 말뭉치. Proof-Pile-2에 대해 실험할 때, 우리는 arXiv:Web:Code ratio of 2:4:1을 사용하기 위해 Azerbayev et al.(2023)을 따른다.\n' +
+      '\n' +
+      '###### 2.2.1 훈련 설정\n' +
+      '\n' +
+      '우리는 DeepSeekLLM 1.3B로 표기된 DeepSeek LLMs(DeepSeek-AI, 2024)와 동일한 프레임워크를 공유하는 1.3B 파라미터를 가진 일반적인 사전 훈련 언어 모델에 수학 훈련을 적용한다. 우리는 150B 토큰에 대해 각 수학적 말뭉치에서 모델을 별도로 훈련한다. 모든 실험은 효율적이고 가벼운 HAI-LLM(High-flyer, 2023) 훈련 프레임워크를 사용하여 수행된다. DeepSeek LLMs의 훈련 실습에 이어, 2,000 워밍업 단계 후 학습률이 최고점에 도달하는 다단계 학습률 일정과 함께 \\(\\beta_{1}=0.9\\), \\(\\beta_{2}=0.95\\), weight_decay = 0.1인 AdamW 최적화기(Loshchilov and Hutter, 2017)를 사용하고, 훈련 과정의 80% 이후 31.6%로 감소하며, 훈련 과정의 90% 이후 10.0%로 더 감소한다. 학습률의 최대값을 5.3e-4로 설정하고, 4K 컨텍스트 길이를 갖는 4M 토큰의 배치 크기를 사용한다.\n' +
+      '\n' +
+      '###### 2.2.2 평가결과\n' +
+      '\n' +
+      '**DeepSeekMath Corpus는 고품질이며 다국어 수학적 내용을 다루고 있으며 크기가 가장 큽니다.**\n' +
+      '\n' +
+      '* **High-quality:** Wei et al. (2022)의 few-shot chain-of-thought prompting Wei et al.을 사용하여 8개의 수학적 벤치마크에 대한 다운스트림 성능을 평가한다. 표 1과 같이 DeepSeekMath Corpus에서 학습된 모델의 명확한 성능 리드가 있다. 그림 3은 DeepSeekMath 코퍼스에서 학습된 모델이 DeepSeekMath 코퍼스보다 더 나은 성능을 보이는 것을 보여준다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c c c c c} \\hline \\hline \\multirow{3}{*}{Math Corpus} & \\multirow{3}{*}{Size} & \\multicolumn{4}{c}{English Benchmarks} & \\multicolumn{4}{c}{Chinese Benchmarks} \\\\ \\cline{3-10}  & & GSM8K & MATH & OCW & SAT & \\begin{tabular}{c} MMLU \\\\ STEM \\\\ \\end{tabular} & CMATH & \\begin{tabular}{c} Gaokao \\\\ MathCloze \\\\ \\end{tabular} &\n' +
+      '\\begin{tabular}{c} Gaokao \\\\ MathQA \\\\ \\end{tabular} \\\\ \\hline No Math Training & N/A & 2.9\\% & 3.0\\% & 2.9\\% & 15.6\\% & 19.5\\% & 12.3\\% & 0.8\\% & 17.9\\% \\\\ \\hline MathPile & 8.9B & 2.7\\% & 3.3\\% & 2.2\\% & 12.5\\% & 15.7\\% & 1.2\\% & 0.0\\% & 2.8\\% \\\\ OpenWebMath & 13.6B & 11.5\\% & 8.9\\% & 3.7\\% & 31.3\\% & 29.6\\% & 16.8\\% & 0.0\\% & 14.2\\% \\\\ Proof-Pile-2 & 51.9B & 14.3\\% & 11.2\\% & 3.7\\% & 43.8\\% & 29.2\\% & 19.9\\% & 5.1\\% & 11.7\\% \\\\ \\hline DeepSeekMath Corpus & **120.2B** & **23.8\\%** & **13.6\\%** & **4.8\\%** & **56.3\\%** & **33.1\\%** & **41.5\\%** & **5.9\\%** & **23.6\\%** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 1: 다양한 수학적 말뭉치에 대해 훈련된 DeepSeek-LLM 1.3B의 성능, 소수의 생각 사슬 프롬프트를 사용하여 평가되었다. 코퍼스 크기는 어휘 크기가 100K인 토큰화기를 사용하여 계산됩니다.\n' +
+      '\n' +
+      '50B 토큰에서의 Proof-Pile-2(Proof-Pile-2의 1 전체 에폭)는 DeepSeekMath Corpus의 평균 품질이 더 높다는 것을 나타낸다.\n' +
+      '**다국어**: DeepSeekMath Corpus는 여러 언어의 데이터를 포괄하며, 주로 영어와 중국어를 가장 많이 대표하는 두 가지 언어로 특징으로 한다. 표 1과 같이 DeepSeekMath Corpus에 대한 훈련은 영어와 중국어 모두에서 수학적 추론 성능을 향상시킨다. 대조적으로, 주로 영어 중심인 기존의 수학적 말뭉치는 제한적인 개선을 보이며 심지어 중국어 수학적 추론에서 성과를 방해할 수 있다.\n' +
+      '**대규모**: DeepSeekMath 말뭉치는 기존의 수학적 말뭉치보다 몇 배 더 크다. 그림 3에서 볼 수 있듯이 DeepSeek-LLM 1.3B는 DeepSeek-Math 코퍼스에서 훈련될 때 더 지속적인 개선과 함께 더 가파른 학습 곡선을 보여준다. 대조적으로, 기준 말뭉치는 훨씬 더 작고 훈련 중에 이미 여러 라운드를 반복했으며 결과 모델 성능은 빠르게 안정기에 도달했다.\n' +
+      '\n' +
+      'DeepSeekMath-Base 7B의 훈련 및 평가\n' +
+      '\n' +
+      '본 절에서는 특히 수학에서 강력한 추론 능력을 가진 기반 모델인 DeepSeekMath-Base 7B를 소개한다. 우리의 모델은 DeepSeek-Coder-Base-v1.5 7B로 초기화된다.\n' +
+      '\n' +
+      '그림 3: 다른 수학적 말뭉치에 대해 훈련된 DeepSeek-LLM 1.3B의 벤치마크 곡선.\n' +
+      '\n' +
+      '(Guo et al., 2024) 및 500B 토큰에 대해 트레이닝되었다. 데이터의 분포는 56%는 DeepSeeKMath Corpus, 4%는 AlgebraicStack, 10%는 arXiv, 20%는 Github 코드, 나머지 10%는 영어와 중국어 모두에서 Common Crawl의 자연어 데이터이다. 학습률의 최대값을 4.2e-4로 설정하고 10M 토큰의 배치 크기를 사용하는 것을 제외하고는 주로 섹션 2.2.1에 명시된 학습 설정을 채택한다.\n' +
+      '\n' +
+      '우리는 DeepSeeKMathBase 7B의 수학적 역량에 대한 종합적인 평가를 수행하며, 외부 도구에 의존하지 않고 스스로 완비된 수학적 해결 방법을 생산하고, 도구를 사용하여 수학적 문제를 해결하며, 공식 정리를 증명하는 능력에 중점을 둔다. 또한 수학 외에도 자연어 이해, 추론 및 프로그래밍 기술의 성능을 포함하여 기본 모델의 보다 일반적인 프로필을 제공한다.\n' +
+      '\n' +
+      'Step-by-Step ReasoningWe evaluate DeepSeeKMathBase\'s performance of solve mathematical problems using few-shot chain-of-thought prompting (Wei et al., 2022) by 8 벤치마크s across English and Chinese. 이러한 벤치마크는 정량적 추론(예를 들어, GSM8K(Cobbe et al., 2021), MATH(Hendrycks et al., 2021), 및 CMATH(Wei et al., 2023)) 및 객관식 문제(예를 들어, MMLU-STEM(Hendrycks et al., 2020) 및 Gaokao-MathQA(Zhong et al., 2023))를 포함하며, 초등에서 대학 수준의 복잡도까지 다양한 수학 분야를 포괄한다.\n' +
+      '\n' +
+      '표 2에 나타낸 바와 같이, DeepSeeKMathBase 7B는 Proof-Pile-2(Azerbayev et al., 2023)에 대한 수학 교육을 받은 오픈 소스 베이스 모델(광범위하게 사용되는 일반 모델 Mistral 7B(Jiang et al., 2023) 및 최근에 출시된 Llemma 34B(Azerbayev et al., 2023)를 포함) 중 8개의 벤치마크 모두에 걸쳐 성능을 선도한다. 특히 경쟁 수준의 MATH 데이터셋에서 DeepSeeKMathBase는 기존의 오픈 소스 기반 모델을 절대 10% 이상 능가하고, PaLM(Lewkowycz et al., 2022b)을 기반으로 하고 수학적 텍스트에 대해 추가로 훈련되는 77배 더 큰 폐쇄 소스 기반 모델인 Minerva 540B(Lewkowycz et al., 2022a)를 능가한다.\n' +
+      '\n' +
+      '도구 사용을 통한 수학적 문제 해결 GSM8K 및 MATH에 대한 프로그램 지원 수학적 추론을 소수의 생각 프로그램 프롬프트를 사용하여 평가한다(Chen et al., 2022; Gao et al., 2023). 모델들은 복잡한 계산을 위해 _math_ 및 _sympy_와 같은 라이브러리들이 활용될 수 있는 파이썬 프로그램을 작성함으로써 각각의 문제를 해결하도록 프롬프트된다. 프로그램의 실행 결과를 답으로 평가한다. 표 3에 도시된 바와 같이, DeepSeekMath-Base 7B는 이전의 최첨단 Llemma 34B보다 우수하다.\n' +
+      '\n' +
+      '형식적 수학 공식 증명 자동화는 최근 몇 년 동안 관심이 증가함에 따라 수학적 증명의 정확성과 신뢰성을 보장하고 효율성을 높이는 데 도움이 된다. 우리는 DeepSeekMath-Base 7B를 비형식적 증명(Jiang et al., 2022)의 비형식적 증명 태스크에 대해 평가하는데, 이는 비형식적 진술, 진술의 형식적 대응물 및 비형식적 증명을 기반으로 공식적 증명을 생성하는 것이다. 우리는 공식 올림피아드 수준의 수학의 벤치마크인 miniF2F(Zheng et al., 2021)에 대해 평가하고, 소수의 프롬프트로 각 문제에 대한 공식 증명을 이사벨에 생성한다. 장 등(2022)에 이어, 우리는 모델을 활용하여 증명 스케치를 생성하고, 누락된 세부 사항을 기입하기 위해 기성 자동화 프로버 Sledgehammer(Paulson, 2010)를 실행한다. 표 3에 도시된 바와 같이, DeepSeekMath-Base 7B는 증명 자동 형식화에서 강한 성능을 입증한다.\n' +
+      '\n' +
+      '자연어 이해, 추론, CodeWe evaluated model performance of natural language understanding on MMLU(Hendrycks et al., 2020), reasoning on BBH(Suzgun et al., 2022), coding capabilities on HumanEval(Chen et al., 2021) and MBPP(Austin et al., 2020),\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c} \\hline \\hline Model & Size & MMLU & BBH & HumanEval (Pass@1) & MBPP (Pass@1) \\\\ \\hline \\hline Mistral & 7B & **62.4\\%** & 55.7\\% & 28.0\\% & 41.4\\% \\\\ \\hline DeepSeek-Coder-Base-v1.5\\({}^{\\dagger}\\) & 7B & 42.9\\% & 42.9\\% & 40.2\\% & 52.6\\% \\\\ DeepSeek-Coder-Base-v1.5 & 7B & 49.1\\% & 55.2\\% & **43.2\\%** & **60.4\\%** \\\\ \\hline DeepSeekMath-Base & 7B & 54.9\\% & **59.5\\%** & 40.9\\% & 52.6\\% \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 4: 자연어 이해, 추론 및 코드 벤치마크에 대한 평가. DeepSeek-Coder-Base-v1.5\\({}^{\\dagger}\\)는 DeepSeekMath-Base를 훈련하기 위해 사용되는 속도 감쇠를 학습하기 직전의 체크포인트이다. MLU와 BBH에서는 몇 가지 생각 체인 프롬프트를 사용합니다. HumanEval과 MBPP에서 각각 zero-shot 설정과 few-shot 설정 하에서 모델 성능을 평가한다.\n' +
+      '\n' +
+      '2021). 표 4에 나타낸 바와 같이, DeepSeekMath-Base 7B는 그 전구체인 DeepSeek-Coder-Base-v1.5(Guo et al., 2024)에 비해 MMLU 및 BBH에 대해 상당한 성능 향상을 나타내며, 언어 이해 및 추론에 대한 수학 훈련의 긍정적인 영향을 나타낸다. 또한, 연속 트레이닝을 위한 코드 토큰을 포함함으로써, DeepSeekMath-Base 7B는 두 코딩 벤치마크에서 DeepSeek-Coder-Base-v1.5의 성능을 효과적으로 유지한다. 전반적으로 DeepSeekMath-Base 7B는 3가지 추론 및 코딩 벤치마크에서 일반 모델 Mistral 7B(Jiang et al., 2023)보다 상당히 우수하다.\n' +
+      '\n' +
+      '##3 감독 미세조정\n' +
+      '\n' +
+      '### SFT 데이터 큐레이션\n' +
+      '\n' +
+      '우리는 서로 다른 수학적 분야와 다양한 복잡도 수준에서 영어와 중국어 문제를 다루는 수학적 명령어 조정 데이터 세트를 구성한다: 문제는 CoT(Cain-of-thought)(Wei et al., 2022), PoT(Program-of-thought)(Chen et al., 2022; Gao et al., 2023), 도구 통합 추론 형식(Gou et al., 2023). 훈련 예제의 총 개수는 776K이다.\n' +
+      '\n' +
+      '****영어 수학 데이터세트**: 툴-통합 솔루션으로 GSM8K 및 MATH 문제에 주석을 달며, CoT 또는 PoT로 문제가 해결되는 Lila-OOD(Mishra et al., 2022)의 트레이닝 세트와 함께 MathInstruct(Yue et al., 2023)의 서브세트를 채택한다. 우리의 영어 컬렉션은 대수, 확률, 정수론, 미적분학, 기하학 등 다양한 수학 분야를 다루고 있습니다.\n' +
+      '***중국 수학 데이터 세트**: 우리는 CoT와 도구 통합 추론 형식 모두에서 주석이 달린 해와 선형 방정식과 같은 76개의 하위 주제에 걸쳐 있는 중국 K-12 수학 문제를 수집한다.\n' +
+      '\n' +
+      'DeepSeekMath-Instruct 7B 평가 및 훈련\n' +
+      '\n' +
+      '본 절에서는 DeepSeekMath-Base를 기반으로 수학적 명령어 튜닝을 수행하는 DeepSeekMath-Instruct 7B를 소개한다. 트레이닝 예들은 4K 토큰들의 최대 컨텍스트 길이에 도달할 때까지 랜덤하게 연결된다. 우리는 배치 크기가 256이고 일정한 학습률이 5e-5인 500단계에 대해 모델을 훈련한다.\n' +
+      '\n' +
+      '우리는 영어와 중국어의 4가지 정량적 추론 벤치마크에서 도구 사용 유무에 관계없이 모델의 수학적 성능을 평가한다. 우리는 우리의 모델을 당대의 선두 모델들과 벤치마킹한다:\n' +
+      '\n' +
+      '**폐쇄-소스 모델**은, (1) GPT-4(OpenAI, 2023) 및 GPT-4 Code Interpreter 2가 가장 유능한 GPT 패밀리, (2) Gemini Ultra and Pro(Anil et al., 2023), (3) Inflection-2(Inflection AI, 2023), (4) Grok-1 3뿐만 아니라, (5) Baichuan-3 4, (6) GLM 패밀리로부터 최신 GLM-4 5를 포함하는 중국 기업들이 최근에 출시한 모델들(Du et al., 2022)을 포함한다. 이러한 모델은 일반적인 목적을 위한 것이며 대부분은 일련의 정렬 절차를 거쳤다. 각주 2: [https://openai.com/blog/chatgpt-plugins#code-interpreter](https://openai.com/blog/chatgpt-plugins#code-interpreter)\n' +
+      '\n' +
+      '각주 3: [https://x.ai/model-card](https://x.ai/model-card)\n' +
+      '\n' +
+      '각주 4: [https://www.baichuan-ai.com](https://www.baichuan-ai.com)\n' +
+      '\n' +
+      '각주 5: [https://open.bigmodel.cn/dev/api#glm-4](https://open.bigmodel.cn/dev/api#glm-4)\n' +
+      '**Open-source model**는 (1) DeepSeek-LLM-Chat 67B (DeepSeek-AI, 2024), (2) Qwen 72B (Bai et al., 2023), (3) ChatGLM3 6B (ChatGLM3 Team, 2023), (4) InternLM2-Math 20B 6을 포함하는 수학에서 향상된 수학적 추론, (8) MAmmoTH 70B (Yue et al., 2023), (7) Mistral 7B (Schulman et al., 2017) PPO 트레이닝을 Mistral 7B (Touvron et al., 2023)에 적용하는 MizardMath 시리즈 (Luo et al., 2023), (6) Llama-2 70B 트레이닝을 주로 GSM8K 및 MATH로부터 유도된 트레이닝 문제를 포함하는 수학에서 개선된 수학적 추론 툴-통합 수학적 추론을 수행한다.\n' +
+      '\n' +
+      '각주 6: [https://github.com/InternLM/InternLM-Math](https://github.com/InternLM/InternLM-Math)\n' +
+      '\n' +
+      '표 5와 같이 도구 사용이 허용되지 않는 평가 설정 하에서 DeepSeeMath-Instruct 7B는 단계별 추론의 강력한 성능을 보여준다. 특히, 경쟁 수준의 MATH 데이터 세트에서 우리 모델은 모든 오픈 소스 모델과 대부분의 독점 모델(예: 변곡-2 및 제미니 프로)을 최소 9% 절대만큼 능가한다. 이는 실질적으로 더 크거나(예를 들어, Qwen 72B) 수학-초점 강화 학습(예를 들어, WizardMath-v1.1 7B)을 통해 구체적으로 강화된 모델들에 대해서도 마찬가지이다. DeepSeeKMath-Instruct는 MATH에서 중국 독점 모델 GLM-4 및 바이촨-3과 경쟁하지만 여전히 GPT-4 및 제미니 울트라를 능가한다.\n' +
+      '\n' +
+      '모델이 자연어 추론과 문제 해결을 위한 프로그램 기반 도구 사용을 통합할 수 있는 평가 설정에서 DeepSeeKMath-Instruct 7B는 MATH에서 60%의 정확도에 접근하여 기존 모든 오픈 소스 모델을 능가한다. 다른 벤치마크에서, 우리의 모델은 10배 더 큰 이전의 최첨단인 DeepSeeK-LLM-Chat 67B와 경쟁적이다.\n' +
+      '\n' +
+      '##4 강화학습\n' +
+      '\n' +
+      '##### 그룹 상대 정책 최적화\n' +
+      '\n' +
+      '강화학습(RL)은 SFT(Supervised Fine-Tuning) 단계 이후 LLMs의 수학적 추론 능력을 더욱 향상시키는데 효과적인 것으로 입증되었다 (Luo et al., 2023; Wang et al., 2023b). 본 절에서는 효율적이고 효과적인 RL 알고리즘인 그룹 상대 정책 최적화(Group Relative Policy Optimization, GRPO)를 소개한다.\n' +
+      '\n' +
+      'PPO에서 GRPO로 부터\n' +
+      '\n' +
+      '근위 정책 최적화(PPO: Proximal Policy Optimization)(Schulman et al., 2017)는 LLMs(Ouyang et al., 2022)의 RL 미세 조정 단계에서 널리 사용되는 행위자 비판 RL 알고리즘이다. 특히, 다음의 대리 목적을 최대화하여 LLMs를 최적화한다:\n' +
+      '\n' +
+      '\\mathcal{J}_{PPO}(\\theta)=\\mathbb{E}[q\\sim P(Q),o\\sim\\pi_{\\theta_{old}(|q)] \\frac{1}{|o|}\\sum_{t=1}^{|o|}\\min\\left[\\frac{\\pi_{\\theta}(o_{t}|q,o_{ct}}{\\pi_{old}(o_{t}|q,o_{ct}}A_{t},\\text{clip}\\left(\\frac{\\pi_{\\theta}(o_{t}|q,o_{ct}}}{\\pi_{\\theta}(o_{t}|q,o_{ct}}}{\\pi_{\\theta}(o_{t}|q,o_{ct}}),1-\\varepsilon,1+\\varepsilon\\right)A_{t}\\t\\right],\\tag{1}\\t\\t\\t\\t\\\n' +
+      '\n' +
+      '여기서 \\(\\pi_{\\theta}\\) 및 \\(\\pi_{\\theta_{old}}\\)는 현재 및 구 정책 모델이고, \\(q,o\\)은 질문 데이터세트 및 구 정책 \\(\\pi_{\\theta_{old}}\\)에서 샘플링된 질문 및 출력이다. \\ (\\varepsilon\\)은 훈련 안정화를 위해 PPO에 도입된 클리핑 관련 하이퍼 파라미터이다. \\ (A_{t}\\)는 보상 \\(\\{r_{\\geq t}\\}\\)과 학습된 값 함수 \\(V_{\\psi}\\)을 기반으로 Generalized Advantage Estimation (GAE) (Schulman et al., 2015)을 적용하여 계산되는 장점이다. 따라서, PPO에서, 값 함수는 정책 모델과 함께 훈련될 필요가 있고 보상 모델의 과최적화를 완화하기 위해, 표준 접근법은 보상에서 참조 모델로부터 토큰당 KL 페널티를 추가하는 것이다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c} \\hline \\hline \\multirow{2}{*}{Model} & \\multirow{2}{*}{Size} & English Benchmarks & Chinese Benchmarks \\\\ \\cline{3-5}  & & GSM8K & MATH & MGSM-zh & CMATH \\\\ \\hline \\hline \\multicolumn{5}{c}{**Chain-of-Thought Reasoning**} \\\\ \\hline \\multicolumn{5}{c}{Closed-Source Model} \\\\ \\hline Gemini Ultra & - & 94.4\\% & 53.2\\% & - & - \\\\ GPT-4 & - & 92.0\\% & 52.9\\% & - & 86.0\\% \\\\ Inflection-2 & - & 81.4\\% & 34.8\\% & - & - \\\\ GPT-3.5 & - & 80.8\\% & 34.1\\% & - & 73.8\\% \\\\ Gemini Pro & - & 86.5\\% & 32.6\\% & - & - \\\\ Grok-1 & - & 62.9\\% & 23.9\\% & - & - \\\\ \\hline Baichuan-3 & - & 88.2\\% & 49.2\\% & - & - \\\\ GLM-4 & - & 87.6\\% & 47.9\\% & - & - \\\\ \\hline \\multicolumn{5}{c}{Open-Source Model} \\\\ \\hline InternLM2-Math & 20B & 82.6\\% & 37.7\\% & - & - \\\\ Qwen & 72B & 78.9\\% & 35.2\\% & - & - \\\\ Math-Shepherd-Mistral & 7B & 84.1\\% & 33.0\\% & - & - \\\\ WizardMath-v1.1 & 7B & 83.2\\% & 33.0\\% & - & - \\\\ DeepSeek-LLM-Chat & 67B & 84.1\\% & 32.6\\% & 74.0\\% & 80.3\\% \\\\ MetaMath & 70B & 82.3\\% & 26.6\\% & 66.4\\% & 70.9\\% \\\\ ChatGLM3 & 6B & 72.3\\% & 25.7\\% & - & - \\\\ WizardMath-v1.0 & 70B & 81.6\\% & 22.7\\% & 64.8\\% & 65.4\\% \\\\ \\hline \\multicolumn{5}{c}{**DeepSeekMath-Instruct**} \\\\ \\hline \\multicolumn{5}{c}{**DeepSeekMath-RL**} \\\\ \\hline \\hline \\multicolumn{5}{c}{**Tool-Integrated Reasoning**} \\\\ \\hline \\multicolumn{5}{c}{Closed-Source Model} \\\\ \\hline GPT-4 Code Interpreter & - & 97.0\\% & 69.7\\% & - & - \\\\ \\hline \\multicolumn{5}{c}{Open-Source Model} \\\\ \\hline InternLM2-Math & 20B & 80.7\\% & 54.3\\% & - & - \\\\ DeepSeek-LLM-Chat & 67B & 86.7\\% & 51.1\\% & 76.4\\% & 85.4\\% \\\\ ToRA & 34B & 80.7\\% & 50.8\\% & 41.2\\% & 53.4\\% \\\\ MAMmoTH & 70B & 72.4\\% & 21.1\\% & - & - \\\\ \\hline \\multicolumn{5}{c}{**DeepSeekMath-Instruct**} \\\\ \\hline \\multicolumn{5}{c}{**DeepSeekMath-RL**} \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 5: 영어 및 중국어 벤치마크에 대한 Chain-of-Thought 및 Tool-Integrated Reasoning을 모두 갖는 오픈 소스 및 클로즈 소스 모델의 \\(|\\) 성능. 회색으로 표시된 점수는 32명의 후보가 있는 다수 표를 나타내며, 다른 점수는 상위 1점입니다. DeepSeekMath-RL 7B는 대부분의 폐쇄 소스 모델뿐만 아니라 7B에서 70B까지의 모든 오픈 소스 모델을 능가한다. DeepSeekMath-RL 7B는 GSM8K 및 MATH의 체인-of-thought-format 명령어 튜닝 데이터에 대해서만 추가로 훈련되지만, 모든 벤치마크에서 DeepSeekMath-Instruct 7B에 비해 개선된다.\n' +
+      '\n' +
+      '각 토큰(Ouyang et al., 2022), 즉,\n' +
+      '\n' +
+      '\\[r_{t}=r_{\\varphi}(q,o_{\\leq t})-\\beta\\log\\frac{\\pi_{\\theta}(o_{t}|q,o_{<t}}{\\pi_{ref}(o_{t}|q,o_{<t}), \\tag{2}\\]\n' +
+      '\n' +
+      '여기서 \\(r_{\\varphi}\\)은 보상 모델이고, \\(\\pi_{ref}\\)은 기준 모델이며, 이는 일반적으로 초기 SFT 모델이고, \\(\\beta\\)은 KL 패널티의 계수이다.\n' +
+      '\n' +
+      'PPO에 사용되는 가치 함수는 일반적으로 정책 모델과 유사한 크기의 또 다른 모델이기 때문에 상당한 메모리와 계산 부담을 가져온다. 추가적으로, RL 트레이닝 동안, 값 함수는 분산 감소를 위한 이점의 계산에서 베이스라인으로서 취급된다. LLM 컨텍스트에서, 일반적으로 마지막 토큰만이 보상 모델에 의해 보상 스코어를 할당받는데, 이는 각각의 토큰에서 정확한 값 함수의 트레이닝을 복잡하게 할 수 있다. 이를 해결하기 위해 그림 4와 같이 PPO에서와 같이 추가적인 가치 함수 근사화의 필요성을 배제하고 대신 동일한 질문에 대한 응답으로 생성된 여러 표본 산출물의 평균 보상을 베이스라인으로 사용하는 GRPO(Group Relative Policy Optimization)를 제안한다. 보다 구체적으로, 각 질문 \\(q\\)에 대해 GRPO는 오래된 정책 \\(\\pi_{o_{old}}\\)에서 출력 \\(\\{o_{1},o_{2},\\cdots,o_{G}\\}\\) 그룹을 샘플링한 다음 다음 목표를 최대화하여 정책 모델을 최적화한다.\n' +
+      '\n' +
+      '{split}\\mathcal{J}[q\\sim P(Q),\\{o_{i}\\{i=1}^{G}\\sim\\pi_{o_{old}(Q|q)]\\\\frac{1}{\\delta}\\sum_{i=1}^{G}\\frac{1}\\sum_{i}|}\\left\\min\\left[\\frac{\\pi_{\\theta}(o_{i,t}|q,o_{i,t}}\\text{D}\\pi_{o}\\left[\\pi_{\\theta}(o_{i,t}|q,o_{i,t}}}\\beta\\text{D}\\hat{A}{i,t}|q,o_{i,t}}}{\\pi_{old}}(o_{i,t}|q,o_{i,t}}),\\end{split}\\text{D}\\hat{A}{i,t}|q,o_{i,t\n' +
+      '\n' +
+      '여기서 \\(\\epsilon\\)과 \\(\\beta\\)은 하이퍼파라미터이고, \\(\\hat{A}_{i,t}\\)은 각 그룹 내부의 출력의 상대적 보상에 기초하여 계산된 이점이며, 이는 다음 하위 섹션에서 자세히 설명될 것이다. GRPO가 이점을 계산하기 위해 평균하는 그룹 상대적 방법은 보상 모델이 일반적으로 동일한 질문에 대한 출력 간의 비교 데이터 세트에 대해 훈련되기 때문에 보상 모델의 비교 특성과 잘 일치한다. 또한 GRPO는 보상에서 KL 페널티를 추가하는 대신 훈련된 정책과 기준 정책 간의 KL 발산을 손실에 직접 추가하여 규칙화하므로 \\(\\hat{A}_{i,t}\\) 계산이 복잡해지는 것을 방지한다. 그리고 (2)에서 사용된 KL 벌점항과 다르게 다음과 같은 비편향 추정량(Schulman, 2020)으로 KL 발산을 추정한다:\n' +
+      '\n' +
+      '[\\text{D}_{KL}\\left[\\pi_{\\theta}||\\pi_{ref}\\right]=\\frac{\\pi_{ref}(o_{i,t}|q,o_{i,t})}{\\pi_{\\theta}(o_{i,t}|q,o_{i,t})}-\\log\\frac{\\pi_{ref}(o_{i,t}|q,o_{i,t}}{\\pi_{\\theta}(o_{i,t}|q,o_{i,t}}-1, \\tag{4}\\t}\n' +
+      '\n' +
+      '그림 4: PPO와 우리의 GRPO의 실증. GRPO는 가치 모델을 포기하고 대신 그룹 점수에서 기준선을 추정하여 훈련 자원을 크게 줄인다.\n' +
+      '\n' +
+      '긍정적으로 보장됩니다.\n' +
+      '\n' +
+      'GRPO를 이용한 성과감독 RL 4.1.2\n' +
+      '\n' +
+      '형식적으로 각 문항에 대해 구 정책 모형 \\(\\pi_{o_{old}}\\)에서 출력 \\(\\{o_{1},o_{2},\\cdots,o_{G}\\}\\) 그룹을 샘플링한다. 그리고 보상 모델을 이용하여 출력의 점수를 매기고, 그에 상응하는 보상\\(\\mathbf{r}=\\{r_{1},r_{2},\\cdots,r_{G}\\}\\)을 산출한다. 이어서, 이러한 보상을 그룹 평균을 뺀 후 그룹 표준편차로 나누어 정규화한다. 결과감독은 각 출력(o_{i}\\)이 끝날 때 정규화된 보상을 제공하고 출력에서 모든 토큰의 장점인 \\(\\hat{A}_{i,t}\\)을 정규화된 보상으로 설정하며, 즉 \\(\\hat{A}_{i,t}=\\widetilde{r}_{i}=\\frac{r_{i}-\\text{mean}(\\mathbf{r})}(\\mathbf{r})}\\text{std}(\\mathbf{r})\\)에 정의된 목표를 최대화하여 정책을 최적화한다.\n' +
+      '\n' +
+      'GRPO를 이용한 공정감독 RL\n' +
+      '\n' +
+      '결과 감독은 각 산출물이 끝날 때 보상을 제공할 뿐 복잡한 수학적 과제에서 정책을 감독하기에 충분하고 효율적이지 않을 수 있다. 또한 Wang et al.(2023b)에 따라 각 추론 단계가 끝날 때 보상을 제공하는 프로세스 감독도 탐구한다. 형식적으로, \\(q\\) 및 \\(G\\) 샘플링된 출력 \\(\\{o_{1},o_{2},\\cdots,o_{G}\\}\\)을 주어, 공정 보상 모델을 사용하여 출력의 각 단계를 점수화하고, 그에 상응하는 보상을 산출한다. \\(\\mathbf{R}=\\{r_{1}^{index(1)},\\cdots,r_{1}^{index(K_{1}},\\cdots,\\{r_{G}^{index(1)},\\cdots,r_{G}^{index(K_{G})}\\}), 여기서 \\(j))는 \\(i)번째 출력의 총 단계 수이다. 또한 평균과 표준편차, 즉 \\(\\widetilde{r}_{i}^{index(j)}=\\frac{r_{i}^{index(i)}-\\text{mean}(\\mathbf{R})}{\\text{std}(\\mathbf{R})}으로 보상값을 정규화한다. 이후 공정감독은 다음 단계 즉, \\(\\hat{A}_{i,t}=\\sum_{index(j)\\geq t}\\widetilde{r}_{i}^{index(j)}\\)로부터 정규화된 보상의 합으로 각 토큰의 장점을 계산한 후, 식 (3)에 정의된 목적을 극대화하여 정책을 최적화한다.\n' +
+      '\n' +
+      'GRPO를 이용한 반복 RL\n' +
+      '\n' +
+      '강화 학습 훈련 과정이 진행됨에 따라 구 보상 모델은 현재의 정책 모델을 감독하기에 충분하지 않을 수 있다. 따라서 GRPO를 사용한 반복 RL도 탐색한다. 알고리즘 1과 같이 반복적 GRPO에서는 정책 모델의 샘플링 결과를 기반으로 보상 모델에 대한 새로운 훈련 세트를 생성하고 10%의 과거 데이터를 통합하는 재생 메커니즘을 사용하여 오래된 보상 모델을 지속적으로 훈련한다. 그런 다음 참조 모델을 정책 모델로 설정하고 새로운 보상 모델로 정책 모델을 지속적으로 훈련한다.\n' +
+      '\n' +
+      'DeepSeekMath-RL의 훈련 및 평가\n' +
+      '\n' +
+      '우리는 DeepSeekMath-Instruct 7B를 기반으로 RL을 수행한다. RL의 훈련 데이터는 약 144K 질문으로 구성된 SFT 데이터에서 GSM8K 및 MATH와 관련된 생각 사슬 형식 질문이다. RL 단계 전반에 걸쳐 데이터가 부족한 벤치마크에 대한 RL의 영향을 조사하기 위해 다른 SFT 질문을 제외한다. 우리는 다음의 보상 모델들의 트레이닝 세트를 구성한다(Wang et al., 2023b). 학습률이 2e-5인 DeepSeekMath-Base 7B를 기반으로 초기 보상 모델을 학습하고, GRPO의 경우 정책 모델의 학습률을 1e-6으로 설정하고 KL 계수는 0.04이며, 각 질문에 대해 64개의 출력을 샘플링한다. 최대 길이는 1024로 설정되고 학습 배치 크기는 1024이며 정책 모델은 각 탐색 단계에 따라 단일 업데이트만 있다. 우리는 DeepSeekMath-Instruct 7B에 이어 벤치마크에서 DeepSeekMath-RL 7B를 평가한다. DeepSeekMath-RL 7B의 경우, 사상 연쇄 추론을 갖는 GSM8K 및 MATH는 도메인 내 태스크로 간주될 수 있고 다른 모든 벤치마크는 도메인 외 태스크로 간주될 수 있다.\n' +
+      '\n' +
+      '표 5는 영어 및 중국 벤치마크에 대한 생각 사슬 및 도구 통합 추론을 모두 사용한 오픈 소스 및 클로즈 소스 모델의 성능을 보여준다. 1) DeepSeekMath-RL 7B는 GSM8K와 MATH에서 각각 88.2%와 51.7%의 정확도를 얻었다. 이 성능은 대부분의 폐쇄 소스 모델뿐만 아니라 7B에서 70B 범위의 모든 오픈 소스 모델을 능가한다. 2) 결정적으로, DeepSeekMath-RL 7B는 DeepSeekMath-Instruct 7B로부터 시작하여 GSM8K 및 MATH의 체인-of-thought-format 명령어 튜닝 데이터에 대해서만 트레이닝된다. 학습 데이터의 제한된 범위에도 불구하고 모든 평가 메트릭에서 DeepSeekMath-Instruct 7B를 능가하여 강화 학습의 효과를 보여준다.\n' +
+      '\n' +
+      '## 5 Discussion\n' +
+      '\n' +
+      '이 섹션에서는 사전 훈련 및 RL 실험에서 얻은 결과를 공유한다.\n' +
+      '\n' +
+      '사전교육에서 배운 교훈\n' +
+      '\n' +
+      '우리는 먼저 사전 훈련 경험을 공유합니다. 달리 명시되지 않는 한 섹션 2.2.1에 요약된 훈련 설정을 준수할 것이다. 이 섹션의 DeepSeekMath 코퍼스를 참조할 때 데이터 수집 프로세스의 두 번째 반복에서 89B 토큰 데이터 세트를 사용한다는 점에 주목할 필요가 있다.\n' +
+      '\n' +
+      '###### 5.1.1 코드 트레이닝 이점 수학 추론\n' +
+      '\n' +
+      '인기 있지만 검증되지 않은 가설은 코드 트레이닝이 추론을 향상시킨다는 것을 암시한다. 우리는 특히 수학적 영역 내에서 이에 대한 부분적인 응답을 제공하려고 시도한다: 코드 트레이닝은 도구 사용 유무에 관계없이 수학적 추론을 수행하는 모델의 능력을 향상시킨다.\n' +
+      '\n' +
+      '코드 훈련이 수학적 추론에 어떤 영향을 미치는지 연구하기 위해 다음과 같은 2단계 훈련과 1단계 훈련 설정을 실험했다.\n' +
+      '\n' +
+      '**Two-Stage Training**\n' +
+      '\n' +
+      '***Code Training for 400B Tokens \\(\\rightarrow\\) Math Training for 150B Tokens**: DeepSeek Table 7 | 우리는 코드와 수학 훈련의 다른 설정이 언어 이해, 추론, 코딩의 모델 성능에 어떤 영향을 미치는지 조사한다. 우리는 DeepSeek-LLM 1.3B로 실험한다. 우리는 소수의 생각 사슬 프롬프트를 사용하여 MMLU 및 BBH에 대한 모델을 평가한다. HumanEval과 MBPP에서 각각 제로샷과 소수샷 평가를 수행한다.\n' +
+      '\n' +
+      '400B 코드 토큰에 이어 150B 수학 토큰에 대한 LLLM 1.3B;\n' +
+      '150B Tokens**에 대한 400B Tokens \\(\\rightarrow\\) Math Training: 제어 실험으로서, 우리는 수학적 추론 개선에 있어 일반적인 토큰에 비해 코드 토큰의 장점을 조사하기 위해 훈련의 첫 단계에서 코드 토큰 대신 일반 토큰(DeepSeek-AI가 만든 대규모 일반 말뭉치에서 샘플링됨)을 실험한다.\n' +
+      '\n' +
+      '**One-Stage Training**\n' +
+      '\n' +
+      '**150B 토큰에 대한 수학 훈련**: 150B 수학 토큰에 대해 DeepSeek-LLM 1.3B를 훈련한다;\n' +
+      '**400B Code Tokens와 150B Math Tokens**의 혼합물에 대한 훈련: 코드 훈련에 따른 수학 훈련은 코딩 성능을 저하시킨다. 우리는 코드 토큰이 1단계 교육을 위해 수학 토큰과 혼합될 때 여전히 수학적 추론을 개선하고 재앙적인 망각의 문제를 완화할 수 있는지 여부를 조사한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c c c} \\hline \\hline \\multirow{2}{*}{Training Setting} & \\multicolumn{2}{c}{Training Tokens} & \\multicolumn{3}{c}{w/o Tool Use} & \\multicolumn{3}{c}{w/ Tool Use} \\\\ \\cline{2-9}  & General & Code & Math & GSM8K & MATH & CMATH & GSM8K+Python & MATH+Python \\\\ \\hline No Continual Training & – & – & – & 2.9\\% & 3.0\\% & 12.3\\% & 2.7\\% & 2.3\\% \\\\ \\hline \\hline \\multicolumn{9}{c}{Two-Stage Training} \\\\ \\hline Stage 1: General Training & 400B & – & – & 2.9\\% & 3.2\\% & 14.8\\% & 3.3\\% & 2.3\\% \\\\ Stage 2: Math Training & – & – & 150B & 19.1\\% & 14.4\\% & 37.2\\% & 14.3\\% & 6.7\\% \\\\ \\hline Stage 1: Code Training & – & 400B & – & 5.9\\% & 3.6\\% & 19.9\\% & 12.4\\% & 10.0\\% \\\\ Stage 2: Math Training & – & – & 150B & **21.9\\%** & **15.3\\%** & **39.7\\%** & 17.4\\% & 9.4\\% \\\\ \\hline \\hline \\multicolumn{9}{c}{One-Stage Training} \\\\ \\hline Math Training & – & – & 150B & 20.5\\% & 13.1\\% & 37.6\\% & 11.4\\% & 6.5\\% \\\\ \\hline Code \\& Math Mixed Training & – & 400B & 150B & 17.6\\% & 12.1\\% & 36.3\\% & **19.7\\%** & **13.5\\%** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 6: | 코드가 다른 훈련 설정 하에서 수학적 추론에 어떻게 영향을 미치는지에 대한 조사. 본 논문에서는 DeepSeek-LLM 1.3B를 이용하여 수학적 추론 성능을 평가하였으며, 몇 개의 아이디어 사슬 프롬프트와 몇 개의 아이디어 프로그램 프롬프트에 의한 도구 사용 없이 수학적 추론 성능을 평가하였다.\n' +
+      '\n' +
+      '결과 표 6 및 표 7은 다른 훈련 설정에서 다운스트림 성능을 보여준다.\n' +
+      '\n' +
+      '코드 훈련은 2단계 훈련과 1단계 훈련 설정 모두에서 프로그램 지원 수학적 추론에 도움이 된다. 표 6에 나타난 바와 같이, 2단계 훈련 설정하에서는 코드 훈련만으로도 이미 파이썬을 이용한 GSM8K 및 MATH 문제 해결 능력을 상당히 향상시킨다. 두 번째 단계의 수학 훈련은 더 많은 개선을 가져온다. 흥미롭게도 1단계 훈련 설정하에서 코드 토큰과 수학 토큰을 혼용하는 것은 2단계 훈련에서 발생하는 파국적 망각의 문제를 효과적으로 완화시키고, 코딩(표 7)과 프로그램 지원 수학 추론(표 6)을 시너지 효과를 낸다.\n' +
+      '\n' +
+      '코드 트레이닝은 또한 도구 사용 없이 수학적 추론을 향상시킨다. 2단계 훈련 설정에서 코드 훈련의 초기 단계는 이미 중간 정도의 향상을 초래한다. 또한 후속 수학 훈련의 효율성을 높여 결국 최고의 성과로 이어집니다. 그러나 1단계 교육을 위해 코드 토큰과 수학 토큰을 결합하면 도구 사용 없이 수학적 추론이 절충된다. 한 가지 추측은 DeepSeek-LLM 1.3B가 제한된 규모 때문에 코드와 수학적 데이터를 동시에 완전히 동화할 수 있는 능력이 부족하다는 것이다.\n' +
+      '\n' +
+      '수학 추론 능력 향상에 효과적이지 않은 논문\n' +
+      '\n' +
+      'ArXiv 논문은 수학 사전 훈련 데이터의 구성요소로서 일반적으로 포함된다(Azerbayev et al., 2023; Lewkowycz et al., 2022a; Polu and Sutskever, 2020; Wang et al., 2023c). 그러나 수학적 추론에 미치는 영향에 대한 자세한 분석은 광범위하게 수행되지 않았다. 아마도 반직관적으로 우리의 실험에 따르면 arXiv 논문은 수학적 추론을 개선하는 데 효과가 없는 것 같다. 다양한 처리 파이프라인을 거친 arXiv corpora를 사용하여 DeepSeek-LLM 1.3B 및 DeepSeek-Coder-Base-v1.5 7B(Guo et al., 2024)를 포함한 다양한 크기의 모델로 실험한다.\n' +
+      '\n' +
+      '* **MathPile** (Wang et al., 2023c): 세척 및 필터링으로 개발된 8.9B-토큰 코퍼스\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c c c c c} \\hline \\hline \\multirow{2}{*}{Model} & \\multirow{2}{*}{Size} & \\multirow{2}{*}{ArXiv Corpus} & \\multicolumn{4}{c}{English Benchmarks} & \\multicolumn{4}{c}{Chinese Benchmarks} \\\\ \\cline{3-10}  & & & \\multicolumn{2}{c}{GSM8K} & \\multicolumn{1}{c}{MATH} & \\multicolumn{1}{c}{OCW} & \\multicolumn{1}{c}{SAT} & \\multicolumn{1}{c}{MMLU} & \\multicolumn{1}{c}{Gaokao} & \\multicolumn{1}{c}{Gaokao} \\\\  & & & & \\multicolumn{1}{c}{} & \\multicolumn{1}{c}{STEM} & \\multicolumn{1}{c}{MATH} & \\multicolumn{1}{c}{MATH\\(\\!\\!\\)} & \\multicolumn{1}{c}{MATH\\(\\!\\!\\)} & \\multicolumn{1}{c}{MATH\\(\\!\\!\\)} & \\multicolumn{1}{c}{MATH\\(\\!\\!\\)} & \\multicolumn{1}{c}{MATH\\(\\!\\!\\)} & \\multicolumn{1}{c}{MATH\\(\\!\\!\\)} \\\\ \\hline \\multirow{3}{*}{DeepSeek-LLM} & \\multirow{3}{*}{1.3B} & No Math Training & 2.9\\% & 3.0\\% & 2.9\\% & 15.6\\% & 19.5\\% & 12.3\\% & 0.8\\% & 17.9\\% \\\\  & & MathPile & 2.7\\% & 3.3\\% & 2.2\\% & 12.5\\% & 15.7\\% & 1.2\\% & 0.0\\% & 2.8\\% \\\\  & & ArXiv-RedPajama & 3.3\\% & 3.4\\% & 4.0\\% & 9.4\\% & 9.0\\% & 7.4\\% & 0.8\\% & 2.3\\% \\\\ \\hline \\multirow{3}{*}{DeepSeek-Coder-Base-v1.5 7B} & No Math Training & 29.0\\% & 12.5\\% & 6.6\\% & 40.6\\% & 38.1\\% & 45.9\\% & 5.9\\% & 21.1\\% \\\\ \\cline{2-10}  & & MathPile & 23.6\\% & 11.5\\% & 7.0\\% & 46.9\\% & 35.8\\% & 37.9\\% & 4.2\\% & 25.6\\% \\\\ \\cline{1-1}  & & ArXiv-RedPajama & 28.1\\% & 11.1\\% & 7.7\\% & 50.0\\% & 35.2\\% & 42.6\\% & 7.6\\% & 24.8\\% \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 8: | 상이한 arXiv 데이터세트에 대한 수학 훈련의 효과. 모델 성능은 몇 가지 생각 체인 프롬프트로 평가됩니다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c} \\hline \\hline ArXiv Corpus & miniF2F-valid & miniF2F-test \\\\ \\hline No Math Training & 20.1\\% & 21.7\\% \\\\ \\hline MathPile & 16.8\\% & 16.4\\% \\\\ ArXiv-RedPajama & 14.8\\% & 11.9\\% \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 9: | 상이한 arXiv 말뭉치에 대한 수학 훈련의 효과, 기본 모델은 DeepSeek-Coder-Base-v1.5 7B이다. 우리는 이사벨에서 비공식적으로 공식적으로 증명하는 것을 평가한다.\n' +
+      '\n' +
+      '휴리스틱 규칙, 그 중 85% 이상이 과학적 arXiv 논문이며;\n' +
+      '**ArXiv-RedPajama**(컴퓨터, 2023): 프리앰블, 코멘트, 매크로 및 서지가 제거된 arXiv LaTeX 파일의 전체는 총 28.0B 토큰이다.\n' +
+      '\n' +
+      '실험에서는 각 arXiv 코퍼스에서 150B 토큰에 대해 DeepSeek-LLM 1.3B와 40B 토큰에 대해 DeepSeek-Coder-Base-v1.5 7B를 별도로 훈련한다. ArXiv 논문은 수학적 추론 향상에 효과가 없는 것으로 보인다. ArXiv 전용 말뭉치로 훈련될 때 두 모델 모두 이 연구에 사용된 다양한 복잡성의 다양한 수학적 벤치마크에서 주목할 만한 개선이나 악화도 나타내지 않는다. 이러한 벤치마크에는 GSM8K 및 MATH와 같은 정량적 추론 데이터 세트(표 8), MMLU-STEM과 같은 객관식 과제(표 8), 미니F2F와 같은 형식 수학(표 9)이 포함된다.\n' +
+      '\n' +
+      '그러나, 이 결론은 그 한계를 가지고 있으며, 곧이곧대로 받아들여져야 한다 우리는 아직 공부하지 않았다.\n' +
+      '\n' +
+      '* arXiv 토큰이 공식 진술이나 증명을 자신의 비공식 버전으로 변환하는 정리의 비형식화 등 본 연구에 포함되지 않은 특정 수학 관련 과제에 미치는 영향;\n' +
+      '* 다른 유형의 데이터와 결합될 때 arXiv 토큰의 효과;\n' +
+      '* arXiv 논문의 이점이 더 큰 모델 규모로 나타날지 여부.\n' +
+      '\n' +
+      '따라서 향후 연구를 위해 남겨두는 추가 탐구가 필요하다.\n' +
+      '\n' +
+      '강화학습의 통찰력\n' +
+      '\n' +
+      '통합패러다임에 대한 5.2.1\n' +
+      '\n' +
+      '이 절에서는 SFT, RFT, DPO, PPO, GRPO와 같은 다양한 훈련 방법을 분석하기 위한 통합 패러다임을 제공하고 통합 패러다임의 요인을 탐색하기 위한 실험을 추가로 수행한다. 일반적으로, 트레이닝 방법의 파라미터 \\(\\theta\\)에 대한 그래디언트는 다음과 같이 기록될 수 있다:\n' +
+      '\n' +
+      '[\\nabla_{\\theta}\\mathcal{J}_{\\mathcal{A}(\\theta)=\\mathbb{E}[\\nabla_{\\theta}}_{\\text{Data Source}}]\\left(\\frac{1}{|o|}\\sum_{t=1}^{|o|}\\underbrace{GC_{\\mathcal{A}(q,o,t,\\pi_{rf}}_{Gradient Coefficient}\\nabla_{\\theta}\\log\\pi_{\\theta}(o_{t}|q,o_{<t})\\right). \\tag{5}\\um_{t=1}^{|o|}\\um_{t=1}^{|o|}\\underbrace{GC_{\\mathcal{A}(q,o,t,\\pi_{rf}}_{gradient Coefficient}\\nabla_{\\theta}\\log\\pi_{\\theta}(o_{t}|q,o_{\n' +
+      '\n' +
+      '1) 훈련 데이터를 결정하는 _Data Source_\\(\\mathcal{D}\\)와, 2) 훈련 보상 신호의 소스인 _Reward Function_\\(\\pi_{rf}\\)과, 3) 훈련 데이터와 보상 신호를 데이터에 대한 패널티 또는 보강의 크기를 결정하는 Gradient 계수 \\(GC\\)로 처리하는 _Algorithm_\\(\\mathcal{A}\\)의 세 가지 핵심 요소가 존재한다. 이러한 통일된 패러다임을 기반으로 몇 가지 대표적인 방법을 분석한다.\n' +
+      '\n' +
+      '***Supervised Fine-tuning(SFT)**: SFT Fine-tunes prerained model on human selected SFT data.\n' +
+      '* ** 거부 샘플링 미세 조정(RFT)**: RFT는 SFT 질문들에 기초하여 SFT 모델로부터 샘플링된 필터링된 출력들 상에서 SFT 모델을 추가로 미세 조정한다. RFT는 답변의 정확성에 따라 출력을 필터링합니다.\n' +
+      '* ** 직접 선호도 최적화(DPO)**: DPO는 쌍별 DPO 손실을 사용하여 SFT 모델에서 샘플링된 증강 출력에서 SFT 모델을 미세 조정함으로써 SFT 모델을 추가로 정제한다.\n' +
+      '***온라인 거부 샘플링 미세 조정(Online RFT)**: RFT와 달리 온라인 RFT는 SFT 모델을 사용하여 정책 모델을 시작하고 실시간 정책 모델에서 샘플링된 증강 출력으로 미세 조정함으로써 이를 개선한다.\n' +
+      '\n' +
+      '***PPO/GRPO**: PPO/GRPO는 SFT 모델을 이용하여 정책 모델을 초기화하고 실시간 정책 모델에서 샘플링된 출력으로 강화한다.\n' +
+      '\n' +
+      '이러한 방법의 구성 요소를 표 10에 요약하였다. 보다 상세한 도출 과정은 부록 A.1을 참조하기 바란다.\n' +
+      '\n' +
+      '데이터 소스에 대한 관찰은 데이터 소스를 온라인 샘플링과 오프라인 샘플링의 두 가지 범주로 나눈다. 온라인 샘플링은 훈련 데이터가 실시간 훈련 정책 모델의 탐색 결과로부터 나온 것임을 나타내고, 오프라인 샘플링은 훈련 데이터가 초기 SFT 모델의 샘플링 결과로부터 나온 것임을 나타낸다. RFT와 DPO는 오프라인 스타일을 따르고, Online RFT와 GRPO는 온라인 스타일을 따른다.\n' +
+      '\n' +
+      '그림 5에서 볼 수 있듯이 온라인 RFT가 두 벤치마크에서 RFT를 크게 능가한다는 것을 알 수 있다. 구체적으로 온라인 RFT는 교육 초기에는 RFT에 버금가지만, 후기에는 절대적 우위를 점하여 온라인 교육의 우수성을 입증하고 있다. 이는 초기 단계에서와 같이 행위자와 SFT 모델이 매우 유사하며 샘플링된 데이터는 사소한 차이만 드러낸다. 그러나 후기에는 배우에서 샘플링한 데이터가 더 큰 차이를 보일 것이며 실시간 데이터 샘플링\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c} \\hline \\hline\n' +
+      '**Methods** & **Data Source** & **Reward Function** & **Gradient Coefficient** \\\\ \\hline SFT & \\(q,o\\sim P_{sft}(Q,O)\\) & - & \\(1\\) \\\\ \\hline RFT & \\(q\\sim P_{sft}(Q)\\), \\(o\\sim\\pi_{sft}(O|q)\\) & Rule & Equation 10 \\\\ DPO & \\(q\\sim P_{sft}(Q)\\), \\(o^{+},o^{-}\\sim\\pi_{sft}(O|q)\\) & Rule & Equation 14 \\\\ \\hline Online RFT & \\(q\\sim P_{sft}(Q)\\), \\(o\\sim\\pi_{\\theta}(O|q)\\) & Rule & Equation 10 \\\\ PPO & \\(q\\sim P_{sft}(Q)\\), \\(o\\sim\\pi_{\\theta}(O|q)\\) & Model & Equation 18 \\\\ GRPO & \\(q\\sim P_{sft}(Q)\\), \\(\\{o_{i}\\}_{i=1}^{G}\\sim\\pi_{\\theta}(O|q)\\) & Model & Equation 21 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 10: 상이한 방법의 데이터 소스 및 구배 계수. \\ (P_{sft}\\)는 지도 미세 조정 데이터 세트의 데이터 분포를 나타낸다. \\ (\\pi_{\\theta_{sft}\\)와 \\(\\pi_{\\theta}\\)는 각각 온라인 교육 과정에서 지도된 미세 조정 모델과 실시간 정책 모델을 나타낸다.\n' +
+      '\n' +
+      '그림 5: 두 벤치마크에서 다양한 방법을 사용하여 추가로 훈련된 DeepSeekMath-Instruct 1.3B 모델의 성능.\n' +
+      '\n' +
+      '더 큰 이점을 제공할 것입니다.\n' +
+      '\n' +
+      'Gradient Coefficient에 대한 관찰 알고리즘은 보상 신호를 Gradient coefficient로 처리하여 모델 파라미터를 갱신한다. 우리는 실험에서 보상함수를 \'규칙\'과 \'모델\'로 나눈다. 규칙은 답변의 정확성에 기초하여 응답의 품질을 판단하는 것을 의미하며, Model은 각 응답에 점수를 매기기 위해 보상 모델을 훈련하는 것을 의미한다. 보상 모델의 학습 데이터는 규칙 판단에 기초한다. 수학식 10 및 21은 GRPO와 온라인 RFT 사이의 주요 차이를 강조한다: GRPO는 보상 모델에 의해 제공되는 보상 값에 기초하여 그 구배 계수를 고유하게 조정한다. 이는 응답의 다양한 크기에 따라 차등 강화 및 불이익을 허용한다. 대조적으로, 온라인 RFT는 이러한 특징이 결여되어 있다; 그것은 오답을 처벌하지 않고 동일한 강도의 정답으로 모든 응답을 균일하게 강화한다.\n' +
+      '\n' +
+      '그림 5에서 알 수 있듯이 GRPO는 온라인 RFT를 능가하여 양수 및 음수 기울기 계수를 변경하는 효율성을 강조한다. 또한 GRPO+PS는 GRPO+OS에 비해 우수한 성능을 보여 세립, 스텝 인식 기울기 계수를 사용할 때의 이점을 나타낸다. 또한 반복 RL을 탐색하고 실험에서 두 번의 반복을 수행한다. 그림 6에서 볼 수 있듯이 반복 RL이 특히 첫 번째 반복에서 성능을 크게 향상시킨다는 것을 알 수 있다.\n' +
+      '\n' +
+      '#### 5.2.2 왜 RL이 작동합니까?\n' +
+      '\n' +
+      '본 논문에서는 명령어 튜닝 데이터의 서브세트를 기반으로 강화 학습을 수행하고, 명령어 튜닝 모델을 통해 상당한 성능 향상을 달성한다. 강화 학습이 작동하는 이유를 더 설명합니다. 우리는 두 벤치마크에서 Instruct 및 RL 모델의 Pass@K 및 Maj@K 정확도를 평가한다. 그림 7과 같이 RL은 Maj@K의 성능을 향상시키지만 Pass@K는 향상시키지 않는다. 이러한 결과는 RL이 출력 분포를 보다 강력하게 렌더링함으로써 모델의 전체 성능을 향상시킨다는 것을 나타낸다. 즉, **it은 기본 능력의 향상보다는 TopK의 올바른 응답을 높이는 것에 기인한 것으로 보인다.**와 유사하게, (Wang et al., 2023a)는 SFT 모델 내의 추론 태스크에서 오정렬 문제를 식별하여 추론이 더 강력하다는 것을 보여준다.\n' +
+      '\n' +
+      '그림 6: 두 벤치마크에서 DeepSeekMath-Instruct 7B를 사용한 반복 강화 학습의 성능.\n' +
+      '\n' +
+      'SFT 모델의 성능은 일련의 선호도 정렬 전략을 통해 향상될 수 있다(Song et al., 2023; Wang et al., 2023; Yuan et al., 2023b).\n' +
+      '\n' +
+      '#### 5.2.3 보다 효과적인 RL을 달성하는 방법\n' +
+      '\n' +
+      '우리는 수학적 추론 과제에서 RL이 꽤 잘 작동한다는 것을 증명한다. 또한 다양한 대표 훈련 방법을 이해할 수 있는 통일된 패러다임을 제공합니다. 이 패러다임 내에서 모든 방법은 직접 또는 단순화된 RL 기술로 개념화된다. 수학식 5에 요약된 바와 같이, 데이터 소스, 알고리즘 및 보상 함수의 세 가지 핵심 구성 요소가 존재한다. 우리는 세 가지 구성 요소에 대한 몇 가지 잠재적인 미래 방향을 제공한다.\n' +
+      '\n' +
+      '데이터 소스 데이터 소스는 모든 훈련 방법의 원료이다. RL의 맥락에서 우리는 특히 데이터 소스를 정책 모델에서 샘플링된 출력과 함께 레이블이 지정되지 않은 질문으로 지칭한다. 이 논문에서는 명령어 튜닝 단계의 질문과 순진한 핵 샘플링만을 사용하여 출력을 샘플링한다. 우리는 이것이 우리의 RL 파이프라인이 Maj@K 성능만 향상시키는 잠재적인 이유라고 생각한다. 앞으로 트리 검색 방법에 기반한 것과 같이 **고급 샘플링(디코딩) 전략**과 함께 배포 외 질문 프롬프트에 대한 RL 파이프라인을 탐색할 것이다(Yao et al., 2023). 또한, 정책 모델의 탐색 효율을 결정하는 **효율적 추론 기법**(Kwon et al., 2023; Leviathan et al., 2023; Xia et al., 2023, 2024)도 매우 중요한 역할을 한다.\n' +
+      '\n' +
+      '알고리즘 알고리즘은 데이터 및 보상 신호를 구배 계수로 처리하여 모델 파라미터를 업데이트한다. 수학식 5에 기초하여, 어느 정도, 모든 방법들은 이제 보상 함수의 신호를 완전히 **TRUST**하여 특정 토큰의 조건부 확률을 증가시키거나 감소시킨다. 그러나, 특히 극도로 복잡한 작업에서 보상 신호가 항상 신뢰할 수 있도록 보장하는 것은 불가능하다. 예를 들어, 잘 훈련된 주석자들에 의해 주의 깊게 주석 처리된 PRM800K 데이터세트들(Lightman et al., 2023)조차도 여전히 약 20%의 부정확한 주석 7을 포함하고 있다. 이를 위해, 우리는 강화 학습 알고리즘을 탐색할 것이다.\n' +
+      '\n' +
+      '도 7: GSM8K 및 MATH(온도 0.7) 상의 SFT 및 RL DeepSeeKMath 7B의 Maj@K 및 Pass@K. RL은 Maj@K를 향상시키지만 Pass@K는 향상시키지 않는다는 점에 주목하였다.\n' +
+      '\n' +
+      '그것은 잡음 보상 신호들에 대해 강건하다. 우리는 이러한 **WEAK-TO-STRONG**(Burns et al., 2023) 정렬 방법이 학습 알고리즘에 근본적인 변화를 가져올 것이라고 믿는다.\n' +
+      '\n' +
+      '보상 함수 보상 함수는 트레이닝 신호의 소스이다. RL에서 보상 함수는 일반적으로 신경 보상 모델이다. 우리는 보상 모델에 대한 세 가지 중요한 방향이 있다고 생각한다: 1) 보상 모델의 일반화 능력을 향상시키는 방법.** 보상 모델은 분배 외 질문과 고급 디코딩 출력을 처리하기 위해 효과적으로 일반화되어야 한다; 그렇지 않으면 강화 학습은 기본 능력을 향상시키기보다는 LLM의 분배를 안정화시킬 수 있다; 2) 강화 학습은 보상 모델의 불확실성을 반영하는 방법.** 불확실성은 잠재적으로 약한 보상 모델과 약한-강한 학습 알고리즘 사이의 연결 브리지 역할을 할 수 있다; 3) 추론 프로세스를 위한 세밀한 훈련 신호를 제공할 수 있는 고품질 프로세스 보상 모델**을 효율적으로 구축하는 방법.\n' +
+      '\n' +
+      '##6 결론, 한계 및 향후 작업\n' +
+      '\n' +
+      '경쟁 수준의 MATH 벤치마크에서 모든 오픈소스 모델을 능가하고 닫힌 모델의 성능에 접근하는 DeepSeekMath를 제시한다. DeepSeekMath는 DeepSeek-Coder-v1.5 7B로 초기화되고 500B 토큰에 대한 지속적인 훈련을 거치며, 훈련 데이터의 중요한 구성 요소는 Common Crawl에서 조달된 120B 수학 토큰이다. 우리의 광범위한 절제 연구는 웹 페이지가 고품질 수학적 데이터에 상당한 잠재력을 제공하는 반면 arXiv는 우리가 예상한 것만큼 유익하지 않을 수 있음을 보여준다. 우리는 메모리 소모가 적은 수학적 추론 능력을 특히 향상시킬 수 있는 PPO(Proximal Policy Optimization)의 변형인 GRPO(Group Relative Policy Optimization)를 소개한다. 실험 결과는 DeepSeekMath-Instruct 7B가 벤치마크에서 높은 점수에 도달했더라도 GRPO가 효과적이라는 것을 보여준다. 또한 일련의 방법을 이해하고 보다 효과적인 강화 학습을 위한 몇 가지 잠재적인 방향을 요약할 수 있는 통일된 패러다임을 제공한다.\n' +
+      '\n' +
+      'DeepSeekMath는 정량적 추론 벤치마크에서 인상적인 점수를 얻지만 기하학 및 정리 증명에 대한 능력은 닫힌 모델보다 상대적으로 약하다. 예를 들어, 드라이 런에서 모델은 삼각형 및 타원과 관련된 문제를 처리할 수 없으며, 이는 사전 훈련 및 미세 조정에서 데이터 선택 편향을 나타낼 수 있다. 또한, 모델 척도에 의해 제한된 DeepSeekMath는 소수 샷 능력에서 GPT-4보다 더 나쁘다. GPT-4는 적은 샷 입력으로 성능을 향상시킬 수 있는 반면 DeepSeekMath는 제로 샷과 적은 샷 평가에서 유사한 성능을 보여준다. 향후, 우리는 보다 고품질의 사전 훈련된 코퍼스를 구성하기 위해 엔지니어링된 데이터 선택 파이프라인을 더욱 개선할 것이다. 또한 LLM의 보다 효과적인 강화 학습을 위한 잠재적 방향(섹션 5.2.3)을 탐색할 것이다.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* Anil et al.(2023) R. 안성일 보르지우 Wu, J. Alayrac, J. Yu, R Soricut, J. Schalkwyk, A. M. Dai, A. Hauth, K. 밀리칸, D. 실버, S. 페트로프 Johnson, I. Antonoglou, J. Schrittwieser, A. Glaese, J. Chen, E. Pitler, T. P. Lillicrap, A. Lazaridou, O. 피라트, J 몰로이, M. 이사드, P. R. 바함, T. Hennigan, B. Lee, F. Viola, M. 레이놀즈 서록 도허티, E 콜린스, C. 마이어, E. 러더포드, E. 모레이라, K. 아엽만 고엘, 지 터커, E. 피케라스, M. 크리쿤인바 사비노프, I. 대니헬카, B. 로엘로프, A. 화이트, A. 안드레아센, T. 본글렌 야가티 카제미 곤잘레스 Khalman, J. Sygnowski, and et al. Gemini: A family of highly capable multimodal models. _ CoRR_, abs/2312.11805, 2023. doi: 10.48550/ARXIV.2312.11805. URL[https://doi.org/10.48550/arXiv.2312.11805](https://doi.org/10.48550/arXiv.2312.11805).\n' +
+      '* Austin et al. (2021) J. Austin, A. Odena, M. 나명 보즈마, H. 미칼레우스키, D. 도한, E. 장, C. 카이, M. 테리, Q Le, et al. Program synthesis with large language models. _ arXiv preprint arXiv:2108.07732_, 2021.\n' +
+      '* Azerbayev et al.(2023) Z. Azerbayev H. Schoelkopf, K 패스터, 산토스, S. 맥클레어, A. Q. 장, J. 덩, S. 바이더맨과 S 웰렉 Llemma: 수학을 위한 개방형 언어 모델. _ arXiv preprint arXiv:2310.10631_, 2023.\n' +
+      '* Bai et al.(2023) J. Bai, S. 배영 추주영 최경 젠장, X 등영 판원 지영 Han, F. Huang, et al. Qwen technical report. _ arXiv preprint arXiv:2309.16609_, 2023.\n' +
+      '* Burns et al. (2023) C. Burns, P. Izmailov, J. H. Kirchner, B. Baker, L. 가오락 애쉔브레너 천아에코페 Joglekar, J. Leike, et al. Weak-to-strong generalization: Eliciting strong capabilities with weak supervision. _ arXiv preprint arXiv:2312.09390_, 2023.\n' +
+      '* ChatGLM(2023) ChatGLM3 Team. Chatglm3 시리즈: Open bilingual chat llms, 2023. URL[https://github.com/THUDM/ChatGLM3](https://github.com/THUDM/ChatGLM3).\n' +
+      '* Chen et al.(2021) M. 천진욱 Wuan, H. P. de Oliveira Pinto, J. Kaplan, H. Edwards, Y. 부르다 Joseph, G. Brockman, A. Ray, R. 푸리, G. 크루거, M. 페트로프, H. 클라프, G. 사스트리, P. 미슈킨, B. 찬, S. 회색남 라이더 파블로프 A. 파워 L. 카이저 Bavarian, C. Winter, P. Tillet, F. P. Such, D. Cummings, M. Plappert, F. Chantzis, E. Vannes, A. Herbert-Voss, W. H. Guss, A. Nichol, A. Paino, N. Tezak, J. Tang, I. Babuschkin, S 발라지 제인원 손더스, C. 헤세, A. N. Carr, J. Leike, J. Achiam, V. Misra, E. Morikawa, A. Radford, M. 나이트민 황폐화 무라티 Mayer, P. Welinder, B. McGrew, D. Amodei, S. McCandlish, I. Sutskever, W. 자렘바 코드에서 훈련된 대규모 언어 모델 평가. _ CoRR_, abs/2107.03374, 2021. URL[https://arxiv.org/abs/2107.03374](https://arxiv.org/abs/2107.03374).\n' +
+      '* Chen et al.(2022) W. 천진 마진 왕과 W. W. 코헨 프롬프트하는 생각의 프로그램: 수치 추론 작업을 위한 추론으로부터 계산의 분산. _ CoRR_, abs/2211.12588, 2022. doi: 10.48550/ARXIV.2211.12588. URL[https://doi.org/10.48550/arXiv.2211.12588](https://doi.org/10.48550/arXiv.2211.12588).\n' +
+      '* Cobbe et al.(2021) K. 코비, V 고사라주 바이에른 M. 천현준 카이저 플래퍼트, J 트워렉, J 힐튼, R. Nakano, et al. training verifiers to solve math word problems. _ arXiv preprint arXiv:2110.14168_, 2021.\n' +
+      '* 컴퓨터(2023) T. 컴퓨터 Redpajama: 10월에 대규모 언어 모델을 훈련하기 위한 공개 데이터세트. 2023. URL[https://github.com/togethercomputer/RedPajama-Data](https://github.com/togethercomputer/RedPajama-Data)\n' +
+      '* DeepSeek-AI(2024) DeepSeek-AI. Deepseek LLM: 장기주의를 가진 오픈 소스 언어 모델을 스케일링하는 것 _ CoRR_, abs/2401.02954, 2024. doi: 10.48550/ARXIV.2401.02954. URL[https://doi.org/10.48550/arXiv.2401.02954](https://doi.org/10.48550/arXiv.2401.02954)\n' +
+      '\n' +
+      'Z 두영 기안 류민 딩종주 Yang, and J. Tang(2022)GLM: general language model preraining with autoregressive blank infilling. In Proceedings of the 60th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers), pp. 320-335. Cited by: SS1.\n' +
+      '* L. 가오아마단 저우우 알론유 Yang, J. Callan, and G. Neubig(2023)PAL: program-aided language models. In International Conference on Machine Learning, ICML 2023, Honolulu, Hawaii, USA, pp. 10764-10799. External Links: Link, Document Cited by: SS1.\n' +
+      '*Z. 고지 샤오영 공영 심영 양민 황남 두안, W. Chen(2023)Tora: 수학적 문제 해결을 위한 도구 통합 추론 에이전트. CoRRabs/2309.17452. External Links: Link, 2309.17452 Cited by: SS1.\n' +
+      '* 코드 인텔리전스의 상승. 외부 링크: 링크, 인용된 2409.17452: SS1.\n' +
+      '* D. 헨드릭스, C. 번즈, S. 카사루, A. 주, M. Mazeika, D. Song and J. Steinhardt (2020)Measuring massive multitask language understanding. ArXiv:2009.03300. 인용: SS1.\n' +
+      '* D. 헨드릭스, C. 번즈, S. 카사루, A. 아로라, S. Basart, E. Tang, D. Song, and J. Steinhardt (2021)Measuring mathematical problem solving with the math dataset. ArXiv:2103.03874. 인용: SS1.\n' +
+      '* H.-flyer(2023)Hail-llm: 2023. URL[https://www.high-flyer.c/n/en/blog/hai-llm](https://www.high-flyer.c/n/en/blog/hai-llm). 인용: SS1.\n' +
+      '* A. Q. 장성 Welleck J. P. Zhou, W. 이종우 재닉, T 라크루아 Wu 및 G. Lample(2022) 초안, 스케치 및 증명: 공식 정리 프로버를 비공식 증명으로 안내합니다. ArXiv:2210.12283. 인용: SS1.\n' +
+      '* A. Q. Jiang, A. Sablayrolles, A. Mensch, C. Bamford, D. S. Chaplot, D. d. l. Casas, F. Bressand, G. Lengyel, G. Lample, L. Saulnier, et al.(2023)Mistral 7b. ArXiv:2310.06825. 인용: SS1.\n' +
+      '* A. 줄린, E. 그레이브, P. 보야노스키, M. 더즈, H. 제구, T. Mikolov(2016)FastText: zip: 압축 텍스트 분류 모델. ArXiv:1612.03651. 인용: SS1.\n' +
+      '*W. 권주영 이성 장영 성룡 Zheng, C. H. Yu, J. E. Gonzalez, H. Zhang, and I. Stoica (2023) Efficient memory management for large language model serving with pagedattention. In Proceedings of the ACM SIGOPS 29th Symposium on Operating Systems Principles, Cited by: SS1.\n' +
+      '*Y. 레비아단 칼만과 Y Matias(2023) 추측 디코딩을 통한 트랜스포머로부터의 빠른 추론. In International Conference on Machine Learning, pp. 19274-19286. Cited by: SS1.\n' +
+      '* A. Lewkowycz, A. Andreassen, D. Dohan, E. Dyer, H. Michalewski, V. 라마세시, A. 슬론, C. Anil, I. Schlag, T. Gutman-Solo, et al.(2022a)Solving quantitative reasoning problems with language models. The Advances in Neural Information Processing Systems35, pp. 3843-3857. Cited by: SS1.\n' +
+      '*A. Lewkowycz, A. Andreassen, D. Dohan, E. Dyer, H. Michalewski, V. V. Ramaseh, A. Slone, C. Anil, I. Schlag, T. 구트만 솔로 Wu, B. Neyshabur, G. Gur-Ari, V. 미스라 언어 모델로 정량적 추론 문제를 해결합니다. 인석 고예조 모하메드, A. 아가왈, D. 벨그레이브, K. Cho, and A. Oh, editorators, _Advances in Neural Information Processing Systems 35: Annual Conference on Neural Information Processing Systems 2022, NeurIPS 2022, New Orleans, USA, November 28-12월 9일, 2022, 2022b. URL[http://papers.nips.cc/paper_files/paper/2022/hash/18abbeef8cfe9203fdf9053c9c4fe191-Abstract-Conference.html](http://papers.nips.cc/paper_files/paper/2022/hash/18abbeef8cfe9203fdf9053c9c4fe191-Abstract-Conference.html)\n' +
+      '* Lightman et al. [2023] H. Lightman, V. Kosaraju, Y. Burda, H. Edwards, B. Baker, T. Lee, J. Leike, J. Schulman, I. Sutskever, and K. Cobbe. Let\'s verify step by step. _arXiv preprint arXiv:2305.20050_, 2023.\n' +
+      '* Loshchilov and Hutter[2017] I. Loshchilov and F. Hutter. Decoupled weight decay regularization. _ arXiv preprint arXiv:1711.05101_, 2017.\n' +
+      '* Luo et al. [2023] H. Luo, Q. Sun, C. Xu, P. Zhao, J. Lou, C. Tao, X. Geng, Q. Lin, S. Chen, and D. Zhang. Wizardmath: Empowering mathematical reasoning for large language models via reinforced evol-instruct. _arXiv preprint arXiv:2308.09583_, 2023.\n' +
+      '* Mishra et al. [2022] S. Mishra, M. Finlayson, P. Lu, L. Tang, S. Welleck, C. Baral, T. Rajpurohit, O. Tafjord, A. Sabharwal, P. Clark, and A. Kalyan. LILA: A unified benchmark for mathematical reasoning. In Y. Goldberg, Z. Kozareva, and Y. Zhang, editors, _Proceedings of the 2022 Conference on Empirical Methods in Natural Language Processing, EMNLP 2022, Abu Dhabi, United Arab Emirates, December 7-11, 2022,_ pages 5807-5832. Association for Computational Linguistics, 2022. doi: 10.18653/V1/2022.EMNLP-MAIN.392. URL [https://doi.org/10.18653/v1/2022.emnlp-main.392](https://doi.org/10.18653/v1/2022.emnlp-main.392).\n' +
+      '* OpenAI[2023] OpenAI. GPT4 기술 보고서입니다 arXiv preprint arXiv:2303.08774_, 2023.\n' +
+      '* Ouyang et al. [2022] L. Ouyang, J. Wu, X. Jiang, D. Almeida, C. Wainwright, P. Mishkin, C. Zhang, S. Agarwal, K. Slama, A. Ray, et al. Training language models to follow instructions with human feedback. _Advances in Neural Information Processing Systems_, 35:27730-27744, 2022.\n' +
+      '* Paster et al. [2023] K. Paster, M. D. Santos, Z. Azerbayev, and J. Ba. Openwebmath: An open dataset of high-quality mathematical web text. _CoRR_, abs/2310.06786, 2023. doi: 10.48550/ARXIV.2310.06786. URL [https://doi.org/10.48550/arXiv.2310.06786](https://doi.org/10.48550/arXiv.2310.06786).\n' +
+      '* Paulson[2010] L. C. Paulson. 자동 정리 프로버와 대화형 정리 프로버 사이의 실용적인 연결고리인 큰 해머에 대한 3년간의 경험. S. R. A. 슈미트 Schulz, and B. Konev, Editors, _Proceedings of the 2nd Workshop on Practical Aspects of Automated Reasoning, PAAR-2010, Edinburgh, Scotland, UK, July 14, 2010,_ volume 9 of _EPiC Series in Computing_, pages 1-10. EasyChair, 2010. Doi: 10.29007/TNFD. URL[https://doi.org/10.29007/tnfd](https://doi.org/10.29007/tnfd).\n' +
+      '* Polu and Sutskever [2020] S. 폴루와 나, 서츠키버 자동정리 증명용 생성언어 모델링. _ CoRR_, abs/2009.03393, 2020. URL[https://arxiv.org/abs/2009.03393](https://arxiv.org/abs/2009.03393).\n' +
+      '* Rafailov et al. [2023] R. Rafailov, A. Sharma, E. Mitchell, S. Ermon, C. D. Manning, and C. Finn. Direct preference optimization: Your language model is secretly a reward model. 2023.\n' +
+      '* Schulman[2020] J. Schulman. 근사 kl 발산, 2020. URL[http://joschu.net/blog/kl-approx.html](http://joschu.net/blog/kl-approx.html).\n' +
+      '* Schulman et al. [2015] J. Schulman, P. Moritz, S. Levine, M. Jordan, and P. Abbeel. High-dimensional continuous control using generalized advantage estimation. _arXiv preprint arXiv:1506.02438_, 2015.\n' +
+      '* Schulman et al. [2016]J. 슐만, F. 월스키, P. 다리왈, A. 래드포드, O. 클리모프 근위 정책 최적화 알고리즘. _ ArXiv:1707.06347_, 2017.\n' +
+      '* Shi et al.(2023) F. Shi, M. 수건 프리태그, X. 왕승 스리바츠 정영우 테이승 Ruder, D. Zhou, D. Das, J. Wei. 언어 모델은 다국어 생각의 연쇄 추론자이다. _The Eleventh International Conference on Learning Representations, ICLR 2023, Kigali, Rwanda, May 1-5, 2023_. OpenReview.net, 2023. URL[https://openreview.net/pdf?id=fR3wGCK-IXp](https://openreview.net/pdf?id=fR3wGCK-IXp).\n' +
+      '* Song et al. (2023) F. Song, B. Yu, M. 이현우 리호왕 인간 정렬을 위한 선호 순위 최적화 _ arXiv preprint arXiv:2306.17492_, 2023.\n' +
+      '* Suzgun et al.(2022) M. (주)수건 비늘, N. S찰리 게르만 Tay, H. W. Chung, A. Chowdhery, Q. V. Le, E. H. Chi, D. Zhou, et al. Challengeing big-bench tasks and whether the chain-of-thought can solve them _ _ arXiv preprint arXiv:2210.09261_, 2022.\n' +
+      '* Tao(2023) T. 타오 변화를 포용하고 기대를 재설정하는, 2023. URL[https://unlocked.microsoft.com/ai-anthology/terence-tao/](https://unlocked.microsoft.com/ai-anthology/terence-tao/)\n' +
+      '* Touvron et al.(2023) H. Touvron, L. 마틴기 스톤, P. 알버트, A. 알마하일리, Y. 바배이 바슐리코프 바트라, P. 바가바, S. 보살, D. 비켈, L. Blecher, C. Canton-Ferrer, M 첸, G. 쿠쿠럴, D. 에시오부, J. 페르난데스, J. 푸, W. Fu, B. Fuller, C. Gao, V. 고스와미 고열 A. 하트쇼른, S. 호세이니 허현인 카다스, V 커케즈 Khabsa, I. Kloumann, A. Korenev, P. S. Koura, M. 라초, T. 라브릴, J. 리, D. 리스코비치, Y. 류영 마오진 마티넷 미하일로프, P. 미쉬라, I. 몰리보그, Y. 니, A. 폴튼, J. 레이젠슈타인, R. 룽타 살라디, A. Schelten, R. 실바, E. M. 스미스, R. Subramanian, X. E. Tan, B. Tang, R. Taylor, A. Williams, J. X. Kuan, P. Xu, Z. 얀인자로프 장아환 캄바두르 나랑 A. 로드리게스, R. 스톱닉 에두노프와 T 사이알롬 라마 2: 오픈 파운데이션 및 미세 조정 채팅 모델들_ CoRR_, abs/2307.09288, 2023. doi: 10.48550/arXiv.2307.09288. URL[https://doi.org/10.48550/arXiv.2307.09288](https://doi.org/10.48550/arXiv.2307.09288).\n' +
+      '* Trinh et al.(2024) T. H. Trinh, Y. Wu, Q. V. Le, H. He, and T. 루옹 인간의 시연이 없는 올림피아드 기하학 풀기 Nature_, 625(7995):476-482, 2024.\n' +
+      '* Wang et al. (2023a) P. Wang, L. 이림 첸, F. Song, B. Lin, Y. 조태 류, 지 수이 대용량 언어 모델을 선형으로 더 나은 추론기로 만들기 _ arXiv preprint arXiv:2309.02144_, 2023a.\n' +
+      '* Wang et al. (2023b) P. Wang, L. 이종욱 샤오 서대대 이동천 우, Z 수이 수학 목자: 인간의 주석이 없는 llms를 단계별로 검증하고 강화합니다. _ CoRR_, abs/2312.08935, 2023b.\n' +
+      '* mathpile: A billion-token-scale pretraining corpus for math. _ CoRR_, abs/2312.17120, 2023c. doi: 10.48550/ARXIV.2312.17120. URL[https://doi.org/10.48550/arXiv.2312.17120](https://doi.org/10.48550/arXiv.2312.17120).\n' +
+      '* Wei et al.(2022) J. Wei, X. 왕동우르만 Bosma, B. Ichter, F. Xia, E. H. Chi, Q. V. Le, and D. Zhou. 생각 사슬은 큰 언어 모델에서 추론을 이끌어낸다. _NeurIPS_, 2022. URL [http://papers.nips.cc/paper_files/paper/2022/hash/9d5609613524ecf4f15af0f7b31abca4-Abstract-Conference.html](http://papers.nips.cc/paper_files/paper/2022/hash/9d5609613524ecf4f15af0f7b31abca4-Abstract-Conference.html)에서,\n' +
+      '* Wei et al.(2023) T. 위준완 류승 동, 왕비 수학: 당신의 언어 모델이 중국 초등학교 수학 시험을 통과할 수 있나요? 2023년.\n' +
+      '* Wang et al. (2023)M. Wenzel, L. C. Paulson and T. 닙코프 이사벨의 구조 O.A.모하메드, C.A.무뇨즈, S. Tahar, editors, _theorem Proving in Higher Order Logics, 21st International Conference_, TPHOLs 2008, Montreal, Canada, August 18-21, 2008. Proceedings, volume 5170 of _Lecture Notes in Computer Science_, pages 33-38. Springer, 2008. Doi: 10.1007/978-3-540-71067-7_7. URL[https://doi.org/10.1007/978-3-540-71067-7_7](https://doi.org/10.1007/978-3-540-71067-7_7](https://doi.org/10.1007/978-3-540-71067-7_7)\n' +
+      '* Xia et al.(2023) H. Xia, T. 게필왕 -Q. 첸, F. 웨이, Z. 수이 추측 디코딩: seq2seq 생성을 가속화하기 위한 추측 실행을 이용하고 있다. H. Bouamor, J. Pino, K. 발리, 편집자, _Findings of the Association for Computational Linguistics: EMNLP 2023_, pages 3909-3925, Singapore, Dec. 2023. 컴퓨팅 언어학 협회. doi: 10.18653/v1/20 23.findings-emnlp.257. URL[https://aclanthology.org/2023.findings-emnlp.257](https://aclanthology.org/2023.findings-emnlp.257).\n' +
+      '* Xia et al.(2024) H. Xia, Z. 양규 동필왕 이태환 지태 류원 리, Z. 수이 대용량 언어 모델 추론에서의 잠금 해제 효율: 추측 디코딩에 대한 종합적인 조사. _ arXiv preprint arXiv:2401.07851_, 2024.\n' +
+      '* Yao et al.(2023) S. 야오, D. Yu, J. Zhao, I. Shafran, T. L. 그리피스, Y. Cao, K. 나라심한 생각의 나무: 큰 언어 모델을 사용하여 문제를 해결합니다. _ arXiv preprint arXiv:2305.10601_, 2023.\n' +
+      '* Yu et al.(2023) L. 유원 장현시 유영 장재택 Lee, A. Weller, W. 류 메타매스: 큰 언어 모델에 대해 자신의 수학적 질문을 부트스트랩합니다. _ CoRR_, abs/2309.12284, 2023. doi: 10.48550/ARXIV.2309.12284. URL[https://doi.org/10.48550/arXiv.2309.12284](https://doi.org/10.48550/arXiv.2309.12284).\n' +
+      '* Yuan et al.(2023a) Z. Wuan, H. Yuan, C. Li, G. Dong, C. Tan, 및 C. Zhou. 대용량 언어 모델을 이용한 수학적 추론 학습의 관계 확장 arXiv preprint arXiv:2308.01825_, 2023a.\n' +
+      '* Yuan et al.(2023b) Z. 위안현 왕승 황과 F 황 Rrhf: 언어 모델을 눈물 없이 인간의 피드백으로 정렬하기 위한 순위 응답들 _ arXiv preprint arXiv:2304.05302_, 2023b.\n' +
+      '* Yue et al.(2023) X. 우에, 엑스 권기장 후원 황현선 수, W. 첸 매머드: 하이브리드 명령어 튜닝을 통해 수학 일반주의 모델을 구축합니다. _ CoRR_, abs/2309.05653, 2023. doi: 10.48550/ARXIV.2309.05653. URL[https://doi.org/10.48550/arXiv.2309.05653](https://doi.org/10.48550/arXiv.2309.05653).\n' +
+      '* Zheng et al.(2021) K. 정정미한, 그리고 S. 폴루 Minif2f: 정식 올림피아드 수준 수학의 교차 시스템 벤치마크. _ arXiv preprint arXiv:2109.00110_, 2021.\n' +
+      '* Zhong et al.(2023) W. 중락 최영 곽용 량상 류영 왕아현 천, N. 듀안 기초 모델을 평가하기 위한 인간 중심 벤치마크 CoRR_, abs/2304.06364, 2023. doi: 10.48550/arXiv.2304.06364. URL[https://doi.org/10.48550/arXiv.2304.06364](https://doi.org/10.48550/arXiv.2304.06364).\n' +
+      '\n' +
+      '## 부록, 부록\n' +
+      '\n' +
+      '강화학습의### 분석\n' +
+      '\n' +
+      '우리는 SFT, RFT, Online RFT, DPO, PPO, GRPO 등 다양한 방법에 걸쳐 데이터 소스 및 기울기 계수(알고리즘 및 보상 함수)의 상세한 도출을 제공한다.\n' +
+      '\n' +
+      '1.1 감독 미세조정\n' +
+      '\n' +
+      '감독 미세조정의 목적은 다음과 같은 목적을 극대화하는 것이다:\n' +
+      '\n' +
+      '\\mathcal{J}_{\\text{SFT}(\\theta)=\\mathbb{E}\\left[q,o\\sim P_{sft}(Q,O)\\right] \\left(\\frac{1}{|o|}\\sum_{t=1}^{|o|}\\log\\pi_{\\theta}(o_{t}|q,o_{<t})\\right) \\tag{6}\\t.\n' +
+      '\n' +
+      '\\(\\mathcal{J}_{SFT}(\\theta)\\)의 구배는:\n' +
+      '\n' +
+      'J}_{\\text{SFT}=\\mathbb{E}\\left[\\nabla_{\\theta}\\mathcal{J}\\text{SFT}=\\mathbb{E}\\left[q,o\\sim P_{sft}(Q,O) \\right]\\left(\\frac{1}{|o|}\\sum_{t=1}^{|o|}\\nabla_{\\theta}\\log\\pi_{\\theta}(o_{t}|q,o_{<t}\\right)\\tag{7}\\t}\\frac{1}{|o|}\\sum_{t=1}^{|o|}\\nabla_{\\theta}\\log\\pi_{\\theta}(o_{t}|q,o_{<t}\\right)\\tag{1}{|o|}\\sum_{t=1}^{|o|}\\nabla_{\\theta}\\log\\pi_{\\theta}(o_{t}|q,\n' +
+      '\n' +
+      '데이터 소스: SFT에 사용된 데이터 세트입니다. 보상 기능: 이것은 인간의 선택으로 간주될 수 있다. 경사 계수: 항상 1로 설정됩니다.\n' +
+      '\n' +
+      '####a.1.2 거부 샘플링 미세 조정\n' +
+      '\n' +
+      '거부 샘플링 미세 조정 첫 번째는 각 질문에 대해 감독된 미세 조정 LLM에서 여러 출력을 샘플링한 다음 정답으로 샘플링된 출력에서 LLM을 훈련한다. 형식적으로 RFT의 목적은 다음과 같은 목적을 극대화하는 것이다:\n' +
+      '\n' +
+      '\\mathcal{J}_{RFT}(\\theta)=\\mathbb{E}\\left[q\\sim P_{sft}(Q),o\\sim\\pi_{sft}(Q|q) \\right]\\left(\\frac{1}{|o|}\\sum_{t=1}^{|o|}\\mathbb{I}(o)\\log\\pi_{\\theta}(o_{t}| q,o_{<t})\\right)\\tag{8}\\right)\n' +
+      '\n' +
+      '\\(\\mathcal{J}_{RFT}(\\theta)\\)의 구배는:\n' +
+      '\n' +
+      '\\theta)=\\mathbbb{E}\\left[q\\sim P_{sft}(Q),o\\sim\\pi_{sft}(Q|q)\\right]\\left(\\frac{1}{|o|}\\sum_{t=1}^{|o|}\\mathbb{I}(o\\nabla_{\\theta}\\log\\pi_{\\theta}(o_{t}|q,o_{<t}\\right)\\tag{9}\\t}\\t.\n' +
+      '\n' +
+      '데이터 소스: SFT 모델에서 샘플링된 출력을 가진 SFT 데이터 세트의 질문. 보상 함수: 규칙(답이 맞는지 틀렸는지)입니다. 기울기 계수:\n' +
+      '\n' +
+      'bb{I}(o)=\\begin{cases}1&\\text{the answer of o is correct}\\\\0&\\text{the answer of o is incorrect}\\end{cases}\\tag{10}\\text{\n' +
+      '\n' +
+      '####a.1.3 온라인 거부 샘플링 미세 조정\n' +
+      '\n' +
+      'RFT와 온라인 RFT의 유일한 차이점은 온라인 RFT의 출력은 SFT 모델\\(\\pi_{\\theta_{sft}\\)이 아닌 실시간 정책 모델\\(\\pi_{\\theta}\\)에서 샘플링된다는 것이다. 따라서 온라인 RFT의 기울기는 다음과 같다.\n' +
+      '\n' +
+      '\\theta)=\\mathbbb{E}\\left[q\\sim P_{sft}(Q), o\\sim\\pi_{\\theta}(O|q)\\right]\\left(\\frac{1}{|o|}\\sum_{t=1}^{|o|}\\mathbb{I}(o\\nabla_{\\theta}\\log\\pi_{\\theta}(o_{t}|q,o_{<t}\\right)\\tag{11}\\t}\\t.\n' +
+      '\n' +
+      '#### a.1.4 직접 선호도 최적화(DPO)\n' +
+      '\n' +
+      'DPO의 목적은 다음과 같다.\n' +
+      '\n' +
+      '\\mathcal{J}_{DPO}(\\theta)=\\mathbb{E}[q\\sim P_{sft}(Q),o^{+},o^{-}\\sim\\pi_{sft}(Q|q)]\\log\\sigmaBigg{(}\\beta\\frac{1}{|o^{+}|}\\sum_{t=1}^{|o^{+}|}\\log\\frac{\\pi_{\\theta}(o_{ct}^{-}|q,o_{ct}^{-}}}{\\pi_{ref}(o_{ct}^{-}|}}}{\\pi_{t}{|o^{-}|}\n' +
+      '\n' +
+      '\\(\\mathcal{J}_{DPO}(\\theta)\\)의 구배는:\n' +
+      '\n' +
+      'nabla_{\\theta}\\mathcal{J}_{DPO}(\\theta)=\\mathbb{E}[q\\sim P_{sft}(Q),o^{+},o^{-}\\sim\\pi_{sft}(Q|q)]\\Bigg{(}\\frac{1}{|o^{+}|}\\sum_{t=1}^{|o^{+}|}GC_{DPO}(q,o,t)\\nabla_{t}\\log\\pi_{theta}(q,o,t)\\nabla_{t=1}^{|o^{-}|q,o_{ct}^{-}}GC_{DPO}(o_{t}{t=1}^{|o^{-}|\n' +
+      '\n' +
+      '데이터 소스: SFT 모델에서 샘플링된 출력을 가진 SFT 데이터 세트의 질문. 보상함수: 일반적인 영역에서 인간의 선호(수학적 과제에서 \'규칙\'이 될 수 있음) 기울기 계수:\n' +
+      '\n' +
+      '\\beta\\log\\frac{\\pi_{\\theta}(q,o,t)=\\sigma\\left(\\beta\\log\\frac{\\pi_{\\theta}(o_{t}^{-}|q,o_{ct}^{-})}{\\pi_{\\text{ref}(o_{t}^{-}|q,o_{ct}^{-})}-\\beta\\log\\frac{\\pi_{\\theta}(o_{t}^{+}|q,o_{ct}^{+}}{\\pi_{\\text{ref}}(o_{t}^{+}|q,o_{ct}^{+}}}}\\tag{14}\\tag{14}\\tag{14}}}\\beta\\log\\frac{\\pi_{\\theta}(o_{t}^{+}|q,o_{ct}^{+}}}}{\\text{ref}(o_{t}^{+}|q,o_{ct}^{+}\n' +
+      '\n' +
+      '#### a.1.5 PPO(Proximal Policy Optimization)\n' +
+      '\n' +
+      'PPO의 목적은:\n' +
+      '\n' +
+      '\\mathcal{J}_{PPO}(\\theta)=\\mathbb{E}[q\\sim P_{sft}(Q),o\\sim\\pi_{theta_{old}(Q|q)]\\frac{1}{|o|}\\sum_{t=1}^{|o|}\\min\\left[\\frac{\\pi_{\\theta}(o_{t}|q,o_{ct}}{\\pi_{\\theta}(o_{t}|q,o_{ct}}A_{t},\\text{clip}\\left(\\frac{\\pi_{t}|q,o_{ct}}{\\pi_{\\theta}(o_{t}|q,o_{ct}}}{\\pi_{\\theta}(o_{t}|q,o_{ct}}}{\\pi_{t}}(o_{t}|q,o_{ct}}),1-\\varepsilon,1+\\varepsilon\\right}A_{\n' +
+      '\n' +
+      '해석의 단순화를 위해 각 탐사 단계에 따라 모델이 단일 업데이트만 있다고 가정함으로써 \\(\\pi_{\\theta_{old}}=\\pi_{\\theta}\\)를 보장한다. 이 경우, 최소 및 클립 동작을 제거할 수 있다:\n' +
+      '\n' +
+      '\\mathcal{J}_{PPO}(\\theta)=\\mathbb{E}[q\\sim P_{sft}(Q),o\\sim\\pi_{\\theta_{old}(Q|q)]\\frac{1}{|o|}\\sum_{t=1}^{|o|}\\frac{\\pi_{\\theta}(o_{t}|q,o_{ct}}{\\pi_{t}}(o_{t}|q,o_{ct}}A_{t}. \\tag{16}\\t}\n' +
+      '\n' +
+      '\\(\\mathcal{J}_{PPO}(\\theta)\\)의 구배는:\n' +
+      '\n' +
+      '수학bb{E}[\\nabla_{\\theta}\\mathcal{J}_{PPO}(\\theta)=\\mathbb{E}[q\\sim P_{sft}(Q),o\\sim\\pi_{theta_{old}}(Q|q)]\\frac{1}{|o|}\\sum_{t=1}^{|o|}A_{t}\\nabla_{\\theta}\\log\\pi_{\\theta}(o_{t}|q,o_{ct}}\\tag{17}\\frac{1}{|o|}\\sum_{t=1}^{|o|}A_{t}\\nabla_{\\theta}\\log\\pi_{\\theta}(o_{t}|q,o_{ct}}\\tag{17}\\frac{1}{|o|}\\sum_{t}\\nabla_{\\theta}\\log\\pi_{\\theta}(o_{t}|q,o_\n' +
+      '\n' +
+      '데이터 소스: 정책 모델에서 샘플링된 출력이 있는 SFT 데이터 세트의 질문입니다. 보상 기능: 보상 모델입니다. 기울기 계수:\n' +
+      '\n' +
+      '\\[GC_{PPO}(q,o,t,\\pi_{\\theta_{m}})=A_{t}, \\tag{18}\\]\n' +
+      '\n' +
+      '여기서 \\(A_{t}\\)는 장점으로서, 보상 \\(\\{r_{\\geq t}\\}\\) 및 학습된 값 함수 \\(V_{\\psi}\\)에 기초하여 일반화된 어드밴티지 추정(GAE)(Schulman et al., 2015)을 적용하여 계산된다.\n' +
+      '\n' +
+      '#### a.1.6 GRPO(Group Relative Policy Optimization)\n' +
+      '\n' +
+      'GRPO의 목적은 단순화된 분석을 위한 \\(\\pi_{\\theta_{old}}=\\pi_{\\theta}\\)이다:\n' +
+      '\n' +
+      '\\mathcal{J}_{GRPO}(\\theta) =\\mathbb{E}[q\\sim P_{sft}(Q),\\{o_{i}\\{i=1}^{G}\\sim\\pi_{\\theta_ old}(Q|q)] \\tag{19}] \\frac{1}\\sum_{t=1}^{G}\\frac{1}^{|o_{i}|}\\left[\\frac{\\pi_{\\theta}(o_{i,t}|q,o_{i,ct}}{\\pi_{t}-\\beta(\\frac{\\pi_{ref}(o_{i,t}|q,o_{i,ct}}{\\pi_{\\theta}(o_{i,t}|q,o_{i,ct}}}{\\pi_{\\theta}(o_{i,t}|q,o_{i,ct}}}{\\pi_{ref}(o_{i,t}|q,o \\(\\mathcal{J}_{GRPO}(\\theta)\\)의 구배는:\n' +
+      '\n' +
+      '\\mathbb{E}[q\\sim P_{sft}(Q),\\{o_{i}\\{i=1}^{G}\\sim\\pi_{\\theta_{old}(Q|q)]\\\\\\frac{1}\\sum_{i=1}^{G}\\sum_{i}|}\\frac{1}{|o_{i}|}\\left[\\hat{A}_{i,t}+\\beta\\left(\\frac{\\pi_{ref}(o_{i,t}|o_{i,ct}}{\\theta}(o_{i,t}|o_{i,ct})}{\\theta}(o_{i,t}|o_{i,ct})}{\\theta}(o_{i,t}|o_{i,ct})\\end{split}\\log\\pi_{\\theta}(o_{i,t}|o_{i,ct})\\nabla_{\\theta}(o_{\n' +
+      '\n' +
+      '데이터 소스: 정책 모델에서 샘플링된 출력이 있는 SFT 데이터 세트의 질문입니다. 보상 기능: 보상 모델입니다. 기울기 계수:\n' +
+      '\n' +
+      '{split}GC_{GRPO}(q,o,t,\\pi_{\\theta_{m})&= \\hat{A}_{i,t}+\\beta\\left(\\frac{\\pi_{ref}(o_{i,t}|o_{i,ct})}{\\pi_{\\theta}(o_{i,t}|o_{i,ct}}-1\\right),\\end{split}\\tag{21}\\frac{\\pi_{ref}(o_{i,t}|o_{i,ct}}-1\\right)\n' +
+      '\n' +
+      '여기서 \\(\\hat{A}_{i,t}\\)는 그룹 보상 점수에 기초하여 계산된다.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>

@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# LiPO: Listwise Preference Optimization through Learning-to-Rank\n' +
+      '\n' +
+      'Tianqi Liu\n' +
+      '\n' +
+      'Zhen Qin\n' +
+      '\n' +
+      'Junru Wu\n' +
+      '\n' +
+      'Jiaming Shen\n' +
+      '\n' +
+      'Misha Khalman\n' +
+      '\n' +
+      'Rishabh Joshi\n' +
+      '\n' +
+      'Yao Zhao\n' +
+      '\n' +
+      'Mohammad Saleh\n' +
+      '\n' +
+      'Simon Baumgartner\n' +
+      '\n' +
+      'Jialu Liu\n' +
+      '\n' +
+      'Peter J. Liu\n' +
+      '\n' +
+      'Xuanhui Wang\n' +
+      '\n' +
+      'Equal contribution \\({}^{1}\\)Google Research \\({}^{2}\\)Google Deepmind. Correspondence to: Tianqi Liu \\(<\\)tianqiliu@google.com\\(>\\), Zhen Qin \\(<\\)zhenqin@google.com\\(>\\).\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      'Aligning language models (LMs) with curated human feedback is critical to control their behaviors in real-world applications. Several recent policy optimization methods, such as DPO and SLiC, serve as promising alternatives to the traditional Reinforcement Learning from Human Feedback (RLHF) approach. In practice, human feedback often comes in a format of a ranked list over multiple responses to amortize the cost of reading prompt. Multiple responses can also be ranked by reward models or AI feedback. There lacks such a study on directly fitting upon a list of responses. In this work, we formulate the LM alignment as a _listwise_ ranking problem and describe the Listwise Preference Optimization (LiPO) framework, where the policy can potentially learn more effectively from a ranked list of plausible responses given the prompt. This view draws an explicit connection to Learning-to-Rank (LTR), where most existing preference optimization work can be mapped to existing ranking objectives, especially pairwise ones. Following this connection, we provide an examination of ranking objectives that are not well studied for LM alignment with DPO and SLiC as special cases when list size is two. In particular, we highlight a specific method, LiPO-\\(\\lambda\\), which leverages a state-of-the-art _listwise_ ranking objective and weights each preference pair in a more advanced manner. We show that LiPO-\\(\\lambda\\) can outperform DPO and SLiC by a clear margin on two preference alignment tasks.\n' +
+      '\n' +
+      'Machine Learning, ICML\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      'Recent Large Language Models, such as GPT-4 (OpenAI, 2023) and Gemini (Team et al., 2023), have unlocked unprecedented capabilities, witnessed by impressive performance on diverse tasks from conversational chatbot to programming. A key step to control the behavior of such Language Models (LMs) is to align them with curated human feedback. Preference optimization has become an active research area. Reinforcement Learning with Human Feedback (RLHF) (Christiano et al., 2017) was first introduced to improve the alignment of LMs with human preferences (Ouyang et al., 2022). However, RLHF is a complex process, requiring substantial memory and hyperparamter tuning.\n' +
+      '\n' +
+      'Several recent works resort to alternatives of RLHF, and noticeably converge to a pairwise ranking optimization paradigm. For example, DPO (Rafailov et al., 2023) optimizes a pairwise logistic loss directly from pairwise human preference data, while avoiding an explicit reward model and RL-based optimization. Similarly, SLiC (Zhao et al., 2023) optimizes a pairwise hinge loss objective on pairwise preference data directly from human or sampled from supervised fine-tuned (SFT) policy and ranked by a reward model. RRHF (Yuan et al., 2023) starts from listwise preference data labeled by a reward model, and optimizes a pairwise contrastive objective (i.e., comparing all pairs in the list), which is analogous to the SLiC objective. More recently, RSO (Liu et al., 2023) unifies DPO and SLiC losses and proposes a better way of sourcing preference data via statistical rejection sampling. Virtu\n' +
+      '\n' +
+      'Figure 1: Performance of the pairwise DPO (DPO\\({}_{\\text{BT}}\\)), listwise DPO (DPO\\({}_{\\text{PL}}\\)), and our proposed listwise approach, called LiPO-\\(\\lambda\\). All can benefit from training data beyond pairwise data (List Size = 2), while LiPO-\\(\\lambda\\) can benefit more and monotonically as list size increases.\n' +
+      '\n' +
+      'optimization frameworks do not go beyond pairwise preferences. However, in practice, human preference data can come as a ranked list to amortize the cost of reading the prompt (Kopf et al., 2023; Ouyang et al., 2022). For example, Instruct-GPT (Ouyang et al., 2022) collects data in this way: for each output, labelers give a Likert score for overall quality on a 1-7 scale. After evaluating each output individually, labelers rank all the outputs for a given prompt. Ties are encouraged in cases where two outputs seem to be of similar quality. As another example, OpenAssistant (Kopf et al., 2023) has a tree-structured prompt-assistant alternating conversation threads, with each node associated a rank among all siblings.\n' +
+      '\n' +
+      'In this work, we treat LM alignment as a listwise ranking problem, where the LM can potentially learn alignment more effectively from listwise preferences. This draws an explicit connection to the rich Learning-to-Rank (LTR) literature (Liu, 2009). In particular, popular existing methods can be mapped to existing ranking objectives, especially pairwise ones. Noticeably, the LTR literature has shown that a direct listwise optimization can be more effective than pairwise alternatives for the listwise ranking problem, with a rich set of methods of various properties and performances (Liu, 2009).\n' +
+      '\n' +
+      'This listwise ranking perspective, together with related methods, have not been well studied for the LM preference optimization problem. As we will show, not every listwise objective is effective and thus it is desired to conduct an examination to identify the most effective ones for LM alignment. In Figure 1, we can see that listwise preference _data_ can benefit existing pairwise methods like DPO even though they treat all pairs from a list equally, a problem not well studied in the literature, while our new listwise method, called LiPO-\\(\\lambda\\), can further benefit from listwise preferences. The DPO paper (Rafailov et al., 2023) briefly touches the listwise Plackett-Luce model (Luce, 2005) for preference modeling in their Appendix without any experimental results. We notice that their listwise approach maps to a specific listwise ranking objective (Xia et al., 2008), which falls behind the state of the art.\n' +
+      '\n' +
+      'To this end, we provide the first comprehensive study of ranking objectives under the listwise preference optimization (LiPO) framework, where we compare popular and state-of-the-art ranking objectives for the LM preference optimization problem. In particular, existing methods, such as DPO, RRHF, and SLiC, can be mapped to existing pairwise ranking optimization objectives from listwise data (if only pairwise data is used, it is equivalent to list size being 2). Furthermore, we show that a new method, LiPO-\\(\\lambda\\), which leverages a state-of-the-art ranking objective (Burges et al., 2006; Wang et al., 2018; Jagerman et al., 2022), can achieve very competitive performance. Noticeably, LiPO-\\(\\lambda\\) allows an intuitive interpretation: it leverages a sophisticated weighting paradigms that assigns listwise-aware weighting to sampled pairs, to optimize a well-founded ranking metric (Wang et al., 2013), in contrast to existing methods that assign uniform weights or use weighting schema that fails to consider various factors.\n' +
+      '\n' +
+      'By a comprehensive study of various ranking objectives on Reddit TL;DR and AnthropicHH tasks, we show that LiPO-\\(\\lambda\\) is better than existing methods, including DPO (Rafailov et al., 2023) and SLiC (Zhao et al., 2023), as well as other baselines motivated by the LTR literature.\n' +
+      '\n' +
+      'Our contributions are summarized as follows:\n' +
+      '\n' +
+      '* We describe the Listwise Preference Optimization (LiPO) framework, which generalizes recent pairwise preference optimization methods and allows an examination of other alternatives through the lens of Learning-to-Rank.\n' +
+      '* We provide a comprehensive investigation of ranking objectives for LM preference optimization, especially listwise objectives that are not well studied in the LM preference optimization literature.\n' +
+      '* We highlight a new method, LiPO-\\(\\lambda\\), which shows competitive performance across the evaluation tasks.\n' +
+      '\n' +
+      '## 2 The LiPO Framework\n' +
+      '\n' +
+      'In the remaining, we build on the notations of Rafailov et al. (2023). In LM generation, given a prompt, \\(x\\in\\mathcal{X}\\), there is an action space \\(\\mathcal{Y}\\), where each action is usually called a response. A policy \\(\\pi\\in\\Delta_{\\mathcal{Y}}^{X}\\) associates to each prompt \\(x\\) a discrete probability distribution \\(\\pi(.|x)\\in\\Delta_{\\mathcal{Y}}\\) where \\(\\Delta_{\\mathcal{Y}}\\) is the set of discrete distributions over \\(\\mathcal{Y}\\).\n' +
+      '\n' +
+      '### Problem Formulation\n' +
+      '\n' +
+      'The goal is to learn a policy \\(\\pi\\) from training data, with a key consideration that the policy should align with human preference. Existing work (Zhao et al., 2023; Rafailov et al., 2023) would start the discussion of learning from _pairwise_ preference data from here. However, we note that preference modeling can be treated as a more general _listwise_ ranking problem: eventually the policy \\(\\pi\\) is expected to virtually rank a list of discrete actions from \\(\\Delta_{\\mathcal{Y}}\\), and learning from listwise preference data may be more effective for LM alignment. In fact, as we discussed above, human preference data can come as a ranked list to amortize the cost of reading the prompt (Kopf et al., 2023; Ouyang et al., 2022). Thus, we describe a more general Listwise Preference Optimization (LiPO) framework.\n' +
+      '\n' +
+      'The training dataset is \\(\\mathcal{D}=\\{x^{(i)},\\mathbf{y}^{(i)},\\psi^{(i)}\\}_{i=1}^{N}\\): given a prompt \\(x\\), we have a _list_ of responses \\(\\mathbf{y}=(y_{1},...,y_{K})\\) of size \\(K\\), which can be generated from SFT policy or other sources. When \\(K=2\\), this reduces to pairwise data. We assume there are real-valued labels \\(\\psi=(\\psi_{1},...,\\psi_{K})\\in[0,1]^{K}\\) associated with the corresponding responses, which may come from human raters or be derived from a reward model. A higher label value indicates a better response. We use \\(y_{i}\\succ y_{j}\\) to denote a preference of two responses given \\(\\psi_{i}>\\psi_{j}\\). In our work, we compute \\(\\psi_{k}\\) as the average winning probabilities of the \\(y_{k}\\) over all responses:\n' +
+      '\n' +
+      '\\[\\psi_{k}=\\frac{1}{K}\\sum_{i=1}^{K}\\mathbb{P}(y_{k}\\succ y_{i}) \\tag{1}\\]\n' +
+      '\n' +
+      'For human-ranked responses, we approximate the winning probability as \\(\\hat{\\mathbb{P}}(y_{i}\\succ y_{j})=\\mathbf{1}(\\text{human prefer }y_{i}\\text{ over }y_{j})\\). For a pairwise reward ranking model (Zhao et al., 2023; Liu et al., 2023), we use the predicted winning probabilities directly. This aggregation and labeling schema is valid theoretically (Shah and Wainwright, 2018) and works well empirically (Qin et al., 2023) in the ranking literature.\n' +
+      '\n' +
+      'Given the listwise preference data, LM alignment can be formulated as a Learning-to-Rank (LTR) problem. In LTR (Liu, 2009), the goal is to learn a ranking model \\(\\pi_{\\theta}\\) that can output the relevance scores \\(\\mathbf{s}\\) for all documents given a query. In LM alignment, we treat \\(x\\) as the query and \\(\\mathbf{y}\\) as documents in the LTR setting. Then we define the scores \\(\\mathbf{s}=\\{s_{1},...,s_{K}\\}\\), where \\(s_{i}\\) is defined as the following normalized one for \\((x,y_{i})\\) inspired by Rafailov et al. (2023):\n' +
+      '\n' +
+      '\\[\\begin{split}\\mathbf{s}(\\pi_{\\theta},\\pi_{\\text{ref}},\\beta)& =\\{s_{1},...,s_{K}\\}\\\\ &\\triangleq\\{\\beta\\log\\frac{\\pi_{\\theta}(y_{1}|x)}{\\pi_{\\text{ref }}(y_{1}|x)},...,\\beta\\log\\frac{\\pi_{\\theta}(y_{K}|x)}{\\pi_{\\text{ref}}(y_{K}| x)}\\},\\end{split} \\tag{2}\\]\n' +
+      '\n' +
+      'where \\(\\pi_{\\theta}\\) is the policy parameterized by \\(\\theta\\) that is to be learned, \\(\\pi_{\\text{ref}}\\) is the SFT policy that initializes \\(\\pi_{\\theta}\\), and \\(\\beta\\) is a hyper-parameter to control the KL divergence between \\(\\pi_{\\theta}\\) and \\(\\pi_{\\text{ref}}\\). In DPO (Rafailov et al., 2023), the scores are treated as "implicit reward", the goal of DPO is to align the "implicit reward" towards human preference data directly. To simplify the notation, we omit the dependency of \\(\\mathbf{s}\\) upon \\((\\pi_{\\theta},\\pi_{\\text{ref}},\\beta)\\) from now on.\n' +
+      '\n' +
+      'LTR algorithms learn \\(\\pi_{\\theta}\\) using loss functions as their objectives. A ranking loss function is in general defined based on labels \\(\\psi\\) of responses \\(\\mathbf{y}\\) and predicted scores \\(\\mathbf{s}\\):\n' +
+      '\n' +
+      '\\[\\mathcal{L}(\\pi_{\\theta};\\pi_{\\text{ref}},\\beta)=\\mathbb{E}_{(x,\\mathbf{y}, \\psi)\\sim\\mathcal{D}}\\left[l(\\psi,\\mathbf{s})\\right]. \\tag{3}\\]\n' +
+      '\n' +
+      '\\(l\\) is the loss function for a single prompt \\(x\\) that takes the labels and scores as input and output a real value as the loss:\n' +
+      '\n' +
+      '\\[l:(\\psi,\\mathbf{s})\\rightarrow\\mathbb{R}. \\tag{4}\\]\n' +
+      '\n' +
+      'A Learning-to-Rank algorithm is to find the optimal \\(\\pi_{\\theta}\\) that minimizes the overall loss in the space of ranking models. We call Eq 3 the Listwise Preference Optimization (LiPO) framework under the context of LM alignment.\n' +
+      '\n' +
+      '### Ranking Losses in Existing Work\n' +
+      '\n' +
+      'With the definition of \\(\\mathbf{s}\\) in Eq 2, we show that several popular LM alignment methods can be mapped into the LiPO framework using different ranking losses in the LTR literature. In DPO paper, two loss functions are proposed under two ranking frameworks: Bradley-Terry (BT) model (Bradley and Terry, 1952) and Plackett-Luce (PL) model (Plackett, 1975). We refer DPO\\({}_{\\text{BT}}\\) loss as the BT model-based pairwise loss, and refer DPO\\({}_{\\text{PL}}\\) loss as the PL model-based listwise loss. In SLiC paper, the loss consists of two terms: calibration loss and regularization loss. RSO (Liu et al., 2023) improves the calibration loss by normalizing the likelihood with the reference policy. We use SLiCnorm to denote the improved calibration loss.\n' +
+      '\n' +
+      'Pairwise preference losses.The pairwise logistic ranking loss (Burges et al., 2005) is one popular choice to fit a list\n' +
+      '\n' +
+      'Figure 2: An illustration of the Listwise Preference Optimization (LiPO) pipeline. For each prompt, LiPO samples a list of responses from certain policy or mixed policies. Then human or reward ranking model assign each response a ranking label. After that LiPO optimizes the policy via ranking loss to align with the preferences.\n' +
+      '\n' +
+      'of ranked data:\n' +
+      '\n' +
+      '\\[\\begin{split}\\mathcal{L}_{\\text{pair-begistic}}(\\pi_{\\theta};\\pi_{ \\text{ref}},\\beta)=\\\\ \\mathbb{E}_{x,\\mathbf{y},\\psi\\sim\\mathcal{D}}\\left[\\sum_{\\psi_{i} >\\psi_{j}}\\log(1+e^{-(s_{i}-s_{j})})\\right].\\end{split} \\tag{5}\\]\n' +
+      '\n' +
+      'We connect the above loss with DPO\\({}_{\\text{BT}}\\) via the following proposition:\n' +
+      '\n' +
+      '**Proposition 2.1**.: _When \\(K=2\\) and pairwise logistic ranking loss is used, LiPO is equivalent to DPO\\({}_{BT}\\)(Rafailov et al., 2023)._\n' +
+      '\n' +
+      'Proof.: When \\(K=2\\), there are only two pairs: \\((y_{1},y_{2})\\) and \\((y_{2},y_{1})\\). We use \\(y_{w}\\) to denote the winning response and \\(y_{l}\\) to denote the losing response.\n' +
+      '\n' +
+      'Then Eq 5 becomes:\n' +
+      '\n' +
+      '\\[\\begin{split}&\\mathbb{E}_{(x,y_{w},y_{l})\\sim\\mathcal{D}}\\left[ \\log(1+e^{-(s_{w}-s_{l})})\\right]=\\\\ -&\\mathbb{E}_{(x,y_{w},y_{l})\\sim\\mathcal{D}}\\left[ \\log(\\sigma(s_{w}-s_{l}))\\right]\\end{split} \\tag{6}\\]\n' +
+      '\n' +
+      'which is the same as Eq (7) in Rafailov et al. (2023) if we substitute \\(s_{i}\\) with \\(\\beta\\log\\frac{\\pi_{\\theta}(y_{i}|x)}{\\pi_{\\text{ref}}(y_{i}|x)}\\).\n' +
+      '\n' +
+      'Similarly, we can connect normalized SLiC loss (hinge-norm loss in Liu et al. (2023)) with pairwise hinge loss from RankSVM (Joachims, 2002):\n' +
+      '\n' +
+      '\\[\\begin{split}&\\mathcal{L}_{\\text{pair-hinge}}(\\pi_{\\theta};\\pi_{ \\text{ref}},\\beta)=\\\\ &\\mathbb{E}_{x,\\mathbf{y},\\psi\\sim\\mathcal{D}}\\left[\\sum_{\\psi_{i }>\\psi_{j}}\\max\\left(0,1-(s_{i}-s_{j})\\right)\\right].\\end{split} \\tag{7}\\]\n' +
+      '\n' +
+      '**Proposition 2.2**.: _When \\(K=2\\) and pairwise hinge ranking loss is used, LiPO is equivalent to SLiCnorm (Zhao et al., 2023; Liu et al., 2023)._\n' +
+      '\n' +
+      'Proof.: When \\(K=2\\), there are only two pairs: \\((y_{1},y_{2})\\) and \\((y_{2},y_{1})\\). We use \\(y_{w}\\) to denote the winning response and \\(y_{l}\\) to denote the losing response.\n' +
+      '\n' +
+      'Then Eq 7 becomes:\n' +
+      '\n' +
+      '\\[\\mathbb{E}_{(x,y_{w},y_{l})\\sim\\mathcal{D}}\\left[\\max\\left(0,1-(s_{w}-s_{l}) \\right)\\right] \\tag{8}\\]\n' +
+      '\n' +
+      'which is the same as Eq (10) in Liu et al. (2023) if we substitute \\(s_{i}\\) with \\(\\beta\\log\\frac{\\pi_{\\theta}(y_{i}|x)}{\\pi_{\\text{ref}}(y_{i}|x)}\\) and set \\(\\beta=\\gamma\\). \n' +
+      '\n' +
+      'Listwise preference losses.One can fit all pairs using pairwise-logistic or pairwise-hinge losses. Another way is to directly fit an Maximum Likelihood Estimation (MLE) on the listwise ranked data. Xia et al. (2008) proposes list MLE ranking loss:\n' +
+      '\n' +
+      '\\[\\begin{split}&\\mathcal{L}_{\\text{list-mle}}(\\pi_{\\theta};\\pi_{ \\text{ref}},\\beta)=\\\\ &-\\mathbb{E}_{x,y_{1},y_{2}\\ldots y_{K}\\sim\\mathcal{D}}\\left[ \\log\\prod_{k=1}^{K}\\frac{\\exp(s_{\\tau(k)})}{\\sum_{j=k}^{K}\\exp(s_{\\tau(j)})} \\right],\\end{split} \\tag{9}\\]\n' +
+      '\n' +
+      'where \\(\\tau(i)\\) is the document ranked at the \\(i\\)-th position in the listwise permutation determined by label.\n' +
+      '\n' +
+      '**Proposition 2.3**.: _When the list MLE loss is used, LiPO is equivalent to DPO\\({}_{PL}\\)(Rafailov et al., 2023)._\n' +
+      '\n' +
+      'Proof.: The list MLE loss is identical to the one in Eq (20) in Rafailov et al. (2023) if we substitute \\(s_{i}\\) with \\(\\beta\\log\\frac{\\pi_{\\theta}(y_{i}|x)}{\\pi_{\\text{ref}}(y_{i}|x)}\\). \n' +
+      '\n' +
+      '### Limitations of Existing Work\n' +
+      '\n' +
+      'From the general LiPO formulation and the analysis of recent policy optimization methods, we can see they map to specific choices of existing ranking objectives. Through the lens of LTR, we note there are two major concerns of the discussed methods that may limit the effectiveness of preference optimization.\n' +
+      '\n' +
+      'First, all pairwise approaches, which dominate the current preference optimization literature, ignore listwise permutation information beyond pairs. Considering all candidates under the same prompt in a principled manner may allow the policy to learn more effectively.\n' +
+      '\n' +
+      'Second, virtually all existing methods, even the listwise one (DPO\\({}_{\\text{PL}}\\)), ignore the label values, i.e., they only focus on the optimal pairwise or listwise _rank-ordering_ of the responses. This has information loss and may incur confusing learning behavior. For example, two lists with labels (0.99, 0.50, 0.01) and (0.51, 0.50, 0.49) will be treated the same, leading to inefficiency during training and may hurt generalization.\n' +
+      '\n' +
+      '## 3 LiPO-\\(\\lambda\\)\n' +
+      '\n' +
+      'Under the general LiPO framework, a rich family of other optimization objectives can be explored from the LTR literature. In this section, we propose a specific instantiation, LiPO-\\(\\lambda\\), which builds upon a state-of-the-art ranking objective, addresses the above limitations in a principled manner, and performs well empirically in the experiments.\n' +
+      '\n' +
+      'Our LiPO-\\(\\lambda\\) is based on the LambdaLoss method (Burges et al., 2006; Wang et al., 2018; Jagerman et al., 2022).\n' +
+      '\n' +
+      'Specifically, the training objective of LiPO-\\(\\lambda\\) is:\n' +
+      '\n' +
+      '\\[\\begin{split}&\\mathcal{L}_{\\text{lambda-loss}}(\\pi_{\\theta};\\pi_{ \\text{ref}},\\beta)=\\\\ &-\\mathbb{E}_{x,\\mathbf{y},\\psi\\sim\\mathcal{D}}\\left[\\sum_{\\psi_{ i}>\\psi_{j}}\\Delta_{i,j}\\log(1+e^{-(s_{i}-s_{j})})\\right],\\\\ &\\text{where}\\quad\\Delta_{i,j}=|G_{i}-G_{j}|\\cdot|\\frac{1}{D( \\tau(i))}-\\frac{1}{D(\\tau(j))}|.\\end{split} \\tag{10}\\]\n' +
+      '\n' +
+      '\\(\\Delta_{i,j}\\) is called the Lambda weight. \\(G\\) is called a gain function with \\(G_{i}=2^{\\psi_{i}}-1\\) as the commonly used one. \\(D\\) is a rank discount function with \\(D(\\tau(i))=\\log(1+\\tau(i))\\) as the commonly used one, where \\(\\tau(i)\\) is the rank position of \\(y_{i}\\) in the ranking permutation induced by \\(\\mathbf{s}\\), thus it is a _listwise_ method even though the formula can be written in terms of pairs. In other words, there are dependencies on other items in the same list for each pair. One has the flexibility to change the gain and discount functions but we resort to the original LambdaLoss configuration here for simplicity. It has been shown that this loss function can optimize the well-founded DCG metric (Burges et al., 2006; Donmez et al., 2009),\n' +
+      '\n' +
+      '\\[DCG=\\sum_{i=1}^{K}\\frac{G_{i}}{D(\\tau(i))},\\]\n' +
+      '\n' +
+      'which has several ideal properties as a ranking metric such as consistent distinguishability (Wang et al., 2013): for every pair of substantially different ranking policies, the ranking metric can decide which one is better in a consistent manner on almost all datasets.\n' +
+      '\n' +
+      'Comparisons.There are several interesting findings by comparing LiPO-\\(\\lambda\\) with other methods under the LiPO framework. First, the gain function \\(G\\) considers label score values \\(\\psi\\), which is ignored in virtually all existing methods. Second, comparing with the list MLE loss, the permutation considered is induced by the model prediction scores, instead of the static labels. Burges et al. (2006) showed that considering such dynamic permutations based on model predictions during training can lead to smoother optimization landscapes to optimize the non-smooth ranking objectives, resulting in better empirical performance than using the static ranks from labels. Last but not least, LiPO-\\(\\lambda\\) can be treated as a weighted version of DPO\\({}_{\\text{BT}}\\) over all pairs of ranked list by comparing with Eq 5. Instead of treating each pair equally, Lambda weight is a listwise permutation aware weighting mechanism. One intuition of Lambda weight is to weight each pairs by the difference of ranking metrics when they are swapped in the list (Burges, 2010).\n' +
+      '\n' +
+      '## 4 Other Ranking Losses\n' +
+      '\n' +
+      'Other existing or future ranking objectives may be studied under the LiPO framework. In experiments, in addition to existing methods that can be treated as specific instantiations of LiPO, we also study two pointwise ranking objectives, the pointwise Mean Squared Error (MSE) loss:\n' +
+      '\n' +
+      '\\[\\mathcal{L}_{\\text{point-MSE}}(\\pi_{\\theta};\\pi_{\\text{ref}},\\beta)=\\mathbb{E }_{x,\\mathbf{y},\\psi\\sim\\mathcal{D}}\\sum_{k=1}^{K}(\\psi_{k}-s_{k})^{2}, \\tag{11}\\]\n' +
+      '\n' +
+      'and the pointwise sigmoid cross entropy loss:\n' +
+      '\n' +
+      '\\[\\begin{split}&\\mathcal{L}_{\\text{point-sigmoid}}(\\pi_{\\theta}; \\pi_{\\text{ref}},\\beta)=\\\\ &-\\mathbb{E}_{x,\\mathbf{y},\\psi\\sim\\mathcal{D}}\\sum_{i=1}^{K} \\left(\\psi_{i}\\log\\sigma(s_{i})+(1-\\psi_{i})\\log(1-\\sigma(s_{i}))\\right)\\end{split} \\tag{12}\\]\n' +
+      '\n' +
+      'We also consider another popular listwise ranking objective, called softmax cross entropy loss as in ListNet (Cao et al., 2007)):\n' +
+      '\n' +
+      '\\[\\begin{split}&\\mathcal{L}_{\\text{softmax}}(\\pi_{\\theta};\\pi_{ \\text{ref}},\\beta)=\\\\ &\\mathbb{E}_{x,\\mathbf{y},\\psi\\sim\\mathcal{D}}\\left[\\sum_{k=1}^{ K}\\frac{\\psi_{k}}{\\sum_{j=1}^{K}\\psi_{j}}\\log\\left(\\frac{\\exp(s_{k})}{\\sum_{j=1}^{K} \\exp(s_{j})}\\right)\\right].\\end{split} \\tag{13}\\]\n' +
+      '\n' +
+      '## 5 Experiments\n' +
+      '\n' +
+      'TasksWe study different ranking losses unified under the LiPO framework on Reddit TL;DR summarization (Stiennon et al., 2020) and AnthropicHH dialogue (Bai et al., 2022) datasets. The Reddit TL;DR summarization dataset contains both fine-tune data \\(\\mathcal{D}_{\\text{st}}^{\\text{ldr}}\\) and human feedback data \\(\\mathcal{D}_{\\text{bf}}^{\\text{lddr}}\\). \\(\\mathcal{D}_{\\text{st}}^{\\text{ldr}}\\) contains 117k/6k/6k examples in train, validation, and test splits. \\(\\mathcal{D}_{\\text{bf}}^{\\text{ldr}}\\) consists of 93k human preferences on decodes from multiple models. The AnthropicHH is a dialogue dataset with \\(x\\) as conversation between a human query and an AI assistant. We use the helpful slice \\(\\mathcal{D}_{\\text{bf}}^{\\text{helpful}}\\) from 161k/9k examples in train and test splits. We use the positive responses as SFT targets.\n' +
+      '\n' +
+      'MethodStarting from a T5-large (770M) SFT policy and a T5-XXL (11B) pairwise reward-ranking model (Zhao et al., 2023; Liu et al., 2023), we first construct response lists by sampling \\(K=8\\) responses (with more ablations in Section 5.2) for each prompt using SFT policy with \\(temperature=0.7\\) and \\(top\\_k=40\\). Then we conduct all pair comparisons using the pairwise reward-ranking model, resulting in a winning probability matrix \\(\\Psi\\in[0,1]^{K\\times K}\\). Then we compute \\(\\psi_{k}\\) as \\(\\psi_{k}=\\frac{1}{K}\\sum_{i=1}^{K}\\Psi_{ki}\\). To compute the normalized ranking scores \\(\\mathbf{s}\\), we set \\(\\beta=0.05\\).\n' +
+      '\n' +
+      'We consider three types of loss functions under the LiPO framework: pointwise, pairwise, and listwise. Pointwise losses include point-mse (Eq 11) and point-sigmoid (Eq 12). Pairwise losses include pair-hinge (Eq 7) pair-logistic (Eq 5). Listwise losses include list-mle (Eq 9), softmax (Eq 13), and lambda-loss (Eq 10). We use the RAX library (Jagermanet al., 2022) to compute losses in Jax. See Appendix C for example usages.\n' +
+      '\n' +
+      'For pairwise losses, we utilize all 64 pairs and show in Section 5.2 that it can _improve_ performance than sampling a single pair each time as commonly done in existing work, so this setting is not only fair but also benefit pairwise methods. We use batch size 32 and learning rate 2e-5 with Adafactor optimizer (Shazeer and Stern, 2018). For each run, we pick the checkpoint with the highest reward-ranking model win rate against the SFT target.\n' +
+      '\n' +
+      'EvaluationOur experiments use three different approaches to evaluate following existing protocols (Rafailov et al., 2023; Liu et al., 2023): Proxy Reward Model, AutoSxS, and human evaluation. Proxy Reward Model computes win rate of generated response against SFT target on the trained T5-XXL pairwise reward-ranking model. AutoSxS uses large PaLM 2 instruction tuned model (PaLM 2-L-IT) (Google et al., 2023) for few-shot in-context learning (details in Appendix A). Human Evaluation asks human raters to assign a quality score on each response and determine the best one among \\(\\text{DPO}_{\\text{BT}}\\), \\(\\text{DPO}_{\\text{PL}}\\) and \\(\\text{LiPO}-\\lambda\\) (details in Appendix B).\n' +
+      '\n' +
+      '### Performance Comparison on the Two Tasks\n' +
+      '\n' +
+      'The main comparison results are shown in Table 1. We have the following observations: First, pointwise methods are not competitive as expected, indicating that only considering the pointwise label values are not sufficient, and preference information is critical. Second, \\(\\text{DPO}_{\\text{PL}}\\) does not perform better than \\(\\text{DPO}_{\\text{BT}}\\), showing that the choice of listwise ranking objective is important given listwise data. This aligns with existing LTR literature that list-mle is not a competitive ranking objective as it enforces listwise permutation without caring about label values. On the other hand, while \\(\\text{DPO}_{\\text{BT}}\\) does not consider label values either, the pairwise format can be less prone to ill-behaved listwise behaviors. Third, the listwise Softmax loss is not competitive. This is understandable as Softmax loss is most effective on optimization listwise ranking with sparse labels, such as binary click data (Yu et al., 2015; Bai et al., 2023). For LM generation, the responses are sampled from a plausible set so the labels are dense, which does not fit the Softmax loss well. Meanwhile, \\(\\text{LiPO}-\\lambda\\) shows strong performance and improves upon all baselines by effectively leveraging listwise data and label value information.\n' +
+      '\n' +
+      '### Ablation Studies and Analysis\n' +
+      '\n' +
+      'To gain an in-depth understanding of the benefits brought by the listwise formulation and methods, we conduct ablation studies to understand the effect in terms of listwise data, Lambda weight choices, and model sizes.\n' +
+      '\n' +
+      'Ablation study on list sizeTo better understand the effect of preference optimization on listwise data, we conduct analysis over multiple choices of list sizes on the Reddit TL;DR dataset. As illustrated in Figure 3, most methods can benefit from going beyond pairwise training data (List Size = 2) by leveraging more information under each prompt \\(x\\). \\(\\text{LiPO}-\\lambda\\) with lambda-loss is the only method that can robustly benefit from longer list sizes, showing it can more effectively leverage the rich listwise information.\n' +
+      '\n' +
+      'Ablation study on Lambda weightsAs discussed in Section 3, we use specific choice of Lambda weights by setting the gain function \\(G_{i}=2^{\\psi_{i}}-1\\) and rank discount function \\(D(\\tau(i))=\\log(1+\\tau(i))\\), which is called the DCG weight, that can optimize the DCG ranking metric. In this ablation study, we try other options that may not have a clear connection to ranking metrics. Constant Weight assigns equal weights on all pairs, which reduces to \\(\\text{DPO}_{\\text{BT}}\\). Constant \\(\\delta\\) Gain sets the gain function difference to a constant: \\(|G_{i}-G_{j}|=1\\), and Constant \\(\\delta\\) Discount sets the rank discount function difference to a constant: \\(|\\frac{1}{D(\\tau(i))}-\\frac{1}{D(\\tau(j))}|=1\\). The comparisons are shown in Figure 4. We can see that using DCG weight is most effective on both datasets, showing the importance of setting both functions appropriately in order to optimize well-founded ranking metrics.\n' +
+      '\n' +
+      'Scale up the policy modelTo understand how well the \\(\\text{LiPO}\\) can be scaled up to larger policy models, we train a T5-XXL policy model and compare among \\(\\text{DPO}_{\\text{BT}}\\), \\(\\text{DPO}_{\\text{PL}}\\) and \\(\\text{LiPO}-\\lambda\\). Table 2 shows that all three methods scale up well and \\(\\text{LiPO}-\\lambda\\) is competitive on both tasks.\n' +
+      '\n' +
+      'Figure 3: Performance of different ranking losses with varying list sizes on the Reddit TL;DR dataset. The shaded areas are 95% confidence intervals.\n' +
+      '\n' +
+      '### Human Evaluation Results\n' +
+      '\n' +
+      'To further verify the improvements of LiPO-\\(\\lambda\\), we conduct side-by-side human evaluation using Amazon Mechanical Turk. Given a document and three responses generated from DPOBT, DPOPL and LiPO-\\(\\lambda\\), raters are asked to assign a pointwise overall quality (1-5) to each response, and to choose the best one. Each task is replicated 3 times and therefore judged by 3 different raters. To eliminate bias, we anonymize all the models and randomly shuffle order of responses for each task. We aggregate pointwise metrics by averaging the ratings across all replicas, and we aggregate the choice metric using majority vote. For more details about the tasks, see Appendix B.\n' +
+      '\n' +
+      'In total 67 different raters participated in the Reddit TL;DR evaluation study with a median of 18 tasks per rater. The human evaluation results are shown in Table 3. LiPO-\\(\\lambda\\) has shown to be better than DPOBT and DPOPL in both tasks.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l l l l} \\hline Approach & Ranking Loss & Proxy Reward (\\%) & AutoSXS (\\%) \\\\ \\hline \\hline \\multicolumn{4}{c}{**Reddit TL;DR**} \\\\ \\hline  & point-mse & \\(49.43_{\\pm 1.18}\\) & \\(39.94_{\\pm 1.72}\\) \\\\  & point-sigmoid & \\(64.14_{\\pm 1.16}\\) & \\(49.28_{\\pm 1.80}\\) \\\\  & softmax & \\(75.40_{\\pm 0.98}\\) & \\(58.60_{\\pm 1.72}\\) \\\\ SLiCnorm & pair-hinge & \\(87.23_{\\pm 0.78}\\) & \\(67.16_{\\pm 1.62}\\) \\\\ DPOBT & pair-logistic & \\(88.52_{\\pm 0.74}\\) & \\(67.09_{\\pm 1.65}\\) \\\\ DPOPL & list-mtle & \\(88.27_{\\pm 0.76}\\) & \\(67.23_{\\pm 1.60}\\) \\\\ LiPO-\\(\\lambda\\) & lambda-loss & \\(\\textbf{90.60}_{\\pm 0.65}\\) & \\(\\textbf{68.06}_{\\pm 1.58}\\) \\\\ \\hline \\hline \\multicolumn{4}{c}{**AnthropicHH**} \\\\ \\hline  & point-mse & \\(57.55_{\\pm 1.22}\\) & \\(21.97_{\\pm 1.47}\\) \\\\  & point-sigmoid & \\(71.35_{\\pm 1.11}\\) & \\(25.72_{\\pm 1.50}\\) \\\\  & softmax & \\(73.21_{\\pm 1.07}\\) & \\(28.87_{\\pm 1.65}\\) \\\\ SLiCnorm & pair-hinge & \\(89.68_{\\pm 0.72}\\) & \\(42.07_{\\pm 1.75}\\) \\\\ DPOBT & pair-logistic & \\(91.11_{\\pm 0.66}\\) & \\(44.80_{\\pm 1.73}\\) \\\\ DPOPL & list-mtle & \\(90.61_{\\pm 0.72}\\) & \\(43.25_{\\pm 1.77}\\) \\\\ LiPO-\\(\\lambda\\) & lambda-loss & \\(\\textbf{92.60}_{\\pm 0.62}\\) & \\(\\textbf{47.90}_{\\pm 1.70}\\) \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 1: Comparison of different methods with T5-large policy model to leverage listwise preference data. Proxy reward and few-shot PaLM 2-L-IT win rates against SFT target text are reported. All methods use preference list with size 8, and pairwise methods including SLiCnorm and DPOBT use all pairs generated from the list and treat them equally.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l l l} \\hline Approach & Proxy Reward (\\%) & AutoSXS (\\%) \\\\ \\hline \\hline \\multicolumn{4}{c}{**Reddit TL;DR**} \\\\ \\hline DPOBT & \\(96.22_{\\pm 0.43}\\) & \\(82.38_{\\pm 1.20}\\) \\\\ DPOPL & \\(96.00_{\\pm 0.45}\\) & \\(81.96_{\\pm 1.30}\\) \\\\ LiPO-\\(\\lambda\\) & \\(\\textbf{97.32}_{\\pm 0.36}\\) & \\(\\textbf{83.79}_{\\pm 1.25}\\) \\\\ \\hline \\hline \\multicolumn{4}{c}{**AnthropicHH**} \\\\ \\hline DPOBT & \\(97.48_{\\pm 0.34}\\) & \\(68.81_{\\pm 1.63}\\) \\\\ DPOPL & \\(97.28_{\\pm 0.37}\\) & \\(68.84_{\\pm 1.58}\\) \\\\ LiPO-\\(\\lambda\\) & \\(\\textbf{98.27}_{\\pm 0.29}\\) & \\(\\textbf{69.81}_{\\pm 1.58}\\) \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 2: Comparison of DPOBT, DPOPL, and LiPO-\\(\\lambda\\) with T5-XXL policy model to leverage listwise preference data on T5-XXL policy model. Proxy reward and few-shot PaLM 2-L-IT win rate against SFT target text are reported. All methods use preference list with size 8.\n' +
+      '\n' +
+      'Figure 4: Performance on the Reddit TL;DR and AnthropicHH datasets by using different Lambda weight choices. See text for explanation of different options. The error bars denote 95% confidence intervals.\n' +
+      '\n' +
+      '## 6 Related Work\n' +
+      '\n' +
+      'LM Alignment.While self-supervised LMs learn to complete some interesting tasks (Radford et al., 2019), their performance on downstream tasks, such as acting as a conversational agent, can be significantly improved by alignment with human preference datasets. The pivotal Reinforcement Learning from Human Feedback (RLHF) framework (Christiano et al., 2017) first fits a reward function under a preference model such as the Bradley-Terry model (Bradley and Terry, 1952), then fine-tunes the LM to maximize the given reward using reinforcement learning algorithms. However, fine-tuning LMs with reinforcement learning is challenging in practice, involving training multiple LMs and sampling from the LM policy in the loop of training, incurring significant computational costs and requiring extensive hyperparameter tuning. A stream of recent work resort to alternatives of RL based preference optimization approaches. As we discussed, two parallel work, SLiC (Zhao et al., 2023) and RRHF (Yuan et al., 2023) directly use human preference data or use a reward model to label preferences, then both use a pairwise hinge loss to align policy responses. One difference is RRHF considers listwise data to start with, but their pairwise objective handles each pair from the list independently, which can be treated as pairwise objective on listwise data. DPO (Rafailov et al., 2023) proposes to directly align the behavior of LM without using a reward model with the pairwise logistic loss. Later work (Liu et al., 2023) shows that DPO has a distribution drift issue due to its lack of a reward model, as the maximum likelihood estimator (MLE) of the target optimal policy requires labeled preference pairs sampled from that policy. DPO further proposed a variant that learns from listwise preference data using the list MLE loss, which is analogous to PRO (Song et al., 2023). In this work, we mainly focus on the optimization objective perspective and show that recent work converge to a few known ranking objectives in the LTR literature.\n' +
+      '\n' +
+      'Learning-to-Rank.The Learning-to-Rank (LTR) field has a rich literature due to its practical values in applications such as web search (Liu, 2009) and recommender systems (Karatzoglou et al., 2013). Traditional LTR work mainly focuses on developing more effective ranking objectives to optimize ranking metrics, ranging from pointwise, pairwise, to listwise approaches (Liu, 2009).\n' +
+      '\n' +
+      'RankSVM (Joachims, 2002) and RankNet (Burges et al., 2005) leverage pairwise hinge loss and pairwise logistic loss respectively for the ranking problem. Listwise ranking objectives gain popularity thereafter to directly optimize the listwise ranking metrics. ListMLE and Softmax cross entropy losses are two representative listwise losses proposed in (Xia et al., 2008) and (Cao et al., 2007). ListMLE only concerns about the ordering under the Plackett-Luce model (Luce, 2005), and Softmax cross entropy loss is effective on lists with sparse labels, such as click logs (Yu et al., 2015). LambdaRank (Burges et al., 2006) shows that weighting pairs with the listwise Lambda weight leads to strong empirical performance in terms of optimizing the non-smooth DCG metric, and it is unified under the LambdaLoss (Wang et al., 2018) framework with theoretical justification and convergence proof. Other lines of LTR research focus on exploring new model architectures (Qin et al., 2020), learning from biased feedback (Joachims et al., 2017), etc. In this work, we focus on the ranking objectives and show that existing LM alignment methods can be mapped to specific choices of ranking objectives. Following this connection, we studied multiple listwise objectives, which have not been not well studied, for LM alignment.\n' +
+      '\n' +
+      '## 7 Conclusion and Future Work\n' +
+      '\n' +
+      'We describe the Listwise Preference Optimization(LiPO) framework for LM alignment with a ranked list over multiple responses for each prompt. It connects LM alignment with Learning-to-Rank techniques. In this framework, we generalize recent preference optimization methods and analyze limitations of existing methods from the Learning-to-Rank perspective. We then provide a comprehensive investigation of various ranking objectives for LM preference optimization, especially listwise objectives that are not well studied in the literature. We highlight a new method, LiPO-\\(\\lambda\\), which builds upon the state-of-the-art ranking objectives and shows competitive performance across multiple evaluation tasks.\n' +
+      '\n' +
+      'Our work opens up a few interesting directions for future work. (1) The effectiveness of LambdaLoss is demonstrated empirically in this paper and this can inspire more theoretical understanding of this method for LM alignment; (2) It is also interesting to study how to do the online learning where the list of responses are elicited from the policy being trained to reduce the distribution shift.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c} \\hline Approach & Chosen as Preferred1  & Quality \\\\ \\hline \\hline \\multicolumn{3}{c}{**Reddit TL.;DR**} \\\\ \\hline DPO\\({}_{\\text{BT}}\\) & 19\\% & 3.63 \\\\ DPO\\({}_{\\text{PL}}\\) & 16\\% & 3.67 \\\\ LiPO-\\(\\lambda\\) & **40\\%** & **3.80** \\\\ \\hline \\hline \\multicolumn{3}{c}{**AnthropicIH**} \\\\ \\hline DPO\\({}_{\\text{BT}}\\) & 20\\% & 3.66 \\\\ DPO\\({}_{\\text{PL}}\\) & 20\\% & 3.66 \\\\ LiPO-\\(\\lambda\\) & **27\\%** & **3.72** \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 3: Human evaluation comparing three approaches on two tasks. LiPO-\\(\\lambda\\) shows to be preferred more often than DPO\\({}_{\\text{BT}}\\) and DPO\\({}_{\\text{PL}}\\).\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* Bai et al. (2023) Bai, A., Jagerman, R., Qin, Z., Yan, L., Kar, P., Lin, B.-R., Wang, X., Bendersky, M., and Najork, M. Regression compatible listwise objectives for calibrated ranking with binary relevance. In _Proceedings of the 32nd ACM International Conference on Information and Knowledge Management_, pp. 4502-4508, 2023.\n' +
+      '* Bai et al. (2022) Bai, Y., Jones, A., Ndousse, K., Askell, A., Chen, A., Das Sarma, N., Drain, D., Fort, S., Ganguli, D., Henighan, T., et al. Training a helpful and harmless assistant with reinforcement learning from human feedback. _arXiv preprint arXiv:2204.05862_, 2022.\n' +
+      '* Bradley & Terry (1952) Bradley, R. A. and Terry, M. E. Rank analysis of incomplete block designs: I. the method of paired comparisons. _Biometrika_, 39(3/4):324-345, 1952.\n' +
+      '* Burges et al. (2005) Burges, C., Shaked, T., Renshaw, E., Lazier, A., Deeds, M., Hamilton, N., and Hullender, G. Learning to rank using gradient descent. In _Proceedings of the 22nd international conference on Machine learning_, pp. 89-96, 2005.\n' +
+      '* Burges et al. (2006) Burges, C., Ragno, R., and Le, Q. Learning to rank with nonsmooth cost functions. In Scholkopf, B., Platt, J., and Hoffman, T. (eds.), _Advances in Neural Information Processing Systems_, volume 19. MIT Press, 2006.\n' +
+      '* Burges (2010) Burges, C. J. From ranknet to lambdarank to lambdamart: An overview. _Learning_, 11(23-581):81, 2010.\n' +
+      '* Cao et al. (2007) Cao, Z., Qin, T., Liu, T.-Y., Tsai, M.-F., and Li, H. Learning to rank: from pairwise approach to listwise approach. In _Proceedings of the 24th international conference on Machine learning_, pp. 129-136, 2007.\n' +
+      '* Christiano et al. (2017) Christiano, P. F., Leike, J., Brown, T., Martic, M., Legg, S., and Amodei, D. Deep reinforcement learning from human preferences. _Advances in neural information processing systems_, 30, 2017.\n' +
+      '* Donmez et al. (2009) Donmez, P., Svore, K. M., and Burges, C. J. On the local optimality of lambdarank. In _Proceedings of the 32nd International ACM SIGIR Conference on Research and Development in Information Retrieval_, SIGIR \'09, pp. 460-467, New York, NY, USA, 2009. Association for Computing Machinery. ISBN 9781605584836. doi: 10.1145/1571941.1572021. URL [https://doi.org/10.1145/1571941.1572021](https://doi.org/10.1145/1571941.1572021).\n' +
+      '* Google et al. (2013) Google, Anil, R., Dai, A. M., Firat, O., Johnson, M., Lepikhin, D., Passos, A., Shakeri, S., Taropa, E., Bailey, P., Chen, Z., Chu, E., Clark, J. H., Shafey, L. E., Huang, Y., Meier-Hellstern, K., Mishra, G., Moreira, E., Omernick, M., Robinson, K., Ruder, S., Tay, Y., Xiao, K., Xu, Y., Zhang, Y., Abrego, G. H., Ahn, J., Austin, J., Barham, P., Botha, J., Bradbury, J., Brahma, S., Brooks, K., Catasta, M., Cheng, Y., Cherry, C., Choquette-Choo, C. A., Chowdery, A., Crepy, C., Dave, S., Dehghani, M., Dev, S., Devlin, J., Diaz, M., Du, N., Dyer, E., Feinberg, V., Feng, F., Fienber, V., Freitag, M., Garcia, X., Gehrmann, S., Gonzalez, L., Gur-Ari, G., Hand, S., Hashemi, H., Hou, L., Howland, J., Hu, A., Hui, J., Hurwitz, J., Isard, M., Ittycheni, A., Jagielski, M., Jia, W., Kenealy, K., Krikun, M., Kudugunta, S., Lan, C., Lee, K., Lee, B., Li, E., Li, M., Li, W., Li, Y., Li, J., Lim, H., Lin, H., Liu, Z., Liu, F., Maggioni, M., Mahendru, A., Maynez, J., Misra, V., Moussalem, M., Nado, Z., Nham, J., Ni, E., Nystrom, A., Parrish, A., Pellat, M., Polacek, M., Polozov, A., Pope, R., Qiao, S., Reif, E., Richter, B., Riley, P., Ros, A. C., Roy, A., Saeta, B., Samuel, R., Shelby, R., Slone, A., Smilkov, D., So, D. R., Sohn, D., Tokumine, S., Valter, D., Vasudevan, V., Vodrahalli, K., Wang, X., Wang, P., Wang, Z., Wang, T., Wieting, J., Wu, Y., Xu, K., Xu, Y., Xue, L., Yin, P., Yu, J., Zhang, Q., Zheng, S., Zheng, C., Zhou, W., Zhou, D., Petrov, S., and Wu, Y. PaLM 2 technical report, 2023.\n' +
+      '* Jagerman et al. (2022a) Jagerman, R., Qin, Z., Wang, X., Bendersky, M., and Najork, M. On optimizing top-k metrics for neural ranking models. In _Proceedings of the 45th International ACM SIGIR Conference on Research and Development in Information Retrieval_, pp. 2303-2307, 2022a.\n' +
+      '* Jagerman et al. (2022b) Jagerman, R., Wang, X., Zhuang, H., Qin, Z., Bendersky, M., and Najork, M. Rax: Composable learning-to-rank using jax. In _Proceedings of the 28th ACM SIGKDD Conference on Knowledge Discovery and Data Mining_, pp. 3051-3060, 2022b.\n' +
+      '* Joachims (2002) Joachims, T. Optimizing search engines using clickthrough data. In _Proceedings of the eighth ACM SIGKDD international conference on Knowledge discovery and data mining_, pp. 133-142, 2002.\n' +
+      '* Joachims et al. (2017) Joachims, T., Swaminathan, A., and Schnabel, T. Unbiased learning-to-rank with biased feedback. In _Proceedings of the tenth ACM international conference on web search and data mining_, pp. 781-789, 2017.\n' +
+      '* Karatzoglou et al. (2013) Karatzoglou, A., Baltrunas, L., and Shi, Y. Learning to rank for recommender systems. In _Proceedings of the 7th ACM Conference on Recommender Systems_, pp. 493-494, 2013.\n' +
+      '* Kopf et al. (2023) Kopf, A., Kilcher, Y., von Rutte, D., Anagnostidis, S., Tam, Z.-R., Stevens, K., Barhoum, A., Duc, N. M., Stanley, O., Nagyfi, R., et al. Openassistant conversations-democratizing large language model alignment. _arXiv preprint arXiv:2304.07327_, 2023.\n' +
+      '* Lee et al. (2018) Lee, H., Phatale, S., Mansoor, H., Lu, K., Mesnard, T., Bishop, C., Carbune, V., and Rastogi, A. Rlaif: Scaling reinforcement learning from human feedback with ai feedback. arXiv preprint arXiv:2309.00267. Cited by: SS1.\n' +
+      '* T. Liu, Y. Zhao, R. Joshi, M. Khalman, M. Saleh, P. J. Liu, and J. Liu (2023)Statistical rejection sampling improves preference optimization. arXiv preprint arXiv:2309.06657. Cited by: SS1.\n' +
+      '* T. Liu (2009)Learning to rank for information retrieval. Found. Trends Inf. Retr. Cited by: SS1.\n' +
+      '* R. D. Luce (2005)Individual choice behavior: a theoretical analysis. Courier Corporation. Cited by: SS1.\n' +
+      '* Gpt-4 technical report. Cited by: SS1.\n' +
+      '* L. Ouyang, J. Wu, X. Jiang, D. Almeida, C. Wainwright, P. Mishkin, C. Zhang, S. Agarwal, K. Slama, A. Ray, et al. (2022)Training language models to follow instructions with human feedback. Advances in Neural Information Processing Systems35, pp. 27730-27744. Cited by: SS1.\n' +
+      '* R. L. Plackett (1975)The analysis of permutations. Journal of the Royal Statistical Society Series C: Applied Statistics24 (2), pp. 193-202. Cited by: SS1.\n' +
+      '* Z. Qin, L. Yan, H. Zhuang, Y. Tay, R. K. Pasumarthi, X. Wang, M. Bendersky, and M. Najork (2020)Are neural rankers still outperformed by gradient boosted decision trees?. In International Conference on Learning Representations, Cited by: SS1.\n' +
+      '* Z. Qin, R. Jagerman, K. Hui, H. Zhuang, J. Wu, J. Shen, T. Liu, J. Metzler, X. Wang, et al. (2023)Large language models are effective text rankers with pairwise ranking prompting. arXiv preprint arXiv:2306.17563. Cited by: SS1.\n' +
+      '* A. Radford, J. Wu, R. Child, D. Luan, D. Amodei, I. Sutskever, et al. (2019)Language models are unsupervised multitask learners. OpenAI blog1 (8), pp. 9. Cited by: SS1.\n' +
+      '* R. Rafailov, A. Sharma, E. Mitchell, C. D. Manning, S. Ermon, and C. Finn (2023)Direct preference optimization: your language model is secretly a reward model. In Thirty-seventh Conference on Neural Information Processing Systems, Cited by: SS1.\n' +
+      '* N. B. Shah and M. J. Wainwright (2018)Simple, robust and optimal ranking from pairwise comparisons. Journal of machine learning research18 (199), pp. 1-38. Cited by: SS1.\n' +
+      '* N. Shazeer and M. Stern (2018)Adafactor: adaptive learning rates with sublinear memory cost. In Proceedings of the 35th International Conference on Machine Learning, pp. 4596-4604. Cited by: SS1.\n' +
+      '* L. Shu, L. Luo, J. Hoskere, Y. Zhu, C. Liu, J. Tong, and L. Meng (2023)Rewritelm: an instruction-tuned large language model for text rewriting. arXiv preprint arXiv:2305.15685. Cited by: SS1.\n' +
+      '* F. Song, B. Yu, M. Li, H. Yu, F. Huang, Y. Li, and H. Wang (2023)Preference ranking optimization for human alignment. arXiv preprint arXiv:2306.17492. Cited by: SS1.\n' +
+      '* N. Stiennon, L. Ouyang, J. Wu, D. Ziegler, R. Lowe, C. Voss, A. Radford, D. Amodei, and P. F. Christiano (2020)Learning to summarize with human feedback. Advances in Neural Information Processing Systems33, pp. 3008-3021. Cited by: SS1.\n' +
+      '* G. Team, R. Anil, S. Borgeaud, Y. Wu, J. Alayrac, J. Yu, R. Soricut, A. Schalkwyk, A. M. Dai, A. Hauth, et al. (2023)Gemini: a family of highly capable multimodal models. arXiv preprint arXiv:2312.11805. Cited by: SS1.\n' +
+      '* X. Wang, C. Li, N. Golbandi, M. Bendersky, and M. Najork (2018)The lambdaloss framework for ranking metric optimization. In Proceedings of the 27th ACM international conference on information and knowledge management, pp. 1313-1322. Cited by: SS1.\n' +
+      '* Y. Wang, L. Wang, Y. Li, D. He, and T. Liu (2013)A theoretical analysis of ndcg type ranking measures. In Conference on learning theory, pp. 25-54. Cited by: SS1.\n' +
+      '* F. Xia, T. Liu, J. Wang, W. Zhang, and H. Li (2008)Listwise approach to learning to rank: theory and algorithm. In Proceedings of the 25th international conference on Machine learning, pp. 1192-1199. Cited by: SS1.\n' +
+      '* J. Yu, D. Tao, M. Wang, and Y. Rui (2015)Learning to rank using user clicks and visual features for image retrieval. IEEE Transactions on Cybernetics45 (4), pp. 767-779. Cited by: SS1.\n' +
+      '* H. Yuan, Z. Yuan, C. Tan, W. Wang, S. Huang, and F. R. Huang (2023)RRFRF: rank responses to align language models with human feedback. In Thirty-seventh Conference on Neural Information Processing Systems, Cited by: SS1.\n' +
+      '* Y. Zhao, R. Joshi, T. Liu, M. Khalman, M. Saleh, and P. J. Liu (2023)Slic-hf: sequence likelihood calibration with human feedback. arXiv preprint arXiv:2305.10425. Cited by: SS1.\n' +
+      '\n' +
+      'A AutoSxS Details\n' +
+      '\n' +
+      '#### a.0.1 details\n' +
+      '\n' +
+      'The purpose of the AutoSxS is to prevent the artificially high reward scores by Reward Model due to reward hacking on learned policies. Since the policy is trained using the information in the pairwise reward-ranking model, it is not necessary the higher the win rate on reward-ranking model, the better the policy. AutoSxS uses PaLM 2-L-IT few-shot in-context learning to infer 8 decoded samples with 4 flipped order of response A and B. The label contains three choices: A, B, and tie with score 1, 0, and 0.5, respectively. To ensure the robustness, we use average score to determine the win or loss if the magnitude exceeds 0.35. The AutoSxS has been demonstrated as effective and consistent in DPO using GPT-4 as zero-shot rater. In this work, we replace GPT-4 with PaLM 2-L-IT for our evaluation using few-shot prompts. The quality of PaLM 2-L-IT on similar tasks has been shown to be close to human raters (Lee et al., 2023; Shu et al., 2023). The systematic study on consistency and quality of AutoSxS is beyond the scope of this work.\n' +
+      '\n' +
+      '#### a.0.2 Reddit TL;DR Few-Shot Prompts\n' +
+      '\n' +
+      '**task**: Judge the quality of two TLDRs, choose the options among (A), (B) or same.\n' +
+      '\n' +
+      '**context**: I\'ve (M[21]) been in a relationship for a year and a half with F[22] and it really has never gone well. I think we want different things and we are not overly compatible. I broke up with her about a year ago and she tried to kill herself so we got back together. This week I met an F[19] who I think I\'m really compatible with. She and I talked for a few hours and we have a lot in common. I like her a lot, but she is currently a freshman and I am currently a senior so I will be graduating in May and going on to a prestigious PhD program starting next fall.\n' +
+      '\n' +
+      'So here are my questions: * What should I do in regards to my current relationship? I know I need to end it, but I just don\'t know how. * What should I do in regards to the other girl? * Do you think my feelings for the other girl stem from my distaste for my current relationship?\n' +
+      '\n' +
+      'I appreciate any help you give me.\n' +
+      '\n' +
+      '**tldr (A)**: I\'m unhappy in my current relationship with a girl I just met, but don\'t know how to end it. I have no idea what I\'m doing or what to do.\n' +
+      '\n' +
+      '**tldr (B)**: M[21] unhappy in relationship with F[22]. Met an F[19] in town with similar interests and I really like her. What should I do in regards to current relationship/other girl?\n' +
+      '\n' +
+      '**explanation**: tldr (A)\'s second and third sentences convey similar idea and are redundant. tldr (B) mentions an important piece of information of the new girl, contains more details than tldr (A) and is concise at the same time.\n' +
+      '\n' +
+      '**choose among (A), (B) or same**: (B)\n' +
+      '\n' +
+      '**context**: Before anything, not a sad story or anything, I don\'t think she\'s cheating or anything of the sorts. My country\'s equivalent to Valentine\'s Day is coming and I had this pretty simple idea to surprise my girlfriend and it would involve giving her some roses. The thing is, although I know she would appreciate my intention in and of itself, I don\'t know if she would like the actual flowers and such, so I wanted to find out if she likes roses and if she would like getting some, but without her realizing it so as not to spoil the surprise. Any ideas on how to get that information out of her? **tldr (A)**: How do I find out if my girlfriend likes roses without her realizing it?\n' +
+      '\n' +
+      '**tldr (B)**: I want to surprise my girlfriend with some flowers when Valentine\'s Day is around the corner, but I don\'t know if she would like the flowers or flowers themselves without her knowing.\n' +
+      '\n' +
+      '**explanation**: tldr (A) is a concise that captures the main idea. tldr (B) also captures the main point with more details, but the language \'flowers or flowers themselves\' is not fluent.\n' +
+      '\n' +
+      '**choose among (A), (B) or same**: (A)\n' +
+      '\n' +
+      '**context**: Okay, so my younger brothers were out and about when they passed some teenagers who yelled obscensities at them. My father then went over and told them to knock it off, when they started yelling obscensities at him. My dad, with a small amount of temper, got angry and yelled at them. They started recording it and made a video on YouTube where it looked like he was just screaming at them. After that, we were able to get it taken down only to have it reuploaded with blurred faces. We have in no way given consent to be in this video. Is there any way we can get them to take it doen?\n' +
+      '\n' +
+      '**tldr (A)**: my dad got angry at teenagers for yelling obscensities at him, they got a video on youtube and blurred faces, what can we do to get it taken down?\n' +
+      '\n' +
+      '**tldr (B)**: My brothers were being verbally harassed by kids, father yelled at them, they made a video of it to get the video taken down, it was like a blur with blurred faces.\n' +
+      '\n' +
+      '**explanation**: tldr (A) mentions most main points of story while skipping some details like younger brothers being yelled at and original videos taken down. tldr (B) has a major factual error, they didn\'t make a video to get the video taken down.\n' +
+      '\n' +
+      '**choose among (A), (B) or same**: (A)\n' +
+      '\n' +
+      '**context**: Apologize for the throw away account.\n' +
+      '\n' +
+      'My friend is interested in in making his way into the mainstream music industry as an A&R representative. He has a 4 year degree in English but did some extra curricular activities around music business in college. He also has had 2 internships out of college with small time record labels in the Chicago area. He has been trying for a few years now with no success. He lives in Chicago but has moved to LA for a year. He returned recently to Chicago. It has been about 3 years since his last internship, but he has done some online collaboration stuff. Still far and few in between.\n' +
+      '\n' +
+      'My question is what path have any of you taken to make your way into the record industry? Is networking the only important thing? Is there a set of skills that are specifically looked for?\n' +
+      '\n' +
+      '**tldr (A)**: My friend wants to make his way into the music industry as an A&R representative. What does he need to know to make it happen?\n' +
+      '\n' +
+      '**tldr (B)**: friend wants to break into the music industry as an A&R rep. what is the best way to do this?\n' +
+      '\n' +
+      '**explanation**: tldr (A) and (B) are basically paraphrase of each other. With (A) slightly more verbose and (B) slightly more concise.\n' +
+      '\n' +
+      '**choose among (A), (B) or same**: same\n' +
+      '\n' +
+      '**context**: I was at a concert this weekend supporting my favorite artist. Most of the amphitheater was standing, however *some* people in my section were not (including some people behind me and to my right). All of a sudden at the end of the set I got basically showed in the back and told to sit down. I told them absolutely not, I want to support my favorite artist (who kept saying STAND UP, btw). I paid over $100 for these seats and I want to have a great time.. after all this IS a concert. Not to mention, I heard them calling me names before they confronted me so now I was certainly not going to sit down. Then a few songs later the woman sitting next to me told me what a bitch I was for not letting the people behind me see. Was I in the wrong here?\n' +
+      '\n' +
+      '**tldr (A)**: I stood up at a concert, people in front of me didn\'t and confronted me. Was I in the wrong?\n' +
+      '\n' +
+      '**tldr (B)**: I stood up at a concert even though I was told not to. I got yelled at by a woman who was sitting next to me. Was I in the wrong?\n' +
+      '\n' +
+      '**explanation**: tldr (A) doesn\'t say who confronted the author or wrongly implied it was the people in front. tldr (B) is correct but could mention that more people confronted the author than the woman sitting next.\n' +
+      '\n' +
+      '**choose among (A), (B) or same**: (B)\n' +
+      '\n' +
+      '#### a.0.3. AnthropicHH Few-shot Prompts\n' +
+      '\n' +
+      '**task**: For the following query to a chatbot, which response is more helpful? Choose among (A), (B) and same.\n' +
+      '\n' +
+      '**context**: Human: Why can\'t humans build a space station on the moon? Assistant: That\'s a really good question. We don\'t know yet if we\'ll be able to build a space station on the moon, though it seems quite feasible. But we can also look at the science for something more ambitious, like a spaceship that\'s large enough to make a round trip to Mars. That might be hard to do! Even with the technology we have now, it\'s not clear to scientists how you\'d build a spaceship that would travel for months in space. Human: I think we should start on the Moon first.\n' +
+      '\n' +
+      '**response (A)**: Assistant: I think you\'re right that the Moon is a good place to start, since it\'s a natural satellite of Earth. There are a lot of interesting places on the Moon to study, but we have to go to Mars to check out the atmosphere, the conditions on the ground, and the survival potential of humans, and to see if there are living things.\n' +
+      '\n' +
+      '**response (B)**: Assistant: The problem is that we don\'t know yet if it\'s even possible to build a space station on the moon. But let\'s assume we could do it, and see how far we could get with a spaceship to Mars.\n' +
+      '\n' +
+      '**explanation**: Response (A) offers a more expansive and engaged exploration of the user\'s sentiment about starting with the Moon, while Response (B) reiterates previous information without addressing the user\'s perspective or adding new insights.\n' +
+      '\n' +
+      '**choose among (A), (B) and same**: (A)\n' +
+      '\n' +
+      '**context**: Human: What is garam masala?\n' +
+      '\n' +
+      'Assistant: Garam masala is a mixture of spices, typically consisting of cumin, pepper, garlic, and either coriander, ginger, or both. It\'s frequently used in curries or vegetable dishes, but it\'s also added to some vegetable or meat sides, or used as a spread.\n' +
+      '\n' +
+      'Human: What other things can I add to it to make it unique?\n' +
+      '\n' +
+      'Assistant: Try adding some of the following ingredients, in any combination you like: turmeric cinnamon cardamom celery seeds fennel fresh chilies, like jalapenos or Thai chiles grated ginger green onions basil mint\n' +
+      '\n' +
+      'Human: Is there a sweet garam masala?\n' +
+      '\n' +
+      'Assistant: Yes, some garam masasalas are sweetened. They might contain sugar or honey, or they might be just made with ground cinnamon or cardamom. You might also want to mix some sort of mango or pineapple relish into your garam masala.\n' +
+      '\n' +
+      'Human: What is a good use for sweet garam masala?\n' +
+      '\n' +
+      '**response (A)**: Assistant: You might use it to flavor vegetable or meat stews, or chilies, or as a spread on toast. You might mix some into yogurt or fruit salad, or serve it with nuts and chutney on crackers.\n' +
+      '\n' +
+      '**response (B)**: Assistant: Sweet garam masala is typically used in desserts like ice cream or fudge, or in sweet curries like risotto or kofte. You can also use it in curries to add a sweet flavor. You can also use it as a spice rub for meats, like chicken or fish. You can also use it as a spice mix in a curry, or you can use it to make a sweet sauce for a curry.\n' +
+      '\n' +
+      '**explanation**: Response (B) offers specific and diverse uses of sweet garam masala, allowing the user to get a clearer idea of its potential applications in cooking.\n' +
+      '\n' +
+      '**choose among (A), (B) and same**: (B)\n' +
+      '\n' +
+      '**context**: Human: What is the customary amount to tip a taxi driver?\n' +
+      '\n' +
+      '**response (A)**: Assistant: The standard tip for taxi drivers in the United States is typically a 20% tip. This is a fairly standard tip that is given to taxi drivers for a job well done, and it\'s also a nice gesture to show your appreciation for their service. The tip can be more or less depending on the driver\'s service and the level of professionalism they showed. If you\'re considering tipping a taxi driver, I would recommend giving them a tip of at least 20%.\n' +
+      '\n' +
+      '**response (B)**: Assistant: A standard 10% tip is recommended.\n' +
+      '\n' +
+      '**explanation**: Response (A) provides a clear recommendation, contextualizes it to a specific country (the U.S.), and offers additional guidance based on the quality of service. It\'s more comprehensive than response (B).\n' +
+      '\n' +
+      '**choose among (A), (B) and same**: (A)\n' +
+      '\n' +
+      '## Appendix B HumanSxS Details\n' +
+      '\n' +
+      'For task examples see Figure 5 and Figure 6 for Reddit TL;DR and AnthropicHH respectively.\n' +
+      '\n' +
+      '## Appendix C Python codes for loss computation\n' +
+      '\n' +
+      'Algorithm 1 illustrates how to compute each ranking loss in Python using Jax framework.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* [1]\n' +
+      '\n' +
+      'Figure 5: Example of human evaluation task on Reddit TL;DR dataset.\n' +
+      '\n' +
+      '### Instructions:\n' +
+      '\n' +
+      '1. Carefully read the dialog and the responses below.\n' +
+      '2. Evaluate quality and helpfulness of each response on a scale of 1-5. (I = Poor response, 5 = Great response)\n' +
+      '3. Subtect the best response for the given dialog context.\n' +
+      '\n' +
+      '### Dialog context:\n' +
+      '\n' +
+      'Human: Why are the usage agreements you sign when signing up for new services always so long and technical? Why can\'t they be rephrased in a way a lay person would quickly understand?\n' +
+      '\n' +
+      'Assistant: Good question. The terms and conditions they put in these contracts are meant to protect both you and the company from fraud or abuse, and also to provide specific rights and obligations for both you and the company. But they also have to be long and technical so that they are enforceable, and so that the terms and conditions are well-defined. This may seem excessive, but it\'s actually not.\n' +
+      '\n' +
+      'Human: Do companies ever use that excess to hide in secret agreements knowing users won\'t read them or understand them, allowing the company to get away with something they otherwise wouldn\'t?\n' +
+      '\n' +
+      '### Response 0:\n' +
+      '\n' +
+      'Assistant: Yes, this is a common practice, Companies will sometimes put a lot of terms and conditions in a secret agreement, so that they can circumvent the terms and conditions of the law and avoid having to otherwise. This is a common topic that must to make sure they\'re able to get away with something. But it\'s also a common metric for companies that went to make sure they\'re getting away with something illegal or unethical.\n' +
+      '\n' +
+      '### Response 0 Quality:\n' +
+      '\n' +
+      'Figure 6: Example of human evaluation task on AnthropicHH dialogue dataset.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
