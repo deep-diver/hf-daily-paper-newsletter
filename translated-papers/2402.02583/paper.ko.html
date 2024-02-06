@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# DiffEditor: 확산 기반 영상 편집에서 정확도 및 유연성 향상\n' +
+      '\n' +
+      '정무({}^{1}\\) 신타오왕({}^{2}\\) 지충송({}^{1}\\) 영산({}^{2}\\) 지안장({}^{1}\\)\n' +
+      '\n' +
+      '북경대학교 전자컴퓨터공학부\n' +
+      '\n' +
+      'ARC Lab, Tencent PCG\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      '대규모 텍스트-이미지(T2I) 확산 모델은 지난 몇 년 동안 이미지 생성에 혁명을 일으켰다. 다양하고 고품질의 생성 기능을 소유하지만 이러한 기능을 세밀한 이미지 편집으로 변환하는 것은 여전히 어려운 일이다. 본 논문에서는 기존의 확산 기반 이미지 편집에서 두 가지 취약점을 해결하기 위해 **DiffEditor**를 제안한다. (1) 복잡한 시나리오에서 편집 결과는 편집 정확성이 부족하고 예상치 못한 아티팩트를 보이는 경우가 많다. (2) 편집 작업을 조화시킬 수 있는 유연성 부족, 예를 들어 새로운 콘텐츠를 상상한다. 본 논문에서는 세밀한 이미지 편집에서 이미지 프롬프트를 소개하고 텍스트 프롬프트와 협력하여 편집 내용을 더 잘 설명한다. 콘텐츠 일관성을 유지하면서 유연성을 높이기 위해 확률 미분 방정식(SDE)을 상미분 방정식(ODE) 샘플링에 국부적으로 결합한다. 또한 지역 점수 기반 구배 안내와 시간 여행 전략을 확산 샘플링에 통합하여 편집 품질을 더욱 향상시킨다. 광범위한 실험을 통해 제안된 방법이 단일 이미지 내에서 편집(예: 객체 이동, 크기 조정 및 콘텐츠 드래그)과 이미지 전반에 걸친 편집(예: 외관 교체 및 객체 붙여넣기)을 포함하여 다양한 미세 이미지 편집 작업에서 최첨단 성능을 효율적으로 달성할 수 있음을 보여준다. 우리의 소스 코드는 [https://github.com/MC-E/DragonDiffusion](https://github.com/MC-E/DragonDiffusion)에서 공개된다.\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      '텍스트 투 이미지(Text-to-Image; T2I) 확산 모델[29, 32, 33, 35]은 고품질 및 다양한 생성 능력으로 칭찬받아 이미지 생성의 주류가 되었다. 미리 훈련된 T2I 모델들은 좋은 세대 이전의 역할을 할 수 있고, _e.g._, 이미지 편집과 같은 다양한 방식으로 사용될 수 있다. 텍스트 대 이미지 능력이 우수하기 때문에 텍스트 안내[5, 6, 11, 12, 13, 16]를 기반으로 수많은 확산 기반 이미지 편집 방법이 구현된다. 그러나, T2I 모델의 생성된 결과는 보통 텍스트의 품질에 민감하다[37]. 따라서 텍스트 유도 이미지 편집은 세분화된 콘텐츠 조작을 달성하기 위해 고군분투한다.\n' +
+      '\n' +
+      '최근 DragGAN[30]은 포인트 드래그에 의해 이미지 컨텐츠를 조작하기 위한 사용자 친화적인 방법을 제공한다. 그러나 GAN[8] 모델의 용량에 의해 제한된 DragGAN은 일반 이미지를 편집할 수 없다. 이러한 인터랙티브 편집 모드에서 영감을 받아 미리 학습된 T2I 확산 모델[33]을 기반으로 DragDiff[39]와 DragonDiff[28]를 제안한다. 기본 모델의 다양한 생성 기능을 통해 일반 이미지에 대해 세밀한 편집을 수행할 수 있습니다. 그러나 이들의 편집 과정은 그림 2와 같이 유연성이 결여되어 있다. 구체적으로 사자를 닫힌 입에서 넓게 열린 입으로 변형시키는 이미지 편집 작업은 DragDiff의 LORA[34]와 충돌하여 실패하게 된다. 드래곤디프에서 디자인된 시각적 크로스 어텐션은 또한 소스 이미지에 존재하지 않는 새로운 콘텐츠(_e.g._, 입)를 상상하는 것을 어렵게 하여 실패를 야기한다. 또한, 이 두 가지 방법과 대부분의 확산 기반 이미지 편집 방법은 결정론적 샘플링 프로세스인 상미분 방정식(ODE) [41] 풀이기를 사용한다. ODE는 편집된 결과와 소스 이미지 사이의 일관성을 더 잘 유지할 수 있지만, 그 결정성은 또한 편집 프로세스 동안 유연성을 제한한다. ODE에 비해 확률 미분 방정식(SDE) [15]는 확률 샘플링 과정이다. 일부 작품[48, 49]은 정확한 이미지 편집을 위해 SDE의 잠재 공간을 연구한다. 이러한 작업과 달리 그림 2의 마지막 이미지와 같이 확산 기반 이미지 편집의 유연성을 향상시키기 위해 SDE에서 확률성을 활용하는 것을 목표로 한다.\n' +
+      '\n' +
+      '또 다른 통찰력은 DragDiff와 DragonDiff가 미리 훈련된 T2I 확산 모델에서 특징 대응 관계를 활용하여 세밀한 이미지 편집을 달성하지만 텍스트 입력의 역할은 프레임워크에서 무시된다는 것이다. 여기서, 우리는 질문을 제기한다: _텍스트는 세밀한 이미지 편집에 효과가 없거나, 또는 텍스트 입력의 또 다른 적절한 형태가 있는가?_ 텍스트 프롬프트 외에도 DALL-E2[32]는 이미지를 설명하기 위해 이미지를 사용하여 이미지 프롬프트에 조건화된 이미지, _i.e._를 생성하려는 새로운 시도를 제시한다. 이어서, 일부 멀티모달 작업[20, 24, 25] 및 객체 맞춤 작업[22, 47, 51]을 제안하여 보다 상세한 콘텐츠 설명을 위한 이미지 프롬프트를 지원한다. 이러한 작업에서 영감을 얻은 이미지 프롬프트를 세밀한 이미지 편집 프로세스에 도입하여 보다 자세한 내용 설명을 통해 편집 품질을 향상시킵니다. 또한 지역 점수 기반 구배 안내와 시간 여행 전략을 확산 샘플링에 결합하여 편집 품질을 더욱 향상시킨다.\n' +
+      '\n' +
+      '요약하면, 본 논문은 다음과 같은 공헌점을 가지고 있다:\n' +
+      '\n' +
+      '* 미세한 이미지 편집 작업에 이미지 프롬프트를 도입하려는 새로운 시도를 제시한다. 이미지 편집 알고리즘과 연계하여, 이 설계는 편집 콘텐츠에 대한 보다 상세한 설명을 제공할 수 있고, 따라서 편집 품질을 향상시킬 수 있다.\n' +
+      '* 지역 SDE 샘플링과 지역 점수 기반 구배 지침을 제안하여 이미지 편집의 유연성과 내용 일관성을 모두 고려한다. 또한 확산 기반 이미지 편집에서 시간 여행 전략을 도입하여 편집 품질을 더욱 향상시킨다.\n' +
+      '* 광범위한 실험들은 우리의 방법이 다양한 세밀한 이미지 편집 작업들(도 1에 도시된 바와 같이,_i.e._, 콘텐츠 드래그, 객체 이동, 크기 조정, 붙여넣기, 및 외관 교체)에서 최첨단 성능을 달성할 수 있음을 입증한다. 매력적인 복잡성으로.\n' +
+      '\n' +
+      '##2 관련 업무\n' +
+      '\n' +
+      '### Diffusion Model\n' +
+      '\n' +
+      '확산 모델 [15]는 확산 과정과 역과정을 포함하는 열역학 구동 [40, 42] 알고리즘이다. 확산 과정에서 이미지\\(\\mathbf{x}_{0}\\)은 점진적으로 가우스 잡음을 \\(q(\\mathbf{x}_{t}|\\mathbf{x}_{0})=\\mathcal{N}(\\sqrt{\\alpha_{t}\\mathbf{x}_{0},(1-\\alpha_{t})\\mathbf{I})\\으로 추가되며, 여기서 \\(\\alpha_{t}\\)는 1에서 충분히 작은 수로 선형적으로 감소하여 \\(\\mathbf{x}_{T}\\sim\\mathcal{N}(0,\\mathbf{I})\\을 유도한다. 역방향 과정은 전류 잡음 영상\\(\\mathbf{x}_{t}\\)과 시간 스텝\\(t\\)을 조건으로 디노이저를 학습하여 \\(\\mathbf{x}_{T}\\)으로부터 \\(\\mathbf{x}_{0}\\)을 반복적으로 복원하는 것이다.\n' +
+      '\n' +
+      '[\\mathbb{E}_{\\mathbf{x}_{0},t,\\boldsymbol{\\epsilon}_{t}\\sim\\mathcal{N}(0,1} \\left[||\\boldsymbol{\\epsilon}_{t}-\\epsilon_{\\boldsymbol{\\theta}(\\mathbf{x}_{t},t}||_{2}^{2}\\right], \\tag{1}\\w}\n' +
+      '\n' +
+      '여기서 \\(\\epsilon_{\\boldsymbol{\\theta}\\)는 디노이저의 함수이다. DDIM[41]은 확산 샘플링을 \\(q(\\mathbf{x}_{t-1}|\\mathbf{x}_{t},\\mathbf{x}_{0})=\\mathcal{N}(\\sqrt{\\alpha_{t-1}\\mathbf{x}_{0}+\\sqrt{1-\\alpha_{t-1}-\\delta_{t}^{2}\\cdot\\frac{\\mathbff{x}_{t}-\\sqrt{\\alpha_{t}\\mathbf{x}_{0}},\\alpha_{t}^{2}\\mathbf{I})로 정의하며, 이는 비마코비안 프로세스이며 다음과 같이 공식화될 수 있다.\n' +
+      '\n' +
+      '{x}_{t-1}=\\frac{\\boldsymbol{x}_{t-1}\\boldsymbol{\\epsilon}_{\\boldsymbol{\\theta}\\text{}+\\underbrace{\\sqrt{t}\\text{{x}_{t}\\text{2}}\\end{split}\\coldsymbol{x}_{t}\\text{{x}_{t}\\text{{t}\\text{{x}\\text{2}}\\underbrace{\\sqrt{\\alpha}\\text{t}}\n' +
+      '\n' +
+      '그림 2: DragDiff[39]와 DragonDiff[28]의 유연성 제한 편집 및 개선 그림.\n' +
+      '\n' +
+      '여기서 \\(\\sigma_{t}=\\eta\\sqrt{\\left(1-\\alpha_{t-1}\\right)/\\left(1-\\alpha_{t}\\right)}\\sqrt{1 -\\alpha_{t}/\\alpha_{t-1}\\). 모든 \\(t\\)에 대해 \\(\\eta=1\\)일 때, DDPM[15], _i.e_, 확률 미분 방정식(SDE)이 된다. (\\(\\eta=0\\)으로서, 샘플링 프로세스는 결정론적, _i.e_, 상미분 방정식(ODE)이 된다. 대부분의 확산 기반 이미지 편집 작업은 더 나은 콘텐츠 일관성을 달성하기 위해 ODE에 의존한다. [48, 49] 확산 기반 이미지 편집에서 SDE를 탐색합니다.\n' +
+      '\n' +
+      '현재 대부분의 작품은 텍스트 조건[29, 33]과 같은 조건부 확산 생성에 초점을 맞추고 있으며, 이는 이미지 생성의 공동체에 큰 혁명을 일으켰다. 유망한 T2I 생성 품질이 달성되지만, 생성된 결과는 텍스트 품질에 민감하고 일반적으로 지루한 프롬프트 설계가 필요하다[37]. 텍스트 조건 외에도 DALL-E2[32]는 이미지 프롬프트에 의해 안내된 이미지를 생성하기 위한 첫 번째 시도를 제시한다. ELITE[47], Bilp-Diffusion[22], IP-Adapter[51]은 객체 맞춤화를 위한 이미지 프롬프트의 학습을 제시한다. 그러나 세밀한 이미지 편집에서 이미지 프롬프트의 효과는 거의 연구되지 않았다.\n' +
+      '\n' +
+      '### Image Editing\n' +
+      '\n' +
+      '이미지 편집의 주된 목적은 제어된 방식으로 주어진 이미지의 콘텐츠를 조작하는 것이다. 기존의 방법[1, 2, 3]은 보통 GAN[8]의 잠재 공간에 이미지를 반전시킨 후 잠재 벡터를 조작하여 이미지를 편집한다. 최근 DragGAN[30]은 세립 이미지 편집을 위한 점 드래그 공식을 제시하고 있다. 그러나 GAN의 성능으로 인해 이러한 방법들은 모델 일반화 및 화질에 약점을 가지고 있다. 텍스트-이미지 확산 모델[33]의 성공에 의해 동기화된 다양한 텍스트-유도 이미지 편집 방법[4, 6, 13, 18, 27]이 제안된다. 일반적으로 사용되는 편집 전략은 (1) 노이즈를 추가한 다음 대상 설명[7, 18, 21, 27, 46]으로 잡음제거하는 것; (2) 교차 주의 지도를 편집 매체[11, 13, 16]로 사용하는 것; (3) 텍스트를 편집 명령어[6]로 사용하는 것이다. 그러나 T2I 모델에서 텍스트와 이미지의 대응 관계가 약하여 세밀한 이미지 편집을 달성하기 어렵다. 최근에, DragDiff[39]와 DragonDiff[28]은 미리 훈련된 StableDiffusion(SD)[33]에서 특징 대응[45]에 기초하여 세밀한 이미지 편집을 달성한다. 구체적으로 DragDiff는 LORA[34]를 사용하여 내용 일관성을 유지하고 특정 확산 단계에서 잠재 \\(\\mathbf{z}_{t}\\)을 최적화한다. 드래곤디프는 스코어 기반 [44] 그래디언트 안내[9]와 모델 튜닝 없이 드래그 스타일 이미지 편집을 위한 시각적 교차 주의 설계를 기반으로 구축된다.\n' +
+      '\n' +
+      '## 3 Method\n' +
+      '\n' +
+      '### 예비: 점수 기반 편집 안내\n' +
+      '\n' +
+      '점수에 기초한 확산의 연속적 관점[43, 44]에서 외부 조건\\(\\mathbf{y}\\)은 조건부 점수 함수인 _i.e., \\(\\nabla_{\\mathbf{x}_{t}}\\log q(\\mathbf{x}_{t}|\\mathbf{y})\\로 조합될 수 있다. 조건부 스코어 함수는 다음과 같이 더 분해될 수 있다:\n' +
+      '\n' +
+      '\\nabla_{\\mathbf{x}_{t}}\\logq(\\frac{q(\\mathbf{y}}|\\mathbf{x}_{t}}\\log\\left(\\frac{q(\\mathbf{y}}|\\mathbf{x}_{t}}}{q(\\propto\\nabla_{\\mathbf{x}_{t}}\\logq(\\mathbf{y}}|\\mathbf{x}_{t}}\\logq(\\mathbf{y}}|\\mathbf{x}_{t}),\\nabla_{x}_{t}}\\logq(\\mathbf{y}}\\mathbf{x}_{t}}\\logq(\\mathbf{x}}}\\mathbf{x}_{t}}\\logq(\\mathbf{y}}\\mathbf{x}}}\\logq(\\mathbf{y}}\\mathbf{x\n' +
+      '\n' +
+      '여기서 첫 번째 항은 무조건적 디노이저, _i.e.., \\(\\mathbf{\\epsilon}_{\\theta}^{t}(\\mathbf{x}_{t}))이다. 두 번째 항은 에너지 함수 \\(\\mathcal{E}(\\mathbf{x}_{t},\\mathbf{y})=\\log q(\\mathbf{y}|\\mathbf{x}_{t})\\), 현재 상태 \\(\\mathbf{x}_{t}\\)와 조건 \\(\\mathbf{y}\\) 사이의 거리를 측정하여 생성된 조건부 기울기를 의미한다. 여기서, 우리는 Eq를 재구성한다. 도 3은 다음과 같다.\n' +
+      '\n' +
+      '\\mathbf{\\tilde{\\mathbf{\\epsilon}_{\\theta}^{t}(\\mathbf{x}_{t})=\\mathbf{\\epsilon}_{\\theta}^{t}(\\mathbf{x}_{t})+\\eta\\cdot\\nabla_{\\mathbf{x}_{t}\\mathcal{E}(\\mathbf{x}_{t}, \\mathbf{y}), \\tag{4}\\tag{4}}\n' +
+      '\n' +
+      '여기서 \\(\\eta\\)는 학습률을 의미한다. 최근, Self-Guidance[11]와 DragonDiff[28]은 이미지 편집 작업을 위한 그래디언트 안내로 변환한다. Self-Guidance의 에너지 함수\\(\\mathcal{E}\\)는 이미지와 텍스트 특징의 대응 관계[13]를 기반으로 구축된다. 드래곤디프는 미리 훈련된 SD에서 이미지 특징 대응[45]을 기반으로 에너지 함수를 구성하며, 이는 보다 정확한 드래그 스타일 편집 작업을 달성할 수 있다. 본 논문에서는 DragonDiff 프레임워크를 사용하여 확산 기반 이미지 편집의 정확성과 유연성을 높이는 것을 목표로 한다.\n' +
+      '\n' +
+      '그림 3: 훈련 가능한 이미지 프롬프트 인코더와 훈련이 필요하지 않은 편집 지침이 있는 확산 샘플링으로 구성된 제안된 DiffEditor의 개요.\n' +
+      '\n' +
+      '### Overview\n' +
+      '\n' +
+      '이미지 편집 파이프라인의 개요는 그림 3에 나와 있으며, 구체적으로 편집할 이미지\\(\\mathbf{x}_{0}\\)이 주어지면 먼저 이미지 프롬프트로 사용하고 이미지 프롬프트 인코더를 사용하여 삽입한다. 이러한 이미지 임베딩은 확산 프로세스를 안내하기 위해 더 나은 설명을 형성하기 위해 텍스트 임베딩과 협력한다. 그런 다음 DDIM 역산[41]을 사용하여 사전 훈련된 SD[33]의 잠재 공간에서 \\(\\mathbf{x}_{0}\\)을 가우시안 분포 \\(\\mathbf{z}_{T}\\)으로 변환한다. 참조영상 \\(\\mathbf{x}_{0}^{ref}\\)이 존재하는 경우(_i.e._, 외형 대체 및 객체 붙여넣기 시)에도 역산에 관여하게 된다. 이 과정에서 우리는 DragonDiff[28]의 설계를 따라 몇 가지 중간 특징(\\(\\mathbf{K}_{t}^{gud},\\mathbf{V}_{t}^{gud},\\mathbf{K}_{t}^{ref},\\mathbf{V}_{t}^{ref}\\) 및 잠재 특징(\\(\\mathbf{z}_{t}^{gud},\\mathbf{z}_{t}^{ref}\\))을 메모리 뱅크에서 각 시간 단계에서 저장하여 후속 이미지 편집을 유도한다. "구드" 및 "ref"는 각각 반전 프로세스에서 소스 및 참조 이미지의 정보를 나타냄에 유의한다. 후속 세대 샘플링에서는 점수 기반 편집 안내, 시각적 교차 주의 및 이미지 프롬프트의 협력으로 전진한다. 이 과정에서 정교하게 설계된 일부 전략(예: 지역 구배 안내, 지역 SDE 및 시간 여행)은 편집을 더욱 향상시킨다.\n' +
+      '\n' +
+      '###이미지 프롬프트에 의한 내용 설명\n' +
+      '\n' +
+      '여러 미세 이미지 편집 방법[28, 39]이 T2I 확산 모델에 기반하지만 간단한 설명으로 프롬프트의 역할은 무시된다. 텍스트 프롬프트와 비교하여, 이미지 프롬프트[22, 32, 51]는 보다 상세한 내용 설명을 제공할 수 있다. 본 논문에서는 특히 복잡한 시나리오에서 이미지 프롬프트가 세밀한 이미지 편집의 품질을 향상시킬 수 있음을 발견한다.\n' +
+      '\n' +
+      'IP-Adapter[51]에서 영감을 얻은 이미지 프롬프트 인코더의 아키텍처는 그림 4와 같다. 구체적으로 입력 이미지\\(\\mathbf{x}_{0}\\)이 주어지면 미리 훈련된 CLIP[31] 이미지 인코더는 257개의 토큰에 임베딩된다. 그런 다음 선형 계층을 사용하여 채널 차원을 조정하고 QFormer[23] 모듈을 사용하여 토큰 번호를 64개의 학습 가능한 쿼리로 조정한다. QFormer 모듈은 각각 크로스 어텐션 레이어와 피드 포워드 네트워크(FN)로 구성된 N(디폴트 8)개의 서브모듈로 구성된다. 64개의 학습 가능한 쿼리는 키 및 값 역할을 하는 257개의 이미지 토큰에서 정보를 추출하는 쿼리 역할을 한다. 마지막으로, 257개의 이미지 토큰이 64개의 임베딩 토큰(\\(\\mathbf{c}_{im}\\))으로 구성된 후, SD에서 텍스트 토큰(\\(\\mathbf{c}\\))과 동일한 크로스 어텐션 모듈에 입력된다. 텍스트 조건과 같은 분류기 없는 안내[14]를 구축하기 위해, 조건 및 무조건 이미지 프롬프트는 트레이닝 동안 랜덤 드롭(_i.e._, 이미지를 제로로 설정)함으로써 공동으로 트레이닝된다. 마지막으로, 이미지 토큰과 텍스트 토큰은 교차 주의 모듈에서 질의 \\(\\mathbf{Q}\\)와 함께 별도로 처리되고, 결과는 함께 추가된다:\n' +
+      '\n' +
+      '\\mathbf{Att}(\\mathbf{K}^{}^{\\prime},\\mathbf{V}^{}^{}^{}^{\\prime\\prime},\\mathbf{V}^{}^{}^{\\prime\\prime}})= \\mathcal{S}(\\frac{\\mathbf{Q}(\\mathbf{K}^{}^{}^{prime\\prime}},\\tag{5}\\mathbf{V}^{}^{}^{t}}+\\gamma\\mathcal{S}(\\frac{\\mathbf{Q}(\\mathbf{K}^{}^{prime\\prime}})\\mathbf{V}^{{}^{{}^{{}^{^{}^{rime\\prime}},\\tag{5}\\mathbf{K}^{}^{}^{t}}}{{t}}}{{t}}{{t}}}{\n' +
+      '\n' +
+      '여기서 \\((\\mathbf{K}^{}^{\\prime}},\\mathbf{V}^{}^{\\prime}))) 및 \\((\\mathbf{K}^{}^{\\prime\\prime},\\mathbf{V}^{}^{}^{\\prime}}))는 각각 텍스트 및 이미지 프롬프트로부터의 키 및 값을 지칭한다. \\\\ (\\gamma\\)는 이 두 용어의 균형을 맞추기 위한 가중치이다. \\ (\\mathcal{S}\\)는 Softmax의 함수이다. 참조 이미지(_i.e. object pasteing and appearance replacement)를 갖는 태스크에서, \\(\\mathbf{K}^{\\prime\\prime}\\) 및 \\(\\mathbf{V}^{{V}^{\\prime\\prime}\\)은 소스 이미지와 참조 이미지로부터의 이미지 토큰들의 연접에 의해 형성된다. 트레이닝 동안, 사전 트레이닝된 SD 및 CLIP 이미지 인코더에서 파라미터를 고정하고, 단지 \\(\\mathcal{L}_{2}\\) 손실에 의해 선형 임베딩 및 QFormer를 최적화한다:\n' +
+      '\n' +
+      'bb{E}_{\\mathbf{x}_{0},t,\\mathbf{\\epsilon}_{t}\\sim\\mathcal{N}(0,1} \\left[||\\mathbf{\\epsilon}_{t}-\\mathbf{\\epsilon}_{t}-\\mathbf{\\epsilon}_{\\boldsymbol{\\theta}}^{t}( \\mathbf{z}_{t},\\mathbf{c},\\mathbf{c}_{im}}||_{2}^{2}\\right] \\tag{6}\\t}\n' +
+      '\n' +
+      '단일 트레이닝 후에, 이 모듈은 본 논문에서 입증된 바와 같이, 다양한 이미지 편집 작업을 위해 미리 트레이닝된 SD에 통합될 수 있다.\n' +
+      '\n' +
+      '지역적 SDE를 이용한 샘플링\n' +
+      '\n' +
+      '편집 결과와 원본 이미지 간의 일관성을 유지하는 것은 세립 이미지 편집에서 큰 과제이다. 대부분의 방법은 결정적 샘플링 프로세스를 채택한다.\n' +
+      '\n' +
+      '그림 4: 이미지 프롬프트 인코더의 디자인 그림입니다.\n' +
+      '\n' +
+      '도 5: 드래곤디프의 편집 유연성에 대한 상이한 컴포넌트들의 영향[28]\n' +
+      '\n' +
+      'ODE(ODE)는 샘플링 초기화를 위해 DDIM 반전을 이용한다. 또한, DragDiff[39]는 LORA[34]를 이용하여 출력 컨텐츠를 제약하고, DragonDiff[28]는 시각적 크로스 어텐션을 이용하여 컨텐츠 일관성을 유지한다. 그러나 이러한 전략은 편집 유연성을 손상시켜 그림 2와 같이 편집 작업을 조화시키기 위해 새로운 콘텐츠의 상상력을 방해한다. DragonDiff에 대한 추가 실험은 콘텐츠 일관성 강도를 줄이면 편집 유연성을 향상시킬 수 있음을 보여준다. 도 1에 도시된 바와 같다. 도 5를 참조하면, 샘플링 시작점 \\(\\mathbf{z}_{T}\\)을 랜덤하게 초기화하거나 시각적 교차 주의를 제거할 때 편집 유연성이 향상된다. 두 가지 감축을 모두 적용할 경우 편집 목표는 유연하게 달성할 수 있지만 내용 일관성은 심각하게 손상된다. 따라서 본 논문에서는 콘텐츠 일관성에 큰 영향을 미치지 않으면서 편집 유연성을 향상시키는 방법을 탐구한다. 샘플링 공정(_i.e._, Eq. 2) DragonDiff의 결정적 ODE 샘플링인 \\(\\sigma_{t}=0\\)이다. 이는 최종적인 결과는 \\(\\mathbf{z}_{T}\\)와 시각적 교차 주의에 의해 주입된 정보에 크게 의존하게 된다. 우리의 해결책은 샘플링 과정에서 랜덤성(_i.e., \\(\\sigma_{t}>0\\))을 도입하는 반면, 이 랜덤성은 로컬 편집 영역과 특정 시간 간격 내에서 제어된다. 여기서, 우리는 식 2를 단순화하기 위해 \\(\\mathbf{z}_{t-1}=\\mathcal{F}(\\mathbf{z}_{t};\\sigma_{t})\\)을 사용한다. 우리의 지역적 SDE 샘플링은 다음과 같이 정의된다:\n' +
+      '\n' +
+      '\\mathbf{z}_{t-1}=\\mathbf{m}_{edit}\\cdot\\mathcal{F}(\\mathbf{z}_{t};\\eta_{1}(t))+(1-\\mathbf{m}_{edit})\\cdot\\mathcal{F}(\\mathbf{z}_{t};\\eta_{2}(t)),\\\\(\\eta_{1}(t),\\eta_{2}(t))=\\left\\{\\begin{array}{ll}(0.4,0.2),&t\\in\\tau_{SDE}\\end{array}\\right.\\t\\notin\\tau_{SDE}\\end{7}\\right.\n' +
+      '\n' +
+      '여기서 \\(\\mathbf{m}_{edit}\\)는 편집 영역을 위치시킨다. \\ (\\tau_{SDE}\\)는 지역적 SDE를 적용하기 위한 시간 간격이다. 이 샘플링 전략을 사용한 후 그림 2의 마지막 이미지와 같이 유연성을 정확하게 주입하여 만족스러운 결과를 얻을 수 있다.\n' +
+      '\n' +
+      'gradient Guidance를 이용한 편집\n' +
+      '\n' +
+      '**지역 구배 안내** 드래곤디프[28]에서 에너지 함수\\(\\mathcal{E}\\)는 두 부분으로 구성되어 있다. 즉, 편집\\(\\mathcal{E}_{edit}\\)과 내용 일관성\\(\\mathcal{E}_{content}\\). 그들의 타겟 영역들은 서로 독립적이지만, 그들이 생성하는 그래디언트 안내의 범위는 전역적이고 중첩되어, 상호 간섭을 초래한다. 구체적으로는, 도 1에 나타낸다. 도 6을 참조하면, 객체 이동 태스크에서 \\(\\mathcal{E}_{edit}\\)에 의해 생성된 편집 그래디언트를 시각화한다. 보이는 바와 같이 확산 샘플링이 진행됨에 따라 기울기 안내는 점차 편집 영역으로 수렴하게 된다. 이 프로세스 동안, 편집 영역 외부에 일부 활성화가 존재하며, 이러한 부정확한 활성화는 이러한 편집되지 않은 영역의 콘텐츠 일관성에 영향을 줄 수 있다(세부 사항은 Sec. 4.3에 제시된다). 이러한 단점을 보완하기 위해 편집영역 마스크 \\(\\mathbf{m}_{edit}\\)를 사용하여 \\(\\mathcal{E}_{edit}\\)과 \\(\\mathcal{E}_{content}\\)을 국부적으로 결합한다. 마지막으로 Eq의 조건부 항입니다. 도 3은 다음과 같이 정의된다:\n' +
+      '\n' +
+      '\\mathbf{z}_{t})=\\mathbff{m}_{edit}\\cdot\\nabla_{\\mathbf{z}_{t}\\mathcal{E}_{edit}+(1-\\mathbf{m}_{edit}\\cdot\\nabla_{\\mathbf{x}_{t}}\\mathcal{E}_{content}, \\tag{8}\\tag}\n' +
+      '\n' +
+      '여기서 \\(\\mathbf{y}\\)는 편집 대상이다. 샘플링 동안 첫 번째\\(n\\) 시간 단계에서만 지침을 추가한다.\n' +
+      '\n' +
+      '시간 여행 DragDiff[39]는 \\(\\mathbf{z}_{t}\\)를 학습 가능한 매개변수로 취급하고 확산 단계 \\(t\\) 내에서 반복적으로 최적화한다. 대조적으로, DragonDiff[28]은 각 샘플링 단계, _i.e._, Eq. 4에 점수 기반 구배 안내를 통합한다. 그러나, Eq.를 통한 편집 안내를 적용한다. 각각 4회씩\n' +
+      '\n' +
+      '그림 6: 다른 샘플링 단계에서 \\(\\mathcal{E}_{edit}\\)에서 편집 기울기의 시각화.\n' +
+      '\n' +
+      '샘플링 단계는 특히 몇몇 복잡한 시나리오들에서 편집을 위한 정제성이 부족하다. _ 드래그디프와 드래곤디프의 장점을 결합하여 점수 기반 확산에서 반복 안내를 구축할 수 있는가[44]?_ 이 문제를 해결하기 위해 샘플링 과정에서 롤백, \\(\\mathbf{z}_{t}\\leftarrow\\mathbf{z}_{t-1}\\)을 수행하는 시간 여행을 구축한다. 이 전략은 어려운 생성 과제를 해결할 때 부정한 결과의 생성을 억제하는 것으로 경험적으로 나타났다[26, 52]. 그러나 이러한 작업에서 롤백 전략(\\(\\mathbf{z}_{t}\\sim\\mathcal{N}(\\sqrt{1-\\beta_{t-1}}\\mathbf{z}_{t-1},\\beta_{t-1}\\mathbf{I})\\))은 세립 이미지 편집 작업에 적합하지 않다. 이는 랜덤 노이즈\\(\\mathbf{I}\\)가 상당한 불확실성을 유발하여 편집 결과의 내용 일관성을 저해할 수 있기 때문이다. 롤백의 정확성을 보장하기 위해 결정론적 DDIM 반전[41]을 사용하여 \\(\\mathbf{z}_{t-1}\\)을 \\(\\mathbf{z}_{t}\\)으로 롤백한다. 샘플링 동안, 시간여행은 시간간격 \\(\\tau_{TT}\\)에서 각 안내단계에 대해 \\(U\\)(3 in our design)시간 동안 수행된다.\n' +
+      '\n' +
+      '지역 안내와 시간 여행으로 인한 안내 향상으로 인해 더 적은 안내 시간 단계로 편집을 달성할 수 있으며 샘플링에서 두 시간 단계마다 구배 안내를 도입한다. 마지막으로, 본 논문에서 제안한 DiffEditor의 알고리즘 로직을 Alg. 1에 정의하였다.\n' +
+      '\n' +
+      '## 4 Experiments\n' +
+      '\n' +
+      '### Implementation Details\n' +
+      '\n' +
+      '이미지 편집의 기본 모델로 안정적인 확산 V1.5[33]을 선택합니다. 이미지 프롬프트 트레이닝 동안, 우리는 LAION[36]의 트레이닝 데이터를 사용하고 이미지 해상도를 \\(512\\times 512\\)으로 처리한다. 우리는 초기 학습률이 \\(1\\times 10^{-5}\\)인 Adam [19] 최적화기를 선택한다. 학습 중 배치 크기는 16으로 설정하였으며, 학습 과정은 4개의 NVIDIA A100 GPU에서 \\(1\\times 10^{6}\\) 단계를 반복한다. 동일한 임베딩 모듈을 사용하여 서로 다른 응용 프로그램에서 이미지 프롬프트를 처리합니다. 추론은 50으로 DDIM 샘플링을 채택한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c c c c} \\hline  & Preparing & Inference & Unaligned & 17 Points.\\(\\downarrow\\) & 68 Points.\\(\\downarrow\\) & FID\\(\\downarrow\\) \\\\  & complexity\\(\\downarrow\\) & complexity\\(\\downarrow\\) & face & From 57.19 & From 36.36 & 17/68 points \\\\ \\hline UserControllableLT [10] & **1.1**s & **0.04**s & & 32.32 & 24.15 & 51.20/50.32 \\\\ DragGAN [30] & 50.22s & 6.28s & & **15.96** & **10.60** & 39.27/39.50 \\\\ DragDiff [39] & 42.37s & 19.52s & & 22.95 & 17.32 & 38.06/36.55 \\\\ DragonDiff [28] & 3.53s & 15.00s & & 18.51 & 13.94 & 35.75/34.58 \\\\ DiffEditor (Ours) & 3.53s & 13.88s & & 17.05 & 11.52 & **33.10/33.02** \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 1: 68점, 17점으로 얼굴 조작에 대한 정량적 평가. 정확도는 편집된 포인트와 대상 포인트 사이의 MSE 거리에 의해 계산된다. 초기 거리(57.19 및 36.36)는 편집하지 않고 상한입니다. FID[38]은 상이한 메소드의 편집 품질을 양자화하는데 이용된다. 시간 복잡도는 \'1점\' 드래그에서 계산됩니다.\n' +
+      '\n' +
+      '그림 7: 얼굴 조작에서 우리의 DiffEditor와 다른 방법의 질적 비교. 현재 및 대상 점은 빨간색과 파란색으로 레이블이 지정됩니다. 흰색 선은 거리를 나타냅니다. 결과와 목표 사이의 MSE 거리는 노란색으로 표시된다.\n' +
+      '\n' +
+      '단계 및 분류기 없는 안내 척도를 5로 설정했습니다.\n' +
+      '\n' +
+      '### Comparison\n' +
+      '\n' +
+      '**시간 복잡도.** 서로 다른 방법의 시간 복잡도를 준비 단계와 추론 단계로 나눈다. 준비 단계는 Diffusion/GAN 반전 및 모델 튜닝을 포함한다. 추론 단계는 잠재 표현으로부터 편집 결과를 생성한다. 각 방법에 대한 시간 복잡도는 한 점 드래그에 대해 테스트되며, 이미지 해상도는 \\(512\\times 512\\)이다. 모든 시간은 Float32 정밀도로 NVIDIA A100 GPU에서 테스트됩니다. 탭의 결과입니다. 1은 제안된 방법의 매력적인 준비 복잡도를 제시하며, 추론 복잡도는 기존의 확산 기반 방법인 _i.e._, DragDiff 및 DragonDiff보다 낮다.\n' +
+      '\n' +
+      '**Performance.** 먼저 키포인트 기반 얼굴 조작에 대해 잘 알려진 GAN 기반 방법(_i.e._, UserControllableLT[10], DragGAN[30])과 최근 확산 기반 방법(_i.e._, DragDiff[39], DragonDiff)과 비교하여 콘텐츠 드래그에 대한 우리의 방법을 평가한다. 우리는 CelebA-HQ [17] 훈련 세트에서 DragonDiff, _i.e._, 800개의 정렬된 면과 동일한 테스트 세트를 사용했다. 17점 가이던스와 68점 가이던스에서 편집 성능을 평가한다. 편집 정확도를 정량화하기 위해 편집 결과의 랜드마크와 대상 랜드마크 사이의 MSE 거리를 계산했다. 또한, 편집 결과와 CelebA-HQ 훈련 세트 사이의 FID[38]를 계산하여 화질을 표현한다. 정량적 비교는 Tab. 1에 제시되어 있다. 본 방법은 다른 확산 기반 방법에 비해 정확도 및 생성 품질이 크게 향상되어 DragGAN과 유사한 편집 정확도를 달성함을 알 수 있다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c|c c c} \\hline \\hline  & Pasting & Moving & Replacing \\\\ \\hline Pain-by-example & 0.265 & - & - \\\\ Self-Guidance & - & 0.246 & 0.243 \\\\ DragonDiff & 0.260 & 0.282 & 0.263 \\\\ Ours & 0.274 & 0.288 & 0.281 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 2: 오브젝트 붙여넣기, 오브젝트 이동, 외관 대체에 대한 정량적 평가. 결과는 편집 결과와 대상 설명 사이의 CLIP[31]\\(\\uparrow\\) 거리로 계산된다.\n' +
+      '\n' +
+      '그림 8: 외관 교체, 객체 붙여넣기 및 객체 이동 작업에 대한 우리의 방법과 다른 방법 간의 시각적 비교.\n' +
+      '\n' +
+      '그림 10: 첫 번째 행과 두 번째 행은 각각 DDIM 반전 및 이미지 편집에서 이미지 프롬프트의 효과를 보여준다.\n' +
+      '\n' +
+      '그림 9: 이미지 프롬프트와 IP-어댑터-플러스 간의 시각적 비교.\n' +
+      '\n' +
+      'DragGAN은 정렬된 면들에 대해 더 높은 편집 정확도를 갖지만, 그것의 베이스 모델은 도 7의 마지막 행에 도시된 바와 같이, 정렬된 면들에 대해 구체적으로 트레이닝되고 일반적인 면들을 편집할 수 없다. 도 7은 우리의 방법이 양호한 유연성을 유지하면서 높은 편집 정확도와 콘텐츠 일관성을 갖는다는 것을 보여준다. 예를 들어, 치아를 상상해야 하는 경우, 당사의 DiffEditor는 더 자연스러운 결과를 낼 수 있습니다. 이에 비해 DragDiff와 DragOnDiff는 새로운 콘텐츠를 상상하는 데 어려움이 있다.\n' +
+      '\n' +
+      '콘텐츠 끌기 외에도 객체 붙여넣기에서 그림판별[50]과 비교하며, 객체 이동 및 외형 대체 작업에서 Self-Guidance[11], DragonDiff와 제안한 방법을 비교한다. 그 결과는 Fig. 8에 제시되어 있다. 알 수 있듯이, 특수하게 훈련된 Paint-by-example은 자연스럽게 객체들을 이미지에 통합할 수 있지만, 원래의 객체 동일성을 유지하기 어렵다. 제안하는 방법은 객체 식별력이 우수하고 드래곤디프(DragonDiff)보다 텍스쳐 디테일이 풍부하다. 객체 이동 및 외형 대체 작업에서 텍스트 유도 Self-Guidance는 일관된 제약 조건이 부족하여 편집 결과가 원본 이미지에서 벗어나게 한다. 드래곤디프의 편집 정확도는 여전히 개선의 여지가 있다. 이에 비해 본 논문에서 제안하는 방법은 콘텐츠의 일관성과 편집의 정확성이 우수하다. 양자화를 위해, 우리는 편집된 결과와 대상 설명 사이의 CLIP[31] 거리를 계산한다. 각 작업에 대해 16개의 편집 샘플을 선택합니다. 탭의 결과입니다. 2는 우리의 방법의 유망한 성능을 보여준다.\n' +
+      '\n' +
+      '**우리의 이미지 프롬프트와 IP-어댑터 사이의 논의.** 위에서 언급한 바와 같이, 생성된 결과에 대해 보다 정확하고 맞춤화된 설명을 제공하기 위해 이미지를 프롬프트로서 사용하기 위해 제안된 몇 가지 방법이 있다[51]. 그러나, 이러한 방법들은 대부분 객체 커스터마이징에 초점을 맞추고, 상세 설명에 지나치게 중점을 두는 것은 그들의 성능을 손상시킬 것이다. 따라서 IP-Adapter는 상세 설명을 피하기 위해 이미지를 적은 수의 토큰으로 압축합니다. 본 논문은 이미지 프롬프트를 세밀한 이미지 편집에 도입하는 것에 대해 연구한다. Q-Former 구조를 사용하여 이미지를 64개의 토큰으로 매핑하여 디테일 표현 능력을 향상시킵니다. 도. 도 9는 IP-어댑터가 상세 설명 부족으로 인해 세립 이미지 편집 작업에 직접 삽입하기에 이상적이지 않음을 보여준다. 본 논문에서 제안하는 방법은 편집된 결과와 원본 이미지 간의 텍스처 디테일의 일관성을 높일 수 있다.\n' +
+      '\n' +
+      '### Ablation Study\n' +
+      '\n' +
+      '이 부분에서, 우리는 우리의 DiffEditor에서 일부 구성 요소의 효과를 연구한다.\n' +
+      '\n' +
+      '**이미지 프롬프트.**이미지 프롬프트는 편집 파이프라인에서 편집 내용에 대한 자세한 설명을 제공합니다. 우리는 그림 1에서 실험을 수행한다. 도 10을 참조하여 그 효과를 입증한다. 먼저, 이를 순수 DDIM 역산에 적용한 후 재구성에 적용한다. 첫 번째 행의 결과는 텍스트 프롬프트에 기초한 DDIM 반전이 눈에 띄는 왜곡을 나타내고 불안정하다는 것을 나타낸다. 영상 프롬프트를 사용한 후 DDIM 역산은 안정적이고 높은 충실도 결과를 재구성할 수 있다. 도 2의 두 번째 행에서. 도 10을 참조하면, 이미지 프롬프트가 있거나 없는 편집을 보여준다. 이미지 프롬프트는 콘텐츠를 편집하기 전에 더 나은 생성을 제공하여 왜곡의 확률을 감소시킨다는 것을 알 수 있다.\n' +
+      '\n' +
+      '**지역 구배 안내.** 서로 다른 구배 안내 사이의 간섭을 보정하기 위해 Eq를 사용한다. 도 8을 참조하여 가이드를 제작한다. 그림 1에서 그 효과를 보여준다. 11은 \\(\\mathbf{m}_{edit}\\cdot\\mathcal{E}_{edit}\\)과 \\(\\mathcal{E}_{edit}\\)을 사용하여야 한다. 간섭을 강조하기 위해 콘텐츠 일관성 안내(\\(\\mathcal{E}_{content}\\)를 제거한다는 점에 유의한다. 그 결과, \\(\\mathcal{E}_{edit}\\)의 작동 범위가 제약되지 않는다면, 편집 기울기는 관련 없는 일부 영역의 일관성, 즉 배경에서 손가락의 왜곡에 영향을 미칠 것이다. 지역적 제약을 적용한 결과, 배경 부분의 내용이 \\(\\mathcal{E}_{content}\\)이 없어도 일관성이 더 우수하였다.\n' +
+      '\n' +
+      '**시간 여행.**시간 여행은 단일 확산 시간 단계에서 반복 안내를 구축하기 위해 사용되며, 이에 의해 편집을 정제하는\n' +
+      '\n' +
+      '그림 11: 지역 구배 지침의 효과. 실험에서는 내용 일관성 기울기 \\(\\mathcal{E}_{content}\\)를 제거한다.\n' +
+      '\n' +
+      '그림 12: 시간 여행 없이, 무작위 시간 여행으로, 그리고 우리의 정확한 시간 여행으로 편집의 시각화.\n' +
+      '\n' +
+      '효과. 우리는 그림 1에 그 효과를 제시한다. 12. 알 수 있는 바와 같이, 복잡한 시나리오에서의 편집 결과는 시간 여행 전략 없이 왜곡을 갖는다. 랜덤 타임 트래블(_i.e._, \\(\\mathbf{z}_{t}\\sim\\mathcal{N}(\\sqrt{1-\\beta_{t-1}}\\mathbf{z}_{t-1},\\beta_{t-1}\\mathbf{I})\\)을 사용하면 랜덤성이 편집 결과와 원본 이미지 간의 일관성에 영향을 미친다. 정확한 시간 여행을 채택한 후 편집 품질이 향상됩니다.\n' +
+      '\n' +
+      '###구성요소에 따른 일반화\n' +
+      '\n' +
+      '특정 SD 모델을 필요로 하는 영상 프롬프트 인코더를 제외하고, 본 방법의 다른 컴포넌트들은 확산 이론에 기초하여 설계되어, 양호한 일반화를 제공한다. 도. 도 13은 특정 데이터 상에서 튜닝된 SD 및 커스텀 SD의 상이한 버전들 상의 이들 컴포넌트들의 편집 결과들을 도시한다. 다양한 확산 모델에서 이러한 구성 요소의 유망한 일반화를 보여준다. SD-1.5를 사용하는 이유는 편집 결과의 내용이 대부분 기존 이미지에서 나오기 때문에 생성 능력에 대한 의존도가 상대적으로 작기 때문이다. SDXL과 같은 대규모 생성 모델은 구배 안내에서 높은 계산 비용을 생성한다. 따라서 우리는 효율적인 SD-1.5를 기본 모델로 사용한다.\n' +
+      '\n' +
+      '## 5 Conclusion\n' +
+      '\n' +
+      '본 논문에서는 확산 기반 세립 이미지 편집의 두 가지 문제를 해결하는 것을 목표로 한다: (1) 복잡한 시나리오에서 편집 결과는 편집 정확성이 부족하고 예상치 못한 아티팩트를 나타낸다; (2) 편집 작업을 조화시킬 수 있는 유연성 부족, 예를 들어, 새로운 콘텐츠를 상상한다. 본 논문에서는 이미지 프롬프트를 세분화된 이미지 편집에 도입하여 편집된 이미지에 대한 보다 상세한 내용 설명을 제공하고 왜곡 확률을 줄일 수 있다. 이 방법은 작업별 훈련 없이 다양한 미세 이미지 편집 작업에 연결할 수 있다. 편집 유연성을 향상시키기 위해, 우리는 다른 영역에서 콘텐츠 일관성을 유지하면서 편집 영역에 무작위성을 주입하는 지역 SDE 전략을 제안한다. 또한, 지역 점수 기반 그라디언트 가이드와 시간 여행 전략을 편집 과정에 도입하여 편집 품질을 더욱 향상시킨다. 다양한 세밀한 이미지 편집 작업인 _i.e._, 객체 이동, 크기 조정, 붙여넣기, 외관 교체 및 콘텐츠 드래그에서 제안된 방법이 유망한 성능을 달성할 수 있음을 실험을 통해 입증한다. 또한 기존의 확산 기반 방법에 비해 복잡도가 감소한다.\n' +
+      '\n' +
+      '**한계** 우리의 방법은 확산 기반 이미지 편집의 유연성을 향상시키고 왜곡의 확률을 감소시키지만, 자동차를 앞쪽으로 끌어서 회전시키는 것과 같이 많은 양의 콘텐츠 상상력을 필요로 하는 일부 시나리오에서는 편집의 어려움이 여전히 존재한다. 우리는 이것이 기본 모델 SD 때문이라고 생각한다. 다양한 세대 공간을 갖지만 개별 사물에 대한 3D 인식이 부족하다. 향후 작업에서는 이와 관련하여 확산 모델의 편집 기능을 향상시킬 것이다.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* [1] Rameen Abdal, Yipeng Qin, and Peter Wonka. Image2stylegan: How to embed images into the stylegan latent space? In _Proceedings of the IEEE/CVF International Conference on Computer Vision_, pages 4432-4441, 2019.\n' +
+      '* [2] Rameen Abdal, Yipeng Qin, and Peter Wonka. Image2stylegan++: How to edit the embedded images? In _Proceedings of the IEEE/CVF conference on computer vision and pattern recognition_, pages 8296-8305, 2020.\n' +
+      '* [3] Yuval Alaluf, Omer Tov, Ron Mokady, Rinon Gal, and Amit Bermano. Hyperstyle: Stylegan inversion with hypernetworks for real image editing. In _Proceedings of the IEEE/CVF conference on computer Vision and pattern recognition_, pages 18511-18521, 2022.\n' +
+      '* [4] Omri Avraham, Dani Lischinski, and Ohad Fried. Blended diffusion for text-driven editing of natural images. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 18208-18218, 2022.\n' +
+      '\n' +
+      '도 13: 상이한 확산 모델에 대한 편집 결과의 시각화.\n' +
+      '\n' +
+      '* [5] Yogesh Balaji, Seungjun Nah, Xun Huang, Arash Vahdat, Jiaming Song, Karsten Kreis, Miika Aittala, Timo Aila, Samuli Laine, Bryan Catanzaro, et al. ediffi: Text-to-image diffusion models with an ensemble of expert denoisers. _arXiv preprint arXiv:2211.01324_, 2022.\n' +
+      '* [6] Tim Brooks, Aleksander Holynski, and Alexei A Efros. Instructpix2pix: Learning to follow image editing instructions. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 18392-18402, 2023.\n' +
+      '* [7] Mingdeng Cao, Xintao Wang, Zhongang Qi, Ying Shan, Xiaohu Qie, and Yinqiang Zheng. Masactrl: Tuning-free mutual self-attention control for consistent image synthesis and editing. _arXiv preprint arXiv:2304.08465_, 2023.\n' +
+      '* [8] Antonia Creswell, Tom White, Vincent Dumoulin, Kai Arulkumaran, Biswa Sengupta, and Anil A Bharath. Generative adversarial networks: An overview. _IEEE signal processing magazine_, 35(1):53-65, 2018.\n' +
+      '* [9] Prafulla Dhariwal and Alexander Nichol. Diffusion models beat gans on image synthesis. _Advances in neural information processing systems_, 34:8780-8794, 2021.\n' +
+      '* [10] Yuki Endo. User-controllable latent transformer for stylegan image layout editing. In _Computer Graphics Forum_, pages 395-406. Wiley Online Library, 2022.\n' +
+      '* [11] Dave Epstein, Allan Jabri, Ben Poole, Alexei A Efros, and Aleksander Holynski. Diffusion self-guidance for controllable image generation. _arXiv preprint arXiv:2306.00986_, 2023.\n' +
+      '* [12] Weixi Feng, Xuehai He, Tsu-Jui Fu, Varun Jampani, Arjun Akula, Pradyumna Narayana, Sugato Basu, Xin Eric Wang, and William Yang Wang. Training-free structured diffusion guidance for compositional text-to-image synthesis. _arXiv preprint arXiv:2212.05032_, 2022.\n' +
+      '* [13] Amir Hertz, Ron Mokady, Jay Tenenbaum, Kfir Aherman, Yael Pritch, and Daniel Cohen-Or. Prompt-to-prompt image editing with cross attention control. _arXiv preprint arXiv:2208.01626_, 2022.\n' +
+      '* [14] Jonathan Ho and Tim Salimans. Classifier-free diffusion guidance. _arXiv preprint arXiv:2207.12598_, 2022.\n' +
+      '* [15] Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising diffusion probabilistic models. _Advances in Neural Information Processing Systems_, 33:6840-6851, 2020.\n' +
+      '* [16] Xuan Ju, Ailing Zeng, Yuxuan Bian, Shaoteng Liu, and Qiang Xu. Direct inversion: Boosting diffusion-based editing with 3 lines of code. _arXiv preprint arXiv:2310.01506_, 2023.\n' +
+      '* [17] Tero Karras, Timo Aila, Samuli Laine, and Jaakko Lehtinen. Progressive growing of gans for improved quality, stability, and variation. _arXiv preprint arXiv:1710.10196_, 2017.\n' +
+      '* [18] Bahjat Kawar, Shiran Zada, Oran Lang, Omer Tov, Huiwen Chang, Tali Dekel, Inbar Mosseri, and Michal Irani. Imagic: Text-based real image editing with diffusion models. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 6007-6017, 2023.\n' +
+      '* [19] Diederik P Kingma and Jimmy Ba. Adam: A method for stochastic optimization. _arXiv preprint arXiv:1412.6980_, 2014.\n' +
+      '* [20] Jing Yu Koh, Daniel Fried, and Ruslan Salakhutdinov. Generating images with multimodal language models. _arXiv preprint arXiv:2305.17216_, 2023.\n' +
+      '* [21] Gihyun Kwon and Jong Chul Ye. Diffusion-based image translation using disentangled style and content representation. _arXiv preprint arXiv:2209.15264_, 2022.\n' +
+      '* [22] Dongxu Li, Junnan Li, and Steven CH Hoi. Blip-diffusion: Pre-trained subject representation for controllable text-to-image generation and editing. _arXiv preprint arXiv:2305.14720_, 2023.\n' +
+      '* [23] Junnan Li, Dongxu Li, Silvio Savarese, and Steven Hoi. Blip-2: Bootstrapping language-image pre-training with frozen image encoders and large language models. _arXiv preprint arXiv:2301.12597_, 2023.\n' +
+      '* [24] Haotian Liu, Chunyuan Li, Yuheng Li, and Yong Jae Lee. Improved baselines with visual instruction tuning. _arXiv preprint arXiv:2310.03744_, 2023.\n' +
+      '* [25] Haotian Liu, Chunyuan Li, Qingyang Wu, and Yong Jae Lee. Visual instruction tuning. _arXiv preprint arXiv:2304.08485_, 2023.\n' +
+      '* [26] Andreas Lugmayr, Martin Danelljan, Andres Romero, Fisher Yu, Radu Timofte, and Luc Van Gool. Repaint: Inpainting using denoising diffusion probabilistic models. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 11461-11471, 2022.\n' +
+      '* [27] Chenlin Meng, Yutong He, Yang Song, Jiaming Song, Jiajun Wu, Jun-Yan Zhu, and Stefano Ermon. Sdedit: Guided image synthesis and editing with stochastic differential equations. _arXiv preprint arXiv:2108.01073_, 2021.\n' +
+      '* [28] Chong Mou, Xintao Wang, Jiechong Song, Ying Shan, and Jian Zhang. Dragondiffusion: Enabling drag-style manipulation on diffusion models. _arXiv preprint arXiv:2307.02421_, 2023.\n' +
+      '* [29] Alexander Quinn Nichol, Prafulla Dhariwal, Aditya Ramesh, Pranav Shyam, Pamela Mishkin, Bob Mcgrew, Ilya Sutskever, and Mark Chen. Glide: Towards photorealistic image generation and editing with text-guided diffusion models. In _International Conference on Machine Learning_, pages 16784-16804. PMLR, 2022.\n' +
+      '* [30] Xingang Pan, Ayush Tewari, Thomas Leimkuhler, Lingjie Liu, Abhimitra Meka, and Christian Theobalt. Drag your gan: Interactive point-based manipulation on the generative image manifold. _arXiv preprint arXiv:2305.10973_, 2023.\n' +
+      '* [31] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, et al. Learning transferable visual models from natural language supervision. In _International conference on machine learning_, pages 8748-8763, 2021.\n' +
+      '* [32] Aditya Ramesh, Prafulla Dhariwal, Alex Nichol, Casey Chu, and Mark Chen. Hierarchical text-conditional image generation with clip latents. _arXiv preprint arXiv:2204.06125_, 2022.\n' +
+      '* [33] Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Bjorn Ommer. High-resolution image synthesis with latent diffusion models. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 10684-10695, 2022.\n' +
+      '* [34] Simo Ryu. Low-rank adaptation for fast text-to-image diffusion fine-tuning, 2023.\n' +
+      '* [35] Chitwan Saharia, William Chan, Saurabh Saxena, Lala Li, Jay Whang, Emily Denton, Seyed Kamyar Seyed Ghasemipour, Burcu Karagol Ayan, S Sara Mahdavi, Rapha Gontijo Lopes, et al. Photorealistic text-to-image diffusion models with deep language understanding. _arXiv preprint arXiv:2205.11487_, 2022.\n' +
+      '* [36] Christoph Schuhmann.\n' +
+      '* [37] Eyal Segalis, Dani Valevski, Danny Lumen, Yossi Matias, and Yaniv Leviathan. A picture is worth a thousand words: Principled recaptioning improves image generation. _arXiv preprint arXiv:2310.16656_, 2023.\n' +
+      '* [38] Maximilian Seitzer. pytorch-fid: FID Score for PyTorch. [https://github.com/mseitzer/pytorch-fid](https://github.com/mseitzer/pytorch-fid), 2020. Version 0.3.0.\n' +
+      '* [39] Yujun Shi, Chuhui Xue, Jiachun Pan, Wenqing Zhang, Vincent YF Tan, and Song Bai. Dragdiffusion: Harnessing diffusion models for interactive point-based image editing. _arXiv preprint arXiv:2306.14435_, 2023.\n' +
+      '* [40] Jascha Sohl-Dickstein, Eric Weiss, Niru Maheswaranathan, and Surya Ganguli. Deep unsupervised learning using nonequilibrium thermodynamics. In _International Conference on Machine Learning_, pages 2256-2265. PMLR, 2015.\n' +
+      '* [41] Jiaming Song, Chenlin Meng, and Stefano Ermon. Denoising diffusion implicit models. _arXiv preprint arXiv:2010.02502_, 2020.\n' +
+      '* [42] Yang Song and Stefano Ermon. Generative modeling by estimating gradients of the data distribution. _Advances in neural information processing systems_, 32, 2019.\n' +
+      '* [43] Yang Song and Stefano Ermon. Improved techniques for training score-based generative models. _Advances in neural information processing systems_, 33:12438-12448, 2020.\n' +
+      '* [44] Yang Song, Jascha Sohl-Dickstein, Diederik P Kingma, Abhishek Kumar, Stefano Ermon, and Ben Poole. Score-based generative modeling through stochastic differential equations. _arXiv preprint arXiv:2011.13456_, 2020.\n' +
+      '* [45] Luming Tang, Menglin Jia, Qianqian Wang, Cheng Perng Phoo, and Bharath Hariharan. Emergent correspondence from image diffusion. _arXiv preprint arXiv:2306.03881_, 2023.\n' +
+      '* [46] Dani Valevski, Matan Kalman, Eyal Molard, Eyal Segalis, Yossi Matias, and Yaniv Leviathan. Unitune: Text-driven image editing by fine tuning a diffusion model on a single image. _ACM Transactions on Graphics (TOG)_, 42(4):1-10, 2023.\n' +
+      '* [47] Yuxiang Wei, Yabo Zhang, Zhilong Ji, Jinfeng Bai, Lei Zhang, and Wangmeng Zuo. Elite: Encoding visual concepts into textual embeddings for customized text-to-image generation. _arXiv preprint arXiv:2302.13848_, 2023.\n' +
+      '* [48] Chen Henry Wu and Fernando De la Torre. Unifying diffusion models\' latent space, with applications to cyclediffusion and guidance. _arXiv preprint arXiv:2210.05559_, 2022.\n' +
+      '* [49] Chen Henry Wu and Fernando De la Torre. A latent space of stochastic diffusion models for zero-shot image editing and guidance. In _Proceedings of the IEEE/CVF International Conference on Computer Vision_, pages 7378-7387, 2023.\n' +
+      '* [50] Binxin Yang, Shuyang Gu, Bo Zhang, Ting Zhang, Xuejin Chen, Xiaoyan Sun, Dong Chen, and Fang Wen. Paint by example: Exemplar-based image editing with diffusion models. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 18381-18391, 2023.\n' +
+      '* [51] Hu Ye, Jun Zhang, Sibo Liu, Xiao Han, and Wei Yang. Ipadapter: Text compatible image prompt adapter for text-to-image diffusion models. _arXiv preprint arXiv:2308.06721_, 2023.\n' +
+      '* [52] Jiwen Yu, Yinhuai Wang, Chen Zhao, Bernard Ghanem, and Jian Zhang. Freedom: Training-free energy-guided conditional diffusion model. _arXiv preprint arXiv:2303.09833_, 2023.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
