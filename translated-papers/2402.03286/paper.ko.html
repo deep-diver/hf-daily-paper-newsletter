@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# 트레이닝-프리 일관성 있는 텍스트-이미지 생성\n' +
+      '\n' +
+      'Yoad Tewel\n' +
+      '\n' +
+      'Omri Kadupki\n' +
+      '\n' +
+      'Rinnon Gal\n' +
+      '\n' +
+      'Yonli Kaasten\n' +
+      '\n' +
+      'Lior Woller\n' +
+      '\n' +
+      'Gal Cheechik\n' +
+      '\n' +
+      '비디아 유발라 아츠몬\n' +
+      '\n' +
+      'NVIDIAia\n' +
+      '\n' +
+      '###### Abstract.\n' +
+      '\n' +
+      '텍스트 대 이미지 모델은 사용자가 자연어를 통해 이미지 생성 과정을 안내할 수 있도록 하여 새로운 차원의 창의적 유연성을 제공한다. 그러나 이러한 모델을 사용하여 다양한 프롬프트에 걸쳐 동일한 주제를 일관되게 묘사하는 것은 여전히 어렵다. 기존 접근법은 모델을 미세 조정하여 특정 사용자 제공 주제를 설명하거나 모델에 이미지 컨디셔닝을 추가하는 새로운 단어를 가르친다. 이러한 방법은 피험자당 긴 최적화 또는 대규모 사전 훈련을 필요로 한다. 또한 생성된 이미지를 텍스트 프롬프트와 정렬하는 데 어려움을 겪고 여러 피사체를 묘사하는 데 어려움을 겪는다. 여기서는 사전 학습된 모델의 내부 액티베이션을 공유하여 일관된 주제 생성을 가능하게 하는 _training-free_ approach인 _ConsiStory_를 제시한다. 본 논문에서는 영상 간의 피사체 일관성을 높이기 위해 피사체 중심의 공유 주의 블록 및 대응 기반 특징 주입을 소개한다. 또한, 주제 일관성을 유지하면서 레이아웃 다양성을 장려하기 위한 전략을 개발합니다. 우리는 _ConsiStory_를 기준선 범위와 비교하고 단일 최적화 단계를 요구하지 않고 주제 일관성과 텍스트 정렬에 대한 최첨단 성능을 보여준다. 마지막으로, _ConsiStory_는 멀티-피험자 시나리오들로 자연스럽게 확장될 수 있고, 심지어 공통 객체들에 대한 트레이닝-프리 _personalization_도 가능하게 한다.\n' +
+      '\n' +
+      '코드는 프로젝트 페이지에서 사용할 수 있습니다.\n' +
+      '\n' +
+      '## 1. Introduction\n' +
+      '\n' +
+      '대규모 텍스트 대 이미지(T2I) 확산 모델은 사용자가 텍스트에서 상상력 있는 장면을 만들 수 있도록 권한을 부여하지만, 이들의 확률적 특성은 프롬프트 배열에 걸쳐 시각적으로 일관된_피험자를 표현하려고 할 때 문제를 제기한다. 이러한 일관성은 책과 이야기를 설명하는 것, 가상 자산을 설계하는 것, 그래픽 소설과 합성 데이터를 만드는 것 등 많은 응용 분야에 매우 중요합니다.\n' +
+      '\n' +
+      '일관성 있는 이미지 생성 분야에서, 현재 접근법 [33, 4, 11, 26]은 주로 텍스트-대-이미지 모델이 주어진 이미지 세트에서 _specific_ 주제를 나타내기 위해 새로운 단어를 학습하는 프로세스인 _personalization_에 의존한다. 그러나 이러한 개인화 기반 방법은 여러 가지 단점을 가지고 있다: 피험자당 훈련이 필요하며, 한 이미지에서 여러 일관된 피험자를 동시에 묘사하는 데 어려움을 겪으며, 피험자의 일관성과 신속한 정렬 사이의 상충 관계를 겪을 수 있다. 훈련 이미지-조건 확산 모델(예를 들어 인코더[54, 14, 57])을 사용하는 것과 같은 대안은 상당한 계산 리소스를 필요로 하며, 다중 객체 장면으로의 확장은 불분명하다. 이러한 모든 접근법의 공통 스레드는 일관성을 강화하려고 시도한다는 것이다. 즉, 생성된 이미지가 주어진 특정 대상과 일치하도록 작동한다. 이러한 접근법에는 두 가지 단점이 있다. 그들은 모델의 "창의성"을 주어진 타겟 이미지에 구속할 수밖에 없고, 모델을 트레이닝 분포로부터 멀어지게 하는 경향이 있다.\n' +
+      '\n' +
+      '사후 방법의 한계를 피할 수 있음을 보이고, 기존 영상에 대한 조건화 없이 _zero-shot_ 방식으로 일관성을 달성하는 방법을 제안한다. 핵심 아이디어는 생성 중에 프레임 간 일관성을 촉진하는 것이다. 이를 위해 확산 모델의 내부 특징 표현을 활용하여 생성된 이미지를 외부 소스와 추가로 정렬할 필요 없이 서로 정렬한다. 그렇게 함으로써, 우리는 즉석에서 일관된 생성을 가능하게 할 수 있다(도 1). 장시간의 훈련이나 역전파를 요구하지 않고, 현재 최첨단보다 대략 x20의 생성을 빠르게 만든다.\n' +
+      '\n' +
+      '우리의 접근 방식은 세 단계로 작동한다. 먼저, 잡음이 발생한 영상들의 집합에 걸쳐 피사체의 위치를 파악한다. 그런 다음 생성된 각 이미지가 자기 주의 메커니즘의 확장을 통해 다른 프레임의 피사체 패치에 참석할 수 있도록 함으로써 피사체 일관성을 장려한다. 이는 배치 전반에 걸쳐 보다 일관된 주제로 이어지지만 유사한 확장을 사용하는 다른 맥락에서 관찰된 바와 같이 배치 다양성이 크게 감소하도록 한다(Kang et al., 2019). 따라서 두 번째 단계는 바닐라의 기능을 통합하고 일관되지 않은 샘플링 단계와 공유 키 및 값에 새로운 추론 시간 드롭아웃을 도입하는 두 가지 방식으로 다양성을 유지하는 것이다. 마지막으로 더 미세한 세부 사항의 일관성을 향상시키는 것을 목표로 합니다. 이를 위해 전체 집합에 걸쳐 해당 피사체 픽셀 간에 자기 주의 _output_ 특징을 정렬한다.\n' +
+      '\n' +
+      '우리가 _ConsiStory_라고 부르는 전체 방법은 이러한 구성 요소를 결합하여 훈련 없이 일관된 생성을 가능하게 한다. 우리는 _ConsiStory_를 이전 접근법과 비교하고 생성 프로세스 동안 피쳐를 정렬함으로써 프로세스를 실질적으로 가속화할 뿐만 아니라 더 나은 프롬프트 정렬을 유지한다는 것을 입증한다. 중요하게도, 우리의 방법은 개인화 기반 접근법에 의해 도입된 함정을 피하면서 다중 대상 장면으로 확장하기에는 사소한 것이다.\n' +
+      '\n' +
+      '마지막으로, _ConsiStory_가 ControlNet(Wang et al., 2019)과 같은 기존의 편집 도구와 호환됨을 보이고, 일관된 아이덴티티를 재사용하기 위한 방법을 소개하고, 공통 오브젝트 클래스에 대한 트레이닝 프리 개인화에도 우리의 아이디어를 적용하며, 인코더 사용 없이, _the first to show_ 트레이닝 프리 개인화이다.\n' +
+      '\n' +
+      '요약하면, 본 논문은 다음과 같은 기여를 한다. 첫째, 다양한 프롬프트에 걸쳐 주제 일관성을 달성하기 위한 훈련 없는 방법을 제시한다. 둘째, 확장 주의 애플리케이션에서 레이아웃 붕괴를 방지하기 위한 새로운 기술을 개발한다. 또한 일관성 평가를 위한 새로운 벤치마크 데이터 세트를 공유한다.\n' +
+      '\n' +
+      '##2. 관련업무\n' +
+      '\n' +
+      '일관성 있는 T2I와 스토리북 생성 일관성 있는 캐릭터 생성은 주로 스토리북 생성의 맥락에서 연구되어 왔다 (Kang et al., 2019; Wang et al., 2020). 초기 작업은 일관성을 촉진하기 위해 광범위한 미세 조정 및 개인화(Kang et al., 2019; Zhang et al., 2020)를 활용했다. 정 등(2020)은 텍스트 역산(Kang 등, 2019)과 이미지 편집 기법을 결합하여 문자 얼굴을 대체한다. Gong et al.(2020)은 LoRA(Gong et al., 2020)로 개인화된 모델들을 이용하여 다중 문자 이미지들을 반복적으로 생성하고, 텍스트-투-레이아웃 모델을 사전 트레이닝할 것을 요구한다. 기타(Kang et al., 2019; Wang et al., 2020; Wang et al., 2020)는 스토리보드 데이터세트 상에서 T2I 모델을 미세 조정함으로써, 이미지 프레임 상에서 컨디셔닝을 가능하게 한다. 이는 IP-Adapter(Wang et al., 2020) 및 ELITE(Wang et al., 2020)와 같은 인코더 기반 개인화 방법(Kang et al., 2019; Wang et al., 2020; Wang et al., 2020; Wang et al., 2020)과 유사하다. Richardson et al.(Richardson et al., 2020)은 일관되고 신규한 개념들을 생성하기 위해 토큰 임베딩을 최적화한다. 동시 작업에서, (Beng et al., 2020)은 이미지를 반복적으로 생성하고, 유사한 출력을 찾기 위해 클러스터링하고, 고도로 유사한 클러스터 상에서 개인화된 모델을 학습하고, 프로세스를 반복함으로써 개인화된 LoRA 모델을 트레이닝한다.\n' +
+      '\n' +
+      '_ConsiStory_는 미리 트레이닝된 T2I 모델을 튜닝하거나 개인화하지 않는다. 대신, 교차 프레임 기능 공유를 활용하여 생성 중 주제 일관성을 촉진합니다.\n' +
+      '\n' +
+      '비디오의 영역에서 주의 집중 기반 일관성은 프레임에 걸쳐 자기 주의 키 및 값(Wang et al., 2020)을 공유함으로써 시간적 일관성을 높이는 것이 일반적인 관행이다. 이는 세대(Wang et al., 2020; Wang et al., 2020; Wang et al., 2020) 또는 비디오 편집(Kang et al., 2019; Wang et al., 2020)을 위해 수행될 수 있다. 다른 사람들은 비디오 프레임들에 걸쳐 일관된 아이덴티티를 주입하기 위해 소스 이미지로부터의 주의 키들 및 값들을 사용한다(Wang et al., 2020; Wang et al., 2020; Wang et al., 2020; Wang et al., 2020).\n' +
+      '\n' +
+      '이미지를 고려할 때, 텍스트 기반 편집의 초기 작업(Kang et al., 2019; Wang et al., 2020; Wang et al., 2020)은 자신의 주의 마스크 또는 특징을 추출하여 후속 세대에 주입하여 이미지의 구조를 유지할 것을 제안했다. 다른 최적화된 이미지 래턴트 또는 모델 조건은 생성 중에 생성된 어텐션 맵이 일부 외부 마스크와 정렬될 것이다(Wang et al., 2020; Wang et al., 2020).\n' +
+      '\n' +
+      '보다 최근의 연구는 이미지 레이아웃을 수정할 때 일관된 외관을 유지하기 위한 확장-관심 메커니즘을 탐구했다(Wang et al., 2020; Wang et al., 2020), 또는 훈련 없는 외관(Beng et al., 2020) 및 스타일 전달(Kang et al., 2019).\n' +
+      '\n' +
+      '우리의 방법은 이러한 주의 공유 아이디어를 활용하지만 일관된 T2I 세대의 작업에 적용한다. 기존 이미지에서 피쳐를 그리거나 전체 프레임을 정렬하지 않고 새로운 이미지에 걸쳐 피사체 수준의 일관성을 가능하게 하는 도구를 개발합니다.\n' +
+      '\n' +
+      '밀집 대응 맵샤를 이용한 외관 전달이 널리 연구되고 있다. Liao et al. (Liao et al., 2019)는 VGG 기반 지도를 사용하여 유사한 구조를 가진 이미지 간에 외형을 전달한다. 다른 사람들(Wang et al., 2020; Wang et al., 2020)은 이미지 대 이미지 번역을 위해 이러한 매핑을 활용하기 위해 생성 모델을 훈련시켰다. 최근, 확산 모델들은 이미지들 사이에 강한 제로-샷 대응(Kang et al., 2019; Wang et al., 2020; Wang et al., 2020)을 확립하는 것으로 밝혀져, 인스턴스 스와핑, 이미지 편집 및 강력한 등록과 같은 애플리케이션들을 가능하게 한다.\n' +
+      '\n' +
+      '여기서는 확산 기반 DIFT 맵(Dosov et al., 2016)을 활용하여 여러 이미지에 걸쳐 특징을 공유하고 일관된 외관으로 피사체의 생성을 장려한다. 이것은 사후 단계로 외관 전송을 수행하기보다는 노이즈 제거 프로세스 전반에 걸쳐 기능을 정렬합니다.\n' +
+      '\n' +
+      '## 3. 예비: T2I 모델에서의 Self-Attention\n' +
+      '\n' +
+      '이 방법은 T2I 확산 모델에서 자기 주의를 조작한다. 우리는 그것의 메커니즘을 설명하고 주요 표기법을 소개하는 것으로 시작한다.\n' +
+      '\n' +
+      '셀프-어텐션 계층은 일련의 토큰들을 수신하고, 이들 토큰들 각각은 단일 이미지 _patch_를 기술하는 특징들을 포함한다. 이러한 각 토큰은 \\(W_{K}\\), \\(W_{V}\\) 및 \\(W_{Q}\\)의 세 가지 자기 주의 행렬을 통해 선형 투영을 겪는다. 이러한 예측 결과는 각각 "키", "값" 및 "쿼리"로 알려져 있다.\n' +
+      '\n' +
+      ' 보다 구체적으로 생성된 배치에서 \\(i^{th}\\) 이미지 입력을 고려한다. (x_{i}\\in\\mathbb{R}^{P\\times d}\\)을 특징 차원이 \\(d\\)인 \\(P\\) 입력 토큰 벡터의 시퀀스로 하자. 우리는 \\(K_{i}=x_{i}\\cdot\\mathbf{W}_{K}\\), \\(V_{i}=x_{i}\\cdot\\mathbf{W}_{V}\\), \\(Q_{i}=x_{i}\\cdot\\mathbf{W}_{Q}\\)을 정의한다. 그 후, 자기-관심 맵은 다음과 같이 주어진다:\n' +
+      '\n' +
+      '\\[A_{i}=\\textit{softmax}\\left(Q_{i}K_{i}^{\\top}/\\sqrt{d_{k}}\\right)\\in\\mathbb{R}^{P\\times P}, \\tag{1}\\times\n' +
+      '\n' +
+      '여기서 \\(d_{k}\\)는 \\(\\mathbf{W}_{K}\\), \\(\\mathbf{W}_{Q}\\) 투영의 특징 차원이다. 직관적으로 이 지도는 이미지의 모든 패치 쌍 간의 관련성 점수를 제공합니다. 그런 다음, 주어진 표적 패치의 "값" 특징이 소스 패치 \\(h_{i}=A_{i}\\cdot V_{i}\\)에 얼마나 영향을 주어야 하는지에 가중치를 부여하는데 사용되며, 여기서 \\(h\\)은 중간 은닉 특징 집합을 나타낸다.\n' +
+      '\n' +
+      '이들은 네 번째 "출력-투영" 행렬, \\(\\mathbf{W}_{O}\\)을 사용하여 투영되고, \\(x_{i}^{out}=\\mathbf{W}_{O}\\cdot h_{i}\\)을 산출하며, 그 다음 레이어에 대한 입력을 생성하기 위해 입력 특징 \\(x_{i}\\)과 합산된다.\n' +
+      '\n' +
+      '이 방법은 생성된 배치의 이미지들이 서로 참석할 수 있도록 함으로써 자기 주의 메커니즘에 개입하고, 서로의 \\(x^{out}\\) 활성화에 의해 영향을 받는다.\n' +
+      '\n' +
+      '## 4. Method\n' +
+      '\n' +
+      '우리의 목표는 일련의 프롬프트에 걸쳐 일관된 피사체를 묘사하는 이미지 세트를 생성하는 것입니다. 우리는 이미지 노이즈 제거 동안 T2I 모델의 내부 활성화를 더 잘 정렬하여 그렇게 할 것을 제안한다. 중요한 것은 추가 교육 없이 추론 기반 메커니즘을 통해 일관성을 독점적으로 시행하는 것을 목표로 한다는 것이다.\n' +
+      '\n' +
+      '우리의 접근 방식은 세 가지 주요 구성 요소로 구성된다. 먼저, 생성된 이미지 배치에서 관련 모델 활성화 전반에 걸쳐 주제별 정보를 공유하는 것을 목표로 하는 **주제 기반 자기 주의** 메커니즘(SDSA)을 소개한다. 둘째, 위의 구성 요소는 생성된 레이아웃의 변동을 줄이는 데 드는 비용이 있음을 관찰한다. 따라서 우리는 주의 드롭아웃 메커니즘을 통해 이러한 모드 붕괴를 완화하기 위한 전략을 제안하고 바닐라, 비일치 샘플링 단계에서 얻은 쿼리 기능을 혼합한다. 셋째, 결과를 더욱 구체화하기 위해 **특징 주입** 메커니즘을 통합한다. 본 논문에서는 확산 특징들로부터 유도된 교차 영상 밀집 대응 맵을 기반으로 생성된 하나의 영상으로부터 다른 하나의 영상으로 특징을 매핑한다. 아래에서는 이러한 각 구성 요소에 대해 자세히 설명합니다.\n' +
+      '\n' +
+      '### Subject-driven self-attention\n' +
+      '\n' +
+      '일관성을 증진하기 위한 간단한 아이디어를 고려하십시오: 한 이미지로부터의 쿼리가 배치의 다른 이미지로부터의 키 및 값에도 참석할 수 있도록, 자기 주의를 확장합니다. 이것은 반복된 객체들이 자연스럽게 서로 참석할 수 있게 하고, 따라서 이미지들에 걸쳐 시각적 특징들을 공유할 수 있게 한다. 이러한 아이디어는 비디오 생성 및 편집 작업(Song et al., 2018)에서 종종 사용되며, 프레임들에 걸쳐 증가된 일관성으로 이어진다. 그러나 생성된 비디오는 우리의 시나리오와 다릅니다. 첫째, 프레임 간에 공유되는 단일 프롬프트로 생성됩니다. 둘째, 일반적으로 한 프레임부터 다음 프레임까지 배경이나 레이아웃의 변동이 거의 없습니다. 대조적으로, 우리는 각 프레임이 고유한 프롬프트를 따르기를 원하며 배경과 레이아웃의 다양성을 유지하기를 원한다. 이러한 비디오 기반 메커니즘을 순진하게 사용하면 균일한 배경이 되고 단일 비디오 장면에 대한 기대와 일치하지만 우리의 목표와 직접 상충되는 각 이미지의 프롬프트에 대한 정렬이 급격히 감소한다.\n' +
+      '\n' +
+      '이러한 한계를 해결하는 한 가지 방법은 백그라운드 패치에서 공유되는 정보의 양을 줄이는 것이다. 주제 출현을 공유하는 것에만 관심을 갖기 때문에, 확장된 자기 주의를 가리기 때문에, 하나의 이미지로부터의 쿼리는 동일한 이미지로부터의 키 및 값, 또는 다른 이미지 내의 주제를 포함하는 영역으로부터만 매칭될 수 있다. 이러한 방식으로, 반복된 피사체 엘리먼트들에 대한 피처들이 공유될 수 있는 반면, 배경 피처들은 별도로 유지된다.\n' +
+      '\n' +
+      '이를 위해, 우리는 종래 기술(Beng et al., 2018; Chen et al., 2018)과 유사한 접근법을 채용하고, 교차-어텐션 피처들을 사용하여 주제를 포함할 가능성이 있는 잡음 잠재 패치들을 식별한다. 구체적으로, 우리는 주제 토큰과 관련된 교차 어텐션 맵을 전체적으로 평균하고 임계화한다.\n' +
+      '\n' +
+      '도 2. **건축 개요(왼쪽): 프롬프트들의 세트가 주어지면, 모든 생성 단계에서 우리는 각각의 생성된 이미지 \\(I_{i}\\)에서 주제를 국소화한다. 현재 생성 단계까지 교차 주의 맵을 활용하여 피사체 마스크 \\(M_{i}\\)를 생성한다. 그런 다음 U-net 디코더의 표준 셀프 어텐션 레이어를 주제 인스턴스 간에 정보를 공유하는 주제 구동 셀프 어텐션 레이어로 교체한다. 또한 추가 개선을 위해 기능 주입을 추가합니다. 피험자 주도 자기 주의(오른쪽) : 생성된 이미지(I_{i}\\)로부터 쿼리가 배치의 다른 모든 이미지(\\(I_{j}\\), 여기서 \\(j\\neq i\\))로부터 키들에 접근할 수 있도록 자기 주의 레이어를 확장한다. 다양성을 풍부하게 하기 위해 우리는 (1) 중도탈락을 통해 SDSA를 약화시키고 (2) 불일치 샘플링 단계에서 바닐라 쿼리 기능과 쿼리 기능을 혼합하여 \\(Q_{1}^{*}\\)을 생성한다.**\n' +
+      '\n' +
+      '확산 단계 및 레이어를 사용하여 피사체별 마스크(부록 B에 세부사항)를 작성합니다. 이러한 마스크를 사용하여 각 이미지가 배치 내에서 자체 패치 또는 주제 패치에만 집중할 수 있도록 주의를 마스킹하는 주제 주도 자기 주의(SDSA)를 제안한다(도 2 참조).\n' +
+      '\n' +
+      'b{R}^{N}\\oplus K_{2}\\oplus\\oplus K_{N}]\\in\\mathbb{R}^{N}\\oplus V_{2}\\oplus V_{N}]\\in\\mathbb{R}^{N}\\cdot P_{2}\\oplus M_{i-1}\\oplus M_{i}\\cdot V^{n}\\in\\mathbb{R}^{M}{i}=softmax\\left(Q_{i}}\\top}/\\sqrt{N}}}\\times\n' +
+      '\n' +
+      '여기서, \\(M_{i}\\)은 배치에서 \\(i^{th}\\) 엔트리에 대한 대상 마스크이며, \\(\\oplus\\)은 매트릭스 연접을 나타낸다. 본 논문에서는 소프트맥스 로짓의 점수를 마스크에 따라 \\(-\\infty\\)으로 할당하여 null-out하는 표준 주의 마스킹을 사용한다. Query 텐서는 변경되지 않은 상태로 유지되며, 연결 마스크 \\(M^{+}_{i}\\)는 \\(i^{th}\\) 이미지 자체에 속하는 패치 인덱스에 대해 1의 배열로 설정된다.\n' +
+      '\n' +
+      '레이아웃 다양성 강화\n' +
+      '\n' +
+      'SDSA를 사용하면 신속한 정렬이 복원되고 배경 붕괴가 방지됩니다. 그러나 여전히 이미지 레이아웃 간의 과도한 유사성으로 이어질 수 있음을 관찰한다. 예를 들어, 피험자들은 전형적으로 유사한 위치들 및 포즈들에서 생성될 것이다.\n' +
+      '\n' +
+      '결과의 다양성을 개선하기 위해 첫째, 바닐라, 일관성 없는 샘플링 단계의 기능을 통합하는 것과 둘째, 드롭아웃 메커니즘을 통해 주제 중심의 관심을 공유하는 두 가지 전략을 제안한다.\n' +
+      '\n' +
+      '**Using Vanilla Query Features.** 최근 작업(Garf et al., 2018)은 하나의 이미지의 외관을 다른 이미지의 구조와 결합하기 위해 확산 모델을 사용할 수 있음을 입증하였다. 외관 이미지에서 자기 주의 키와 값을 주입하고 구조 이미지에서 쿼리를 주입하여 그렇게 합니다. 이에 영감을 받아 보다 다양한 바닐라 전진 패스(_i.e. 수정 없이_i.e.)에 의해 예측된 구조와 보다 밀접하게 정렬하여 포즈 변화를 향상시키는 것을 목표로 한다. 본 논문에서는 주로 레이아웃(Garf et al., 2018; Wang et al., 2018)을 제어하는 확산 과정의 초기 단계에 초점을 맞추고, 단계 \\(t\\)에서 잡음 레이턴트로서 \\(z_{t}\\)을 다음과 같은 질의 혼합 메커니즘을 적용한다. 먼저 SDSA 없이 바닐라 잡음 제거 단계를 \\(z_{t}\\)에 적용하고, 확산 네트워크에서 생성된 self-attention 질의인 \\(Q^{\\textit{main}}_{t}\\)을 캐싱한다. 그런 다음, 이번에는 SDSA를 사용하여 동일한 잠복기 \\(z_{t}\\)를 다시 잡음 제거한다. 이 두 번째 통과 동안 모든 SDSA 계층에 대해 생성된 쿼리를 바닐라 쿼리로 선형 보간하여 다음과 같이 만든다.\n' +
+      '\n' +
+      '\\[Q^{*}_{t}=(1-v_{t})Q^{\\textit{SDSA}}_{t}+v_{t}Q^{\\textit{ganilla}}_{t}, \\tag{3}\\]\n' +
+      '\n' +
+      '여기서 \\(v_{t}\\)는 선형적으로 감쇠하는 혼합 매개변수이다(부록 참조).\n' +
+      '\n' +
+      '**Self-Attention Dropout** 레이아웃 변동을 향상시키기 위한 우리의 두 번째 전략은 드롭아웃 메커니즘을 사용하여 SDSA를 약화시키는 것을 포함한다. 구체적으로, 각 노이즈 제거 단계에서 패치의 부분 집합을 0으로 설정하여 무작위로 무효화함으로써 서로 다른 이미지 간의 주의 집중 공유를 약화시키고 더 풍부한 레이아웃 변형을 촉진한다. 특히, 드롭아웃 확률을 조정함으로써 일관성의 강도를 조절하고 시각적 일관성과 레이아웃 변화 사이의 균형을 맞출 수 있다.\n' +
+      '\n' +
+      '이 두 가지 메커니즘을 통해 레이아웃 붕괴 문제의 두 가지 측면을 해결하는 것을 목표로 한다. 즉, 질의-특징 혼합은 일관성 없는 샘플링으로부터 다양성의 측면을 유지할 수 있도록 하는 반면, 주의 드롭아웃은 모델이 공유 키와 값에 덜 의존하도록 유도하여 과도한 일관성을 방지한다. 그것들을 혼합함으로써, 우리는 일관성에 큰 해를 끼치지 않고 다양성을 증가시킨다.\n' +
+      '\n' +
+      '### Feature injection\n' +
+      '\n' +
+      '공유 주의 메커니즘은 주체의 일관성을 현저하게 향상시키지만 미세한 시각적 특징으로 인해 주체의 정체성에 상처를 줄 수 있다. 따라서 우리는 새로운 교차 이미지 **Feature Injection** 메커니즘을 통해 일관성을 더욱 향상시킬 것을 제안한다.\n' +
+      '\n' +
+      '여기서는 배치에서 서로 다른 이미지에 걸쳐 해당 영역(예: 왼쪽 눈)에서 특징의 유사성을 개선하는 것을 목표로 한다. 구체적으로, 자기 주의 출력 특성인 \\(\\mathbf{x}^{out}\\)에 상당한 질감 정보가 포함되어 있으며, 이러한 특성을 매칭 영역 사이에 정렬하면 일관성을 높일 수 있음을 알 수 있다.\n' +
+      '\n' +
+      '이러한 특징을 정렬하기 위해 먼저 DIFT(Zhou et al., 2017) 특징 \\(D_{t}\\)과 \\(D_{s}\\)을 사용하여 배치에서 모든 이미지 쌍 \\(I_{t}\\)과 \\(I_{s}\\) 사이에 패치 대응 맵을 구축한다(부록 참조). 우리는 대응지도를 \\(C_{t\\to s}\\)로 나타낸다. 직관적으로, \\(I_{t}\\)에서 패치 인덱스 \\(p\\)에 적용했을 때, \\(C_{t\\to s}[p]\\)은 그림 3과 같이 \\(I_{s}\\에서 가장 유사한 패치를 산출한다.\n' +
+      '\n' +
+      '그런 다음 피쳐 유사성을 촉진하기 위해 이 매핑을 기반으로 해당 피쳐를 혼합할 수 있다. 이 아이디어는 각 이미지\\(I_{t}\\)가 배치의 다른 이미지와 혼합되는 _many-to-one_ 시나리오로 확장된다. 각 패치 인덱스(p\\(I_{t}\\)에 대해 다른 모든 이미지에서 해당 패치를 비교하고 DIFT 특징 공간에서 코사인 유사도가 가장 높은 패치를 선택한다. 형식적으로:\n' +
+      '\n' +
+      '\\[\\operatorname{src}(p)=\\operatorname*{arg\\,max}_{s\\neq t}similarity(D_{t}[p],D_{s}[C_{t\\to s}[p]], \\tag{4}\\]\n' +
+      '\n' +
+      '여기서 \\(\\operatorname{src}(p)\\)는 타겟 패치 \\(p\\)에 대한 "best" 소스 패치이고, _similarity_는 코사인 유사성 점수이다.\n' +
+      '\n' +
+      '마지막으로, 목표영상(\\mathbf{x}^{out}_{t}\\)과 그에 대응하는 소스 패치(\\mathbf{x}^{out}_{s}\\)의 자기집중 출력층 특징을 혼합한다.\n' +
+      '\n' +
+      '그림 3. **피쳐 주입: 이미지에 걸쳐 피험자의 신원을 더욱 구체화하기 위해 배치 내에서 피쳐를 혼합하는 메커니즘을 소개한다. 각 이미지 쌍(중간) 사이의 패치 대응 맵을 추출한 다음, 해당 맵을 기반으로 이미지 사이에 피쳐를 주입한다(오른쪽).\n' +
+      '\n' +
+      '\\[\\hat{x_{t}}^{out}=(1-\\alpha)\\cdot x_{t}^{out}+\\alpha\\cdot\\text{src}(x_{t}^{out}), \\tag{6}\\]\n' +
+      '\n' +
+      '여기서 \\(\\alpha\\)은 블렌딩 파라미터이고, \\(\\text{src}(x_{t}^{out})\\in\\mathbb{R}^{P\\times d}\\)는 연관된 패치 \\(src(p)\\)에서 각 패치 \\(x_{t}^{out}\\)에 대한 해당 피쳐를 풀링하여 얻은 텐서이다.\n' +
+      '\n' +
+      '실제적으로 동일한 피험자의 등장 사이의 일관성을 강화하기 위해 배경에 영향을 주지 않고 피험자 마스크에 따라 특징 주입을 배타적으로 적용한다. 추가로, 우리는 DIFT 공간에서 충분히 높은 유사성을 갖는 패치들 사이에만 특징들을 주입하기 위해 임계값을 적용한다(부록 참조). 이러한 접근법은 피사체의 외관에 기여하는 특징들이 모든 소스 이미지들로부터 집합적으로 그려지도록 하여, 보다 포괄적이고 대표적인 합성을 촉진한다.\n' +
+      '\n' +
+      '### 앵커 이미지 및 재사용 가능한 피사체\n' +
+      '\n' +
+      '추가적인 최적화로서, 생성된 이미지의 서브세트를 **"앵커 이미지"**"로 지정함으로써 접근법의 계산 복잡도를 감소시킬 수 있다. SDSA 단계에서 생성된 모든 이미지에 키와 값을 공유하기보다는 이미지가 앵커에서 파생된 키와 값만 관찰할 수 있도록 한다. 유사하게, 피쳐 주입의 경우 앵커만 유효한 피쳐 소스로 간주한다. 앵커는 세대 동안 여전히 서로를 관찰할 수 있지만 앵커가 아닌 이미지에서도 특징을 관찰하지 않는다는 점에 유의해야 한다. 우리는 대부분의 경우에 두 개의 앵커로 충분하다는 것을 발견한다.\n' +
+      '\n' +
+      '이것은 몇 가지 이점을 제공한다: 첫째, 확장된 주의의 크기를 제한하기 때문에 더 빠른 추론과 감소된 VRAM 요구 사항을 허용한다. 둘째, 대규모 배치에서 생성 품질을 향상시킬 수 있으며, 시각적인 아티팩트를 줄일 수 있음을 알 수 있다. 가장 중요한 것은 앵커 이미지를 다시 생성하기 위해 동일한 프롬프트와 씨앗이 사용되지만 앵커가 아닌 프롬프트가 변경된 새로운 배치를 생성함으로써 새로운 장면에서 동일한 주제를 재사용할 수 있다는 것이다. 이 메커니즘을 통해 우리의 접근법은 ** 재사용 가능한 피사체** 및 무제한 일관된 이미지 생성을 산출할 수 있다.\n' +
+      '\n' +
+      '### 다중주제 일관성 생성\n' +
+      '\n' +
+      '개인화 기반 접근법은 단일 이미지[17, 30, 42, 50] 내에서 _다중_피사체에 대한 일관성을 유지하는 데 어려움을 겪는다. 그러나, _ConsiStory_로, 피험자 마스크들의 _union_를 간단히 취함으로써, 간단하고 간단한 방식으로 다중-피험자 일관성 생성이 가능하다. 피험자가 의미적으로 다를 때, 그들 사이의 정보 유출은 문제가 되지 않는다. 이는 관련 없는 피험자 간 정보 유출을 억제하는 게이트 역할을 하는 주의력 소프트맥스의 지수적 형태 때문이다. 유사하게, 피처 주입 동안 대응 맵을 임계화하는 것은 정보 유출로부터 보호하는 게이팅 효과를 산출한다. 초매개변수 선택과 같은 추가 세부 정보는 보충에 나와 있습니다.\n' +
+      '\n' +
+      '## 5. Experiments\n' +
+      '\n' +
+      '우리는 _ConsiStory_를 다양한 사전 및 동시 기준선과 비교하여 평가를 시작한다. 우리는 질적 비교로 개방하며, 우리의 방법이 최신 기술과 비교할 때 개선된 주제 일관성과 더 높은 프롬프트 정렬을 달성할 수 있음을 보여준다. 다음으로, 사용자가 일반적으로 우리의 결과를 선호한다는 것을 보여주는 대규모 사용자 연구를 포함하여 우리의 방법을 정량적으로 평가한다. 다음으로, 우리는 우리의 방법에서 각 구성 요소의 기여와 효과를 강조하기 위해 절제 연구를 수행한다. 마지막으로, 본 논문에서 제안한 방법은 ControlNet(59)과 같은 기존 도구와 호환되며, 공통 객체 클래스에 대한 훈련 없이 개인화를 가능하게 하는 데에도 사용될 수 있음을 보여준다.\n' +
+      '\n' +
+      '### Evaluation baselines\n' +
+      '\n' +
+      '우리는 우리의 방법을 세 가지 종류의 기준선과 비교한다: **(1)** 적응 없이 기준선 SDXL 모델. **(2)** 모델의 부분들을 미세 조정함으로써 새로운 주제에 대해 모델을 가르치는 최적화 기반 개인화 접근법: 텍스트 반전(TI) [13] 텍스트 인코더의 워드 임베딩을 미세 조정한다. DreamBooth-LoRA(DB-LORA)[46]은 Low Rank Adaptation[22]을 이용하여 확산 U-Net을 튜닝한다. **(3)** 단일 이미지를 입력으로 하고 확산 모델에 컨디셔닝 코드를 출력하는 인코더 기반 접근법: IP-어댑터[57], ELITE[54] 및 E4T[14]. 개인화 및 인코더 기준선을 위해 먼저 피사체를 설명하는 프롬프트를 사용하여 대상 피사체의 단일 이미지를 생성한 다음 확산 모델을 개인화하는 데 사용한다. ELITE를 제외한 모든 방법은 사전 학습된 SDXL 모델을 기반으로 한다.\n' +
+      '\n' +
+      '_ConsiStory_의 경우, 두 개의 앵커 이미지와 0.5 드롭아웃을 사용한다. 자동화된 메트릭의 경우 더 낮은 드롭아웃 값도 사용합니다.\n' +
+      '\n' +
+      '### Qualitative Results\n' +
+      '\n' +
+      '인 것을 특징으로 하는 반도체 소자의 제조 방법. 도 4 및 그림 A.1, 우리는 정성적 비교를 보여준다. 우리의 방법은 텍스트 프롬프트를 더 잘 준수하면서 높은 수준의 주제 일관성을 달성할 수 있다. 튜닝 기반 개인화 접근법은 단일 학습 이미지를 과도하게 적합시키거나 변형을 생성하지 않거나 일관성을 유지하지 못하는 경향이 있다. IP-어댑터는 특히 스타일이 관련된 경우 복잡한 프롬프트를 일치시키기 위해 유사하게 고군분투합니다. 우리의 방법은 주제 일관성과 텍스트 정렬을 모두 성공적으로 달성할 수 있다. 부가적으로, 도 1에 도시된 바와 같다. 도 5에 도시된 바와 같이, 본 논문에서 제안하는 방법은 서로 다른 초기 잡음 입력으로 다양한 일관성 있는 이미지 집합을 생성할 수 있음을 보인다. 추가 결과는 ELITE [54] 및 E4T [14]와의 정성적 비교를 포함하여 보충에 표시된다.\n' +
+      '\n' +
+      '**다중 피험자 생성** 1(하단) 우리는 _ConsiStory_가 다수의 일관된 주제를 갖는 장면을 생성할 수 있음을 입증한다. 인 것을 특징으로 하는 반도체 소자의 제조 방법. 6 우리는 우리의 방법을 LORA-DB와 추가로 비교한다. 특히, LORA-DB는 한 과목 또는 두 과목 모두의 일관성을 소홀히 하는 경향이 있다. 개인화 접근법을 결합할 때 이러한 함정은 각 교과를 고립되어 학습하기 때문에 흔하다. 대조적으로, 우리의 방법은 단순히 확산 모델의 고유한 구성 능력을 기반으로 한다. 그림 A.2에서 A.3은 추가 비교를 제공한다.\n' +
+      '\n' +
+      '도. 도 15는 단일 및 다중 피험자에게 더 많은 결과를 제공한다.\n' +
+      '\n' +
+      '(1) 주제 설명, _e.g._, "_A red dragon_" (2) 설정 설명, _e.g._, "_blowing bubbles_" 또는 "_in a castle_" 및 (3) 스타일 디스크립터, _e.g._, "_Origami style_"를 포함한다. 주제 설명을 위해 세부 예제(_"A Red dragon_")와 세부 예제(_"A dragon_")를 모두 활용했다. 설명을 설정하기 위해 ChatGPT에 주제에 자연스럽게 맞는 설명을 제공하도록 요청했다. 100개의 세트 각각은 동일한 주제 설명 및 스타일을 공유하지만 다양한 설정 설명을 갖는 프롬프트를 포함한다. 자세한 내용은 부록 D에서 확인할 수 있다.\n' +
+      '\n' +
+      '우리는 Avrahami et al. [4]의 동시 작업을 따르고 즉시 정렬 및 주제 일관성의 두 축에 대한 방법을 평가한다. 즉시 정렬을 위해 CLIP를 사용하여 생성된 각 이미지와 컨디셔닝 프롬프트 간의 유사성을 측정하고 생성된 모든 500개의 이미지에 대한 평균 CLIP 점수[21]를 보고한다.\n' +
+      '\n' +
+      '도. 4: **정성적 결과** IP-어댑터, Tl 및 DB-LORA에 대해 방법을 평가했다. 일부 메서드는 일관성 유지(TI)에 실패하거나 프롬프트(IP-어댑터)를 따릅니다. 다른 방법들은 일관성을 유지하거나 텍스트를 따르는 것 사이에서 번갈아 가지만, 둘 다(DB-LoRA)는 아니다. 우리의 방법은 일관성을 유지하면서 프롬프트를 성공적으로 따랐다. 일관성 평가를 위해 그림 A.1에 추가 결과가 나와 있으며, 우리는 이미지 간 유사성에 대한 인간의 판단과 더 잘 상관관계가 있는 것으로 밝혀진 DreamSim[12]를 사용한다. 우리는 100개의 세트 각각에서 각 이미지 쌍 간의 쌍별 유사성을 계산한다. 주제 일관성에 초점을 맞추기 위해 드림심의 배경 제거 프로토콜을 따른다. 우리는 이 세트들에 대한 평균 점수를 보고한다. 우리의 결과에서 오차 막대는 평균의 표준 오차(S.E.M)를 나타낸다.\n' +
+      '\n' +
+      '결과는 그림 7에 나와 있다. 볼 수 있듯이 우리의 방법은 파레토 전면에 있다. 표준 설정은 텍스트 정렬 점수에서 SDXL과 일치하여 일관성을 촉진하는 a-프리오리가 모델의 지식을 더 잘 유지할 수 있음을 보여준다.\n' +
+      '\n' +
+      '그러나 질적으로 일관성 메트릭은 피험자의 동일성에서 일관성을 평가하기보다는 약간의 레이아웃 변경이 있는 구성으로 점수를 편향시키는 경향이 있음을 관찰했다. 따라서 자동화된 메트릭의 한계를 고려하여 대규모 사용자 연구를 수행했다. 우리는 바닐라 SDXL과 ELITE를 모두 생략하면서 가장 효과적인 기술에 집중했다. 우리는 표준 2대 대안 강제 선택 형식을 사용했다. 사용자는 두 가지 유형의 질문((1) 주제 일치성)에 직면하여 각각 5개의 이미지로 구성된 두 세트를 보여주었다. 그들은 배경, 포즈 및 이미지 품질을 무시하고 동일한 피사체를 더 잘 보여주는 세트를 선택하도록 요청받았다. (2) 텍스트 정렬로, 두 이미지에서 텍스트 설명과 가장 잘 일치하는 이미지를 선택했습니다. 우리는 각 질문 유형에 대해 기준당 500개의 응답을 수집했으며 총 3,000개의 응답을 수집했다. 결과는 그림 8에 나와 있다. 훈련 없는 접근법임에도 불구하고, _ConsiStory_는 텍스트 정렬 및 주제 일관성과 관련하여 기준선보다 우수하다.\n' +
+      '\n' +
+      '**실행 시간 비교** Hi100 GPU를 사용하여 그들의 TTTCS(time-to-consistent-subject)를 중심으로 주요 방법의 실행 시간 분석을 수행했다. 제안된 기법인 _ConsiStory_는 새로운 프롬프트를 기반으로 두 개의 앵커와 이미지를 생성하기 위해 32초 만에 가장 빠른 TTCS 결과를 얻었다. 이것은 Hi100 GPU 상에서 13분으로 추정되는 Avrahami et al. [4]에 의한 SoTA 접근법보다 x25 빠르다. 또한, 제안하는 방법은 LORA-DB(4.5분)와 TI(7.5분)보다 x8-14 빠르며, IP-Adapter와 같은 인코더 기반 방법에 비해 더 복잡하다. 이러한 기술들은 사전 트레이닝의 _weeks_를 필요로 하지만, 일단 트레이닝되면, 그들은 단 8초만에 새로운 프롬프트에 기초하여 앵커 및 다른 이미지를 생성할 수 있다.\n' +
+      '\n' +
+      '도. 5: **Seed Variation.** 상이한 시작 노이즈가 주어지면, _ConsiStory_는 상이한 일관된 이미지 세트를 생성한다.\n' +
+      '\n' +
+      '도. 8: **User Study** 결과는 피험자 일관성(_Visual_) 및 텍스트 유사성(_Textual_) 모두에서 생성된 이미지에 대한 참가자 간의 주목할만한 선호도를 나타낸다.\n' +
+      '\n' +
+      '도. 6: **Multiple Subjects:**_ConsiStory_는 다수의 일관된 피험자를 생성하는 반면, 다른 방법들은 종종 적어도 하나의 피험자를 무시한다.\n' +
+      '\n' +
+      '도. 7: **Subject Consistency VS Textual Similarity:**_ConsiStory_(그린)은 Subject Consistency와 Textual Similarity 간의 최적의 균형을 달성한다. ELITE 및 IP-Adapter와 같은 인코더 기반 방법은 종종 시각적 외관에 오버핏되는 반면 LoRA-DB 및 TI와 같은 최적화 기반 방법은 우리의 방법과 같이 높은 주제 일관성을 나타내지 않는다. \\ (d\\)는 서로 다른 자기 주의 드롭아웃 값을 나타낸다. 오차 막대는 S.E.M입니다.\n' +
+      '\n' +
+      '### Ablation study\n' +
+      '\n' +
+      '이제 우리는 **(1)** SDSA 단계 **(2)** 특징 주입(FI) **(3)** 주의력 드롭아웃 및 쿼리-특징 혼합에 대한 절제 연구를 통해 자체 방법의 다양한 구성 요소의 영향을 평가하기 위해 이동한다. **(4)** 피사체 마스크를 사용하지 않는 방법. 정성적 비교는 도 9, 도 10에 제공된다. 정량적 결과는 부록 A.4에 제공된다.\n' +
+      '\n' +
+      'SDSA를 제거하면 모양과 질감 모두에서 일관성이 떨어진다. FI를 제거하면 유사한 모양을 갖지만 덜 정확한 신원을 가진 피험자가 생성된다. 마지막으로 바닐라 쿼리 혼합 및 주의 드롭아웃을 제거하면 레이아웃 다양성이 크게 감소한다. 부록 C에서 이러한 다양성 손실을 정량화한다.\n' +
+      '\n' +
+      '### Extended Applications\n' +
+      '\n' +
+      '**Spatial Controls.** 우리는 먼저 _ConsiStory_가 ControlNet(Xu et al., 2019)과 같은 기존의 유도 생성 도구들과 호환된다는 것을 입증한다. 이들은 표준 개인화 방법들(Beng et al., 2019; Chen et al., 2020; Zhang et al., 2020)과 호환되기 때문에, 우리는 우리의 대안적인 접근법이 이러한 호환성을 유지하는 것을 보장하고자 한다. 인 것을 특징으로 하는 반도체 소자의 제조 방법. 도 11은 ControlNet을 이용한 포즈 기반 컨트롤이 일관된 이미지 생성 방법을 성공적으로 안내함을 보인다.\n' +
+      '\n' +
+      '**Training-free Personalization.**We are _the first to show_ training-free _personalization_ (도 12) 여기서 _ConsiStory_는 튜닝이나 인코더 사용 없이 개인화를 가능하게 한다. 구체적으로, 우리는 공통 교과 수업을 개인화하는 방법을 보여준다. 피사체의 두 이미지가 주어졌을 때, 우리는 Edit Friendly DDPM-Inversion(Zhu et al., 2020)을 사용하여 그것들을 반전시킨다. 이러한 레이턴트 및 노이즈 맵은 _ConsiStory_에 대한 앵커로 사용되어 나머지 배치가 시각적 외관에 그릴 수 있다. 이 응용 프로그램은 부록 E에서 자세히 설명하는 _ConsiStory_의 사소한 수정이 필요하다.\n' +
+      '\n' +
+      '그림 A.6에서 이 접근법이 복잡한 객체와 싸우고 스타일 변경 프롬프트와 호환되지 않는다는 것을 보여준다. 그러나 현재 개인화 방법에 대한 빠르고 저렴한 대안으로 작용할 수 있으며 향후 작업에 맡겨둘 수 있다고 믿습니다.\n' +
+      '\n' +
+      '도. 11. **ControlNet Integration.** 우리의 방법은 ControlNet과 통합되어 포즈 제어와 함께 일관된 캐릭터를 생성할 수 있다.\n' +
+      '\n' +
+      '도. 12. **Training-Free Personalization.** 편집 친화적 역산을 활용하여 피사체당 2개의 실제 이미지를 반전시킨다. 이러한 반전 이미지는 훈련 없는 개인화를 위한 우리의 방법에서 앵커로 사용된다.\n' +
+      '\n' +
+      '도. 10. **피험자 마스킹:**피험자 마스크가 없으면 이미지에 걸쳐 눈에 띄는 배경 누출이 있다.\n' +
+      '\n' +
+      '그림 9. **성분 제거** 피험자 주도 자기 주의(SDSA), 특징 주입(FI) 및 변이를 풍부하게 하는 전략: 자기 주의 드롭아웃 및 쿼리-특징 혼합(변동)의 여러 구성 요소를 제거했다. 모든 절제된 사례는 우리의 방법으로 일관성을 유지하지 못한다.\n' +
+      '\n' +
+      '##6. 결론 및 제한사항\n' +
+      '\n' +
+      '사전 학습된 텍스트-이미지 확산 모델을 사용하여 시각적으로 일관된 피사체를 생성하기 위한 훈련 없는 접근법인 _ConsiStory_를 도입했다. 본 논문에서 제안한 방법은 최신 기술과 비교할 때 \\(\\times 20\\)의 속도뿐만 아니라 주어진 프롬프트에 따라 출력의 정렬을 더 잘 보존할 수 있다. 또한, 다중 대상 시나리오와 같은 더 어려운 사례를 해결하고 공통 객체에 대한 훈련 없는 개인화를 가능하게 하기 위해 본 방법을 쉽게 확장할 수 있다.\n' +
+      '\n' +
+      '제안된 방법은 그림 13과 같은 몇 가지 제한점을 가지고 있으며, 먼저 교차 주의 지도를 통한 물체의 위치 파악에 의존한다. 이 과정은 특히 특이한 스타일을 다룰 때 때때로 실패할 수 있다. 그러나 지금까지 관찰한 바에 따르면 이러한 실패는 비교적 드물게 나타나며(5% 미만), 단순히 종자를 변경하여 해결할 수 있다. 외관과 스타일 사이의 얽힘에서 또 다른 한계가 발견된다. 우리의 방법은 두 가지를 분리하는 데 어려움을 겪기 때문에 이미지가 동일한 스타일을 공유하는 일관된 세대로 제한된다. 마지막으로, 기본 SDXL 모델이 특정 그룹에 대한 편향을 나타낼 수 있음을 관찰한다. 그림 14와 같이 성별이나 민족성과 같은 수식어를 지정하면 이러한 편향이 크게 감소할 수 있음을 보여준다.\n' +
+      '\n' +
+      '우리의 결과가 일관된 창의적 노력 생성에 도움이 되고 다른 사람들이 개인화 기반 작업에 대한 훈련 없는 대안을 계속 탐구하도록 영감을 주길 바란다.\n' +
+      '\n' +
+      '###### Acknowledgements.\n' +
+      '\n' +
+      ' 우리는 유용한 토론과 이 원고의 이전 버전에 대한 피드백을 제공한 아사프 쇼처, 일라이 메이롬, 첸 테슬러, 디비르 사무엘, 야엘 빈커에게 감사드린다.\n' +
+      '\n' +
+      '그림 14. **모델 편향.** 기본 SDXL 모델은 특정 인종 그룹에 대한 편향을 나타낼 수 있으며 우리의 접근법은 이를 계승한다. 우리의 방법은 프롬프트에서 강조 표시될 때 다양한 그룹에 속하는 일관된 주제를 생성할 수 있다.\n' +
+      '\n' +
+      '도 13. **Limitations:** 우리의 방법은 종종 동일한 이미지 세트(Top)에서 상이한 스타일에 대해 고군분투하고, 피사체를 정확하게(Bottom) 국소화하기 위해 모델 교차 주의의 품질에 의존한다.\n' +
+      '\n' +
+      '[MISSING_PAGE_EMPTY:10]\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* (1)\n' +
+      '* Alahf et al. (2023) Yuval Alahf, Daniel Garibi, or Patashnik, Hadar Averbuch-Elor, and Daniel Cohen-Or. 2023. Zero-Shot Appearance Transfer를 위한 Cross-Image Attention arXiv:2311.03335 [cs.CV]\n' +
+      '* Arzar et al. (2023) Mooah Arzar, Riton Gil, Yuval Atzmon, Gal Chechik, Daniel Cohen-Or, Ariel Shamir, and Amit H. Bermarno. 2023. 텍스트-이미지 모델의 빠른 개인화를 위한 도메인-진단 튜닝-인코더. The _SIGGRAPH Asia 2023 Conference Papers_. 1-10\n' +
+      '* Arvashami et al. (2023) Omri Arvashami, Krik Aherman, Ohad Fried, Daniel Cohen-Or, and Dani Lischinski. 2023. Break-A-Scene: 단일 이미지로부터 다수의 개념들을 추출하는 것. In _SIGGRAPH Asia 2023 Conference Papers_, _Sydney_, Nowst, Australia) _(SA\'23)_. Unociation for Computing Machinery, New York, NY, USA, Article 96, 12 pages. [https://doi.org/10.1145/3610548.361854] (https://doi.org/10.1145/3610548.361854)\n' +
+      '* Arvashami et al.(2023) Omri Arvashami, Amir Hertz, Yael Vinker, Moah Arzar, Shilon Fuchter, Ohad Fried, Daniel Cohen-Or, and Dani Lischinski. 2023. 선택된 하나: 텍스트-이미지 확산 모델들에서 일관된 문자들 _ arXiv preprint arXiv:2311.10093_(2023).\n' +
+      '* Balaji et al. (2022) Yogesh Balaji, Seungjun Nah, Xun Huang, Arash Vahdat, Jiaming Song, Karsten Kreis, Miika Aittala, Timo Aila, Samuli Laing, Bryan Catanzaro, Tero Karras, and Ming-Yu Liu. 2022. eprint: Expern Devices의 앙상블을 갖는 Text-to-Image 확산 모델 _ arXiv preprint arXiv:2211.01324_(2022).\n' +
+      '* Benain et al. (2020) Sagei Benain, Ron Mokady, Amit Bermano, Daniel Cohen-Or, and Iior Wolf. 2020. 단일 이미지 쌍으로부터의 구조-아날로그. _ Computer Graphics Forum_n(2020). [https://doi.org/10.1111/cgf.14186] (https://doi.org/10.1111/cgf.14186)\n' +
+      '* Car et al. (2020) Mingsden Car, Xintao Wang, Zhongta Qi, Ying Shan, Xiaubin Qu, and Yingjiang Zheng. 2020. MassCtrl: 일관된 이미지 합성 및 편집을 위한 튜닝-프리 상호 자가 주의 제어. In _Proceedings of the IEEE/CVF International Conference on Computer Vision(ICCV)_. 22560-22570.\n' +
+      '* Ceylan et al. (2023) Duygu Ceylan, Chun-Hao P Huang, and Niloy J Mitra. 2023. PixEvideo: 이미지 확산을 이용한 비디오 편집. In _Proceedings of the IEEE/CVF International Conference on Computer Vision_. 23206-23217.\n' +
+      '* Chang et al. (2023) Di Chang, Yichun Shi, Quankai Gao, Jessica Fu, Hongyi Xu, Guoxian Song, Qing Yan, Xiao Yang, and Mohammad Solyczynani. 2023. 매직댄스: 움직임과 얼굴 표정이 전이된 바스틸 휴먼 댄스 비디오 생성_ arXiv preprint arXiv:2311.21052_(2023).\n' +
+      '* Cheter et al. (2023) Hils Cheter, Yuval Alahf, Yael Vinker, Iior Wolf, and Daniel Cohen-Or. 2023. Attend-and-ex-active Attention-based semantic guidance for text-to-image diffusion models. _ ACM Transactions on Graphics(TOG)_42, 4(2023), 1-10.\n' +
+      '* Feng et al. (2023) Zhangy Feng, Yuchen Ren, Xinmao Fu, Xiaecheng Feng, Duyu Tang, Shuming Shi, and Bing Qin. 2023. 적응적 컨텍스트 모델링을 통한 개선된 비주얼 스토리 생성 arXiv preprint arXiv:2305.16811_(2023).\n' +
+      '* Fu et al. (2023) Stepanie Fu, Natenah Yadik Tanri, Shobita Sundaram, Lucy Chai, Richard Zhang, Tali Dekel, and Phillip Isola. 2023. Dreamsim: 합성 데이터를 이용하여 인간의 시각 유사성의 새로운 차원을 학습한다. _Thirty-seventh Conference on Neural Information Processing Systems_. [https://openreview.net/forum?id=DENSWithL%7] (https://openreview.net/forum?id=DENSWithL%7)\n' +
+      '* Gal et al. (2022) Rinon Gal, Yuval Alahf, Yuval Atzmon, or Patashnik, Amit H. Bermano, Gal Chechik, and Daniel Cohen-Or. 2022. Image is Worth One!: From-Word: Personalizing Text-to-Image Generation using Textual Inversion. [https://doi.org/10.48550/ARXIV.2208.01618] (https://doi.org/10.48550/ARXIV.2208.01618)\n' +
+      '* Gal et al. (2023) Rinon Gal, Moah Arzar, Yuval Atzmon, Amit H Bermano, Gal Chechik, and Daniel Cohen-Or. 2023. 텍스트-이미지 모델들의 빠른 개인화를 위한 인코더 기반 도메인 튜닝. _ ACM Transactions on Graphics(TOG)_42, 4(2023), 1-13.\n' +
+      '* Geyer et al.(2023) Michal Geyer, Omer Bar-Tal, Shai Bagon, and Tail Dekel. 2023. TokenFlow: 일관된 비디오 편집을 위한 일관된 확산 특징 arXiv preprint arxiv:2307.10737_(2023).\n' +
+      '* Gong et al. (2023) Ivan Gong, Youxin Pang, Xiaodong Cun, Menghan Xia, Haoxin Chen, Longyguue Wang, Yong Zhang, Xintao Wang, Ying Shan, and Yujui Yang. 2023. TaleCrafer: 다중캐릭터를 이용한 인터랙티브 스토리 시각화_ arXiv preprint arXiv:2305.18427_(2023).\n' +
+      '* Gu et al. (2023) Yuchao Gu, Xintao Wang, Jay Zhangjie Wu, Yujun Shi, Yunpeng Chen, Zihan Fan, Wuyong Xiao, Rui Zhao, Shuming Chang, Weizia Wu, et al. 2023. Mix-of-Show: Decentralized Non-Rank Adaptation for Multi-Concept Customization of Diffusion Models. _ arXiv preprint arXiv:2305.18292_(2023).\n' +
+      '* Heeidl et al. (2023) Eric Heeidl, Gopal Sharma, Shirotahiu, Hossan Isack, Abhishek Kar, Andrea Taglassachi, and Kwong Mo. 여우 2023. Stable Diffusion을 이용한 비감독 시맨틱 대응. (2023). arXiv:2305.15581 [cs.CV]\n' +
+      '* Hertz et al. (2022) Amir Hertz, Ron Mokady, Jay Tenenbaum, Kifr Aherman, Yael Pritch, and Daniel Cohen-Or. 2022. 크로스 어텐션 컨트롤을 갖는 프롬프트 투 프롬프트 이미지 편집. (2022).\n' +
+      '* Hertz et al. (2023) Amir Hertz, Andrey Vorony, Shilon Fuchter, and Daniel Cohen-Or. 2023. 공유 어텐션을 통한 스타일 지정 이미지 생성. (2023).\n' +
+      '* Hessel et al. (2021) Jack Hessel, Ari Holtzman, Maxwell Forbes, Ronan Le Bras, and Yejin Choi. 2021. CLIPScore: 이미지 캡셔닝을 위한 참조 없는 평가 메트릭. In _Proceedings of the 2021 Conference on Empirical Methods in Natural Language Processing_. Marie-Francine Moens, Xuanjing Huang, Lucia Specia, and Scott Wen-tau Yih(Eds.) Association for Computational Linguistics, Online and Punta Cana, Dominican Republic, 5714-5728. [https://doi.org/10.18635/v1/2021.emnlp-main.595](https://doi.org/10.18635/v1/2021.emnlp-main.595)\n' +
+      '* Heuard et al. (2021) Edward J. Hu, Velong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanhi Li, Shean Wang, and Weizhu Chen. 2021. LoRA : 대용량 언어 모델의 저순위 적응 ArXiv preprint arXiv:2106.09685_(2021).\n' +
+      '* Hu et al. (2023) Li Hu, Xin Gao, Peng Zhang, Ke Sun, Bang Zhang, and Lefeng Bo. 2023. Animate Anyone: Consistent and Controllable Image-to-Video Synthesis for Charactersamination. _ arXiv preprint arXiv:2311.17117_(2023).\n' +
+      '* Huang and Belongie (2017) Xun Huang and Serge Belongie. 2017. 적응적 인스턴스 정규화와 함께 실시간 임의 스타일 전송. In _Proceedings of the IEEE international conference on computer vision_. 1501-1510.\n' +
+      '* Huberman-Spiegelglas et al. (2023) Inbar Huberman-Spiegelglas, Vladimir Kulikov, and Tomer Michaeli. 2023. Edit Friendly DDPM Noise: Bervervational and Manipulations. _ arXiv preprint arXiv:2304.0140_(2023).\n' +
+      '* 이고고 등(2023) 지로이고, 권길분, 예종철. 2023. 확산 모델을 이용한 평문 스토리에서 코히런트 스토리북의 제로샷 생성. _ arXiv preprint arXiv:2302.03900_ (2023).\n' +
+      '* Jia et al. (2023) Xuhui Jia, Fang Zhao, Kelvin CK Chan, Yandong Li, Han Zhang, Boqing Gong, Tingbo Hou, Huisheng Wang, and Yu-Chuan Su. 2023. 텍스트-이미지 확산 모델들을 갖는 제로 미세조정 이미지 증강을 위한 타이밍 인코더. _ arXiv preprint arXiv:2304.02426_(2023).\n' +
+      '* Khachatryan et al. (2023) Levon Khachatryan, Andranik Movsisyan, Vahram Tadevosyan, Roberto Henschel, Zhungyang Wang, Shant Navasaryandyn, and Humphrey Shi. 2023. Text2Video-Zero: Text-to-Image 확산 모델 및 Zero-Shot Video Generator. In _Proceedings of the IEEE/CVF International Conference on Computer Vision(ICCV)_. 15954-15964.\n' +
+      '* Khani et al. (2023) Ainsghar Khani, Saeid Agosar Taghanski, Aditya Sanghi, Ali Mahdavi Amiri, 및 Ghassan Hamarneh. 2023. 슬라임: 나처럼 세그먼트 arXiv preprint arXiv:2309.03179_(2023).\n' +
+      '* Kumari et al. (2022) Nupur Kumari, Bingliang Zhang, Richard Zhang, Eli Shechtman, and Jun-Yan Zhu. 2022. 텍스트-이미지 확산의 다중 개념 맞춤화. _ arXiv_(2022).\n' +
+      '* Li et al.(2023) Dongruq Li, Junnan Li, and Steven CH Hoi. 2023. 플립 확산: 제어 가능한 텍스트 대 이미지 생성 및 편집을 위한 사전 훈련된 피사체 표현 _ arXiv preprint arXiv:2305.14720_(2023).\n' +
+      '* Liao et al. (2017) Jing Liao, Yuan Yao, Luan, Gang Hua, and Bing Bing Kang. 2017. 심층 이미지 비유를 통한 시각적 속성 전달__ ACM Trans. Graph.__ 36, 4, 제120조(2017년 7월) 15쪽 [https://doi.org/10.1145/3702959.3706383] (https://doi.org/10.1145/3702959.3706383)\n' +
+      '* Liu et al.(2023) Chang Liu, Haoming Wu, Yujie Zhong, Xiaoyuan Zhang, and Weizl Xie. 2023. Intelligent Crimir*[45] Nataniel Ruiz, Yuanzhen Li, Varun Jampani, Yael Pritch, Michael Rubinstein, and Kfir Aberman. 2022. DreamBooth: 피사체 기반 생성을 위한 텍스트-이미지 확산 모델을 미세 조정한다. (2022).\n' +
+      '* [46] Simo Ryu. 2023. Low-rank Adaptation for Fast Text-to-Image Diffusion Fine-tuning. [https://github.com/cloneofsimo/lora](https://github.com/cloneofsimo/lora).\n' +
+      '* [47] Jing Shi, Wei Xiong, Zhe Lin, and Hyun Joon Jung. 2023. Instantbooth: Personalized text-to-image generation without test-time finetuning. _arXiv preprint arXiv:2304.03411_ (2023).\n' +
+      '* [48] Chenyang Si, Ziqi Huang, Yuming Jiang, and Ziwei Liu. 2023. FreeU: Free Lunch in Diffusion U-Net. _arXiv preprint arXiv:2309.11497_ (2023).\n' +
+      '* [49] Luming Tang, Menglin Jia, Qianqian Wang, Cheng Perng Phoo, and Bharath Hariharan. 2023. Emergent Correspondence from Image Diffusion. In _Thirty-seventh Conference on Neural Information Processing Systems_. [https://openreview.net/forum?id=ypOiXjdfnU](https://openreview.net/forum?id=ypOiXjdfnU)\n' +
+      '* [50] Yoad Tewel, Rinon Gal, Gal Chechik, and Yuval Atzmon. 2023. Key-locked rank one editing for text-to-image personalization. In _ACM SIGGRAPH 2023 Conference Proceedings_. 1-11.\n' +
+      '* [51] Shuyuan Tu, Qi Dai, Zhi-Qi Cheng, Han Hu, Xintong Han, Zuxuan Wu, and Yu-Gang Jiang. 2023. MotionEditor: Editing Video Motion via Content-Aware Diffusion. _arXiv preprint arXiv:2311.18830_ (2023).\n' +
+      '* [52] Narek Tumanyan, Omer Bar-Tal, Shai Bagon, and Tali Dekel. 2022. Splicing ViT Features for Semantic Appearance Transfer. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_. 10748-10757.\n' +
+      '* [53] Narek Tumanyan, Michal Geyer, Shai Bagon, and Tali Dekel. 2023. Plug-and-play diffusion features for text-driven image-to-image translation. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_. 1921-1930.\n' +
+      '* [54] Yuxiang Wei, Yabo Zhang, Zhilong Ji, Jinfeng Bai, Lei Zhang, and Wangmeng Zuo. 2023. ELITE: Encoding Visual Concepts into Textual Embeddings for Customized Text-to-Image Generation. In _Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)_. 15943-15953.\n' +
+      '* [55] Jay Zhangjie Wu, Yixiao Ge, Xintao Wang, Stan Weixian Lei, Yuchao Gu, Yufei Shi, Wynne Hsu, Ying Shan, Xiaohu Qie, and Mike Zheng Shou. 2023. Tune-a-video: One-shot tuning of image diffusion models for text-to-video generation. In _Proceedings of the IEEE/CVF International Conference on Computer Vision_. 7623-7633.\n' +
+      '* [56] Zhongcong Xu, Jianfeng Zhang, Jun Hao Liew, Hanshu Yan, Jia-Wei Liu, Chenxu Zhang, Jiashi Feng, and Mike Zheng Shou. 2023. MagicAnimate: Temporally Consistent Human Image Animation using Diffusion Model.\n' +
+      '* [57] Hu Ye, Jun Zhang, Sibo Liu, Xiao Han, and Wei Yang. 2023. lp-adapter: Text compatible image prompt adapter for text-to-image diffusion models. _arXiv preprint arXiv:2308.06721_ (2023).\n' +
+      '* [58] Junyi Zhang, Charles Herrmann, Junhwa Hur, Luisa Polania Cabrera, Varun Jampani, Deqing Sun, and Ming-Hsuan Yang. 2023. A Tale of Two Features: Stable Diffusion Complements DINO for Zero-Shot Semantic Correspondence. (2023).\n' +
+      '* [59] Lvmin Zhang, Anyi Rao, and Maneesh Agrawala. 2023. Adding conditional control to text-to-image diffusion models. In _Proceedings of the IEEE/CVF International Conference on Computer Vision_. 3836-3847.\n' +
+      '\n' +
+      '## 부록 : 트레이닝-프리 일관성 있는 텍스트-이미지 생성\n' +
+      '\n' +
+      '### Additional Results\n' +
+      '\n' +
+      '우리는 우리의 방법에 대한 추가적인 질적 및 양적 결과를 제공한다. 그림 A.1, 그림 A.2 및 그림 A.3에서 기존 기준선에 대한 추가 단일 및 다중 주제 정성적 비교를 보여준다. 그림 A.4와 그림 A.5에서 우리는 Textual Similarity, Subject Consistency 및 레이아웃 다양성과 관련하여 정량적 절제 결과를 제공한다.\n' +
+      '\n' +
+      '### 추가 구현 세부사항\n' +
+      '\n' +
+      '**Subject-Driven Self-Attention**는 U-net의 디코더 계층에서 모든 타임스텝에 적용된다.\n' +
+      '\n' +
+      '**Feature injection과 DIFT feature:**Feature injection은 timesteps \\(t\\in\\left[680,900\\right]\\), \\(\\alpha=0.8\\)으로 적용하였다. 우리는 Otsu 방법으로 자동으로 설정된 임계값 이상의 유사성 점수를 가진 패치만 주입한다.\n' +
+      '\n' +
+      '특징 주입의 경우, (Zhou et al., 2017)과 같이 \\(t=261\\)에서 DIFT 특징을 계산하기 위해 \\(t=1000\\)에서 \\(t=261\\)까지 영상을 잡음 제거한다. 그리고 나서 \\(t=1000\\)에서 \\(t=0\\)으로 다시 디노이징하여 미리 계산된 DIFT 피쳐로 피쳐 주입을 안내한다.\n' +
+      '\n' +
+      'Vanilla Query Feature의 주입은 0.9에서 0.8까지 \\(t\\)으로 선형적으로 붕괴되는 \\(v_{t}\\) 값으로 처음 5단계에 걸쳐 적용되었으며, Self-Attention Dropout은 \\(p=0.5\\)으로 적용되었다.\n' +
+      '\n' +
+      '**확산 프로세스** 이미지는 50개의 DDIM 단계 및 5의 안내 척도로 샘플링되었다. (Beng et al., 2017; Chen et al., 2018)과 유사하게, 우리는 생성 품질을 향상시키기 위해 Free-U (Zhou et al., 2017)를 사용했다.\n' +
+      '\n' +
+      '피험자 마스크당 추출** 잡음 잠재 패치로부터 피험자 마스크를 추출하기 위해, 각 피험자의 토큰과 관련된 모든 교차 주의 맵, 이전의 모든 확산 단계, 및 해상도의 모든 교차 주의 레이어(32\\times 32\\)를 수집한다. 그런 다음 평균을 내고 "Otsu\'s method"(Zhou et al., 2017)를 사용하여 임계값을 매긴다. 생성 단계 \\(r\\)에서의 피사체 마스크는, 다음과 같이 주어진다:\n' +
+      '\n' +
+      'm_{i}=\\mathbbb{E}_{t=0}^{L}\\mathbb{B}_{t=T}^{r}\\left[A_{i}\\right]\\] \\[M_{i}=otsu\\left(m_{i}\\right)\\in\\left\\{0,1\\right\\}^{P}, \\tag{7}\\]\n' +
+      '\n' +
+      '여기서 \\(L\\)은 네트워크 계층의 수, \\(P\\)은 패치의 수, \\(\\mathbb{E}\\)은 평균화를 나타낸다.\n' +
+      '\n' +
+      '원본영상(I_{s}\\)과 표적영상(I_{t}\\)에 대해, 각각 \\(D_{s}\\), \\(D_{t}\\in\\mathbb{R}^{P\\times D_{DIFT}}\\)으로 그들의 DIFT 특징을 나타내며, 여기서 \\(d_{DIFT}\\)은 특징차원이다. 교차-이미지 패치 유사성 스코어들은 이들 특징들 사이의 코사인 유사성에 의해 주어진다:\n' +
+      '\n' +
+      '[\\text{Sim}(I_{s},I_{t})_{p_{s}p_{t}=\\frac{D_{s}[p_{s}]\\cdot D_{t}[p_{t}]}{\\left\\lVert D_{s}[p_{s}]\\right\\rVert\\left\\lVert D_{t}[p_{t}]\\right\\rVert D_{t}[p_{t}], \\tag{8}\\cdot\n' +
+      '\n' +
+      '여기서, \\(p_{s}\\), \\(p_{t}\\)은 각각 소스 및 타겟 이미지 내의 특정 패치들의 인덱스들이고, \\(D_{s}[p_{s}]\\), \\(D_{t}[p_{t}]\\)은 이들 패치들에 매칭되는 DIFT 행렬 행들(_i.e._ feature-vectors)이다. 이러한 패치 유사성 점수를 고려할 때 패치별 밀집 대응 맵 \\(C_{t\\to s}\\)을 계산할 수 있다.\n' +
+      '\n' +
+      '\\[\\forall p_{t}\\in I_{t}:\\;\\;C_{t\\to s}[p_{t}]=\\operatorname*{arg\\,max}_{p_{s}\\in I_{s}}\\text{Sim}(I_{s},I_{t})_{p_{s},p_{t}}.\\tag{9}\\}\n' +
+      '\n' +
+      '여기서, 대상 영상에서 각 패치 \\(p_{t}\\)에 대해 \\(I_{t}\\), \\(C_{t\\to s}[p_{t}]\\)는 소스 영상에서 가장 유사한 패치의 인덱스 \\(I_{s}\\)을 제공한다.\n' +
+      '\n' +
+      '**Control Net** ControlNet에서 포즈의 영향을 강화하기 위해 Self-Attention Dropout 값을 0.7로 높인다.\n' +
+      '\n' +
+      '## 부록 C 다양성 평가\n' +
+      '\n' +
+      '레이아웃 다양성을 향상시키기 위해 바닐라 쿼리 주입과 셀프 어텐션 드롭아웃의 두 가지 전략을 제안했다. 이러한 전략의 기여도를 정량적으로 평가하기 위해 레이아웃 다양성에 대한 자동 평가 메트릭을 구성한다.\n' +
+      '\n' +
+      '구체적으로, 우리는 DIFT 특징과 이미지 쌍 간의 밀집 대응 맵을 활용한다. 각 이미지 쌍에 걸쳐 해당 지점 간의 평균 변위를 계산하여 레이아웃 다양성을 측정한다. 낮은 변위 점수는 피험자의 레이아웃이 두 이미지 모두에서 크게 정렬되었음을 나타낸다. 이것이 전체 이미지 세트에 걸쳐 지속된다면, 우리는 이미지가 제한된 다양성을 가지고 있다고 결론지을 수 있다. 특히, 후자는 레이아웃 다양성과 피험자의 외관의 원하지 않는 변화를 합칠 수 있기 때문에 이미지 기반 메트릭이 아닌 기하학적 다양성 메트릭을 선택한다. 그림 A.5에서 우리는 방법에서 구성 요소를 제거할 때 다양성 메트릭의 결과를 보여준다. 점수는 바닐라 비일치 SDXL 모델에서 샘플링된 이미지의 변위 값으로 정규화된다. 전체 방법은 레이아웃 강화 구성요소 중 하나 이상을 생략하는 솔루션을 능가하는 높은 다양성 점수를 획득합니다.\n' +
+      '\n' +
+      '프롬프트 데이터세트 세부사항\n' +
+      '\n' +
+      '본 논문에서 제안한 방법을 대규모로 평가하기 위해 프롬프트 데이터셋을 구축하였다. 우리는 ChatGPT에게 한 세트의 모든 프롬프트가 동일한 반복 주제를 포함하는 \\(5\\) 프롬프트 세트를 각각 구성하도록 요청했다. 또한, 각 프롬프트 세트에 대해 다음과 같은 메타데이터를 생성하도록 지시하였다:\n' +
+      '\n' +
+      '수퍼클래스**: 우리는 모델에게 각 세트를 인간, 동물, 판타지, 무생물과 같은 슈퍼클래스 중 하나로 그룹화하도록 요청했습니다.\n' +
+      '**Subject Token**: 주체를 나타내는 단일 토큰(예를 들어, \'cat\', \'boy\')이다.\n' +
+      '**주제 설명**: 반복되는 주제(예를 들어, \'금발을 가진 16세 소녀\')에 대한 설명.\n' +
+      '***Description Level**: 주제 설명이 일반인지 상세인지 여부를 나타낸다. 예를 들어, 일반적인 설명은 단순히 "개"일 수 있는 반면, 상세한 설명은 "갈색 및 흰색 털, 푹신한 머리, 뾰족한 귀를 가진 개"로 자세히 설명할 수 있다.\n' +
+      '***스타일**: 요청된 이미지의 스타일; 예를 들어, "의 3D 애니메이션"이다.\n' +
+      '\n' +
+      '다양한 슈퍼클래스, 설명 수준 및 스타일에 걸쳐 총 500개의 이미지로 구성된 100개의 프롬프트 세트를 생성했다. 우리는 다양한 범주에 걸쳐 광범위하고 포괄적인 표현을 보장하면서 광범위한 시각적 테마와 주제를 다루는 것을 목표로 했다.\n' +
+      '\n' +
+      '우리의 프롬프트 데이터 세트는 첨부 자료의 YAML 파일로 제공된다.\n' +
+      '\n' +
+      '그림 A.1: **추가 질적 비교** IP-어댑터, TI, ELITE, E4T 및 DB-LORA에 대해 방법을 평가했다. 일부 메서드는 일관성(TI)을 유지하거나 프롬프트(IP-어댑터)를 따르지 못했습니다. 다른 방법들은 일관성을 유지하거나 텍스트를 따르는 것 사이에서 번갈아 가지만, 둘 다(DB-LoRA)는 아니다. 우리의 방법은 일관성을 유지하면서 프롬프트를 성공적으로 따랐다.\n' +
+      '\n' +
+      '## 부록 E 훈련-무료 개인화 세부사항\n' +
+      '\n' +
+      '우리는 SDXL에 대한 편집 친화적 역산(Zhu et al., 2017)을 구현하고 유도 척도를 2.0으로 설정했으며 그림과 같이 두 개의 실제 이미지를 반전했다. 12, 그리고 그것들을 우리의 방법에서 앵커로 사용했다. 그러나 본 논문에서 제안하는 방법은 두 영상간의 주의집중 공유로 앵커를 생성한다.\n' +
+      '\n' +
+      '도 A.3. **The Chosen One, Multi-Subject**에 대한 비교 우리는 (Beng et al., 2017)에 의해 동시 작업에 대해 우리의 방법을 평가하였다. 특히, _ConsiStory_는 훈련이 없는 반면, 반복 최적화 과정이 필요한 동시 작업과 달리, 본 논문에서 제안하는 방법이 여러 피험자에 대한 일관성을 보존하는 데 더 우수하다는 것을 보여준다.\n' +
+      '\n' +
+      '그림 A.2. **추가 질적 다중 피험자 비교** 여러 일관된 피험자 생성을 위해 DB-LORA에 대한 방법을 평가했다. 로라 DB는 피험자 중 적어도 하나의 일관성을 무시하는 경향이 있는 반면, 우리의 방법은 둘 다에 성공한다.\n' +
+      '\n' +
+      '도 4. **Quantitative Component Ablation** Self-Attention Dropout(Dropout), Query Injection, Feature Injection(FI), Subject-Driven Self-Attention(SDSA) 등 다양한 컴포넌트를 ablating하여 _ConsiStory_의 정량적 평가를 진행하였다. 특히, SDSA 또는 FI를 생략하면 피험자 일관성이 감소했다. 변경 개선 메커니즘(Dropout 및 Query Injection)을 제거하면 텍스트 유사성이 감소합니다.\n' +
+      '\n' +
+      'them, 이는 역앵커의 경우에 적합하지 않다. 따라서 앵커가 다른 앵커와 공유하지 않고 생성된 이미지와 주의 지도만 공유하도록 앵커링 프로세스를 수정한다. 본 논문에서는 역영상 주의특징을 이용하여 순진하게 개인화된 결과를 얻을 수 있음을 관찰하였고, 역영상과 생성된 영상의 특징간의 분포 이동과 관련이 있다고 가정하였다. 이를 위해 Adain[24]를 추가하여 역특징의 자기관심키와 생성된 영상의 자기관심키를 정렬하였다.\n' +
+      '\n' +
+      '편집 친화적 역산은 DDPM을 기반으로 하기 때문에 100개의 생성 단계로 DDPM 스케줄링을 사용하도록 생성 프로세스를 수정했다. 생성된 이미지에 대해 기본 안내 척도 5.0을 사용했다. 이 훈련 없는 개인화는 단순한 대상에 대해서만 작동하고 그림 A.6에서 실패 사례를 제공한다는 점에 주목한다.\n' +
+      '\n' +
+      '## 부록 F 사용자 연구 세부사항\n' +
+      '\n' +
+      '두 가지 대체 강제 선택 프로토콜을 사용하여 두 개의 아마존 기계식 터키 사용자 연구를 통해 모델을 평가한다. *"시각적 일관성"**로 명명된 첫 번째 연구에서 평가자는 각각 다른 접근법으로 생성된 두 개의 이미지 세트를 보았다. 그들은 피험자의 정체성이 가장 일관되게 유지되는 세트를 선택했다. *"텍스트 정렬"**라는 두 번째 연구에서 사용자는 서로 다른 접근법에서 텍스트 설명과 두 개의 이미지를 받았다. 그들은 설명과 더 잘 일치하는 이미지를 선택했습니다.\n' +
+      '\n' +
+      '### Visual Consistency\n' +
+      '\n' +
+      '첫 번째 연구를 위해 각 시험에서 평가자는 다양한 상황에서 피험자를 묘사하는 두 세트의 이미지로 제시되었다. 피험자의 신원이 모든 이미지에 걸쳐 일관되게 유지되는 세트를 선택하도록 지시받았다. 이 결정은 배경, 의복 또는 포즈와 같은 요소를 무시하고 대상의 특징과 정체성만을 기반으로 하는 것이었다. 눈 색깔, 질감, 얼굴 특징 및 기타 미묘한 세부 사항과 같은 측면을 포함하여 피험자의 정체성의 일관성에 초점을 맞추었다. 안내를 위해 예시 이미지 및 솔루션이 제공되었다. 그림 A.7은 실험에 사용된 실험 프레임워크를 보여준다. 그림 A.8은 지시사항을 통해 평가자를 안내하는 데 도움이 되도록 제공된 예제 이미지를 표시합니다.\n' +
+      '\n' +
+      '이 연구에는 100명의 고유한 피험자의 100번의 이미지 시행이 포함되었다. 각 시험은 5개의 다른 평가자로 5회 반복되었다. 각 이미지 세트는 5개의 별개의 프롬프트 설정에서 생성된 5개의 이미지로 구성되었다. _Consitory_ 이미지의 경우, 우리는 덜 엄격한 신원 보존 매개변수를 가진 변형을 선택했다. 참가자들은 시험당 0.15달러를 받았다. 연구의 질을 유지하기 위해 아마존 머시니컬 투르크 "마스터즈" 자격을 가진 평가자만을 선정하여 광범위한 업무에서 높은 수준의 승인률을 보여주었다. 또한 간단한 5개의 선별된 시험으로 구성된 사전 선별된 평가자 풀에 대한 자격 테스트도 수행했다.\n' +
+      '\n' +
+      '### Textual Alignment\n' +
+      '\n' +
+      '두 번째 연구에서는 각 시험에서 평가자에게 텍스트 설명과 두 개의 이미지를 제공했다. 그들은 어떤 이미지가 텍스트 설명과 더 잘 일치하는지 결정하도록 지시받았다. 그들은 설명의 세부 사항에 초점을 맞추라고 조언받았다. 예를 들어, 텍스트가 "곰이 컵에서 술을 마시고 있다"라고 기재된 경우, 평가자들은 곰이 컵에서 실제로 술을 마시고 있는 이미지를 선택해야 한다. 안내를 위해 솔루션이 포함된 예시 이미지가 제공되었다. 그림 A.9는 시험에 사용된 실험 프레임워크를 보여준다. 텍스트 설명에는 완전 상세 설명보다는 일반 과목 클래스(_e.g._ dog)만 포함되었다(_e.g._ 귀여운 갈색과 흰색 솜털 강아지, 푸른 눈을 가진 강아지). 이는 평가자들이 피험자의 설정에 집중하는 데 도움이 되었다. 그림 A.10은 지침을 통해 평가자를 안내하는 데 도움이 되도록 제공된 예를 보여준다.\n' +
+      '\n' +
+      '이 연구에는 100명의 고유한 피험자의 500번의 이미지 시행이 포함되었으며 각 피험자는 5개의 뚜렷한 프롬프트 설정을 가졌다. _ConsitSory_ 이미지의 경우 덜 엄격한 신원 보존 매개변수를 가진 변형을 선택했다. 우리는 재판당 0.05달러를 지불했다. 연구의 질을 유지하기 위해 아마존 머시니컬 투르크 "마스터즈" 자격을 가진 평가자만 선정했습니다. 또한 간단한 5개의 선별된 시험으로 구성된 사전 선별된 평가자 풀에 대한 자격 테스트도 수행했다.\n' +
+      '\n' +
+      '그림 A.6. **Training-Free Personalization Failure** 우리의 Training-Free Personalization 방법은 일반적이지 않은 과목에서 실패할 수 있다.\n' +
+      '\n' +
+      '그림 A.5. **레이아웃 다양성 절제** 우리 방법은 드롭아웃 및/또는 QQuery 주입 구성요소를 생략한 변형과 비교할 때 가장 높은 다양성 점수를 달성한다.\n' +
+      '\n' +
+      '[MISSING_PAGE_EMPTY:17]\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:18]\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
