@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# CogCoM: 조작 체인을 통해 세부사항에 들어가는 대규모 비전 언어 모델 훈련\n' +
+      '\n' +
+      ' 지기({}^{1\\,\\ddagger}\\) 명담({}^{2}\\) 위한왕({}^{1\\,\\ddagger}\\) 유시백({}^{1\\,\\ddagger}\\) 칭송Lv\\({}^{2}\\) 위이홍({}^{1\\,\\ddagger}\\)\n' +
+      '\n' +
+      'Bin Xu\\({}^{1}\\) Lei Hou\\({}^{1}\\) Juanzi Li\\({}^{1}\\) Yuxiao Dong\\({}^{1}\\) Jie Tang\n' +
+      '\n' +
+      'qi20@mails.tsinghua.edu.cn, ming.ding@zhipuai.cn\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      '시각 언어 모델(VLMs)은 시각적 지침을 답변에 맞추는 광범위한 훈련 덕분에 광범위한 생존 가능성을 입증했다. 그러나 이러한 결정적인 정렬은 모델이 비판적 시각적 추론을 무시하도록 유도하고, 또한 세심한 시각적 문제와 불성실한 반응에 대한 실패를 초래한다. 본 논문에서는 VLM이 일련의 조작으로 문제를 해결할 수 있는 메커니즘인 **Chain of Manipulations**를 제안한다. 여기서 각 조작은 사전 훈련을 통해 획득한 고유 능력(예: 접지_) 또는 인간과 유사한 행동 모방(예: 줌인_)으로부터 시각적 입력에 대한 조작을 의미한다. 이 메커니즘은 VLM이 증거적인 시각적 추론으로 충실한 응답을 생성하도록 장려하고 사용자가 해석 가능한 경로에서 오류 원인을 추적할 수 있도록 한다. 따라서 우리는 메모리 기반 호환 아키텍처를 가진 일반적인 17B VLM인 **CogCoM**를 훈련시켜 이 추론 메커니즘을 부여했다. 실험 결과, 본 논문에서 제안한 모델은 3개의 카테고리에서 8개의 벤치마크에 걸쳐 최첨단 성능을 달성하였으며, 데이터를 이용한 제한된 수의 훈련 단계가 경쟁적 성능을 빠르게 획득함을 확인하였다. 코드 및 데이터는 이 url에서 공개적으로 사용할 수 있다.\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      '광범위한 세계지식에 있어서 LLM(Large Language Models)의 장점으로부터, VLM(Large Vision Language Models)(Alayrac et al., 2022; Wang et al., 2023b)은 시야를 이해하도록 더 훈련된 넓은 시나리오들, 예컨대 시각적 질문 응답(Liu et al., 2023b), 시각적 접지(Peng et al., 2023), 광학적 문자 인식(Zhang et al., 2023b)에 대한 가시성을 입증했다.\n' +
+      '\n' +
+      'VLM을 기초 모델로 사용하는 연구(Bai et al., 2023; Sun et al., 2023b; Wang et al., 2023b)는 일반적으로 훈련의 두 가지 주요 단계를 포함하며, 첫 번째 단계는 대규모 이미지-캡션 쌍에 대한 노출을 통해 내재적 시각적 이해를 배양하고 두 번째 단계는 명령어 조정을 통해 모델에게 문제 해결 능력을 부여한다. 일부 다른 연구들(Dai et al., 2023; Chen et al., 2023b; Zhang et al., 2023b)은 적용 가능한 장면들에 대한 제2 스테이지를 직접 수행한다.\n' +
+      '\n' +
+      '그러나 기존의 튜닝 방법은 시각적 입력에 대한 결정적인 언어적 답변으로 지침에 응답하도록 모델을 훈련시키며, 이는 모델이 본질적인 시각적 추론을 무시하고 세심한 시각적 문제, 불성실한 응답, 심지어 환각에 대한 실패를 초래한다. 예를 들어, 도 1에서, 우리는 이미지 내의 세부사항들(_i.e., pillar_에 쓰여진 텍스트들)에 대해 최상위 수행 모델 CogVLM(Wang et al., 2023b)을 테스트하고, 그것은 직접적으로 오답(_i.e., NO SMOKING_)을 제공하며, 이는 편향으로부터 시각적 또는 언어적 사전들(_i.e., pillar in office_)로 가장 가능성이 높다. 시각적 증거를 가진 이러한 증거 추론의 부재는 경솔한 반응으로 이어진다(Hwang et al., 2023).\n' +
+      '\n' +
+      '인간은 편의성과 엄밀성을 위해 주어진 이미지를 마킹하거나 처리하여 세심한 시각적 문제를 해결하고,\n' +
+      '\n' +
+      '그림 1: 기존의 비전 언어 모델과 비교하여 CogCoM은 최종 답을 얻기 위해 일련의 조작(CoM)으로 증거 추론의 여러 단계를 수행한다.\n' +
+      '\n' +
+      '우리가 조작이라고 부르는 것. 예를 들어, 우리는 참조들을 순차적으로 위치시킴으로써 타겟들을 찾을 수 있고, 대응하는 영역을 줌잉함으로써 미묘한 세부사항들에 집중할 수 있다. 대부분의 VLM은 훈련의 첫 번째 단계에서 수많은 고유 다중 모드 기능(예: 접지 상자, 텍스트 인식)을 개발했다. 기본적인 인간과 유사한 행동(예: 크롭, 줌인)을 더 모방함으로써 모델은 문제를 해결하기 위한 증거적인 시각적 추론을 수행할 가능성이 있다.\n' +
+      '\n' +
+      '이 메커니즘으로 모델을 훈련시키는 것을 방해하는 두 가지 주요 과제가 있습니다. 첫째, 기존의 언어적 지시-답변 쌍으로부터 시각적 추론 경로를 통해 풍부한 학습 데이터를 효과적으로 생성하는 것이 중요하다. 둘째, 다양한 조작으로 일반적인 메커니즘을 구축하고, 전용 아키텍처의 VLM을 훈련시키면서 미리 설정된 기능을 보존하는 것은 어렵다.\n' +
+      '\n' +
+      '본 논문에서는 VLM이 일련의 조작으로 증거적인 시각적 추론을 수행할 수 있는 일반적인 메커니즘인 **Chain of Manipulation(CoM)**을 제안한다. 여기서 각 조작은 시각적 입력에 적용되어 서로 다른 유형의 시각적 콘텐츠(예:_박스, 텍스트, 이미지)를 획득한다. 먼저 기존의 이미지-질문-답변 코퍼스를 기반으로 자동 데이터 생성 프레임워크를 구축한다. 주어진 질문에 대한 추론 단계를 제공하기 위해 일련의 조작을 사용할 수 있는 언어 주석자(1)가 사용되며, 조작에서 요청된 해당 수익을 얻기 위해 기본 시각적 도구가 추가로 사용된다. 그런 다음 조작의 가능한 반환에 의해 분기된 트리에 대한 횡단이 수행되어 마지막 조작 반환에 의해 정답으로 이어지는 최종 실행 가능한 경로를 얻는다. 제작된 데이터를 기반으로 범용 및 추론 멀티모달 기능을 개발하기 위해 메모리 기반 호환 아키텍처와 4가지 범주의 데이터 융합으로 훈련된 17B VLM인 **CogCoM**을 제시한다. 모델은 시각적 콘텐츠(예: 참조 영역 \\(bbx_{1},bbx_{2}\\) 및 새로운 이미지 \\(img_{1}\\)을 획득하기 위해 다중 조작을 적극적으로 채택하여 추론을 수행하고 최종적으로 결정적인 답을 얻는다. 또한, 평가 자원의 부족으로 인해 추론 경로와 관련된 세심한 시각적 문제가 있는 테스트베드와 해결 과정뿐만 아니라 최종 답변의 정확성을 조사하기 위한 키포인트 인식 메트릭을 추가로 도입한다.\n' +
+      '\n' +
+      '각주 1: 과제 요구 사항이 미리 준비된 LLM이 주석자로 사용되며, 이는 답을 알지 못한 채 해결 단계를 제공한다.\n' +
+      '\n' +
+      'TextVQA(Singh et al., 2019), STVQA(Biten et al., 2019), TallyVQA(Acharya et al., 2019), GQA(Hudson and Manning, 2019), RefCOCO를 이용한 시각적 접지(Yu et al., 2016), RefCOCO+(Yu et al., 2016), RefCOCOg(Mao et al., 2016), POPE(Li et al., 2023d)를 이용한 환각 검증, 그리고 제안된 추론 검사 벤치마크 AutoCoM-테스트를 포함한다. 결과는 우리의 모델이 전반적으로 우월하거나 경쟁적인 성능을 달성한다는 것을 보여준다. 그리고 제안된 테스트베드에 대한 조사는 CogCoM이 생성된 추론 체인을 통합함으로써 몇 가지 훈련 단계로 신속하게 경쟁적 성능을 달성한다는 것을 보여준다.\n' +
+      '\n' +
+      '## 2 Methodology\n' +
+      '\n' +
+      '본 절에서는 CogCoM의 방법론을 소개한다. 먼저 섹션 2.1에서 CoM과 관련된 용어 정의를 소개한다. 섹션 2.2에서는 조작 보조 해결 단계를 제공하기 위한 언어 주석자, 조작 반환을 제공하기 위한 시각적 주석자, 실행 가능한 경로를 수집하기 위한 최종 횡단을 포함하는 데이터 생산 프로세스(그림 2 왼쪽)를 설명한다. 섹션 2.3에서 우리는 일련의 조작으로 일반적인 다중 턴 VLM을 훈련시키기 위해 호환 가능한 고안을 수행하는 모델 훈련(그림 2 오른쪽)을 설명한다.\n' +
+      '\n' +
+      '### Terminology\n' +
+      '\n' +
+      '우리는 먼저 명확한 이해를 위해 용어와 데이터 구조에 대한 공식적인 정의를 소개한다. 우리는 상황 내 학습을 수용하기 위해 추론하는 동안 모델 스스로 고안한 함수뿐만 아니라 기본 사전 정의된 집합의 함수를 포함하는 유연한 집합으로 조작들을 정의한다. 따라서 우리는 VLM이 발달할 수 있는 **조작 함수 집합을 사전 훈련이나 인간의 행동을 모방하여 정의할 수 있다. \\(\\mathcal{M}\\subseteq\\){\\(\\textit{Grounding}(tgt)\\to bbx\\), \\(\\textit{OCR}(tgt)\\totxt\\), \\(\\textit{Calculate}(tgt)\\to num\\), \\(\\textit{Counting}(tgt)\\to num\\), \\(\\textit{CropZoomIn}(bbx,x)\\to img\\)에서 각각 경계 상자, 줌 비율, 이미지, 목표 설명, 숫자 및 텍스트를 반환한다.\n' +
+      '\n' +
+      '초기 입력 영상에 대한 언어 질문 \\(Q\\)이 주어지면, 조작 체인 \\(CoM)\\(\\varsigma\\)이 장착된 일반 시각 언어 모델은 \\(\\textit{VLM}(\\varsigma|I_{0},Q)\\Rightarrow A\\)으로 해당 답을 얻기 위한 문제를 해결하며, 여기서 \\(\\varsigma\\)은 증거 추론 단계 2**의 **a 사슬을 가리키며,\n' +
+      '\n' +
+      '각주 2: 본 논문에서는 편의상 CoM 체인을 나타내기 위해 기호 \\(\\varsigma\\)(_i.e., sigma_)를 사용한다.\n' +
+      '\n' +
+      '\\[\\begin{split}\\varsigma&=(step_{1},step_{2},...)\\\\step_{i}&=(f_{i},desc_{i}),\\hskip 14.226378ptf_{i}\\in\\mathcal{M}\\end{split}\\tag{1}\\]\n' +
+      '\n' +
+      '여기서 \\(f_{i}\\)는 일련의 조작 정의 \\(\\mathcal{M}\\)으로부터 인스턴스화된 조작 함수를 지칭하고, \\(desc_{i}\\)은 조작의 실행을 포함하는 언어 설명을 지칭한다. 이 정의는 조작의 상징적 실행(f_{i}\\)을 명시적으로 선언하고, 언어적 설명(desc_{i}\\)과 함께 기존의 자유 형식 명령-응답 데이터 구조와 호환된다.\n' +
+      '\n' +
+      '### Data Production\n' +
+      '\n' +
+      '데이터 구조의 정의를 바탕으로 이미지 중심의 질문-답변 쌍에 CoM 데이터를 효율적으로 합성할 수 있는 데이터 제작 프레임워크를 소개하고 언어적, 시각적 주석자를 인간 노동으로 대체하여 고품질의 주석을 제작할 수 있다. 본 논문에서는 자동 데이터 합성을 위한 구현과 함께 상세한 데이터 제작 방법을 기술한다.\n' +
+      '\n' +
+      '###### 2.2.1 데이터 생성\n' +
+      '\n' +
+      '일반적인 말뭉치 \\(\\mathcal{D}=\\{(I,Q,A)\\}\\)이 주어졌을 때, 이미지들의 트리플렛 샘플들과 그에 상응하는 시각적 질문-답변 쌍으로 구성된 자동 데이터 합성 프레임워크는 언어적 주석자와 조작에 따른 여러 시각적 주석자로 구성된다. 각 표본에서 질문\\(Q\\)에 대해 먼저 언어 주석을 사용하여 CoM 형식(\\(f_{i},desc_{i}\\))으로 조작 보조 해결 단계를 생성하며, 여기서 인스턴스화된 조작 실행의 해당 수익은 변수를 자리 표시자로 설정한다. 본 논문에서는 언어 주석자로서 신뢰할 수 있는 언어 이해와 생성 능력을 가진 대규모 언어 모델인 GPT4(OpenAI, 2023)를 채택한다. 작업 요구 사항, 조작 사용 및 출력 데이터 형식을 포함한 포괄적인 프롬프트를 설계하고 안정적인 생성을 위해 추가로 5개의 데모에 수동으로 주석을 달 수 있다. 자세한 구현은 부록 B.3에서 확인할 수 있다.\n' +
+      '\n' +
+      '그런 다음 필수 시각적 주석기를 사용하여 해당 조작을 정확하게 수행하여 해결 단계에서 요청한 조작의 반환을 제공한다. 미리 정의된 집합과 새로 생성된 집합의 조작을 경험적으로 분석함으로써(세부 통계에 대해 부록 B.2 참조), _grounding_와 _OCR_는 두 가지 기본 조작이며, 대부분의 다른 조작은 결과적으로 도출될 수 있다(예를 들어, 상자의 영역을 따라 CropZoomIn_, 인식된 상자에 대한 _Counting_ 및 식별된 공식에 대해 _Calculate_). 따라서, 두 개의 신뢰할 수 있는 시각적 도구인 GroundingDINO(Liu et al., 2023)와 PaddleOCR(Du et al., 2020)을 사용하고 이러한 조작의 구현을 개발한다.\n' +
+      '\n' +
+      '현재 조작의 입력으로서 추론 단계를 **트리**\\(\\mathcal{T}\\)으로 바꾸는 추론 단계와 함께 조작을 실행한다. (f_{1}(x_{1})\\)은 이전 조작의 여러 번(f_{2}\\to x_{2}\\)에 의존할 수 있으며, 즉, \\(x_{1}\\)은 이전 조작의 여러 번(x_{2}\\)에 의존할 수 있다 (예를 들어, 그림 2에서 기둥을 찾기 위한 단계 2). 설계된 프롬프트와 언어 및 시각적 결과를 가진 해당 세대는 부록 그림 6에서 사용할 수 있다.\n' +
+      '\n' +
+      '도 2: ** 자동 데이터 합성 프레임워크(왼쪽)**: 작업 요구 사항 및 조작의 사용(프롬프트)으로 교시된 언어 주석자(LLM)가 먼저 질문에 대한 해결 단계를 제공하도록 요청되고(\\(\\mathcal{Q}\\), 시각적 주석자(Tools)가 조작 리턴을 대체하기 위해 관여되고, 이어서 가능한 리턴에 의해 분기된 트리에 대한 최종 탐색이 수행되어 답변 \\(\\mathcal{A}\\)을 종료하는 실현 가능한 경로를 찾는다. 호환되는 VLM 아키텍처(우측)**: 역사 기억 표현은 멀티턴 트레이닝 주변에서 유지되며, 여기서 \\(t\\)번째 턴은 새로운 이미지 \\(\\mathcal{I}_{t}\\)의 생성에 의해 유발된다.\n' +
+      '\n' +
+      '###### 2.2.2 데이터 처리\n' +
+      '\n' +
+      '트리\\(\\mathcal{T}\\)는 질문(Q\\)으로부터 근원이 되고 조작 리턴에 의해 분기되는 트리\\(\\mathcal{T}\\)은 정답(A\\)으로 이어질 수 없는 음의 경로를 포함할 수 있으며, 노드들은 오류 주석이나 관련 없는 참조로부터 나올 수 있다. 그리고 생성된 각 트리를 Depth First Search (DFS)를 이용하여 탐색하여 모든 양의 경로(\\{\\mathcal{P}_{i}|\\mathcal{P}_{i}\\in\\mathcal{T},i=1,2,...\\}\\)를 찾는다. 여기서 각 경로 \\(\\mathcal{P}_{i}\\)는 마지막 조작의 귀환으로 최종 답 \\(A\\)으로 종료된다.\n' +
+      '\n' +
+      '_zoom in_의 동작은 자동 주석기로부터 적절하게 생성될 수 없고 시각적 장면에 따른 인지적 결정이 요구되는 지적 인간 행동을 의미한다. 우리는 _CropZoomIn_ 조작을 보상하기 위해 간단하지만 효과적인 전략을 활용합니다. 트리(\\(\\mathcal{T}\\)에서, 입력 \\(x\\)에서 박스 \\(bbx\\)를 포함하는 조작 \\(f(x(bbx))\\)의 노드에서, 먼저 박스 \\(x\\)에 대한 현재 이미지의 면적의 비율 \\(r\\)을 계산한 다음, 만족 조건에 따라 현재 단계에서 조작 \\(CropZoomIn(bbx,n)\\)을 삽입한다. (\\(r\\geq 36\\)이면 \\(r\\), _예를 들어,_\\(n=2\\)이 결정된다.) 따라서, 최종 결과체인 \\(\\{\\mathbf{\\varsigma_{i}}|\\mathbf{\\varsigma_{i}}:=\\mathcal{P}_{i},i=1,2,...\\}\\) 는 양의 경로들을 갖는 추론 단계들의 대응하는 값들을 할당함으로써 획득된다. 전체 데이터 생성 알고리즘은 부록 B.1에 나와 있다.\n' +
+      '\n' +
+      '이미지 기반 다중 턴 VLM의 학습에 적응하기 위해, 우리는 이미지의 조작 리턴에 따라 단계를 분할하고 대응하는 설명(예: \\(I_{0},I_{1}\\)을 병합함으로써 단계 기반 체인을 **이미지 기반 체인**으로 쉽게 변환할 수 있으며, 그림 2에서 체인은 \\(\\mathbf{\\varsigma}\\rightarrow(A_{0},A_{1})\\)으로 변환되고,\n' +
+      '\n' +
+      '\\[\\mathbf{\\varsigma}\\rightarrow[(I_{0},Q),(I_{1},A_{1}),(I_{2},A_{2}),...] \\tag{2}\\]\n' +
+      '\n' +
+      '여기서 \\(I_{t}\\)는 \\(t-1\\) 단계의 조작 리턴이고, \\(A_{t}\\)은 \\(desc_{i(t-1)},..,desc_{i(t)}]\\)에서 \\(i\\)까지의 인덱스 매핑과 \\((desc_{i(t)}},..,desc_{i(t)}]\\)의 요소들의 순차적 연결이다.\n' +
+      '\n' +
+      '제안된 데이터 생성 프레임워크는 70K CoM 체인을 구축하기 위해 세심한 인식 및 객체 카운팅이 필요한 기존 데이터 세트인 TextVQA(Singh et al., 2019), ST-VQA(Biten et al., 2019) 및 TDIUC(Shrestha et al., 2019)에 대해 구현되었다. 데이터 생성의 자세한 통계는 부록 B.2에서 확인할 수 있다.\n' +
+      '\n' +
+      '### Model Training\n' +
+      '\n' +
+      '#### 2.3.1 Architecture\n' +
+      '\n' +
+      '우리는 신뢰할 수 있는 멀티모달 이해를 위해 (1) Vision Encoder, (2) MLP Adapter, (3) LLM Backbone, (4) Visual Expert Module의 네 가지 기본 구성 요소를 포함하는 일반적인 VLM 접근법인 CogVLM(Wang et al., 2023)과 동일한 모델 아키텍처를 사용한다. 구체적으로, 비전 인코더와 LLM 백본으로 4B 파라미터를 갖는 사전 훈련된 EVA2-CLIP-E(Sun et al., 2023)와 Vicuna-7B-v1.5(Chiang et al., 2023)를 각각 채택하였다. 2-레이어 MLP(SwiGLU(Shazeer, 2020))는 비젼 인코더의 출력을 LLM 백본의 언어적 공간으로 매핑하기 위해 추가로 맞물린다. 시각 전문가 모듈은 LLM 백본에서 각 블록의 주의 계층 및 피드-포워드 계층에 시각별 가중치를 추가하여 모달리티의 심층 융합을 위한 총 6.5B 추가 파라미터를 생성한다.\n' +
+      '\n' +
+      '이러한 일반적인 아키텍처를 기반으로 메모리 기반 멀티턴 멀티 이미지 VLM 접근 방식을 개발한다. 구체적으로, 한 라운드의 이미지 기반 다중 턴 샘플 \\([(I_{t},Q_{t},A_{t})|t=1,2,...]\\)에 대해, 이를 통해 LLM 백본의 각 레이어의 누적 KV 메모리를 유지한다. 그리고 훈련과 추론을 위해 각 턴에서 주의함수 \\(att\\)을 다음과 같이 계산한다.\n' +
+      '\n' +
+      '=softmax(\\frac{\\mathbf{Q}_{t}\\mathbf{K}_{t}^{\\prime}\\sqrt{d})\\mathbf{K}_{t}^{\\prime}&=\\text{trunc}(\\text{concat}(\\mathbf{K}_{0},\\mathbf{K}_{1},...,\\mathbf{V}_{t}))\\text{concat}(\\text{concat}(\\mathbf{V}_{1},...,\\mathbf{V}_{t})\\end{split}\\tag{3}\\mathbf{K}_{t}}\\text{concat}(\\mathbf{K}_{0},\\mathbf{K}_{1},...,\\mathbf{K}_{t})\\text{t}^{\\prime}&=\\text{concat}(\\mathbf{K}_{1},...,\\\n' +
+      '\n' +
+      '여기서 \\(\\mathbf{Q}_{t}\\in\\mathbbb{R}^{s\\times d}\\)는 현재 레이어의 질의 표현이고, \\(\\mathbf{K}_{t}^{\\prime}\\), \\(\\mathbf{V}_{t}^{\\prime}\\in\\mathbbb{R}^{(s\\times t)\\times d}\\)는 누적된 표현들의 연접을 지칭하며, 시퀀스 길이 \\(s\\times t\\)이 미리 정의된 임계값보다 크면 더 잘려질 것이다. 순번 \\(t>0\\)에서 질문 \\(Q_{t}\\)은 하드 프롬프트 집합(이력에 초점을 맞추기 위한 모델)에서 샘플링되고, 이미지 \\(I_{t}\\)은 \\(I_{t-1}\\)에서 크롭되고 Bicubic Interpolation(Keys, 1981)으로 증폭된다.\n' +
+      '\n' +
+      '#### 2.3.2 Training\n' +
+      '\n' +
+      '제안된 CogCoM-17B는 일반적인 멀티모달 과제 해결 능력과 증거적 시각적 추론을 개발하기 위해 훈련의 두 가지 주요 단계에 의존한다.\n' +
+      '\n' +
+      'Pre-Training의 1단계 이 단계는 기초적인 시각적 이해와 근거 생성을 위한 훈련의 두 가지 순서 하위 단계로 구성된다. CogVLM(Wang et al., 2023)의 사전 학습에 이어 LAION-2B(Schuhmann et al., 2022)와 COYO-700M(Byeon et al., 2022)에서 120,000회 반복 및 배치 크기가 8,192인 1.5B 이미지-텍스트 쌍을 먼저 학습하고 LAION-115M(Li et al., 2023)에서 60,000회 반복 및 배치 크기가 1,024인 40M 접지 이미지-질문-답변 트리플에 대해 모델을 학습하며, 여기서 답안의 각 명사구는 이미지의 접지된 객체에 대한 구문을 참조하는 좌표 목록 \\([[x_{0},y_{0},x_{1},y_{1}],...]\\이 뒤따른다. 두 단계 모두 다음 토큰 예측 목표를 채택하고 시각 전문가의 6.5B 매개변수를 훈련한다.\n' +
+      '\n' +
+      '2단계 정렬 이 단계는 실제 시각 문제를 해결하는 데 있어 인간의 선호도와 일치하도록 모델을 추가로 훈련한다. 제작된 CoM 데이터를 MultiInstruct(Xu et al., 2022), LLaVAR(Zhang et al., 2023b), ShareGPT4V(Chen et al., 2023c) 등 3가지 코퍼스와 융합하여 명령어-추종, 텍스트-인식, 상세-캡션의 능력을 참조하였다. 이 융합은 총 570K\\((I,Q,A)\\) 샘플을 생성하는데, 여기서 CoM 데이터의 응답\\(A\\)은 다중 턴으로 구성된다. 본 논문에서는 CoM의 학습 데이터를 위해 랜덤하게 런칭 프롬프트 4\\(P^{\\mathcal{M}}\\)을 질문(Q=P^{\\mathcal{M}}+Q\\)으로 준비한다. 본 논문에서 제안하는 모델은 CoM 데이터의 이 부분을 이용하여 증거 시각적 추론을 효과적으로 학습할 수 있음을 보인다. 우리는 배치크기가 160인 14,000회 반복을 훈련하는데, 여기서 학습률은 280회의 워밍업 후에 \\(10^{-5}\\)에 도달한 후 선형적으로 감소한다. 6.5B 시각 전문가의 매개변수는 다음 토큰 예측을 목표로 훈련된다. 이 두 단계의 훈련은 채팅 및 추론 기능을 모두 포함하는 표준 버전의 CogCoM을 생성한다. 자세한 교육 내용은 부록 C.2에서 확인할 수 있습니다.\n' +
+      '\n' +
+      '각주 4: 예는 부록 C.1 참조.\n' +
+      '\n' +
+      '## 3 Experiment\n' +
+      '\n' +
+      '제안된 방법의 적합성과 효율성을 정량적으로 검증하기 위해 3가지 범주의 멀티모달 능력에 해당하는 9개의 벤치마크와 키포인트 인식 메트릭이 포함된 증거 추론 경로를 통합한 새로 제안된 테스트베드에 대한 실험을 수행한다. 기존 연구에 이어 Visual Question Answering과 Visual Grounding의 다양한 시나리오에 적응하기 위한 CogCoM의 두 가지 일반 버전을 훈련하고 정성적 분석을 통해 표준 버전을 평가한다(Hwang et al., 2023).\n' +
+      '\n' +
+      '* ** 상세한 시각적 질문 답변.** 이 작업은 이미지에 대한 상세한 추론 또는 인식을 수행하기 위한 모델을 포함한다. 우리는 GQA(Hudson and Manning, 2019), TextVQA(Singh et al., 2019), ST-VQA(Biten et al., 2019), TallyVQA(Acharya et al., 2019) 등 4개의 주요 벤치마크를 사용한다.\n' +
+      '* **Visual Grounding.** Visual Grounding은 VLM의 세심한 위치 이해에 대한 중요한 능력을 평가한다. 본 논문에서는 3가지 표준 벤치마크인 RefCOCO(Yu et al., 2016), RefCOCO+(Yu et al., 2016), RefCOCOg(Mao et al., 2016)에 대한 모델을 평가한다.\n' +
+      '또한 시각적 객체 환각의 중요한 문제를 탐구하는 특정 벤치마크 POPE(Li et al., 2023d)에서 모델을 평가하여 모델 훈련과 증거적 시각적 추론을 통합하는 유용성을 조사한다.\n' +
+      '\n' +
+      '상세한 VQA에 대한 실험\n' +
+      '\n' +
+      'VLM은 눈에 띄는 내용 이해와 함께 시각적 장면에서 잘 알려진 우월성을 입증했다. VQA에 대한 CogCoM의 유효성을 평가하는데, 이는 일반적으로 모델이 여러 동작(_find, read_) 또는 여러 추론 단계(_recognizing and calculating_)를 수행해야 하는 세심한 이해에 대한 것이다. 이전 연구(Wang et al., 2023b)에 이어, MultiInstruct의 명령어 코퍼스, 13개의 공개적으로 사용 가능한 VQA 데이터 세트(훈련 세트만 사용), 이미지 중심의 질문 응답 생성을 위한 GPT4-V(OpenAI, 2023b) 촉진을 통해 구축된 새로 생성된 VQA 데이터 세트, CoM 코퍼스를 포함하여 데이터의 융합에 대한 단계-1의 첫 단계에서 얻은 모델을 훈련한다. 이 훈련은 CoM 추론을 통합한 일반주의적 VQA 모델을 초래한다. 기존의 모든 VQA 태스크에 대해 주어진 질문으로 CogCoM을 직접 프롬프트하고 출력된 답변의 정확성을 검사한다.\n' +
+      '\n' +
+      'TextVQA, ST-VQA, TallyVQA\n' +
+      '\n' +
+      '시각적 질문 답변의 작업은 이미지에 대해 주어진 질문에 의해 모델에 의해 생성된 답변의 정확성을 평가하는 것을 목표로 한다. GQA는 의미 기능 프로그램에서 나오는 다양한 추론 질문이 있는 구성 VQA 벤치마크이다. TallyVQA는 0이 아닌 상대에 도전하는 것과 관련된 인간 주석이 달린 복잡한 계수 질문이 있는 벤치마크를 계수하는 객체이다. TextVQA와 ST-VQA는 모델이 이미지에 대한 텍스트 단서를 통해 질문에 답해야 하는 벤치마크를 이해하는 두 가지 텍스트이다. GQA와 TallyVQA에 대한 공식 평가 스크립트를 사용하여 모델 예측과 답변 간의 Exact Matching(EM)에 의해 정확도 점수를 계산한다. TextVQA 및 ST-VQA의 경우, 우리는 VQA 스코어 메트릭으로 정확도를 계산하기 위해 공식 온라인 웹사이트에 모델 예측을 제출한다(Antol et al., 2015).\n' +
+      '\n' +
+      '실험 결과는 표 2에 나와 있다. CogCoM은 모든 일반주의 모델과 전면적으로 비교하여 최첨단 성능을 달성하고, 여러 벤치마크에서 이전 최상의 모델의 기준선을 크게 능가한다. 복잡한 추론과 상세한 텍스트 인식이 필요한 데이터셋에서 CogCoM은 전문가 SOTA와 유사한 결과를 얻는다.\n' +
+      '\n' +
+      '특히, GQA 벤치마크에서 기준 모델 CogVLM에 비해 5.97의 정확도 점수가 향상되었으며, 이는 증거 시각적 추론 체인과 통합된 훈련이 모델의 일반적인 추론 능력을 효과적으로 향상시킴을 시사한다. TallyVQA의 계수 벤치마크에서 본 모델은 단순 및 복잡한 질문에서 정확도 점수에서 각각 4.2 및 2.1만큼 기준선을 능가한다. 이 결과는 특정 객체 카운트 계산이 필요한 시나리오에 대한 엄격한 근거 학습의 효과를 보여준다. On\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:6]\n' +
+      '\n' +
+      '###시각접지에 대한 실험\n' +
+      '\n' +
+      '시각적 접지의 임무는 주어진 표적 표현을 기반으로 영상 내 영역의 해당 좌표를 정확하게 제공하기 위한 모델을 필요로 하며, 이는 VLM의 상세한 위치 이해의 중요한 측면이며 광범위한 주목을 받고 있다. 기존의 작업(Wang et al., 2023)에 이어, CogVLM에 소개된 고품질 접지 VQA 코퍼스인 MultiInstruct와 제안된 CoM 데이터를 포함한 데이터 세트의 융합에 대한 첫 번째 단계에서 얻은 모델을 훈련한다. 이 훈련은 추론이 가능하면서도 시각적 접지에 탁월한 일반 접지 모델을 초래한다. 모든 벤치마크에 대해, "_Where is \\(\\langle expr\\rangle\\) answer in [x0,y0,x1,y1] format._"와 같이 모델에 접지된 좌표를 제공하도록 요청하기 위해 채팅 방식으로 CogOM을 프롬프트한다. 여기서 \\(\\langle expr\\rangle\\)은 표적식을 의미한다.\n' +
+      '\n' +
+      '설정은 잘 정립된 세 가지 시각적 접지 벤치마크에서 CogCoM을 평가한다. 예측된 경계 상자와 지상 진리 사이의 교차 결합(IoU)이 0.5보다 클 때 예측을 올바른 것으로 간주하는 표준 평가 메트릭을 사용한다.\n' +
+      '\n' +
+      '결과는 그림 2와 같다. CogCoM은 전체 8개의 하위 집합 중 6개에서 가장 좋은 성능을 보인다. 본 논문에서 제안한 모델은 광범위한 적용 가능성을 얻기 위해 지시, 시각적 접지 및 CoM 코퍼스를 융합하여 훈련된다는 점을 고려할 때, 본 논문에서 제안한 모델은 다양한 작업을 해결할 수 있는 잠재력을 제공하면서도 우수한 접지 능력을 나타냄을 알 수 있다. 또한, CogCoM은 전문가 SOTA와 동등한 성능을 달성하여, 일반적인 훈련에 접지 조작과 함께 증거 추론을 통합하면 접지의 숙달성을 유지하면서 멀티모달 능력을 향상시킬 수 있음을 보여준다.\n' +
+      '\n' +
+      '환각시험에 관한 실험\n' +
+      '\n' +
+      '다중 모드 환각 완화에 대한 증거 시각적 추론을 통합하는 것의 유용성을 추가로 조사하기 위해 VLM이 직면한 객체 환각 문제를 평가하는 전형적인 벤치마크인 POPE에서 CogCoM을 추가로 평가한다. 이 평가를 위해 일반주의적 VQA 모델을 사용하고 원래 데이터 세트에서 해당 질문을 직접 수행하여 모델 예측을 얻는다.\n' +
+      '\n' +
+      'SettingsPOPE는 이진 질문(_i.예/아니오_)으로 이미지 내 객체의 존재를 질문하여 VLM의 객체 환각을 조사하는 것을 목표로 한다. 우리는 표준 평가를 위해 데이터 세트의 도전적인 적대 버전을 사용한다. 점수의 계산은 공식 평가 스크립트를 사용하여 예측의 \\(F_{1}\\) 점수를 계산한다.\n' +
+      '\n' +
+      '결과 POPE 벤치마크에 대한 실험 결과는 표 3과 같으며, 벤치마크에서 CogCoM이 기존 VLM에 비해 우수한 성능을 보여 개선된 것을 확인할 수 있다. 구체적으로, CogCoM은 기준선 및 이전 VLM과 비교하여 성능을 향상시키고 POP에서 우수한 결과를 달성한다. 다양한 기능의 융합으로 CogCOM을 훈련함에 따라, 본 모델은 VQA, 지시 추종 및 추론 능력을 유지하면서 환각에 대한 민감도가 낮은 일반적인 멀티모달 작업에 대해 잘 수행함을 시사한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l l c c c c c c c c} \\hline \\hline \\multirow{2}{*}{**Type**} & \\multirow{2}{*}{**Model**} & \\multicolumn{3}{c}{**RefCOCO**} & \\multicolumn{3}{c}{**RefCOCO+**} & \\multicolumn{3}{c}{**RefCOCOg**} \\\\ \\cline{3-10}  & & val & test-A & test-B & val & test-A & test-B & val & test \\\\ \\hline \\multirow{8}{*}{Generalist} & OFA-L* (Wang et al., 2022) & 79.96 & 83.67 & 76.39 & 68.29 & 76.00 & 61.75 & 67.57 & 67.58 \\\\  & Shikra-7B (Chen et al., 2023) & 87.01 & 90.61 & 80.24 & 81.60 & 87.36 & 72.12 & 82.27 & 82.19 \\\\ \\cline{1-1}  & Shikra-13B (Chen et al., 2023) & 87.83 & 91.11 & 81.81 & 82.89 & 87.79 & 74.41 & 82.64 & 83.16 \\\\ \\cline{1-1}  & Qwen-VL (Bai et al., 2023) & 89.36 & 92.26 & 85.34 & 83.12 & 88.25 & 77.21 & 85.58 & 85.48 \\\\ \\cline{1-1}  & CogVLM (Wang et al., 2023) & **92.51** & 93.95 & 88.73 & 87.52 & 91.81 & 81.43 & **89.46** & 90.09 \\\\ \\cline{1-1}  & **CogCoM** & 92.34 & **94.57** & **89.15** & **88.19** & **92.80** & **82.08** & 89.32 & **90.45** \\\\ \\hline Specialist & & 92.64 & 94.33 & 91.46 & 88.77 & 92.21 & 83.23 & 89.22 & 89.37 \\\\ \\cline{1-1}  & SOTAs & (SORTAS) & (SORTAS) & (SORTAS) & (SORTAS) & (SORTAS) & (SORTAS) & (SORTAS) & (SORTAS) & (SORTAS) \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 2: Visual Grounding 벤치마크에 대한 결과, 여기서 전문가 SOTA는 (Bai et al., 2023)로부터 인용된다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c} \\hline \\hline\n' +
+      '**Method** & **POPE** \\\\ \\hline BLIP-2 (Li et al., 2023c) & - \\\\ Otter (Li et al., 2023a) & - \\\\ MiniGPT4 (Zhu et al., 2023) & 70.4 \\\\ InstructBLIP (Dai et al., 2023) & 77.3 \\\\ LLAVA (Liu et al., 2023b) & 66.3 \\\\ LLaMA-Adapter v2 (Gao et al., 2023) & - \\\\ DreamLLM (Dong et al., 2023) & 76.5 \\\\ LLAVA-1.5 (Liu et al., 2023a) & 84.5 \\\\ Emu (Sun et al., 2023b) & - \\\\ CogVLM & 87.2 \\\\\n' +
+      '**CogCoM** & **87.8** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 3: 통합 및 환각 평가(적대적 부분 집합)에 대한 평가. 우리는 평가를 위한 입력 프롬프트로 원래 질문을 사용한다.\n' +
+      '\n' +
+      '### Qualitative Analysis\n' +
+      '\n' +
+      '본 논문에서는 CogCoM의 증거 추론 능력을 텍스트 세부 정보 인식, 읽기 시간, 차트 이해 및 객체 계수 등 다양한 유형의 세심한 추론이 필요한 시나리오에 대해 조사한다. 그 결과는 그림 4와 같다. 첫 번째 사례는 CogCoM이 접지의 두 단계를 통해 평면 로고에 해당하는 영역을 찾은 다음 크롭된 영역을 줌잉을 기반으로 답을 달성한다는 것을 보여준다. 두 번째 경우는 시간을 표시하는 장치를 찾은 다음 판독_시간 조작에 기초하여 시간을 단어로 변환함으로써, 판독 시간에서 CogCoM의 능력을 예시한다. 다음 예에서 CogCoM은 먼저 접지를 통해 보이는 모든 트럭 바퀴를 식별한 다음 카운팅 조작을 활용하여 총 수를 통합한다.\n' +
+      '\n' +
+      '## 4 Conclusion\n' +
+      '\n' +
+      '본 논문에서는 VLM(Vision-Language Models)의 결정적 정렬 훈련에 의해 제시된 문제를 연구하고, VLM이 필수적인 콘텐츠를 획득하기 위해 시각적 입력을 능동적으로 조작함으로써 문제를 해결할 수 있는 일반적인 메커니즘인 CoM(Chain of Manipulation)을 제안한다. 우리는 언어적 및 시각적 주석자를 합성 CoM 체인에 결합하는 효율적인 데이터 생산 프레임워크와 기존 모델과 호환되는 메모리 기반 아키텍처를 구축함으로써 이 방법론을 실현한다. 메모리 기반 아키텍처를 가진 17B VLM, **CogCoM**은 구현된 CoM 체인을 통합하는 데이터 융합에 대해 훈련된다. 8개의 벤치마크에 대한 정량적 결과와 정성 분석을 사용한 실험은 상세한 시각적 문제를 해결하는 데 있어 방법의 효과를 보여준다.\n' +
+      '\n' +
+      '그림 4: CogCoM은 세부 정보 인식, 읽기 시간, 차트 이해, 객체 계수, 텍스트 읽기로 추론을 수행한다.\n' +
+      '\n' +
+      '## 5 Limitations\n' +
+      '\n' +
+      '우리는 기본적인 해결 단계를 제공하기 위해 주목할 만한 LLM과 관련된 정확하고 강력한 프레임워크를 개발하려고 노력하고, 시각적 콘텐츠를 얻기 위해 신뢰할 수 있는 시각적 도구를 채택한 다음 순회성을 기반으로 실현 가능한 경로를 획득하지만, 향후 개선하고자 하는 방법론에는 여전히 한계가 있다. 첫째, 언어적 해결 단계의 다양성이 부족하고 시각적 도구의 부정확성(예: 접지 상자의 거친 입도, 기울어진 글자에 대한 OCR 실패)은 많은 양의 부정적인 경로로 이어질 것이다(이러한 경로를 효과적으로 활용하는 것이 유익할 것이다). 우리는 헌신적인 프롬프트와 향상된 시각적 도구로 이러한 한계를 홍보할 것을 제안한다. 둘째, 현재 모델은 조작된 이미지를 일련의 하드 프롬프트로 재입력하여 속도 손실을 가져올 수 있다. 이는 벡터 공간에서 물리적 조작을 계산에 구현함으로써 개선될 것으로 예상된다.\n' +
+      '\n' +
+      '## 6 Impacts\n' +
+      '\n' +
+      '본 논문은 VLM에 대한 기존의 결론 정렬 훈련으로 인한 문제를 완화시키는 일반적인 시각적 추론 메커니즘을 제시하고, LLM과 시각적 도구를 포함하는 데이터 생산 프레임워크를 신뢰할 수 있는 주석자로 소개하고, 메모리 기반 호환 가능한 VLM 아키텍처를 고안한다. 우리는 이 일이 지역사회에 세 가지 혜택을 가져다 줄 것으로 기대한다. 첫째, 제안된 시각적 추론 메커니즘은 복잡한 시각적 문제를 해결하는 데 있어 VLM의 진행을 촉진할 수 있다. 둘째, 소개된 데이터 생산 프레임워크는 현재 데이터 기반 기계 학습의 개발을 촉진하기 위해 광범위한 훈련 시나리오에 적용될 수 있다. 셋째, 메모리 기반 아키텍처가 멀티턴 롱 컨텍스트에서 VLM에 도움이 되기를 바란다.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* Acharya et al. (2019) Acharya, M., Kafle, K., and Kanan, C. Tallyqa: Answering complex counting questions. 2019년 인공지능에 관한 AAAI 컨퍼런스의 _Proceedings에서.\n' +
+      '* Alayrac et al. (2022) Alayrac, J.-B., Donahue, J., Luc, P., Miech, A., Barr, I., Hasson, Y., Lenc, K., Mensch, A., Millican, K., Reynolds, M., et al. Flamingo: few-shot learning을 위한 시각적 언어 모델. _ 신경 정보 처리 시스템_, 2022의 발전.\n' +
+      '* Antol et al. (2015) Antol, S., Agrawal, A., Lu, J., Mitchell, M., Batra, D., Zitnick, C. L., and Parikh, D. Vqa: Visual question answering. In _Proceedings of the IEEE international conference on computer vision_, 2015.\n' +
+      '* Awadalla et al. (2023) Awadalla, A., Gao, I., Gardner, J., Hessel, J., Hanafy, Y., Zhu, W., Marathe, K., Bitton, Y., Gadre, S., Sagawa, S., et al. Openflamingo: An open-source framework for training large autoregressive vision-language models. _ arXiv preprint_, 2023.\n' +
+      '* Bai et al. (2023) Bai, J., Bai, S., Yang, S., Wang, S., Tan, S., Wang, P., Lin, J., Zhou, C., and Zhou, J. Qwen-vl: A frontier large vision-language model with versatile abilities. _ arXiv preprint_, 2023.\n' +
+      '* Biten et al. (2019) Biten, A. F., Tito, R., Mafla, A., Gomez, L., Rusinol, M., Valveny, E., Jawahar, C., and Karatzas, D. Scene text visual question answering. In _Proceedings of the IEEE/CVF international conference on computer vision_, 2019.\n' +
+      '*Byeon et al. (2022) Byeon, M., Park, B., Kim, H., Lee, S., Baek, W., and Kim, S. Coyo-700m: Image-Text pair dataset, 2022.\n' +
+      '* Changpinyo et al. (2021) Changpinyo, S., Sharma, P., Ding, N., and Soricut, R. 컨셉 12m: 롱테일 비주얼 컨셉을 인식하기 위해 웹 스케일 이미지-텍스트 사전 트레이닝을 푸시한다. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, 2021.\n' +
+      '* Chen et al. (2023a) Chen, D., Liu, J., Dai, W., and Wang, B. Visual instruction tuning with polite flamingo. _ arXiv preprint arXiv:2307.01003_, 2023a.\n' +
+      '* Chen et al. (2023b) Chen, K., Zhang, Z., Zeng, W., Zhang, R., Zhu, F., and Zhao, R. Shikra: Unleashing multimodal llm\'s referential dialogue magic. _ arXiv preprint_, 2023b.\n' +
+      '* Chen et al. (2022) Chen, L., Li, J., Dong, X., Zhang, P., He, C., Wang, J., Zhao, F., and Lin, D. Sharegpt4v: Improving large multi-modal models with better caption. _ arXiv preprint arXiv:2311.12793_, 2023c.\n' +
+      '* Chen et al. (2022) Chen, X., Wang, X., Changpinyo, S., Piergiovanni, A., Padlewski, P., Salz, D., Goodman, S., Grycner, A., Mustafa, B., Beyer, L., et al. Pali: A jointly-scaled multiilingual language-image model. _The Eleventh International Conference on Learning Representations_, 2022.\n' +
+      '* Chen et al. (2023d) Chen, X., Djolonga, J., Padlewski, P., Mustafa, B., Changpinyo, S., Wu, J., Ruiz, C. R., Goodman, S., Wang, X., Tay, Y., et al. Pali-x: On scaling up up multiilingual vision and language model. _ arXiv preprint_, 2023d.\n' +
+      '* Chiang et al. (2023) Chiang, W. L., Li, Z., Lin, Z., Sheng, Y., Wu, Z., Zhang, H., Zheng, L., Zhuang, S., Zhuang, Y., Gonzalez, J. E., et al. Vicuna: An open-source chatbot impressing gpt-4 with 90%* chatgpt quality. _ https://vicuna. Imsys. org(accessed 14 April 2023)_, 2023.\n' +
+      '* Dai et al. (2023) Dai, W., Li, J., Li, D., Tiong, A., Zhao, J., Wang, W., Li, B., Fung, P., and Hoi, S. 인스트럭션 블립: 명령어 튜닝이 있는 범용 비전 언어 모델을 향합니다. ArXiv:2305.06500을 사전 인쇄합니다.\n' +
+      '\n' +
+      'Dai, W., Li, J., Li, D., Tiong, A., Zhao, J., Wang, W., Li, B., Fung, P., and Hoi, S. 인스트럭션 블립: 명령어 튜닝이 있는 범용 비전 언어 모델을 향합니다. Arxiv 프리프린트, 인용: SS1, SS2.\n' +
+      '*R. 동철한 펭지 기주영 Zhao, J. Sun, H., et al. Dreamllm: Synergistic multimodal comprehension and creation. ArXiv:2309.11499. 인용: SS1.\n' +
+      '*Y. 두충리 곽선 음원 유재주 배종 유영 양규 Dang, et al. Pp-ocr: 실용적인 초경량 ocr 시스템. ArXiv:2009.09941. 인용: SS1.\n' +
+      '* P. Gao, J. Han, R. 장장 린성호 정아주 장필루 Yue, et al. Llama-adapter v2: Parameter-efficient visual instruction model. ArXiv 프리프린트, 인용: SS1, SS2.\n' +
+      '*W. 홍원 왕규 Lv, J. Xu, W. 유재지 왕주영 왕영 동민 Ding, et al. Cogagent: gui agent를 위한 시각적 언어 모델. ArXiv:2312.08914. 인용: SS1.\n' +
+      '*K. 황민 주홍찬 왕락 장승 Chang, and H. Ji, (2023) lvlms는 차트를 이해하나요? 차트 캡셔닝의 사실 오류를 분석하고 수정합니다. ArXiv:2312.10160. 인용: SS1.\n' +
+      '* S. 황룡 동원 왕영 하상 싱할 마태호 Lv, L. 최오경모하메드 Liu, et al. 언어는 당신이 필요로 하는 전부가 아니다: 인식을 언어 모델과 정렬하는 것. ArXiv 프리프린트, 인용: SS1, SS2.\n' +
+      '* D. A. Hudson and C. D. Manning (2019)GQA: real-world visual reasoning and compositional question answering. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, Cited by: SS1.\n' +
+      '* A. Hwang, A. Head, and C. Callison-Burch(2023)Grounded intuitive of gpt-vision\'s abilities with scientific images. ArXiv 프리프린트. 인용: SS1.\n' +
+      '*C.Jia, Y. 양영 시아영 천진 파렉, H. 팸, Q. 이영 성진 리, T. 듀어리그(2021) 시끄러운 텍스트 감독으로 시각 및 시각 언어 표현 학습을 확장한다. 기계 학습에 관한 국제 회의에서, 인용: SS1.\n' +
+      '*R. Keys(1981)Cubic convolution interpolation for digital image processing. IEEE는 음향, 음성 및 신호 처리 분야에서 거래한다. 인용: SS1.\n' +
+      '*R. 크리슈나 주오 Groth, J. Johnson, K. 하타진 칼란티디스, L. Li, D. A. Shamma, et al. Visual genome: Connecting language and vision using crowdsourced dense image annotations. 컴퓨터 비전 국제 저널. 인용: SS1.\n' +
+      '* B. Li, Y. 장룡 Chen, J. Wang, F. Fu, J. Li, and Z. Liu(2023)MIMIC-it: Multi-modal in-context instruction tuning. ArXiv:2306.05425. 인용: SS1.\n' +
+      '*Y. 이영 두경 Zhou, J. Wang, W. X. Zhao, J. Wen and J. R. Evaluation of object 환각을 large vision-language models. ArXiv:2305.10355. 인용: SS1.\n' +
+      '*Y. 이창진 왕병우 천영 Wei(2023)Stablellava: 합성 이미지-대화 데이터를 사용한 향상된 시각적 명령어 튜닝. ArXiv:2308.10253. 인용: SS1.\n' +
+      '*T. 린민 마이어 Belongie, J. Hays, P. Perona, D. Ramanan, P. Dollar, and C. L. Zitnick (2014)Microsoft coco: common objects in context. Computer Vision-ECCV 2014: 13th European Conference, Zurich, Switzerland, September 6-12, Proceedings, Part V 13, Cited by: SS1.\n' +
+      '* H. Liu, C. Li, Y. Li, 및 Y. J. Lee(2023)는 시각적 명령 튜닝으로 기준선을 개선했다. ArXiv:2310.03744. 인용: SS1.\n' +
+      '* H. Liu, C. Li, Q. Wu, and Y. J. Lee (2023)Visual instruction tuning. ArXiv 프리프린트. 인용: SS1.\n' +
+      '* S. 류종 정태환 Ren, F. Li, H. Zhang, J. Yang, C. Li, J. Yang, H. Su, J. Zhu, et al. Grounding dino: marrying dino with grounded pre-training for open-set object detection. ArXiv:2303.05499. 인용: SS1.\n' +
+      '* J. Mao, J. Huang, A. Toshev, O. Camburu, A. L. Yuille, K. Murphy(2016) 생성 및 명확한 객체 설명 이해. In Proceedings of the IEEE conference on computer vision and pattern recognition, Cited by: SS1.\n' +
+      '*R. OpenAI(2023a)Gpt-4 기술 보고서. Arxiv 2303.08774. 인용: SS1.\n' +
+      '*R. OpenAI(2023b)Gpt-4v(sision) 시스템 카드. 집트비젼 인용: SS1.\n' +
+      '* V. 오도네즈, G. 쿨카르니, T. Berg (2011)Im2text: 100만 개의 캡션된 사진들을 사용하여 이미지들을 기술하는 것. 신경 정보 처리 시스템의 발전. 인용: SS1.\n' +
+      '*K. 파피네니 루코스, T. Ward와 W Zhu(2002)Bleu: 기계 번역의 자동 평가 방법. SS1에 의해 인용된, 컴퓨팅 언어학 협회 제40차 연례 회의의 회람에서.\n' +
+      '\n' +
+      'Peng, Z., Wang, W., Dong, L., Hao, Y., Huang, S., Ma, S., and Wei, F. Kosmos-2: Grounding multimodal large language models to the world. _ arXiv preprint_, 2023.\n' +
+      '* [15] Schuhmann, C., Vencu, R., Beaumont, R., Kaczmarczyk, R., Mullis, C., Katta, A., Coombes, T., Jitsev, J., and Komatsuzaki, A. Laion-400m: Open dataset of clip-filtered 400 million image-text pairs. _arXiv preprint arXiv:2111.02114_, 2021.\n' +
+      '* [16] Schuhmann, C., Beaumont, R., Vencu, R., Gordon, C., Wightman, R., Cherti, M., Coombes, T., Katta, A., Mullis, C., Wortsman, M., et al. Laion-5b: An open large-scale dataset for training next generation image-text models. _Advances in Neural Information Processing Systems_, 2022.\n' +
+      '* [17] Sharma, P., Ding, N., Goodman, S., and Soricut, R. Conceptual captions: A cleaned, hypernymed, image alt-text dataset for automatic image captioning. In _Proceedings of the 56th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)_, 2018.\n' +
+      '* [18] Shazeer, N. Glu variants improve transformer. _arXiv preprint arXiv:2002.05202_, 2020.\n' +
+      '* [19] Shrestha, R., Kafle, K., and Kanan, C. Answer them all! toward universal visual question answering models. In _Proceedings of the IEEE/CVF conference on computer vision and pattern recognition_, 2019.\n' +
+      '* [20] Singh, A., Natarajan, V., Shah, M., Jiang, Y., Chen, X., Batra, D., Parikh, D., and Rohrbach, M. Towards vqa models that can read. In _Proceedings of the IEEE/CVF conference on computer vision and pattern recognition_, 2019.\n' +
+      '* [21] Sun, Q., Fang, Y., Wu, L., Wang, X., and Cao, Y. Evaclip: Improved training techniques for clip at scale. _arXiv preprint arXiv:2303.15389_, 2023a.\n' +
+      '* [22] Sun, Q., Yu, Q., Cui, Y., Zhang, F., Zhang, X., Wang, Y., Gao, H., Liu, J., Huang, T., and Wang, X. Generative pretraining in multimodality. _arXiv preprint_, 2023b.\n' +
+      '* [23] Wang, J., Yang, Z., Hu, X., Li, L., Lin, K., Gan, Z., Liu, Z., Liu, C., and Wang, L. Git: A generative image-to-text transformer for vision and language. _arXiv preprint arXiv:2205.14100_, 2022a.\n' +
+      '* [24] Wang, P., Yang, A., Men, R., Lin, J., Bai, S., Li, Z., Ma, J., Zhou, C., Zhou, J., and Yang, H. Ofa: Unifying architectures, tasks, and modalities through a simple sequence-to-sequence learning framework. 2022b.\n' +
+      '* [25] Wang, W., Chen, Z., Chen, X., Wu, J., Zhu, X., Zeng, G., Luo, P., Lu, T., Zhou, J., Qiao, Y., et al. Visionllm: Large language model is also an open-ended decoder for vision-centric tasks. _arXiv preprint_, 2023a.\n' +
+      '* [26] Wang, W., Lv, Q., Yu, W., Hong, W., Qi, J., Wang, Y., Ji, J., Yang, Z., Zhao, L., Song, X., et al. Cogvlm: Visual expert for pretrained language models. _arXiv preprint_, 2023b.\n' +
+      '* [27] Wang, Y., Kordi, Y., Mishra, S., Liu, A., Smith, N. A., Khashabi, D., and Hajishirzi, H. Self-instruct: Aligning language model with self generated instructions. _arXiv preprint arXiv:2212.10560_, 2022c.\n' +
+      '* [28] Wu, P. and Xie, S. V*: Guided visual search as a core mechanism in multimodal llms. _arXiv preprint arXiv:2312.14135_, 2023.\n' +
+      '* [29] Xu, Z., Shen, Y., and Huang, L. Multiinstruct: Improving multi-modal zero-shot learning via instruction tuning. _arXiv preprint arXiv:2212.10773_, 2022.\n' +
+      '* [30] Yin, S., Fu, C., Zhao, S., Xu, T., Wang, H., Sui, D., Shen, Y., Li, K., Sun, X., and Chen, E. Woodpecker: Hallucination correction for multimodal large language models. _arXiv preprint arXiv:2310.16045_, 2023.\n' +
+      '* [31] Yu, L., Poirson, P., Yang, S., Berg, A. C., and Berg, T. L. Modeling context in referring expressions. In _Computer Vision-ECCV 2016: 14th European Conference, Amsterdam, The Netherlands, October 11-14, 2016, Proceedings, Part II 14_, 2016.\n' +
+      '* [32] Yu, Q., Li, J., Wei, L., Pang, L., Ye, W., Qin, B., Tang, S., Tian, Q., and Zhuang, Y. Hallucidoctor: Mitigating hallucinatory toxicity in visual instruction data. _arXiv preprint arXiv:2311.13614_, 2023.\n' +
+      '* [33] Zeng, Y., Zhang, H., Zheng, J., Xia, J., Wei, G., Wei, Y., Zhang, Y., and Kong, T. What matters in training a gpt4-style language model with multimodal inputs? _arXiv preprint arXiv:2307.02469_, 2023.\n' +
+      '* [34] Zhang, S., Sun, P., Chen, S., Xiao, M., Shao, W., Zhang, W., Chen, K., and Luo, P. Gpt4roi: Instruction tuning large language model on region-of-interest. _arXiv preprint arXiv:2307.03601_, 2023a.\n' +
+      '* [35] Zhang, Y., Zhang, R., Gu, J., Zhou, Y., Lipka, N., Yang, D., and Sun, T. Llavar: Enhanced visual instruction tuning for text-rich image understanding. _arXiv preprint_, 2023b.\n' +
+      '* [36] Zhu, D., Chen, J., Shen, X., Li, X., and Elhoseiny, M. Minigpt-4: Enhancing vision-language understanding with advanced large language models. _arXiv preprint_, 2023.\n' +
+      '\n' +
+      '## 부록 관련 작품\n' +
+      '\n' +
+      '### 거대 시각언어 모델\n' +
+      '\n' +
+      '대부분의 LVLM은 ALIGN(Jia et al., 2021), MSCOCO(Lin et al., 2014), VG(Krishna et al., 2017), CC3M(Sharma et al., 2018), CC12M(Changpinyo et al., 2021), SBU(Ordonez et al., 2011), LAION2B(Schuhmann et al., 2022), LAION400M(Schuhmann et al., 2021)을 포함하여 공개적으로 이용 가능한 이미지-캡션 쌍에 대한 훈련에 의존한다. 플라밍고(Alayrac et al., 2022)로부터 시작하여, 일련의 LVLM은 BLIP2(Li et al., 2023c), KOSMOS(Huang et al., 2023b), 및 OpenFlamingo(Awadalla et al., 2023)를 포함하는 이미지-텍스트 쌍들의 혼합물 상에서 동결된 LLM들에 시각적 표현을 정렬하기 위해 적응 계층들을 훈련시키는 데 초점을 맞추었다. LLMs(Wang et al., 2022c)에서 명령어 튜닝의 성공에 의해, 일 라인들은 GPT4를 통해 비전 지향적 명령어-응답 쌍들을 구축하고 모방을 위한 모델들, 예를 들어 LLAVA(Liu et al., 2023b), Otter(Li et al., 2023b), VisionLLM(Wang et al., 2023a), MultiInstruct(Xu et al., 2022), Lynx(Zeng et al., 2023), InstructBLIP(Dai et al.), CleverFlamingo(Chen et al., 2023a) 및 StableLLaVA(Li et al., 2023e)를 구축하기 위해 노력했다. 최근, 연구자들은 PALI (Chen et al., 2022), PaLI-X (Chen et al., 2023d), Qwen-VL (Bai et al., 2023) 및 CoSVLM (Wang et al., 2023b)과 같은 이미지-캡션 쌍에 대한 풍부한 사전 훈련의 첫 번째 단계와 이미지-질문-응답 트리플에 대한 정렬의 두 번째 단계의 훈련으로 LVLM을 개발하는 효율성을 입증했다.\n' +
+      '\n' +
+      '추론을 이용한### 대형 시각언어 모델\n' +
+      '\n' +
+      '높은 수준의 시각적 문제를 해결하는 LVLM의 능력을 더욱 향상시키기 위해 추론의 다양한 측면에 초점을 맞춘 연구가 광범위한 관심을 끌고 있다. 우리는 단순히 기존 연구를 나무의 넓은 범주로 나눈다. 첫 번째 연구는 교차 모달 근거 추론에 능숙한 열차 모델 개선에 초점을 맞추고 있는데, 여기서 근거 지시 추적 감독은 KOSMOS-2(Peng et al., 2023), Shikra(Chen et al., 2023b) 및 GPT4ROI(Zhang et al., 2023a)를 포함한 훈련용 공공 시각적 근거 데이터 세트 또는 GPT4-V를 통해 구축된다. 노력의 두 번째 측면은 수치, 차트 및 영수증과 같은 인공 시각적 장면을 이해하기 위한 모델을 홍보하는 데 전념해 왔다. 이러한 연구들은 CogAgent(Hong et al., 2023) 및 CHARTVE(Huang et al., 2023a)를 포함한다. 일부 다른 연구들은 LVLM에서 환각의 중요한 문제를 반사실적 또는 해석 가능한 추론으로 다룬다(Yu et al., 2023; Yin et al., 2023). V*(Wu & Xie, 2023)는 또한 LLM-유도 검색 프로세스에 기초한 VLM의 세부 인식을 향상시키기 위한 노력에 기여한다.\n' +
+      '\n' +
+      '데이터 생산 세부 정보\n' +
+      '\n' +
+      '이 섹션에서는 의사 코드의 전체 알고리즘과 LLM 및 해당 지침을 사용한 해결 단계 생성의 예, 시각적 도구를 사용한 추론 사슬 완성의 예를 사용하여 CoM 데이터 생산의 세부 사항을 추가로 소개한다. 또한 AutoCoM-test의 평가 데이터뿐만 아니라 합성 학습 데이터에 대한 데이터 통계의 세부 정보를 나열하고, 현재 데이터 제작 방법에 대한 제한 분석을 수행한다.\n' +
+      '\n' +
+      '재생산 가능한 데이터 생산을 위한 알고리즘\n' +
+      '\n' +
+      'CoM 합성 알고리즘의 의사 코드를 제공하여 데이터 생성 과정을 명확하게 설명함으로써 이해 및 재현 1을 용이하게 한다.\n' +
+      '\n' +
+      '```\n' +
+      '1:Define:\\(\\begin{cases}Manipulations:\\{f_{i}:x\\to y\\,|\\,f_{i}\\in\\mathcal{M}\\\\inguistic Annotator:\\Psi_{L}&//We\\,use\\,GPT4\\,in\\,this\\,work\\Visual\\,Annotator:\\Psi_{V}&//We\\,use\\,PaddleOCR\\,and\\,GroundingDINO\\,in\\,this\\,work\\\\\\end{cases}\\,use\\,GPT4\\,in\\,this\\,work\\Visual\\,Annotator:\\Psi_{V}&//We\\,use\\,PaddleOCR\\,and\\,GroundingDINO\\,in\\,this\\,work\\\\end{cases}\\)\n' +
+      '2:Input: Image\\(I\\), Question\\(Q\\), Answer\\(A\\)\n' +
+      '3:// LinguisticAnnotation\n' +
+      '4: 추론 단계를 생성하기 위한 지침 \\(P^{L}\\)을 갖는 프롬프트 \\(\\Psi_{L}\\): \\[\\varsigma=\\Psi_{L}(Q|P^{L}),\\quad where\\begin{cases}\\varsigma=(steps_{1},steps_{2},...)\\\\step_{i}=(f_{i},desc_{i})\\end{cases}\\] (4)\n' +
+      '5: 정의 트리\\(\\mathcal{T}\\)\n' +
+      '6:for\\(i=1\\)to\\(|\\varsigma|\\)do\n' +
+      '7: \\(x_{i},y_{i}\\)을 \\(step_{i}\\)에 \\(f_{i}\\)으로 인스턴트화한 추출물 \\(x_{i},y_{i}\\)\n' +
+      '8: \\(x_{i}\\)에서 참조상자 \\(B\\) 추출\n' +
+      '9:for\\(b\\ in \\(B\\)do\n' +
+      '10: 대응하는 시각적 콘텐츠 \\(y^{\\prime}_{i}=\\Psi(x_{i}|I,b)\\)를 획득하기 위한 레버리지 \\(\\Psi_{V}\\)을 트리 \\[\\mathcal{T}.level[i].append(y_{i})\\]에 적용(5)\n' +
+      '11:endfor\n' +
+      '12:endfor\n' +
+      '13: Terminal return \\[[\\varsigma_{1},\\varsigma_{2},...]=DFS(\\mathcal{T}|A)\\] (6)\n' +
+      '14:Return \\([\\varsigma_{1},\\varsigma_{2},...]\\)\n' +
+      '```\n' +
+      '\n' +
+      '**알고리즘 1** 조작의 체인 합성\n' +
+      '\n' +
+      '[MISSING_PAGE_EMPTY:14]\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:15]\n' +
+      '\n' +
+      '\\begin{tabular}{l l l} \\hline \\hline _INPUTS_ & & **Question:** What number police station is on the building? \\\\ \\hline \\multirow{4}{*}{\\(OUTPUTS_{k}\\)} & \\multirow{4}{*}{Step 1: grounding_1(the building)\\(\\cdot\\)bbx_1,} & \\multirow{4}{*}{\n' +
+      '\\begin{tabular}{l} Locate the building in the image and return the bounding box of the building as \'bbx_1\'. \\\\ identify the number of the police station on the building in box \'bbx_1\' and return the bounding box of the number as \'bbx_2\'. \\\\ \\end{tabular} } \\\\  & & **Step 3:** (OCR_1(number in region \'bbx_2\') \\\\  & & **->ot_1,** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\n' +
+      '\\begin{tabular}{l l} \\hline \\hline \\end{tabular}\n' +
+      '_CaMi_:\n' +
+      '\n' +
+      '질문이 주어지면, 각 단계에서 이미지에 대한 다음 조작(이름(입력) soReturn) 중 하나를 최적으로 사용할 수 있는 일련의 조작으로 문제를 단계별로 해결해 주세요: GROUNDING(악구)-shoose, OCR(이미지 또는 영역)-stexts, CROP, AND, ZOOMINNa 영역)-snew_이미지, CALCULATE(호환 대상)-숫자 또는 자신이 만든 새로운 조작(실제로 필요한 경우)이다.\n' +
+      '\n' +
+      '_Question:_ 버스 근처의 교통 표지판에 무엇이 쓰여 있나요?\n' +
+      '\n' +
+      '_Model:_ GROUNDING(the traffic sign near the bus)을 이용하여 현재 영상에서 버스 부근의 교통 표지판을 찾는데, 이는 [_[_1084,157,926,703;67,146,740,273_]_이다. OCR(지역[_1084,157,926,703_]_)을 활용하여 지역[_1084,157,926,703_]_ 내의 교통 표지판에 쓰여진 텍스트를 읽고, 택시를 생성한다. 따라서 궁극적으로 논의 중인 질문에 대한 결정적인 대답은 택시입니다.\n' +
+      '\n' +
+      '_Visual Grounding:_\n' +
+      '\n' +
+      '_Question:_ "교통 표지판"이 설명하는 이미지에서 영역을 찾습니다.\n' +
+      '\n' +
+      '_Model:_ [[678,145,739,270]\n' +
+      '\n' +
+      '_Grounded Captioning:_\n' +
+      '\n' +
+      '_Question:_ 이 작업의 목표는 이미지의 한 부분에 대한 설명을 생성하는 것이다. 그 부분은 [_[_678,145,739,270_]_에 의해 지정된다.\n' +
+      '\n' +
+      '_Model:_ [[678,145,739,270]].\n' +
+      '\n' +
+      '_Image Captioning:_\n' +
+      '\n' +
+      '_Question:_ 이 작업에서, 당신은 이미지가 주어지고 그것을 설명하기 위해 약간의 텍스트를 생성해야 할 것이다. 간결한 답변 부탁드립니다.\n' +
+      '\n' +
+      '_Answer:_무지개 색상을 곁들인 택시 버스.\n' +
+      '\n' +
+      '_Multi Choice:_\n' +
+      '\n' +
+      '_Question:_ 이 버스의 무지개 표지판에 나타나지 않는 색상을 선택한다. (1) 적색. (2) 황색. (3) 분홍색. (4) 흑색. 단도직입적으로 답변 부탁드립니다.\n' +
+      '\n' +
+      '_Answer:_ black\n' +
+      '\n' +
+      '_Detailed Captioning:_\n' +
+      '\n' +
+      '_Question:_ 영상의 시각적 내용을 매우 상세하게 설명한다.\n' +
+      '\n' +
+      '_Answer:_ 이미지는 빨간색과 파란색 액센트가 있는 흰색 버스가 주차되어 있는 시내 거리의 장면을 캡처합니다. 버스는 옆면에 굵은 빨간 글씨로 "Trafalgar"라는 문구가 새겨져 있어 관광객이나 여행사의 일부일 가능성이 높다. 버스는 "TAXI"라고 적힌 교통 표지판 옆에 위치해 있어 승객을 기다리거나 여정을 시작할 준비가 되어 있을 수 있음을 시사한다. 배경에는 건물과 나무가 있어 도시 경관에 깊이를 더한다. 도시 생활의 혼잡과 번잡 속에서 버스가 승객을 기다리는 등 전반적인 인상은 도시 환경에서 전형적인 하루 중 하나이다.\n' +
+      '\n' +
+      '그림 7: CogCoM은 증거 시각적 추론, 시각적 접지, 접지 캡션, 이미지 캡션, 다중 선택 및 세부 캡션을 포함하여 다양한 멀티모달 시나리오에 적응하기 위한 유연한 기능을 보여준다.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
