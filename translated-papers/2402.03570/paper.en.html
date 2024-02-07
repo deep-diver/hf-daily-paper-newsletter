@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# Diffusion World Model\n' +
+      '\n' +
+      'Zihan Ding\n' +
+      '\n' +
+      'Amy Zhang\n' +
+      '\n' +
+      'Yuandong Tian\n' +
+      '\n' +
+      'Qinqing Zheng\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      'We introduce Diffusion World Model (DWM), a conditional diffusion model capable of predicting multistep future states and rewards concurrently. As opposed to traditional one-step dynamics models, DWM offers long-horizon predictions in a single forward pass, eliminating the need for recursive quires. We integrate DWM into model-based value estimation (Feinberg et al., 2018), where the short-term return is simulated by future trajectories sampled from DWM. In the context of offline reinforcement learning, DWM can be viewed as a conservative value regularization through generative modeling. Alternatively, it can be seen as a data source that enables offline Q-learning with synthetic data. Our experiments on the D4RL (Fu et al., 2020) dataset confirm the robustness of DWM to long-horizon simulation. In terms of absolute performance, DWM significantly surpasses one-step dynamics models with a \\(44\\%\\) performance gain, and achieves state-of-the-art performance.\n' +
+      '\n' +
+      'Machine Learning, Diffusion World Model\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      'Reinforcement learning (RL) algorithms can be broadly classified into two classes: model-based (MB) and model-free (MF) algorithms. The foundation of MB algorithms is a predictive model of environment feedback, often referred to as a _world model_(Ha and Schmidhuber, 2018). World models serve as simulators of real environments, and policies can be derived from them through action searching (Schrittwieser et al., 2020; Ye et al., 2021), policy optimization within such simulators (Sutton, 1991; Dean et al., 2020; Feinberg et al., 2018; Hafner et al., 2019), or a combination of both (Hansen et al., 2022; 2023; Chitnis et al., 2023).\n' +
+      '\n' +
+      'The prediction accuracy of world models is critical to the performance of MB approaches. In practice, due to inevitable modeling error, MB methods typically exhibit worse performance compared with their MF counterparts, which directly learn a policy from interacting with the true environment. Nonetheless, MB methods come with an advantage of sample efficiency (Deisenroth et al., 2013; Dean et al., 2020). They usually achieve decent performance with much fewer environment interactions, thus more suitable for dealing with practical real-world problems. This highlights one of the most fundamental problems in the area of model-based RL: _how can we effectively reduce the world modeling error?_\n' +
+      '\n' +
+      'Traditional world models are one-step dynamics models predicting reward and next state based on the current state and action (Kaiser et al., 2019; Janner et al., 2019; Yu et al., 2020; Kidambi et al., 2020; Hansen et al., 2022; Hafner et al., 2019; 2020; 2023). When planning for multiple steps into the future, these models are recursively invoked, leading to a rapid accumulation of errors and unreliable predictions for long-horizon rollouts. Figure 1.1 plots the performance of an MB approach with one-step dynamics model. The return quickly collapses as the rollout length increases, highlighting the issue of _compounding errors_ for such models (Asadi et al., 2019; Lambert et al., 2022; Xiao et al., 2019). Recently, there has been growing interest of utilizing sequence modeling techniques to solve decision making problems, as seen in various studies (Chen et al., 2021; Janner et al., 2021; Zheng et al., 2022; Ajay et al., 2022; Micheli et al., 2022; Robine et al., 2023; Zheng et al., 2023). This raises an intriguing question that our paper seeks to answer:\n' +
+      '\n' +
+      '_Can sequence modeling tools effectively reduce the error in long-horizon prediction and improve the performance of\n' +
+      '\n' +
+      'Figure 1.1: The return of TD3+BC trained using diffusion world model and one-step dynamics model.\n' +
+      '\n' +
+      '### MBRL algorithms?\n' +
+      '\n' +
+      'We introduce _Diffusion World Model_ (DWM), a diffusion probabilistic model designed for predicting long-horizon outcomes. Conditioning on current state, action, and expected return, diffusion world model simultaneously predicts multistep future states and rewards, eliminating the source of error accumulation as there is no recursive querying of the would model. As shown in Figure 1.1, diffusion world model is robust to long-horizon simulation, where the performance does not deteriorate even with simulation horizon \\(31\\). See Section 4 for more experiments.\n' +
+      '\n' +
+      'In this paper, we particularly consider the offline RL setup, where the objective is to learn a policy from a static dataset without online interactions. The detachment from online training circumvents the side effects of exploration and allows us to investigate the quality of world models thoroughly. We propose a generic Dyna-type (Sutton, 1991) model-based framework. In brief, we first train a diffusion world model using the offline dataset, then train a policy using imagined data generated by the diffusion world model, in an actor-critic manner. Particularly, to generate the target value for training the critic, we introduce _Diffusion Model Value Expansion (Diffusion-MVE)_ that uses diffusion world model generated future trajectories to simulate the return up to a chosen horizon. As we will elaborate later, _Diffusion-MVE can be interpreted as a value regularization for offline RL through generative modeling, or alternatively, a way to conduct offline Q-learning with synthetic data._\n' +
+      '\n' +
+      'Our framework is flexible to carry any MF actor-critic RL method of choice, and the output policy is efficient at inference time, as the world model does not intervene with action generation.\n' +
+      '\n' +
+      'We benchmark diffusion-based and traditional one-step world models on 9 locomotion tasks from the D4RL benchmark (Fu et al., 2020). We further consider a variant of our approach where the diffusion model is substituted with a Transformer architecture (Vaswani et al., 2017). All these tasks are in continuous action and observation spaces. Our results confirm that both sequence-level world models outperform one-step models, where diffusion world model achieves a \\(44\\%\\) performance gain over one-step models. Moreover, recent advances in offline RL methods have been concentrated on MF algorithms (Kumar et al., 2020; Kostrikov et al., 2021; Wang et al., 2022; Garg et al., 2023; Ding and Jin, 2023), where a few works have blurred the boundary between MB and MF methods (Chen et al., 2021; Janner et al., 2021, 2022; Ajay et al., 2022; Zheng et al., 2023). Our method achieves state-of-the-art (SOTA) performance, eliminating the gap between MB and MF algorithms.\n' +
+      '\n' +
+      '## 2 Preliminaries\n' +
+      '\n' +
+      '**Offline RL.** We consider an infinite-horizon Markov decision process (MDP) defined by \\((\\mathcal{S},\\mathcal{A},R,P,p_{0},\\gamma)\\), where \\(\\mathcal{S}\\) is the state space, \\(\\mathcal{A}\\) is the action space. Let \\(\\Delta(\\mathcal{S})\\) be the probability simplex of the state space. \\(R:\\mathcal{S}\\times\\mathcal{A}\\mapsto\\mathbb{R}\\) is a deterministic reward function, \\(P:\\mathcal{S}\\times\\mathcal{A}\\mapsto\\Delta(\\mathcal{S})\\) defines the probability distribution of transition, \\(p_{0}:\\mathcal{S}\\mapsto\\Delta(\\mathcal{S})\\) defines the distribution of initial state \\(s_{0}\\), and \\(\\gamma\\in(0,1)\\) is the discount function. The task of RL is to learn a policy \\(\\pi:\\mathcal{S}\\mapsto\\mathcal{A}\\) that maximizes its return \\(J(\\pi)=\\mathbb{E}_{s_{0}\\sim p_{0}(s),a_{t}\\sim\\pi(:|s_{t}),s_{t+1}\\sim P(:|s_{ t},a_{t})}\\) [\\(\\sum_{t=0}^{\\infty}\\gamma^{t}R(s_{t},a_{t})\\)]. Given a trajectory \\(\\tau=\\{s_{0},a_{0},r_{0},\\ldots,s_{|\\tau|},a_{|\\tau|},r_{|\\tau|}\\}\\), where \\(|\\tau|\\) is the total number of timesteps, the return-to-go (RTG) at timestep \\(t\\) is \\(g_{t}=\\sum_{t^{\\prime}=t}^{|\\tau|}\\gamma^{\\prime}{}^{\\prime}{}^{-t}{}_{\\tau^{ \\prime}}\\). In offline RL, we are constrained to learn a policy solely from a static dataset generated by certain unknown policies. Throughout this paper, we use \\(\\mathcal{D}_{\\text{offline}}\\) to denote the offline data distribution and use \\(D_{\\text{offline}}\\) to denote the offline dataset.\n' +
+      '\n' +
+      '**Diffusion Model.** Diffusion probabilistic models (Sohl-Dickstein et al., 2015; Ho et al., 2020; Song et al., 2020) are generative models that create samples from noises by an iterative denoising process. It defines a fixed Markov chain, called the _forward_ or _diffusion process_, that iteratively adds Gaussian noise to \\(x^{(k)}\\) starting from a data point \\(x^{(0)}\\):\n' +
+      '\n' +
+      '\\[q(x^{(k+1)}|x^{(k)})=\\mathcal{N}\\left(\\sqrt{1-\\beta_{k}}x^{(k)},\\beta_{k} \\mathbf{I}\\right),\\;0\\leq k\\leq K-1. \\tag{1}\\]\n' +
+      '\n' +
+      'As the number of diffusion steps \\(K\\rightarrow\\infty\\), \\(x^{(K)}\\) essentially becomes a random noise. We learn the corresponding _reverse process_ that transforms random noise to data point:\n' +
+      '\n' +
+      '\\[p_{\\theta}(x^{(k-1)}|x^{(k)})=\\mathcal{N}\\left(\\mu_{\\theta}(x^{(k)}),\\Sigma_{ \\theta}(x^{(k)})\\right),\\;1\\leq k\\leq K. \\tag{2}\\]\n' +
+      '\n' +
+      'Sampling from a diffusion model amounts to first sampling a random noise \\(x^{(K)}\\sim\\mathcal{N}(0,\\mathbf{I})\\) then running the reverse process. To learn the reverse process, we optimize the variational lower bound of the marginal likelihood \\(p_{\\theta}(x^{(0):(K)})\\). There are multiple equivalent ways to optimize the lower bound (Kingma et al., 2021), and we take the noise prediction route as follows. One can rewrite \\(x^{(k)}=\\sqrt{\\bar{\\alpha}_{k}}x^{(0)}+\\sqrt{1-\\bar{\\alpha}_{k}}\\varepsilon\\), where \\(\\bar{\\alpha}_{k}=\\prod_{k^{\\prime}=1}^{K}(1-\\beta_{k^{\\prime}})\\), and \\(\\varepsilon\\sim\\mathcal{N}(0,\\mathbf{I})\\) is the noise injected for \\(x^{(k)}\\) (before scaling). We then parameterize a neural network \\(\\varepsilon_{\\theta}(x^{(k)},k)\\) to predict \\(\\varepsilon\\) injected for \\(x^{(k)}\\). Moreover, a conditional variable \\(y\\) can be easily added into both processes via formulating \\(q(x^{(k+1)}|x^{(k)},y)\\) and \\(p_{\\theta}(x^{(k-1)}|x^{(k)},y)\\), respectively. We further deploy classifier-free guidance (Ho and Salimans, 2022) to promote the conditional information, which essentially learns both conditioned and unconditioned noise predictors. More precisely, we optimize the following loss function:\n' +
+      '\n' +
+      '\\[\\mathbb{E}_{(x^{(0)},y),k,\\varepsilon,b}\\big{\\|}\\varepsilon_{\\theta}\\Big{(}x^{ (k)}(x^{(0)},\\varepsilon),k,(1-b)\\cdot y+b\\cdot\\varnothing\\Big{)}-\\varepsilon \\big{\\|}_{2}^{2}, \\tag{3}\\]\n' +
+      '\n' +
+      'where \\(x^{(0)}\\) and \\(y\\) are the true data point and conditional information sampled from data distribution, \\(\\varepsilon\\sim\\mathcal{N}(0,\\mathbf{I})\\) isthe injected noise, \\(k\\) is the diffusion step sampled uniformly between \\(1\\) and \\(K\\), \\(b\\sim\\text{Bernoulli}(p_{\\text{uncond}})\\) is used to indicate whether we will use null condition, and finally, \\(x^{(k)}=\\sqrt{\\bar{\\alpha}_{k}}x_{0}+\\sqrt{1-\\bar{\\alpha}_{k}}\\varepsilon\\). Algorithm A.1 details how to sample from a guided diffusion model. In section 3, we shall introduce the form of \\(x^{(0)}\\) and \\(y\\) in the context of offline RL, and discuss how we utilize diffusion models to ease planning.\n' +
+      '\n' +
+      '## 3 Diffusion World Model\n' +
+      '\n' +
+      'In this section, we introduce a general recipe for model-based offline RL with diffusion world model. Our framework consists of two training stages, which we will detail in Section 3.1 and 3.2, respectively. In the first stage, we train a diffusion model to predict a sequence of future states and rewards, conditioning on the current state, action and target return. Next, we train an offline policy using an actor-critic method, where we utilize the pretrained diffusion model for model-based value estimation. Algorithm 3.1 presents this framework with a simple actor-critic algorithm with delayed updates, where we assume a deterministic offline policy. Our framework can be easily extended in a variety of ways. First, we can generalize it to account for stochastic policies. Moreover, the actor-critic algorithm we present is of the simplest form. It can be extended to combine with various existing offline learning algorithms. In Section 4, we discuss three instantiations of Algorithm 3.1, which embeds TD3+BC (Fujimoto and Gu, 2021), IQL (Kostrikov et al., 2021), and Q-learning with pessimistic reward (Yu et al., 2020), respectively.\n' +
+      '\n' +
+      '### Conditional Diffusion Model\n' +
+      '\n' +
+      'We train a return-conditioned diffusion model \\(p_{\\theta}\\) on length-\\(T\\) subtrajectories, where the conditioning variable is the RTG of a subtrajectory. That is, \\(y=g_{t}\\) and \\(x^{(0)}=(s_{t},a_{t},r_{t},s_{t+1},r_{t+1},\\ldots,s_{t+T-1},r_{t+T-1})\\). As introduced in Section 2, we employ classifier-free guidance to promote the role of RTG. Stage 1 of Algorithm 3.1 describes the training procedure in detail. For the actual usage of the trained diffusion model in the second stage of our pipeline, we predict future \\(T-1\\) states and rewards based on a target RTG \\(g_{\\text{eval}}\\) and also current state \\(s_{t}\\) and action \\(a_{t}\\). These predicted states and rewards are used to facilitate the value estimation in policy training, see Section 3.2. As the future actions are not needed, we do not model them in our world model.\n' +
+      '\n' +
+      'To enable the conditioning of \\(s_{t}\\) and \\(a_{t}\\), we slightly adjust the standard sampling procedure (Algorithm A.1), where we fix \\(s_{t}\\) and \\(a_{t}\\) for every denoising step in the reverse process, see Algorithm A.2.\n' +
+      '\n' +
+      '```\n' +
+      '// Stage 1: World Model Training\n' +
+      '1Hyperparameters: number of diffusion steps \\(K\\), null conditioning probability \\(p_{\\text{uncond}}\\), noise parameters \\(\\bar{\\alpha}_{k}\\)\n' +
+      '2whilenot convergeddo\n' +
+      '3 Sample length-\\(T\\) subtrajectory \\(x^{(0)}=(s_{t},a_{t},r_{t},s_{t+1},r_{t+1},\\ldots,s_{t+T-1},r_{t+T-1})\\) from \\(D_{\\text{offline}}\\)\n' +
+      '4 Compute RTG \\(g_{t}\\leftarrow\\sum_{h=0}^{T-1}\\gamma^{h}r_{t+h}\\)// optimize \\(\\theta\\)via Equation (3) Sample \\(\\varepsilon\\sim\\mathcal{N}(0,I)\\) and \\(k\\in[K]\\) uniformly\n' +
+      '5 Compute \\(x^{(k)}\\leftarrow\\sqrt{\\alpha_{k}}x^{(0)}+\\sqrt{1-\\bar{\\alpha}_{k}}\\)\\(y\\leftarrow\\varnothing\\) with probability \\(p_{\\text{uncond}}\\), otherwise \\(y\\gets g_{t}\\)\n' +
+      '6 Take gradient step on \\(\\nabla_{\\theta}\\left\\lVert\\varepsilon_{\\theta}(x^{(k)},k,y)-\\varepsilon \\right\\rVert_{2}^{2}\\)\n' +
+      '7 // Stage 2: Offline Policy Training\n' +
+      '8Hyperparameters: rollout length \\(H\\), conditioning RTG \\(g_{\\text{eval}}\\), guidance parameter \\(\\omega\\), target network update frequency \\(n\\)\n' +
+      '9 Initialize the actor and critic networks \\(\\pi_{\\psi}\\), \\(Q_{\\phi}\\)\n' +
+      '10 Initialize the weights of target networks \\(\\bar{\\psi}\\leftarrow\\psi\\), \\(\\bar{\\phi}\\leftarrow\\phi\\)for\\(i=1,2,\\ldots\\)until convergencedo\n' +
+      '11 Sample state-action pair \\((s_{t},a_{t})\\) from \\(D_{\\text{offline}}\\)// diffusion model value expansion Sample \\(\\hat{\\tau}_{i}\\), \\(\\hat{\\tau}_{i+1}\\), \\(\\hat{\\tau}_{i+1}\\), \\(\\ldots\\), \\(\\hat{\\tau}_{i+T-1}\\), \\(\\hat{\\tau}_{i+T-1}\\)\\(\\sim\\)\\(p_{\\theta}(\\cdot|s_{t},a_{t},g_{\\text{eval}})\\) with guidance parameter \\(\\omega\\)\n' +
+      '12 Compute the target \\(Q\\) value \\(y=\\sum_{h=0}^{H-1}\\gamma^{h}\\hat{\\tau}_{t+h}+\\gamma^{H}Q_{\\bar{\\phi}}(\\hat{ \\tau}_{i+H},\\pi_{\\bar{\\psi}}(\\hat{\\tau}_{i+H}))\\)// update the critic\n' +
+      '13\\(\\phi\\leftarrow\\phi-\\eta\\nabla_{\\psi}\\left\\lVert Q_{\\phi}(s_{t},a_{t})-y \\right\\rVert_{2}^{2}\\)// update the actor\n' +
+      '14 Update the actor network: \\(\\psi\\leftarrow\\psi+\\eta\\nabla_{\\psi}Q_{\\phi}(s_{t},\\pi_{\\psi}(s_{t}))\\)// update the target networks ifi mod\\(n\\)then\n' +
+      '15\\(\\bar{\\phi}\\leftarrow\\bar{\\phi}+w(\\phi-\\bar{\\phi})\\)\\(\\bar{\\psi}\\leftarrow\\bar{\\psi}+w(\\psi-\\bar{\\psi})\\)\n' +
+      '```\n' +
+      '\n' +
+      '**Algorithm 3.1**A General Actor-Critic Framework for Offline Model-Based RL with Diffusion World Model\n' +
+      '\n' +
+      '### Model-Based RL with Diffusion World Model\n' +
+      '\n' +
+      'Section 2 introduces a range of usages of the world model. We are particularly interested in the _data augmentation_ strategy, as the resulting policy is model-free and thus can act fast at inference time. We propose an actor-critic algorithm, where the critic is trained on synthetic data generated by the diffusion model. In a nutshell, we estimate the \\(Q\\)-value by the sum of short-term return, simulated by the DWM, and long-return value, estimated by a proxy \\(Q\\) function learned through temporal difference (TD) learning.\n' +
+      '\n' +
+      '**Definition 3.1** (\\(H\\)**-step Diffusion Model Value Expansion)**.: Let \\((s_{t},a_{t})\\) be a state-action pair. Sample \\(\\hat{\\tau}_{t},\\hat{s}_{t+1},\\hat{\\tau}_{t+1},\\ldots,\\hat{s}_{t+T-1},\\hat{\\tau}_ {t+T-1}\\) from the diffusion model \\(p_{\\theta}(\\cdot|s_{t},a_{t},g_{\\text{eval}})\\). Let \\(H\\) be the simulation horizon, where \\(H<T\\). The \\(H\\)-step _diffusion model value expansion_ estimate of the value of \\((s_{t},a_{t})\\) is given by\n' +
+      '\n' +
+      '\\[\\widehat{Q}_{\\text{diff}}^{H}(s_{t},a_{t})=\\sum_{h=0}^{H-1}\\gamma^{h}\\hat{\\tau}_ {t+h}+\\gamma^{H}\\widehat{Q}(\\hat{s}_{t+H},\\hat{a}_{t+H}), \\tag{4}\\]\n' +
+      '\n' +
+      'where \\(\\widehat{a}_{t+H}=\\pi(\\widehat{s}_{t+H})\\) and \\(\\widehat{Q}\\) is the proxy value function.\n' +
+      '\n' +
+      'We employ this expansion to compute the target value in TD learning, see Algorithm 3.1. This mechanism is key to the success of our algorithm and has several appealing properties.\n' +
+      '\n' +
+      '1. In deploying the standard model-based value expansion (MVE, Feinberg et al. (2018)), the imagined trajectory is derived by recursively querying the one-step dynamics model \\(f_{\\theta}(s_{t+1},r_{t}|s_{t},a_{t})\\), which is the root cause of error accumulation. As an advantage over MVE, our DWM generates the imagined trajectory (without actions) as a whole.\n' +
+      '2. More interestingly, MVE uses the policy predicted action \\(\\widehat{a}_{t}=\\pi(\\widehat{s}_{t})\\) when querying \\(f_{\\theta}\\). This can be viewed as an on-policy value estimation of \\(\\pi\\) in a simulated environment. In contrast, Diffusion-MVE operates in an off-policy manner, as \\(\\pi\\) does not influence the sampling process. As we will explore in Section 4, the off-policy diffusion-MVE excels in offline RL, significantly surpassing the performance of one-step-MVE. We will now delve into two interpretations of this, each from a unique perspective.\n' +
+      '\n' +
+      '**(a)**: Our approach can be viewed as a policy iteration algorithm, alternating between policy evaluation (line 13-16) and policy improvement (line 17) steps. Here, \\(\\widehat{Q}\\) is the estimator of the policy value function \\(Q^{\\pi}\\). In the context of offline RL, TD learning often lead to overestimation of \\(Q^{\\pi}\\)(Thrun and Schwartz, 2014; Kumar et al., 2020). This is because \\(\\pi\\) might produce out-of-distribution actions, leading to erroneous values for \\(\\widehat{Q}\\), and the policy is defined to maximize \\(\\widehat{Q}\\). Such overestimation negatively impacts the generalization capability of the resulting policy when it is deployed online. To mitigate this, a broad spectrum of offline RL methods apply various forms of regularization to the value function (Kumar et al., 2020; Kostrikov et al., 2021; Garg et al., 2023), to ensure the resulting policy remains close to the data. As the DWM is trained exclusively on offline data, it can be seen as a synthesis of the behavior policy that generates the offline dataset. In other words, diffusion-MVE introduces a type of _value regularization for offline RL through generative modeling_.\n' +
+      '\n' +
+      'Moreover, our approach significantly differs from existing value pessimism notions. One challenge of offline RL is that the behavior policy that generates the offline dataset is often of low-to-moderate quality, so that the resulting dataset might only contain trajectories with low-to-moderate returns. As a result, many regularization techniques introduced for offline RL are often _overly pessimistic_(Ghasemipour et al., 2022; Nakamoto et al., 2023). To address this issue, we typically condition on large out-of-distribution (OOD) values of \\(g_{\\text{eval}}\\) when sampling from the DWM. Putting differently, we ask the DWM to output an imagined trajectory under an _optimistic goal_.\n' +
+      '\n' +
+      '**(b)**: Alternatively, we can also view the approach as an offline Q-learning algorithm (Watkins and Dayan, 1992), where \\(\\widehat{Q}\\) is estimating the optimal value function \\(Q^{\\text{s}}\\) using off-policy data. Again, the off-policy data is generated by the diffusion model, conditioning on OOD RTG values. In essence, our approach can be characterized as _offline \\(Q\\)-learning on synthetic data_.\n' +
+      '\n' +
+      '**Comparison with Transformer-based World Models.** Curious readers may wonder about the key distinctions between DMW and existing Transformer-based world models (Chen et al., 2022; Micheli et al., 2022; Robine et al., 2023). These models, given the current state \\(s_{t}\\) and action \\(a_{t}\\), leverage the autoregressive structure of Transformer to incorporate past information to predict \\(s_{t+1}\\). To forecast multiple steps into the future, they must make iterated predictions. In contrast, DWM makes long-horizon predictions in a single query. It is worth noting that it is entirely possible to substitute the diffusion model in our work with a Transformer, and we justify our design choice in Section 4.2.\n' +
+      '\n' +
+      '## 4 Experiments\n' +
+      '\n' +
+      'Our experiments are design with two objectives. (1) First, we want to investigate the effectiveness of DWM in reducing the compounding error for MBRL. (2) Second, we want to evaluate the performance of our proposed Algorithm 3.1 and compare it with the counterparts using one-step dynamics model, as well as other SOTA MF approaches.\n' +
+      '\n' +
+      'To achieve those goals, we consider 3 instantiations of Algorithm 3.1, where we integrate TD3+BC (Fujimoto and Gu, 2021), IQL (Kostrikov et al., 2021), Q-learning with pessimistic reward (which we refer to as PQL) into the framework, as the offline RL algorithm in the second stage. These algorithms come with different conservatism notions defined on the action (TD3+BC), the value function (IQL), and the reward (PQL), respectively. Specifically, the PQL algorithm is inspired by the MOPO algorithm Yu et al. (2020), where we penalize the world model predicted reward by the uncertainty of its prediction. Nonetheless, it is distinct from MOPO in the critic learning. MOPO uses standard TD learning on model-generated transitions, whereas we use MVE or Diff-MVE for value estimation. In the sequel, we refer to our algorithms as DWM-TD3BC, DWM-IQL, and DWM-PQL, respectively. For DWM-IQL, we have observed performance enhancement using a variant of Diff-MVE based on the \\(\\lambda\\)-return technique (Schulman et al., 2015), therefore we incorporate it as a default feature. Detailed descriptions of these algorithms are deferred to Appendix C.\n' +
+      '\n' +
+      '**Baselines.** We consider 3 variants of our algorithms where we substitute DWM by one-step dynamics models and use standard MVE, named O-TD3BC, O-IQL and O-PQL, correspondingly. For the MF baselines, we consider 3 popular approaches with SOTA performance: TD3+BC, IQL, and Decision Diffuser (DD, Ajay et al. (2022)).\n' +
+      '\n' +
+      '**Benchmark.** We conduct experiments on 9 datasets of locomotion tasks from the D4RL (Fu et al., 2020) benchmark, and report the obtained normalized return (0-1 with 1 as expert performance). We train each algorithm for 5 instances with different random seeds, and evaluate them for 10 episodes. All reported values are means and standard deviations aggregated over 5 random seeds.\n' +
+      '\n' +
+      '**Hyperparameters.** We set the sequence length of DWM to be \\(T=8\\) (discussed in Sec. 4.1). The number of diffusion steps is \\(K=5\\) for training. For DWM inference, an accelerated inference technique is applied with a reduced number of diffusion steps \\(N=3\\), as detailed in Section 4.2. The training and sampling details of DWM refer to Appendix A, and the training details of each offline algorithm refer to Appendix D.\n' +
+      '\n' +
+      '### Offline RL\n' +
+      '\n' +
+      '**Main Results.** For MB algorithms, we sweep over the simulation horizon \\(H\\in\\{1,3,5,7\\}\\) and a set of evaluation RTG values. The RTG values we search vary across environments, and we specify it in Table D.2. We report the best result for each algorithm in Table 4.1. The predominant trends we found are:\n' +
+      '\n' +
+      '_The proposed DWM significantly outperforms the one-step counterparts, with a notable \\(44\\%\\) performance gain. Interestingly, when applied in MB settings, one-step dynamics models typically degrade the performances of corresponding MF algorithms, as shown by comparison between TD3+BC and O-TD3BC, IQL and O-IQL DWMs, however, are able to maintain even surpass the original MF algorithms when applied in MB setting, as shown in comparison of IQL and DWM-IQL. Overall, DWM algorithms achieve performance on par with SOTA MF algorithms._\n' +
+      '\n' +
+      'This is attributed to the strong expressivity of diffusion models and the prediction of entire sequences all at once, which circumvents the compounding error issue in multistep rollout of traditional one-step dynamics models. The point will be further discussed in the studies of simulation length as next paragraph.\n' +
+      '\n' +
+      '**Long Horizon Planning with DWM.** To explore the response of different world models to long simulation horizons, we compare the performance DWM methods (DWM-TD3BC and DWM-IQL) with their one-step counterparts (O-TD3BC and O-IQL) when the simulation horizon \\(H\\) used in policy training changes. To explore the limit of DWM models, we train another set of DWMs with longer sequence length \\(T=32\\) and investigate the performance of downstream RL algorithms for \\(H\\in\\{1,3,7,15,31\\}\\). The algorithms with one-step dynamics models have simulation horizon from 1 to 5. Figure 4.1 plots the results across 9 tasks. O-IQL and O-TD3BC exhibit a clearly performance drop as the simulation horizon increases. For most tasks, their performances peak with relatively short simulation horizons, like one or two. This suggests that longer model-based rollout with one-step dynamics models suffer from severe compounding errors. On the contrary, DWM-TD3BC and DWM-IQL maintain relatively high returns without significant performance degradation, even using horizon length 31.\n' +
+      '\n' +
+      'We further compare the performances of algorithms with DWM trained with sequence length \\(T=8\\) and \\(T=32\\). Table 4.2 presents average best return across 9 tasks (searched over RTG values and simulation horizon \\(H\\)). Even though DWM is robust to long-horizon simulation and in certain cases we have found the optimal \\(H\\) is larger than \\(8\\), a sequence length exceeding \\(T=8\\) does not further improve the performance. Therefore we choose \\(T=8\\) for our main experiments. Detailed results are provided in Table E.1.\n' +
+      '\n' +
+      '### Ablation Studies\n' +
+      '\n' +
+      'In this section, we discuss and ablate the design choices made for our proposed algorithms with DWM.\n' +
+      '\n' +
+      '**Transformer v.s. Diffusion Model.** Algorithm 3.1 is capable of accommodating various types of sequence models, including Transformer (Vaswani et al., 2017), one of the\n' +
+      '\n' +
+      'Figure 4.1: Performances of MBRL methods with different simulation horizons used in policy training. The x-axis has range \\([1,31]\\) in a logarithm scale.\n' +
+      '\n' +
+      'most successful sequence models. However, analogous to the compounding error issue for one-step dynamics model, Transformer is subject to inherent error accumulation due to its autoregressive structure. Therefore, we hypothesize Transformer will underperform and choose diffusion model.\n' +
+      '\n' +
+      'To verify this hypothesis, we replace the diffusion model with Transformer in our proposed algorithms, and compare the resulting performance with DWM methods. We particularly consider the combination with TD3+BC and IQL, where we call the obtained algorithms T-TD3BC and T-IQL. We test T-TD3BC and T-IQL with parameter sweeping over simulation horizon \\(H\\in\\{1,3,5,7\\}\\), same as DWM methods. For the evaluation RTG, we take the value used in Decision Transformer (Chen et al., 2021) and normalize it as the training data. The rest experimental setup follows the same configurations as Section 4.1. From the comparison results in Table 4.3, we see that DWM consistently outperforms Transformer across offline RL algorithm instantiations and environments. The experiment details refer to Appendix E.2.\n' +
+      '\n' +
+      'We note that while T-IQL matches O-IQL in performance, T-TD3BC exceeds the performance of O-TD3BC.\n' +
+      '\n' +
+      '**Diffusion Steps and Inference Step Ratio.** The number of training diffusion steps \\(K\\) can heavily influence the modeling quality, where a larger value of \\(K\\) generally leads to better performance. At the same time, sampling from the diffusion models is recognized as a slow procedure, as it involves \\(K\\) internal denoising steps. We apply the _stride sampling_ technique (Nichol and Dhariwal, 2021) to accelerate the sampling process with reduced internal steps \\(N\\), see Appendix A for more details. However, the sampling speed comes at the cost of quality. It is important to strike a balance between inference speed and prediction accuracy. We investigate how to choose the number of \\(K\\) and \\(N\\) to significantly accelerate sampling without sacrificing model performance.\n' +
+      '\n' +
+      'We train DWM with different numbers of diffusion steps \\(K\\in\\{5,10,20,30,50,100\\}\\), where the sequence length is \\(T=8\\). We set four inference step ratios \\(r_{\\text{infer}}\\in\\{0.2,0.3,0.5,1.0\\}\\) and use \\(N=\\lceil r_{\\text{infer}}\\cdot K\\rceil\\) internal steps in stride sampling. Figure 4.2 reports the prediction errors of DMW for both observation and reward sequences, defined in Equation (17). We note that the prediction error depends on the evaluation RTG, and we report the best results across multiple values of it, see Table D.2. An important observation is that \\(r_{\\text{infer}}=0.5\\) is a critical ridge for distinguishing the performances with different inference steps, where \\(N<K/2\\) hurts the prediction accuracy significantly. Moreover, within the regime \\(r_{\\text{infer}}\\geq 0.5\\), a small diffusion steps \\(K=5\\) performs roughly the same as larger values. Therefore, we choose \\(K=5\\) and \\(r_{\\text{infer}}=0.5\\) for our main experiments, which leads to the number of sampling steps \\(N=3\\).\n' +
+      '\n' +
+      'We have also repeated the above experiments for DWM with longer sequence length \\(T=32\\). The results also support the choice \\(r_{\\text{infer}}=0.5\\) but favors \\(K=10\\), see Appendix E.3.\n' +
+      '\n' +
+      '**OOD Evaluation RTG Values.** We found that the evaluation RTG values play a critical role in determining the performance of our algorithm. Our preliminary experiments on trajectory preidction have suggested that in distribution evaluation RTGs underperforms OOD RTGs, see Appendix E.4.2. Figure 4.3 reports the return of DWM-IQL and DWM-TD3BC across 3 tasks, with different values of\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c|c c|c c} \\hline \\hline Env. & **T-TD3BC** & \\multicolumn{3}{c}{DWM-IQL (w/o \\(\\lambda\\))} \\\\ T=8 & T=32 & T=8 & T=32 \\\\ \\hline \\hline\n' +
+      '0.68 \\(\\pm\\) 0.10 & 0.60 \\(\\pm\\) 0.12 & 0.57 \\(\\pm\\) 0.09 & 0.61\\(\\pm\\) 0.10 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 4.2: The average performance of DWM algorithms across 9 tasks, using DWM with different sequence lengths.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c|c c|c c|c c|c c} \\hline \\hline  & \\multicolumn{3}{c|}{**Model-Free**} & \\multicolumn{6}{c}{**Model-Based**} \\\\ Env. & TD3+BC & IQL & DD & O-TD3BC & O-IQL & O-POL & DWM-TD3BC & DWM-IQL & DWM-POL \\\\ \\hline hopper-m & 0.58 \\(\\pm\\) 0.11 & 0.48 \\(\\pm\\) 0.08 & 0.49 \\(\\pm\\) 0.07 & 0.39 \\(\\pm\\) 0.04 & 0.45 \\(\\pm\\) 0.05 & 0.63 \\(\\pm\\) 0.12 & **0.65 \\(\\pm\\) 0.10** & 0.54 \\(\\pm\\) 0.11 & 0.50 \\(\\pm\\) 0.09 \\\\ walker2d-m & 0.77 \\(\\pm\\) 0.09 & 0.75 \\(\\pm\\) 0.15 & 0.67 \\(\\pm\\) 0.16 & 0.39 \\(\\pm\\) 0.15 & 0.52 \\(\\pm\\) 0.24 & 0.74 \\(\\pm\\) 0.14 & 0.70 \\(\\pm\\) 0.15 & 0.76 \\(\\pm\\) 0.05 & **0.79 \\(\\pm\\) 0.08** \\\\ halfcheetah-m & 0.47 \\(\\pm\\) 0.01 & 0.46 \\(\\pm\\) 0.07 & **0.49 \\(\\pm\\) 0.01** & 0.44 \\(\\pm\\) 0.05 & 0.44 \\(\\pm\\) 0.03 & 0.45 \\(\\pm\\) 0.01 & 0.46 \\(\\pm\\) 0.01 & 0.44 \\(\\pm\\) 0.01 & 0.44 \\(\\pm\\) 0.01 \\\\ hopper-mr & 0.53 \\(\\pm\\) 0.19 & 0.25 \\(\\pm\\) 0.02 & **0.66 \\(\\pm\\) 0.15** & 0.26 \\(\\pm\\) 0.05 & 0.25 \\(\\pm\\) 0.03 & 0.32 \\(\\pm\\) 0.03 & 0.53 \\(\\pm\\) 0.09 & 0.61 \\(\\pm\\) 0.13 & 0.39 \\(\\pm\\) 0.03 \\\\ walker2d-mr & **0.75 \\(\\pm\\) 0.19** & 0.48 \\(\\pm\\) 0.23 & 0.44 \\(\\pm\\) 0.26 & 0.23 \\(\\pm\\) 0.13 & 0.24 \\(\\pm\\) 0.07 & 0.62 \\(\\pm\\) 0.22 & 0.46 \\(\\pm\\) 0.19 & 0.35 \\(\\pm\\) 0.14 & 0.35 \\(\\pm\\) 0.13 \\\\ halfcheetah-mr & **0.43 \\(\\pm\\) 0.01** & 0.44 \\(\\pm\\) 0.01 & 0.38 \\(\\pm\\) 0.06 & **0.43 \\(\\pm\\) 0.01** & 0.42 \\(\\pm\\) 0.02 & 0.42 \\(\\pm\\) 0.01 & **0.43 \\(\\pm\\) 0.01** & 0.41 \\(\\pm\\) 0.01 & **0.43 \\(\\pm\\) 0.01** \\\\ hopper-me & 0.90 \\(\\pm\\) 0.28 & 0.86 \\(\\pm\\) 0.22 & **1.06 \\(\\pm\\) 0.11** & 0.31 \\(\\pm\\) 0.18 & 0.39 \\(\\pm\\) 0.19 & 0.43 \\(\\pm\\) 0.18 & 1.03 \\(\\pm\\) 0.14 & 0.90 \\(\\pm\\) 0.25 & 0.80 \\(\\pm\\) 0.18 \\\\ walker2d-me & 1.08 \\(\\pm\\) 0.01 & 1.09 \\(\\pm\\) 0.00 & 0.99 \\(\\pm\\) 0.15 & 0.60 \\(\\pm\\) 0.25 & 0.57 \\(\\pm\\) 0.18 & 0.61 \\(\\pm\\) 0.22 & **1.10 \\(\\pm\\) 0.00** & 1.04 \\(\\pm\\) 0.10 & **1.10 \\(\\pm\\) 0.01** \\\\ halfcheetah-m & 0.73 \\(\\pm\\) 0.16 & 0.60 \\(\\pm\\) 0.23 & **0.91 \\(\\pm\\) 0.01** & 0.27 \\(\\pm\\) 0.12 & 0.61 \\(\\pm\\) 0.22 & 0.61 \\(\\pm\\) 0.22 & 0.75 \\(\\pm\\) 0.16 & 0.71 \\(\\pm\\) 0.14 & 0.69 \\(\\pm\\) 0.13 \\\\ \\hline \\multirow{2}{*}{Average} & **0.69** & 0.61 & **0.68** & 0.37 & 0.43 & 0.54 & **0.68** & 0.64 & 0.61 \\\\ \\cline{2-2}  & \\multicolumn{3}{c|}{0.660} & 0.447 & & & & 0.643 & & & \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 4.1: Comparison of different MF and MB methods on the D4RL dataset: normalized return (mean \\(\\pm\\) std).\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c|c c|c c} \\hline \\hline  & **T-TD3BC** & \\multicolumn{3}{c}{**T-IQL**} & **DWM-TD3BC** & **DWM-IQL** \\\\ T=8 & T=32 & T=8 & T=32 \\\\ \\hline \\hline\n' +
+      '0.68 \\(\\pm\\) 0.10 & 0.60 \\(\\pm\\) 0.12 & 0.57 \\(\\pm\\) 0.09 & 0.61 \\(\\pm\\) 0.10 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 4.3: The performance of different instantiations of Algorithm 3.1 using DWM and Transformer world models.\n' +
+      '\n' +
+      '\\(q_{\\text{eval}}\\)1. We report the results averaged over different simulation horizons 1, 3, 5 and 7. The compared RTG values are different for each task, but are all OOD. Appendix E.4.1 shows the distributions of training RTGs for each task. The results show that the actual return does not always match with the specified \\(g_{\\text{eval}}\\). This is a well-known issue of return-conditioned RL methods (Emmons et al., 2021; Zheng et al., 2022; Nguyen et al., 2022). Nonetheless, OOD evaluation RTGs generally performs well. Figure 4.3 shows both DWM-TD3BC and DWM-IQL are robust to OOD evaluation RTGs. We emphasize the reported return is averaged over training instances with different simulation horizons, where the peak performance, reported in Table 4.1 is higher. Our intuition is to encourage the diffusion model to take an optimistic view of the future return for the current state. On the other hand, the evaluation RTG cannot be overly high. As shown in task _halfcheetah-mr_, increasing RTG \\(q_{\\text{eval}}>0.4\\) will further decrease the actual performances for both methods. The optimal RTG values vary from task to task, and the complete experiment results are provided in Appendix E.4.\n' +
+      '\n' +
+      'Footnote 1: We note that the return and RTG are normalized in different ways: the return computed by the D4RL benchmark is undiscounted and normalized by the performance of one SAC policy, whereas the RTG we use in training is discounted and normalized by hand-selected constants.\n' +
+      '\n' +
+      '\\(\\lambda\\)**-Return Value Estimation.** The Dreamer series of work (Hafner et al., 2019, 2020, 2023) applies the \\(\\lambda\\)-return technique (Schulman et al., 2015) for value estimation, used the imagined trajectory. This technique can be seamlessly embedded into our framework as a modification of the standard Diff-MVE. More precisely, given a state-action pair \\((s_{t},a_{t})\\) sampled from the offline dataset, we recursively compute the \\(\\lambda\\)-target value for \\(h=H,\\ldots,0\\):\n' +
+      '\n' +
+      '\\[\\widehat{Q}_{s_{t+k}}^{\\widehat{\\lambda}_{t+k}}=\\widehat{\\tau}_{s_{t+1}}+\\gamma \\begin{cases}(1-\\lambda)Q_{\\widehat{\\phi}}(\\widehat{s}_{t+k+1},\\overline{ \\varphi}(\\widehat{s}_{t+k+1}))+\\lambda\\widehat{Q}_{t+k+1}^{\\lambda}&\\text{if }h<H\\\\ Q_{\\widehat{\\phi}}(\\widehat{s}_{t+B},\\overline{\\varphi}(\\widehat{s}_{t+B}))& \\text{if }h=H\\end{cases} \\tag{5}\\]\n' +
+      '\n' +
+      'using DWM predicted states \\(\\{\\widehat{s}_{t+1}\\}_{h=0}^{H}\\) and rewards \\(\\{\\widehat{\\tau}_{t}\\}_{h=0}^{H}\\). We can use \\(\\widehat{Q}_{\\epsilon}^{\\lambda}\\) as the target \\(Q\\) value for TD learning, as a modification of line 15 of Algorithm 3.1. For algorithms that also learn the state-only value function, like IQL, the \\(Q_{\\bar{\\phi}}\\) function can be replaced by the \\(V_{\\bar{\\psi}}\\) function. Worth noting, Equation (5) reduces to the vanilla Diff-MVE when \\(\\lambda=1\\).\n' +
+      '\n' +
+      'We conduct experiments to compare the vanilla diff-MVE and the \\(\\lambda\\)-return variant for DWM-TD3BC and DWM-IQL, using \\(\\lambda=0.95\\). We search over RTG values (specified in Appendix Table D.2) and simulation horizons \\(1,3,5,7\\). The results are summarized in Table 4.4. The \\(\\lambda\\)-return technique is beneficial for DWM-IQL, but harmful for DWM-TD3BC. We speculate that since Equation (5) iteratively invokes the \\(Q_{\\bar{\\phi}}\\) or the \\(V_{\\bar{\\psi}}\\) function, it favors approaches with more accurate value estimations. While IQL regularizes the value functions, TD3+BC only has policy regularization and is shown to be more prone to the value over-estimation issue in our experiments. Based on these results, we incorporated the \\(\\lambda\\)-return technique into DWM-IQL, but let DWM-TD3BC use the vanilla Diff-MVE. We let DWM-PQL uses the vanilla Diff-MVE for the sake of algorithmic simplicity.\n' +
+      '\n' +
+      'Additional Experiments.We also investigate the effects of fine-tuning DWM with relabelled RTGs. We have found this technique is of limited utility and hence exclude it in the final design, see detailed results in Appendix E.5.\n' +
+      '\n' +
+      '## 5 Related Work\n' +
+      '\n' +
+      'Model-Based RLOne popular MB technique is action searching. Using the world model, one simulates the outcomes of candidate actions, which are sampled from proposal distributions or policy priors (Nagabandi et al., 2018;\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c|c c|c c} \\hline \\hline  & \\multicolumn{2}{c|}{**DWM-TD3BC**} & \\multicolumn{2}{c}{**DWM-IQL**} \\\\ Env. & w/o \\(\\lambda\\) & w/ \\(\\lambda\\) & w/o \\(\\lambda\\) & w/ \\(\\lambda\\) \\\\ \\hline hopper-m & 0.65 \\(\\pm\\) 0.10 & **0.68 \\(\\pm\\) 0.13** & 0.50 \\(\\pm\\) 0.08 & 0.54 \\(\\pm\\) 0.11 \\\\ walker2d-m & 0.70 \\(\\pm\\) 0.15 & 0.74 \\(\\pm\\) 0.08 & 0.62 \\(\\pm\\) 0.19 & **0.76 \\(\\pm\\) 0.05** \\\\ halfcheetah & **0.46 \\(\\pm\\) 0.01** & 0.40 \\(\\pm\\) 0.01 & **0.46 \\(\\pm\\) 0.01** & 0.44 \\(\\pm\\) 0.01 \\\\ hopper-m & 0.53 \\(\\pm\\) 0.09 & 0.50 \\(\\pm\\) 0.23 & 0.29 \\(\\pm\\) 0.04 & **0.61 \\(\\pm\\) 0.13** \\\\ walker2d-mr & **0.46 \\(\\pm\\) 0.19** & 0.23 \\(\\pm\\) 0.10 & 0.27 \\(\\pm\\) 0.09 & 0.35 \\(\\pm\\) 0.14 \\\\ halfcheetah-mr & **0.43 \\(\\pm\\) 0.01** & 0.39 \\(\\pm\\) 0.02 & **0.43 \\(\\pm\\) 0.01** & 0.41 \\(\\pm\\) 0.01 \\\\ hopper-m & 1.03 \\(\\pm\\) 0.14 & **1.05 \\(\\pm\\) 0.16** & 0.78 \\(\\pm\\) 0.24 & 0.90 \\(\\pm\\) 0.25 \\\\ walker2d-me & **1.10 \\(\\pm\\) 0.00** & **0.89 \\(\\pm\\) 0.13 & 1.08 \\(\\pm\\) 0.03 & 1.04 \\(\\pm\\) 0.10 \\\\ halfcheetah-me & **0.75 \\(\\pm\\) 0.16** & 0.71 \\(\\pm\\) 0.22 & 0.73 \\(\\pm\\) 0.14 & 0.74 \\(\\pm\\) 0.16 \\\\ \\hline Avg. & **0.68** & 0.62 & 0.57 & 0.64 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 4.4: Comparison of the performance of DWM methods using vanilla Diff-MVE and the \\(\\lambda\\)-return variant.\n' +
+      '\n' +
+      'Figure 4.2: The average observation and reward prediction errors (across 9 tasks and simulation horizon \\(H\\in[7]\\)) for DWM trained with different diffusion steps \\(K\\), as the inference step ratio \\(r_{\\text{ratio}}\\) changes.\n' +
+      '\n' +
+      'Williams et al., 2015), and search for the optimal one. This type of approaches has been successfully applied to games like Atari and Go (Schrittwieser et al., 2020; Ye et al., 2021) and continuous control problems with pixel observations (Hafner et al., 2019). Alternatively, we can optimize the policy through interactions with the world model. This idea originally comes from the Dyna algorithm (Sutton, 1991). The primary differences between works in this regime lie in their usages of the model-generated data. For example, Dyna-Q (Sutton, 1990) and MBPO (Janner et al., 2019) augment the true environment data by world model generated transitions, and then conduct MF algorithms on either augmented or generated dataset. Feinberg et al. (2018) proposes to improve the value estimation by unrolling the policy within the world model up to a certain horizon. The Dreamer series of work Hafner et al. (2019, 2020, 2023) use the rollout data for both value estimation and policy learning. More recently, Hansen et al. (2022, 2023); Chitnis et al. (2023) combine both techniques to solve continuous control problems. As we cannot go over all the MB approaches, we refer readers to Wang et al. (2019); Amos et al. (2021) for more comprehensive review and benchmarks of them.\n' +
+      '\n' +
+      'Most of the aforementioned approaches rely on simple one-step world models \\(f(r_{t},s_{t+1}|s_{t},a_{t})\\). The Dreamer series of work (Hafner et al., 2019, 2020, 2023) use recurrent neural networks (RNN) to engage in past information for predicting the next state. Lately, Robine et al. (2023); Micheli et al. (2022); Chen et al. (2022) have independently proposed Transformer-based world models as a replacement of RNN. Janner et al. (2020) uses a generative model to learn the occupancy measure over future states, which can perform long-horizon rollout with a single forward pass.\n' +
+      '\n' +
+      '**Offline RL**: Directly applying online RL methods to offline RL usually lead to poor performances. The failures are typically attributed to the extrapolation error (Fujimoto et al., 2019). To address this issue, a number of conservatism notions has been introduced to encourage the policy to stay close with the offline data. For model-free methods, these notions are applied to the value functions (Kumar et al., 2020; Kostrikov et al., 2021; Garg et al., 2023) or to the policies (Wu et al., 2019; Jaques et al., 2019; Kumar et al., 2019; Fujimoto and Gu, 2021). Conservatism has also been incorporated into MB techniques through modified MDPs. For instance, MOPO (Yu et al., 2020) builds upon MBPO and relabels the predicted reward when generating transitions. It subtracts the uncertainty of the world model\'s prediction from the predicted reward, thereby softly promoting state-action pairs with low-uncertainty outcome. In a similar vein, MOReL (Kidambi et al., 2020) trains policies using a constructed pessimistic MDP with terminal state. The agent will be moved to the terminal state if the prediction uncertainty of the world model is high, and will receive a negative reward as a penalty.\n' +
+      '\n' +
+      '**Sequence Modeling for RL**: There is a surge of recent research interest in applying sequence modeling tools to RL problems. Chen et al. (2021); Janner et al. (2021) first consider the offline trajectories as autoregressive sequences and model them using Transformer architectures (Vaswani et al., 2017). This has inspired a line of follow-up research, including Meng et al. (2021); Lee et al. (2022). Normalizing flows like diffusion model (Sohl-Dickstein et al., 2015; Ho et al., 2020; Song et al., 2020), flow matching (Lipman et al., 2022) and consistency model (Song et al., 2023) have also been incorporated into various RL algorithms, see e.g., Wang et al. (2022); Chi et al. (2023); Hansen-Estruch et al. (2023); Jia et al. (2023); Ding and Jin (2023); Du et al. (2023); Xu et al. (2023); Mishra and Chen (2023). Among these works, Diffuser (Janner et al., 2022) and Decision Diffuser (DD) (Ajay et al., 2022) are most close to our work, as they also predict future trajectories. However, the usage of generated trajectories significantly differs. Diffuser serves a dual role of both world model and policy. It predicts future actions and states simultaneously and executes the predicted subsequent action. Decision Diffuser separates the prediction of states and actions. The diffusion model solely models the future state sequence conditioning on a target return, whereas the action is predicted by an inverse dynamics model, given current state and predicted next state.\n' +
+      '\n' +
+      '## 6 Conclusion and Future Work\n' +
+      '\n' +
+      'We present a general framework of leveraging diffusion models as world models, in the context of offline RL. This framework can be easily extended to accommodate online training. Specifically, we utilize DWM generated trajectories for model-based value estimation. Our experiments show that this approach effectively reduces the compounding error in MBRL. We benchmarked DWM against the traditional one-step dynamics model, by training 3 different types of offline RL algorithms using imagined trajectories generated by each of them. DWM demonstrates a notable performance gain and achieves SOTA performance, on par with the most advanced MF approaches. However, there are also limitations of our work. Currently, DWM is trained for each individual environment and is task-agnostic. An intriguing avenue for future research would be extending DWM to multi-environment and multi-task settings. Additionally, to circumvent the side effects of exploration, we only investigate DWM in the offline RL setting. This raises an interesting question regarding the performance of DWM in online settings. Lastly but most importantly, although we adopt the stride sampling technique to accelerate the inference, the computational demand of DWM remains high. Further enhancements to speed up the sampling process could be crucial for future usages of DWM to tackle larger scale problems.\n' +
+      '\n' +
+      '## Impact Statement\n' +
+      '\n' +
+      'This paper presents work whose goal is to advance the field of Machine Learning. There are many potential societal consequences of our work, none which we feel must be specifically highlighted here.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* Ajay et al. (2022) Ajay, A., Du, Y., Gupta, A., Tenenbaum, J., Jaakkola, T., and Agrawal, P. Is conditional generative modeling all you need for decision-making? _arXiv preprint arXiv:2211.15657_, 2022.\n' +
+      '* Amos et al. (2021) Amos, B., Stanton, S., Yarats, D., and Wilson, A. G. On the model-based stochastic value gradient for continuous reinforcement learning. In _Learning for Dynamics and Control_, pp. 6-20. PMLR, 2021.\n' +
+      '* Asadi et al. (2019) Asadi, K., Misra, D., Kim, S., and Littman, M. L. Combating the compounding-error problem with a multi-step model. _arXiv preprint arXiv:1905.13320_, 2019.\n' +
+      '* Chen et al. (2022) Chen, C., Wu, Y.-F., Yoon, J., and Ahn, S. Transdreamer: Reinforcement learning with transformer world models. _arXiv preprint arXiv:2202.09481_, 2022.\n' +
+      '* Chen et al. (2021) Chen, L., Lu, K., Rajeswaran, A., Lee, K., Grover, A., Laskin, M., Abbeel, P., Srinivas, A., and Mordatch, I. Decision transformer: Reinforcement learning via sequence modeling. In _Thirty-Fifth Conference on Neural Information Processing Systems_, 2021. URL [https://openreview.net/forum?id=a7APmM4B9d](https://openreview.net/forum?id=a7APmM4B9d).\n' +
+      '* Chi et al. (2023) Chi, C., Feng, S., Du, Y., Xu, Z., Cousineau, E., Burchfiel, B., and Song, S. Diffusion policy: Visuomotor policy learning via action diffusion. _arXiv preprint arXiv:2303.04137_, 2023.\n' +
+      '* Chitnis et al. (2023) Chitnis, R., Xu, Y., Hashemi, B., Lehnert, L., Dogan, U., Zhu, Z., and Delalleau, O. Iql-td-mpc: Implicit q-learning for hierarchical model predictive control. _arXiv preprint arXiv:2306.00867_, 2023.\n' +
+      '* Dean et al. (2020) Dean, S., Mania, H., Matni, N., Recht, B., and Tu, S. On the sample complexity of the linear quadratic regulator. _Foundations of Computational Mathematics_, 20(4):633-679, 2020.\n' +
+      '* Deisenroth et al. (2013) Deisenroth, M. P., Neumann, G., Peters, J., et al. A survey on policy search for robotics. _Foundations and Trends(r) in Robotics_, 2(1-2):1-142, 2013.\n' +
+      '* Ding & Jin (2023) Ding, Z. and Jin, C. Consistency models as a rich and efficient policy class for reinforcement learning. _arXiv preprint arXiv:2309.16984_, 2023.\n' +
+      '* Du et al. (2023) Du, Y., Yang, M., Dai, B., Dai, H., Nachum, O., Tenenbaum, J., Schuurmans, D., and Abbeel, P. Learning universal policies via text-guided video generation. _arXiv preprint arXiv:2302.00111_, 2023.\n' +
+      '* Emmons et al. (2021) Emmons, S., Eysenbach, B., Kostrikov, I., and Levine, S. Rvs: What is essential for offline rl via supervised learning? _arXiv preprint arXiv:2112.10751_, 2021.\n' +
+      '* Feinberg et al. (2018) Feinberg, V., Wan, A., Stoica, I., Jordan, M. I., Gonzalez, J. E., and Levine, S. Model-based value estimation for efficient model-free reinforcement learning. _arXiv preprint arXiv:1803.00101_, 2018.\n' +
+      '* Fu et al. (2020) Fu, J., Kumar, A., Nachum, O., Tucker, G., and Levine, S. D4rl: Datasets for deep data-driven reinforcement learning. _arXiv preprint arXiv:2004.07219_, 2020.\n' +
+      '* Fujimoto & Gu (2021) Fujimoto, S. and Gu, S. A minimalist approach to offline reinforcement learning. In _Thirty-Fifth Conference on Neural Information Processing Systems_, 2021. URL [https://openreview.net/forum?id=Q32U7dzWXpc](https://openreview.net/forum?id=Q32U7dzWXpc).\n' +
+      '* Fujimoto et al. (2018) Fujimoto, S., Hoof, H., and Meger, D. Addressing function approximation error in actor-critic methods. In _International conference on machine learning_, pp. 1587-1596. PMLR, 2018.\n' +
+      '* Fujimoto et al. (2019) Fujimoto, S., Meger, D., and Precup, D. Off-policy deep reinforcement learning without exploration. In _International Conference on Machine Learning_, pp. 2052-2062. PMLR, 2019.\n' +
+      '* Garg et al. (2023) Garg, D., Hejna, J., Geist, M., and Ermon, S. Extreme q-learning: Maxent rl without entropy. _arXiv preprint arXiv:2301.02328_, 2023.\n' +
+      '* Ghasemipour et al. (2022) Ghasemipour, K., Gu, S. S., and Nachum, O. Why so pessimistic? estimating uncertainties for offline rl through ensembles, and why their independence matters. _Advances in Neural Information Processing Systems_, 35:18267-18281, 2022.\n' +
+      '* Ha & Schmidhuber (2018) Ha, D. and Schmidhuber, J. World models. _arXiv preprint arXiv:1803.10122_, 2018.\n' +
+      '* Hafner et al. (2019) Hafner, D., Lillicrap, T., Ba, J., and Norouzi, M. Dream to control: Learning behaviors by latent imagination. _arXiv preprint arXiv:1912.01603_, 2019a.\n' +
+      '* Hafner et al. (2019) Hafner, D., Lillicrap, T., Fischer, I., Villegas, R., Ha, D., Lee, H., and Davidson, J. Learning latent dynamics for planning from pixels. In _International conference on machine learning_, pp. 2555-2565. PMLR, 2019b.\n' +
+      '* Hafner et al. (2020) Hafner, D., Lillicrap, T., Norouzi, M., and Ba, J. Mastering atari with discrete world models. _arXiv preprint arXiv:2010.02193_, 2020.\n' +
+      '* Hutter et al. (2019)* Hafner et al. (2023) Hafner, D., Pasukonis, J., Ba, J., and Lillicrap, T. Mastering diverse domains through world models. _arXiv preprint arXiv:2301.04104_, 2023.\n' +
+      '* Hansen et al. (2022a) Hansen, N., Lin, Y., Su, H., Wang, X., Kumar, V., and Rajeswaran, A. Modem: Accelerating visual model-based reinforcement learning with demonstrations. _arXiv preprint arXiv:2212.05698_, 2022a.\n' +
+      '* Hansen et al. (2022b) Hansen, N., Wang, X., and Su, H. Temporal difference learning for model predictive control. _arXiv preprint arXiv:2203.04955_, 2022b.\n' +
+      '* Hansen et al. (2023) Hansen, N., Su, H., and Wang, X. Td-mpc2: Scalable, robust world models for continuous control. _arXiv preprint arXiv:2310.16828_, 2023.\n' +
+      '* Hansen-Estruch et al. (2023) Hansen-Estruch, P., Kostrikov, I., Janner, M., Kuba, J. G., and Levine, S. Idql: Implicit q-learning as an actor-critic method with diffusion policies. _arXiv preprint arXiv:2304.10573_, 2023.\n' +
+      '* Ho & Salimans (2022) Ho, J. and Salimans, T. Classifier-free diffusion guidance. _arXiv preprint arXiv:2207.12598_, 2022.\n' +
+      '* Ho et al. (2020) Ho, J., Jain, A., and Abbeel, P. Denoising diffusion probabilistic models. _Advances in neural information processing systems_, 33:6840-6851, 2020.\n' +
+      '* Janner et al. (2019) Janner, M., Fu, J., Zhang, M., and Levine, S. When to trust your model: Model-based policy optimization. _Advances in neural information processing systems_, 32, 2019.\n' +
+      '* Janner et al. (2020) Janner, M., Mordatch, I., and Levine, S. gamma-models: Generative temporal difference learning for infinite-horizon prediction. _Advances in Neural Information Processing Systems_, 33:1724-1735, 2020.\n' +
+      '* Janner et al. (2021) Janner, M., Li, Q., and Levine, S. Offline reinforcement learning as one big sequence modeling problem. In _Thirty-Fifth Conference on Neural Information Processing Systems_, 2021. URL [https://openreview.net/forum?id=wgeK563QgSw](https://openreview.net/forum?id=wgeK563QgSw).\n' +
+      '* Janner et al. (2022) Janner, M., Du, Y., Tenenbaum, J. B., and Levine, S. Planning with diffusion for flexible behavior synthesis. _arXiv preprint arXiv:2205.09991_, 2022.\n' +
+      '* Jaques et al. (2019) Jaques, N., Ghandeharioun, A., Shen, J. H., Ferguson, C., Lapedriza, A., Jones, N., Gu, S., and Picard, R. Way off-policy batch deep reinforcement learning of implicit human preferences in dialog. _arXiv preprint arXiv:1907.00456_, 2019.\n' +
+      '* Jia et al. (2023) Jia, Z., Liu, F., Thumuluri, V., Chen, L., Huang, Z., and Su, H. Chain-of-thought predictive control. _arXiv preprint arXiv:2304.00776_, 2023.\n' +
+      '* Kaiser et al. (2019) Kaiser, L., Babaeizadeh, M., Milos, P., Osinski, B., Campbell, R. H., Czechowski, K., Erhan, D., Finn, C., Kozakowski, P., Levine, S., et al. Model-based reinforcement learning for atari. _arXiv preprint arXiv:1903.00374_, 2019.\n' +
+      '* Kidambi et al. (2020) Kidambi, R., Rajeswaran, A., Netrapalli, P., and Joachims, T. Morel: Model-based offline reinforcement learning. _Advances in neural information processing systems_, 33:21810-21823, 2020.\n' +
+      '* Kingma et al. (2021) Kingma, D., Salimans, T., Poole, B., and Ho, J. Variational diffusion models. _Advances in neural information processing systems_, 34:21696-21707, 2021.\n' +
+      '* Kostrikov et al. (2021) Kostrikov, I., Nair, A., and Levine, S. Offline reinforcement learning with implicit q-learning, 2021.\n' +
+      '* Kumar et al. (2019) Kumar, A., Fu, J., Tucker, G., and Levine, S. Stabilizing off-policy q-learning via bootstrapping error reduction. _arXiv preprint arXiv:1906.00949_, 2019.\n' +
+      '* Kumar et al. (2020) Kumar, A., Zhou, A., Tucker, G., and Levine, S. Conservative q-learning for offline reinforcement learning. _arXiv preprint arXiv:2006.04779_, 2020.\n' +
+      '* Lambert et al. (2022) Lambert, N., Pister, K., and Calandra, R. Investigating compounding prediction errors in learned dynamics models. _arXiv preprint arXiv:2203.09637_, 2022.\n' +
+      '* Lee et al. (2022) Lee, K.-H., Nachum, O., Yang, M., Lee, L., Freeman, D., Xu, W., Guadarrama, S., Fischer, I., Jang, E., Michalewski, H., et al. Multi-game decision transformers. _arXiv preprint arXiv:2205.15241_, 2022.\n' +
+      '* Lipman et al. (2022) Lipman, Y., Chen, R. T., Ben-Hamu, H., Nickel, M., and Le, M. Flow matching for generative modeling. _arXiv preprint arXiv:2210.02747_, 2022.\n' +
+      '* Meng et al. (2021) Meng, L., Wen, M., Yang, Y., Le, C., Li, X., Zhang, W., Wen, Y., Zhang, H., Wang, J., and Xu, B. Offline pretrained multi-agent decision transformer: One big sequence model conquers all starcrafii tasks. _arXiv preprint arXiv:2112.02845_, 2021.\n' +
+      '* Micheli et al. (2022) Micheli, V., Alonso, E., and Fleuret, F. Transformers are sample efficient world models. _arXiv preprint arXiv:2209.00588_, 2022.\n' +
+      '* Mish (2019) Mish, M. D. A self regularized non-monotonic activation function [j]. _arXiv preprint arXiv:1908.08681_, 2019.\n' +
+      '* Mishra & Chen (2023) Mishra, U. A. and Chen, Y. Reorientdiff: Diffusion model based reorientation for object manipulation. _arXiv preprint arXiv:2303.12700_, 2023.\n' +
+      '* Nagabandi et al. (2018) Nagabandi, A., Kahn, G., Fearing, R. S., and Levine, S. Neural network dynamics for model-based deep reinforcement learning with model-free fine-tuning. In _2018_IEEE international conference on robotics and automation (ICRA)_, pp. 7559-7566. IEEE, 2018.\n' +
+      '* Nakamoto et al. (2023) Nakamoto, M., Zhai, Y., Singh, A., Mark, M. S., Ma, Y., Finn, C., Kumar, A., and Levine, S. Cal-ql: Calibrated offline rl pre-training for efficient online fine-tuning. _arXiv preprint arXiv:2303.05479_, 2023.\n' +
+      '* Nguyen et al. (2022) Nguyen, T., Zheng, Q., and Grover, A. Conserveighttive behavioral cloning for reliable offline reinforcement learning. _arXiv preprint arXiv:2210.05158_, 2022.\n' +
+      '* Nichol & Dhariwal (2021) Nichol, A. Q. and Dhariwal, P. Improved denoising diffusion probabilistic models. In _International Conference on Machine Learning_, pp. 8162-8171. PMLR, 2021.\n' +
+      '* Peng et al. (2019) Peng, X. B., Kumar, A., Zhang, G., and Levine, S. Advantage-weighted regression: Simple and scalable off-policy reinforcement learning. _arXiv preprint arXiv:1910.00177_, 2019.\n' +
+      '* Robine et al. (2023) Robine, J., Hoffmann, M., Uelwer, T., and Harmeling, S. Transformer-based world models are happy with 100k interactions. _arXiv preprint arXiv:2303.07109_, 2023.\n' +
+      '* Ronneberger et al. (2015) Ronneberger, O., Fischer, P., and Brox, T. U-net: Convolutional networks for biomedical image segmentation. In _Medical Image Computing and Computer-Assisted Intervention-MICCAI 2015: 18th International Conference, Munich, Germany, October 5-9, 2015, Proceedings, Part III 18_, pp. 234-241. Springer, 2015.\n' +
+      '* Schrittwieser et al. (2020) Schrittwieser, J., Antonoglou, I., Hubert, T., Simonyan, K., Sifre, L., Schmitt, S., Guez, A., Lockhart, E., Hassabis, D., Graepel, T., et al. Mastering atari, go, chess and shogi by planning with a learned model. _Nature_, 588(7839):604-609, 2020.\n' +
+      '* Schulman et al. (2015) Schulman, J., Moritz, P., Levine, S., Jordan, M., and Abbeel, P. High-dimensional continuous control using generalized advantage estimation. _arXiv preprint arXiv:1506.02438_, 2015.\n' +
+      '* Silver et al. (2014) Silver, D., Lever, G., Heess, N., Degris, T., Wierstra, D., and Riedmiller, M. Deterministic policy gradient algorithms. In _International conference on machine learning_, pp. 387-395. Pmlr, 2014.\n' +
+      '* Sohl-Dickstein et al. (2015) Sohl-Dickstein, J., Weiss, E., Maheswaranathan, N., and Ganguli, S. Deep unsupervised learning using nonequilibrium thermodynamics. In _International conference on machine learning_, pp. 2256-2265. PMLR, 2015.\n' +
+      '* Song et al. (2020) Song, Y., Sohl-Dickstein, J., Kingma, D. P., Kumar, A., Ermon, S., and Poole, B. Score-based generative modeling through stochastic differential equations. _arXiv preprint arXiv:2011.13456_, 2020.\n' +
+      '* Song et al. (2023) Song, Y., Dhariwal, P., Chen, M., and Sutskever, I. Consistency models. _arXiv preprint arXiv:2303.01469_, 2023.\n' +
+      '* Sutton (1990) Sutton, R. S. Integrated architectures for learning, planning, and reacting based on approximating dynamic programming. In _Machine learning proceedings 1990_, pp. 216-224. Elsevier, 1990.\n' +
+      '* Sutton (1991) Sutton, R. S. Dyna, an integrated architecture for learning, planning, and reacting. _ACM Sigart Bulletin_, 2(4):160-163, 1991.\n' +
+      '* Thrun & Schwartz (2014) Thrun, S. and Schwartz, A. Issues in using function approximation for reinforcement learning. In _Proceedings of the 1993 connectionist models summer school_, pp. 255-263. Psychology Press, 2014.\n' +
+      '* Vaswani et al. (2017) Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A. N., Kaiser, L., and Polosukhin, I. Attention is all you need. _Advances in neural information processing systems_, 30, 2017.\n' +
+      '* Wang et al. (2019) Wang, T., Bao, X., Clavera, I., Hoang, J., Wen, Y., Langlois, E., Zhang, S., Zhang, G., Abbeel, P., and Ba, J. Benchmarking model-based reinforcement learning. _arXiv preprint arXiv:1907.02057_, 2019.\n' +
+      '* Wang et al. (2022) Wang, Z., Hunt, J. J., and Zhou, M. Diffusion policies as an expressive policy class for offline reinforcement learning. _arXiv preprint arXiv:2208.06193_, 2022.\n' +
+      '* Watkins & Dayan (1992) Watkins, C. J. and Dayan, P. Q-learning. _Machine learning_, 8:279-292, 1992.\n' +
+      '* Williams et al. (2015) Williams, G., Aldrich, A., and Theodorou, E. Model predictive path integral control using covariance variable importance sampling. _arXiv preprint arXiv:1509.01149_, 2015.\n' +
+      '* Wu & He (2018) Wu, Y. and He, K. Group normalization. In _Proceedings of the European conference on computer vision (ECCV)_, pp. 3-19, 2018.\n' +
+      '* Wu et al. (2019) Wu, Y., Tucker, G., and Nachum, O. Behavior regularized offline reinforcement learning. _arXiv preprint arXiv:1911.11361_, 2019.\n' +
+      '* Xiao et al. (2019) Xiao, C., Wu, Y., Ma, C., Schuurmans, D., and Muller, M. Learning to combat compounding-error in model-based reinforcement learning. _arXiv preprint arXiv:1912.11206_, 2019.\n' +
+      '* Xu et al. (2023) Xu, Y., Li, N., Goel, A., Guo, Z., Yao, Z., Kasaei, H., Kasaei, M., and Li, Z. Controllable video generation by learning the underlying dynamical system with neural ode. _arXiv preprint arXiv:2303.05323_, 2023.\n' +
+      '\n' +
+      'Yamagata, T., Khalil, A., and Santos-Rodriguez, R. Q-learning decision transformer: Leveraging dynamic programming for conditional sequence modelling in offline rl. In _International Conference on Machine Learning_, pp. 38989-39007. PMLR, 2023.\n' +
+      '* Ye et al. (2021) Ye, W., Liu, S., Kurutach, T., Abbeel, P., and Gao, Y. Mastering atari games with limited data. _Advances in Neural Information Processing Systems_, 34:25476-25488, 2021.\n' +
+      '* Yu et al. (2020) Yu, T., Thomas, G., Yu, L., Ermon, S., Zou, J. Y., Levine, S., Finn, C., and Ma, T. Mopo: Model-based offline policy optimization. _Advances in Neural Information Processing Systems_, 33:14129-14142, 2020.\n' +
+      '* Zheng et al. (2022) Zheng, Q., Zhang, A., and Grover, A. Online decision transformer. _arXiv preprint arXiv:2202.05607_, 2022.\n' +
+      '* Zheng et al. (2023a) Zheng, Q., Henaff, M., Amos, B., and Grover, A. Semi-supervised offline reinforcement learning with action-free trajectories. In _International Conference on Machine Learning_, pp. 42339-42362. PMLR, 2023a.\n' +
+      '* Zheng et al. (2023b) Zheng, Q., Le, M., Shaul, N., Lipman, Y., Grover, A., and Chen, R. T. Guided flows for generative modeling and decision making. _arXiv preprint arXiv:2311.13443_, 2023b.\n' +
+      '\n' +
+      'Implementation Details of Diffusion World Model\n' +
+      '\n' +
+      'We summarize the architecture and hyperparameters used for our experiments. For all the experiments, we use our own PyTorch implementation that is heavily influenced by the following codebases:\n' +
+      '\n' +
+      'Decision Difffuser (Ajay et al., 2022) [https://github.com/anuragajay/decision-diffuser](https://github.com/anuragajay/decision-diffuser)\n' +
+      '\n' +
+      'Diffuser (Janner et al., 2022) [https://github.com/jannemr/diffuser/](https://github.com/jannemr/diffuser/)\n' +
+      '\n' +
+      'SSORL (Zheng et al., 2023a) [https://github.com/facebookresearch/ssorl/](https://github.com/facebookresearch/ssorl/)\n' +
+      '\n' +
+      '**Architecture.** As introduced in Section 3.1, the diffusion world model \\(p_{\\theta}\\) used in this paper is chosen to model a length-\\(T\\) subtrajecotives \\((s_{t},a_{t},r_{t},s_{t+1},r_{t+1},\\ldots,s_{t+T-1},r_{t+T-1})\\). At inference time, it predicts the subsequent subtrajecotry of \\(T-1\\) steps, conditioning on initial state-action pair \\((s_{t},a_{t})\\) and target RTG \\(y=g_{t}\\):\n' +
+      '\n' +
+      '\\[\\widehat{r}_{t},\\widehat{s}_{t+1},\\widehat{r}_{t+1},\\ldots,\\widehat{s}_{t+T-1 },\\widehat{r}_{t+T-1}\\sim p_{\\theta}(\\cdot|s_{t},a_{t},y=g_{t}). \\tag{6}\\]\n' +
+      '\n' +
+      'There are two reasons we choose not to model future actions in the sequence. First, our proposed diffusion model value expansion (Definition 3.1) does not require the action information for future steps. Second, previous work have found that modeling continuous action through diffusion is less accurate (Ajay et al., 2022).\n' +
+      '\n' +
+      'Throughout the paper, we train guided diffusion models for state-reward sequences of length \\(T=8\\). The number of diffusion steps is \\(K=5\\). The probability of null conditioning \\(p_{\\text{uncond}}\\) is set to \\(0.25\\), and the batch size is \\(64\\). We use the cosine noise schedule proposed by Nichol and Dhariwal (2021). The discount factor is \\(\\gamma=0.99\\), and we normalize the discounted RTG by a task-specific reward scale, which is \\(400\\) for Hopper, \\(550\\) for Walker, and \\(1200\\) for Halfcheetah tasks., see Table 17.\n' +
+      '\n' +
+      'Following Ajay et al. (2022), our noise predictor \\(\\varepsilon_{\\theta}\\) is a temporal U-net (Janner et al., 2022; Ronneberger et al., 2015) that consists of 6 repeated residual blocks, where each block consists of 2 temporal convolutions followed by the group norm (Wu and He, 2018) and a final Mish nonlinearity activation (Mish, 2019). The diffusion step \\(k\\) is first transformed to its sinusoidal position encoding and projected to a latent space via a 2-layer MLP, and the RTG value is transformed into its latent embedding via a 3-layer MLP. In our diffusion world model, the initial action \\(a_{t}\\) as additional condition is also transformed into latent embedding via a 3-layer MLP, and further concatenated with the embeddings of the diffusion step and RTG.\n' +
+      '\n' +
+      '**Optimization.** We optimize our model by the Adam optimizer with a learning rate \\(1\\times 10^{-4}\\) for all the datasets. The final model parameter \\(\\bar{\\theta}\\) we consider is an exponential moving average (EMA) of the obtained parameters over the course of training. For every \\(10\\) iteration, we update \\(\\bar{\\theta}=\\beta\\bar{\\theta}+(1-\\beta)\\theta\\), where the exponential decay parameter \\(\\beta=0.995\\). We train the diffusion model for \\(2\\times 10^{6}\\) iterations.\n' +
+      '\n' +
+      '**Sampling with Guidance.** To sample from the diffusion model, we need to first sample a random noise \\(x(K)\\sim\\mathcal{N}(0,\\mathbf{I})\\) and then run the reverse process. Algorithm A.1 presents the general process of sampling from a diffusion model trained under classifier-free guidance.\n' +
+      '\n' +
+      'In the context of offline RL, the diffusion world model generates future states and rewards based on the current state \\(s_{t}\\), the current action \\(a_{t}\\) and the target return \\(g_{\\text{eval}}\\), see Section 3. Therefore, the sampling process is slightly different from Algorithm A.1, as we need to constrain the initial state and initial action to be \\(s_{t}\\) and \\(a_{t}\\), respectively. The adapted algorithm is summarized in Algorithm A.2.\n' +
+      '\n' +
+      'Following Ajay et al. (2022), we apply the low temperature sampling technique for diffusion models. The temperature is set to be \\(\\alpha=0.5\\) for sampling at each diffusion step from Gaussian \\(\\mathcal{N}(\\widehat{\\mu}_{\\theta},\\alpha^{2}\\widehat{\\Sigma}_{\\theta})\\), with \\(\\widehat{\\mu}_{\\theta}\\) and \\(\\widehat{\\Sigma}_{\\theta}\\) being the predicted mean and covariance.\n' +
+      '\n' +
+      '**Accelerated Inference.** Algorithm A.1 and A.2 run the full reverse process, Building on top of them, we further apply the stride sampling technique as in Nichol and Dhariwal (2021) to speed up sampling process. Formally, in the full reverse process, we generates \\(x^{(k-1)}\\) by \\(x^{(k)}\\) one by one, from \\(k=K\\) till \\(k=1\\):\n' +
+      '\n' +
+      '\\[x^{(k-1)}=\\frac{\\sqrt{\\bar{\\alpha}_{k-1}}\\beta_{k}}{1-\\bar{\\alpha}_{k}}\\widehat {x}^{(0)}+\\frac{\\sqrt{\\alpha_{k}}(1-\\bar{\\alpha}_{k-1})}{1-\\bar{\\alpha}_{k}}x ^{(k)}+\\sigma_{k}\\varepsilon,\\ \\ \\varepsilon\\sim\\mathcal{N}(0,\\mathbf{I}), \\tag{7}\\]\n' +
+      '\n' +
+      'where \\(\\widehat{x}^{(0)}\\) is the prediction of the true data point (line 5 of Algorithm A.1), \\(\\sigma_{k}=\\sqrt{\\frac{\\beta_{k}(1-\\bar{\\alpha}_{k-1})}{1-\\bar{\\alpha}_{k}}}\\) is the standard deviation of noise at step \\(k\\) (line 8 of in Algorithm A.1). We note that \\(\\bar{\\alpha}_{k}=\\prod_{k^{\\prime}=1}^{K}(1-\\beta_{k^{\\prime}})\\) where the noise schedule \\(\\{\\beta_{k}\\}_{k=1}^{K}\\) is predefined, see Section 2 and Appendix A.\n' +
+      '\n' +
+      'Running a full reverse process amounts to evaluating Equation (7) for \\(K\\) times, which is time consuming. To speed up sampling, we choose \\(N\\) diffusion steps equally spaced between \\(1\\) and \\(K\\), namely, \\(\\tau_{1},\\dots,\\tau_{N}\\), where \\(\\tau_{N}=K\\). We then evaluate Equation (7) for the chosen steps \\(\\tau_{1},\\dots,\\tau_{N}\\). This effectively reduces the inference time to approximately \\(N/K\\) of the original. In our experiments, we train the diffusion model with \\(K=5\\) diffusion steps and sample with \\(N=3\\) inference steps, see Section 4.2 for a justification of this number.\n' +
+      '\n' +
+      '```\n' +
+      '1Input: trained noise prediction model \\(\\varepsilon_{\\theta}\\), conditioning parameter \\(y\\), guidance parameter \\(\\omega\\), number of diffusion steps \\(K\\)\n' +
+      '2\\(x^{(K)}\\sim\\mathcal{N}(0,\\mathbf{I})\\)\n' +
+      '3for\\(k=K,\\dots,1\\)do\n' +
+      '4\\(\\widehat{\\varepsilon}\\leftarrow\\omega\\cdot\\varepsilon_{\\theta}(x^{(k)},k,y)+(1- \\omega)\\cdot\\varepsilon_{\\theta}(x^{(k)},k,\\varnothing)\\)//estimatetruedatapoint\\(x^{(0)}\\)\n' +
+      '5\\(\\widehat{x}^{(0)}\\leftarrow\\frac{1}{\\sqrt{\\tilde{\\alpha}_{k}}}\\big{(}x^{(k)}- \\sqrt{1-\\tilde{\\alpha}_{t}}\\widehat{\\varepsilon}\\big{)}\\)//Samplefromtheposteriordistribution\\(q(x^{(k-1)}|x^{(k)},x^{(0)})\\)//SeeEquation(6)and(7)ofHoetal.(2020)\n' +
+      '6\\(\\widehat{\\mu}\\leftarrow\\frac{\\sqrt{\\tilde{\\alpha}_{k-1}}\\beta_{k}}{1-\\tilde{ \\alpha}_{k}}\\widehat{x}^{(0)}+\\frac{\\sqrt{\\alpha_{k}}(1-\\tilde{\\alpha}_{k-1}) }{1-\\tilde{\\alpha}_{k}}x^{(k)}\\)\n' +
+      '7\\(\\widehat{\\Sigma}\\leftarrow\\frac{\\beta_{k}(1-\\tilde{\\alpha}_{k-1})}{1-\\tilde{ \\alpha}_{k}}\\mathbf{I}\\)\n' +
+      '8\\(x^{(k-1)}\\sim\\mathcal{N}(\\widehat{\\mu},\\widehat{\\Sigma})\\)\n' +
+      '9Output:\\(x^{(0)}\\)\n' +
+      '```\n' +
+      '\n' +
+      '**Algorithm A.1**Sampling from Guided Diffusion Models\n' +
+      '\n' +
+      '```\n' +
+      '1Input: trained noise prediction model \\(\\varepsilon_{\\theta}\\), initial state \\(s_{t}\\), initial action \\(a_{t}\\), target return \\(g_{\\text{eval}}\\), guidance parameter \\(\\omega\\), number of diffusion steps \\(K\\)\n' +
+      '2\\(x^{(K)}\\sim\\mathcal{N}(0,\\mathbf{I})\\)//applyconditioningof\\(s_{t}\\)and\\(a_{t}\\)\n' +
+      '3\\(x^{(K)}[0:\\text{dim}(s_{t})+\\text{dim}(a_{t})]\\leftarrow\\text{concatenate}(s_{t},a_{t})\\)\n' +
+      '4for\\(k=K,\\dots,1\\)do\n' +
+      '5\\(\\widehat{\\varepsilon}\\leftarrow\\omega\\cdot\\varepsilon_{\\theta}(x^{(k)},k,g_{ \\text{eval}})+(1-\\omega)\\cdot\\varepsilon_{\\theta}(x^{(k)},k,\\varnothing)\\)//estimatetruedatapoint\\(x^{(0)}\\)\n' +
+      '6\\(\\widehat{x}^{(0)}\\leftarrow\\frac{1}{\\sqrt{\\tilde{\\alpha}_{k}}}\\big{(}x^{(k)}- \\sqrt{1-\\tilde{\\alpha}_{t}}\\widehat{\\varepsilon}\\big{)}\\)//Samplefromtheposteriordistribution\\(q(x^{(k-1)}|x^{(k)},x^{(0)})\\)//SeeEquation(6)and(7)ofHoetal.(2020)\n' +
+      '7\\(\\widehat{\\mu}\\leftarrow\\frac{\\sqrt{\\tilde{\\alpha}_{k-1}}\\beta_{k}}{1-\\tilde{ \\alpha}_{k}}\\widehat{x}^{(0)}+\\frac{\\sqrt{\\alpha_{k}}(1-\\tilde{\\alpha}_{k-1}) }{1-\\tilde{\\alpha}_{k}}x^{(k)}\\)\n' +
+      '8\\(\\widehat{\\Sigma}\\leftarrow\\frac{\\beta_{k}(1-\\tilde{\\alpha}_{k-1})}{1-\\tilde{ \\alpha}_{k}}\\mathbf{I}\\)\n' +
+      '9\\(x^{(k-1)}\\sim\\mathcal{N}(\\widehat{\\mu},\\widehat{\\Sigma})\\)//applyconditioningof\\(s_{t}\\)and\\(a_{t}\\)\n' +
+      '10\\(x^{(k-1)}[0:\\text{dim}(s_{t})+\\text{dim}(a_{t})]\\leftarrow\\text{concatenate}(s_{t},a_{t})\\)\n' +
+      '11\n' +
+      '12Output:\\(x^{(0)}\\)\n' +
+      '```\n' +
+      '\n' +
+      '**Algorithm A.2**Diffusion World Model Sampling\n' +
+      '\n' +
+      '## Appendix B Implementation Details of One-step Dynamics Model\n' +
+      '\n' +
+      'The traditional one-step dynamics model \\(f_{\\theta}(s_{t+1},r_{t}|s_{t},a_{t})\\) is typically represented by a parameterized probability distribution over the state and reward spaces, and optimized through log-likelihood maximization of the single-step transitions:\n' +
+      '\n' +
+      '\\[\\max_{\\theta}\\mathbb{E}_{(s_{t},a_{t},r_{t},s_{t+1})\\sim\\mathcal{D}_{\\text{ offline}}}\\left[\\log f_{\\theta}(s_{t+1},r_{t}|s_{t},a_{t})\\right], \\tag{8}\\]where \\((s_{t},a_{t},r_{t},s_{t+1})\\) is sampled from the offline data distribution \\(\\mathcal{D}_{\\text{offline}}\\). As in Kidambi et al. (2020), we model \\(f_{\\theta}\\) as a Gaussian distribution \\(\\mathcal{N}(\\mu_{\\theta},\\Sigma_{\\theta})\\), where the mean \\(\\mu_{\\theta}\\) and the diagonal covariance matrix \\(\\Sigma_{\\theta}\\) are parameterized by two 4-layer MLP neural networks with 256 hidden units per layer. We use the ReLU activation function for hidden layers. The final layer of \\(\\Sigma_{\\theta}\\) is activated by a SoftPlus function to ensure validity. We train the dynamics models for \\(1\\times 10^{6}\\) iterations, using the Adam optimizer with learning rate \\(1\\times 10^{-4}\\).\n' +
+      '\n' +
+      '## Appendix C Diffusion World Model Based Offline RL Methods\n' +
+      '\n' +
+      'In Section 4, we consider 3 instantiations of Algorithm 3.1 where we integrate TD3+BC, IQL, Q-learning with pessimistic reward (PQL) into our framework. These algorithms are specifically designed for offline RL, with _conservatism_ notions defined on actions (TD3+BC), value function (IQL), and rewards (PQL) respectively. In the sequel, we refer to our instantiations as DWM-TD3BC, DWM-IQL and DWM-PQL. The detailed implementation of them will be introduced below.\n' +
+      '\n' +
+      '### DWM-TD3BC: TD3+BC with Diffusion World Model\n' +
+      '\n' +
+      'Building on top of the TD3 algorithm (Fujimoto et al., 2018), TD3+BC (Fujimoto and Gu, 2021) employs explicit behavior cloning regularization to learn a deterministic policy. The algorithm works as follows.\n' +
+      '\n' +
+      'The critic training follows the TD3 algorithm exactly. We learn two critic networks \\(Q_{\\phi_{1}}\\) and \\(Q_{\\phi_{2}}\\) as double Q-learning (Fujimoto et al., 2018) through TD learning. The target value in TD learning for a transition \\((s,a,r,s^{\\prime})\\) is given by:\n' +
+      '\n' +
+      '\\[y=r+\\gamma\\min_{i\\in\\{1,2\\}}Q_{\\phi_{i}}\\big{(}s^{\\prime},a^{\\prime}=\\text{ Clip}(\\pi_{\\bar{\\psi}}(s^{\\prime})+\\varepsilon,-C,C)\\big{)}, \\tag{9}\\]\n' +
+      '\n' +
+      'where \\(\\varepsilon\\sim\\mathcal{N}(0,\\sigma^{2}I)\\) is a random noise, \\(\\pi_{\\bar{\\psi}}\\) is the target policy and Clip(\\(\\cdot\\)) is an operator that bounds the value of the action vector to be within \\([-C,C]\\) for each dimension. Both \\(Q_{\\phi_{1}}\\) and \\(Q_{\\phi_{2}}\\) will regress into the target value \\(y\\) by minimizing the mean squared error (MSE), which amounts to solving the following problem:\n' +
+      '\n' +
+      '\\[\\min_{\\phi_{i}}\\mathbb{E}_{(s,a,r,s^{\\prime})\\sim\\mathcal{D}_{\\text{offline}} }\\left[\\left(y(r,s^{\\prime})-Q_{\\phi_{i}}(s,a)\\right)^{2}\\right],\\;i\\in\\{1,2\\}. \\tag{10}\\]\n' +
+      '\n' +
+      'For training the policy, TD3+BC optimizes the following regularized problem:\n' +
+      '\n' +
+      '\\[\\max_{\\psi}\\mathbb{E}_{(s,a)\\sim\\mathcal{D}_{\\text{offline}}}\\left[\\lambda Q _{\\phi_{1}}(s,\\pi_{\\psi}(s))-\\left\\|a-\\pi_{\\psi}(s)\\right\\|^{2}\\right], \\tag{11}\\]\n' +
+      '\n' +
+      'which \\(\\mathcal{D}_{\\text{offline}}\\) is the offline data distribution. Without the behavior cloning regularization term \\(\\left\\|a-\\pi_{\\psi}(s)\\right\\|^{2}\\), the above problem reduces to the objective corresponding to the deterministic policy gradient theorem (Silver et al., 2014). Note that \\(\\pi\\) is always trying to maximize one fixed proxy value function.\n' +
+      '\n' +
+      'Both the updates of target policy \\(\\pi_{\\bar{\\psi}}\\) and the target critic networks \\(Q_{\\bar{\\phi}_{i}}\\) are delayed in TD3+BC. The whole algorithm is summarized in Algorithm C.1.\n' +
+      '\n' +
+      '### DWM-IQL: IQL with Diffusion World Model\n' +
+      '\n' +
+      'IQL (Kostrikov et al., 2021) applies pessimistic value estimation on offline dataset. In addition to the double Q functions used in TD3+BC, IQL leverages an additional state-value function \\(V_{\\xi}(s)\\), which is estimated through expectile regression:\n' +
+      '\n' +
+      '\\[\\min_{\\xi}\\mathbb{E}_{(s,a)\\sim\\mathcal{D}_{\\text{ offline}}}\\left[L^{\\tau}\\left(\\min_{i\\in\\{1,2\\}}Q_{\\bar{\\phi}_{i}}(s,a)-V_{\\xi}(s) \\right)\\right], \\tag{12}\\]\n' +
+      '\n' +
+      'where \\(L^{\\tau}(u)=|\\tau-\\mathbb{1}_{u<0}|u^{2}\\) with hyperparameter \\(\\tau\\in(0.5,1)\\), As \\(\\tau\\to 1\\), \\(V_{\\xi}(s)\\) is essentially estimating the maximum value of \\(Q(s,a)\\). This can be viewed as implicitly performing the policy improvement step, without an explicit policy. Using a hyperparameter \\(\\tau<1\\) regularizes the value estimation (of an implicit policy) and thus mitigates the overestimation issue of \\(Q\\) function. The \\(Q\\) function is updated also using Eq. (10) but with target \\(y=r+\\gamma V_{\\xi}(s^{\\prime})\\). Finally, given the \\(Q\\) and the \\(V\\) functions, the policy is extracted by Advantage Weighted Regression (Peng et al., 2019), i.e., solving\n' +
+      '\n' +
+      '\\[\\max_{\\psi}\\mathbb{E}_{(s,a)\\sim\\mathcal{D}_{\\text{ offline}}}\\left[\\exp\\left(\\beta(Q_{\\phi}(s,a)-V_{\\xi}(s))\\right)\\log\\pi_{\\psi}(a|s) \\right]. \\tag{13}\\]\n' +
+      '\n' +
+      'The update of the target critic networks \\(Q_{\\bar{\\phi}_{i}}\\) are delayed in IQL. The whole algorithm is summarzied in Algorithm C.2.\n' +
+      '\n' +
+      '```\n' +
+      '1Inputs: offline dataset \\(\\mathcal{D}_{\\text{offline}}\\), pretrained diffusion world model \\(p_{\\theta}\\), simulation horizon \\(H\\), conditioning RTG \\(g_{\\text{eval}}\\), target network update frequency \\(n\\), coefficient \\(\\lambda\\), parameters for action perturbation and clipping: \\(\\sigma\\), \\(C\\)\n' +
+      '2Initialize the actor and critic networks \\(\\pi_{\\psi}\\), \\(Q_{\\phi_{1}}\\), \\(Q_{\\phi_{2}}\\)\n' +
+      '3Initialize the weights of target networks \\(\\bar{\\psi}\\leftarrow\\psi\\), \\(\\bar{\\phi}_{1}\\leftarrow\\phi_{1}\\), \\(\\bar{\\phi}_{2}\\leftarrow\\phi_{2}\\)\n' +
+      '4for\\(i=1,2,\\ldots\\)until convergencedo\n' +
+      '5 Sample state-action pair \\((s_{t},a_{t})\\) from \\(\\mathcal{D}_{\\text{offline}}\\)// diffusion model value expansion Sample \\(\\widehat{r}_{t},\\widehat{s}_{t+1},\\widehat{r}_{t+1},\\ldots,\\widehat{s}_{t+T-1 },\\widehat{r}_{t+T-1}\\sim p_{\\theta}(\\cdot|s_{t},a_{t},g_{\\text{eval}})\\)\n' +
+      '6 Sample \\(\\varepsilon\\sim\\mathcal{N}(0,\\sigma^{2}I)\\)\\(\\widehat{a}_{t+H}^{\\varepsilon}\\leftarrow\\text{Clip}(\\pi_{\\bar{\\psi}}(\\widehat{s}_{t+H}) +\\varepsilon,-C,C)\\) Compute the target \\(Q\\) value \\(y=\\sum_{h=0}^{H-1}\\gamma^{h}\\widehat{r}_{t+h}+\\gamma^{H}\\min_{i\\in\\{1,2\\}}Q_{ \\bar{\\phi}_{i}}(\\widehat{s}_{t+H},\\widehat{a}_{t+H}^{\\varepsilon})\\)// update the critic\n' +
+      '7\\(\\phi_{1}\\leftarrow\\phi_{1}-\\eta\\nabla_{\\phi_{1}}\\left|Q_{\\phi_{1}}(s_{t},a_{t})- y\\right|_{2}^{2}\\)\n' +
+      '8\\(\\phi_{2}\\leftarrow\\phi_{2}-\\eta\\nabla_{\\phi_{2}}\\left|Q_{\\phi_{2}}(s_{t},a_{t})- y\\right|_{2}^{2}\\)// update the actor\n' +
+      '9 Update the actor network: \\(\\psi\\leftarrow\\psi+\\eta\\nabla_{\\psi}\\left(\\lambda Q_{\\phi_{1}}\\Big{(}s_{t}, \\pi_{\\psi}(s_{t})\\Big{)}-\\left|a_{t}-\\pi_{\\psi}(s_{t})\\right|^{2}\\right)\\)// update the target networks\n' +
+      '10if\\(i\\)\\(mod\\)\\(n\\)then\n' +
+      '11\\(\\bar{\\phi}_{1}\\leftarrow\\bar{\\phi}_{1}+w(\\phi-\\bar{\\phi}_{1})\\)\\(\\bar{\\phi}_{2}\\leftarrow\\bar{\\phi}_{2}+w(\\phi-\\bar{\\phi}_{2})\\)\\(\\bar{\\psi}\\leftarrow\\bar{\\psi}+w(\\psi-\\bar{\\psi})\\)\n' +
+      '12\n' +
+      '13Output:\\(\\pi_{\\psi}\\)\n' +
+      '```\n' +
+      '\n' +
+      '**Algorithm C.1**DWM-TD3BC\n' +
+      '\n' +
+      '### DWM-PQL: Pessimistic Q-learning with Diffusion World Model\n' +
+      '\n' +
+      'Previous offline RL algorithms like MOPO (Yu et al., 2020) have applied the conservatism notion directly to the reward function, which we referred to as pessimistic Q-learning (PQL) in this paper. Specifically, the original algorithm proposed by Yu et al. (2020) learns an ensemble of \\(m\\) one-step dynamics models \\(\\{p_{\\theta_{i}}\\}_{i\\in[m]}\\), and use a modified reward\n' +
+      '\n' +
+      '\\[\\tilde{r}(s,a)=\\widehat{r}(s,a)-\\kappa u(s,a|p_{\\theta_{1}},\\ldots,p_{\\theta_{ m}}) \\tag{14}\\]\n' +
+      '\n' +
+      'for learning the \\(Q\\) functions, where \\(\\widehat{r}\\) is the mean prediction from the ensemble, \\(u(s,a|p_{\\theta_{1}},\\ldots,p_{\\theta_{m}})\\) is a measurement of prediction uncertainty using the ensemble.\n' +
+      '\n' +
+      'Yu et al. (2020) parameterize each dynamics model by a Gaussian distribution, and measure the prediction uncertainty using the maximum of the Frobenious norm of each covariance matrix. Since the diffusion model does not have such parameterization, and it is computationally daunting to train an ensemble of diffusion models, we propose an alternative uncertainty measurement similar to the one used in MoRel (Kidambi et al., 2020).\n' +
+      '\n' +
+      'Given \\((s_{t},a_{t})\\) and \\(g_{\\text{eval}}\\), we randomly sample \\(m\\) sequences from the DWM, namely,\n' +
+      '\n' +
+      '\\[\\widehat{r}_{t}^{i},\\widehat{s}_{t+1}^{i},\\widehat{r}_{t+1}^{i},\\dots,\\widehat{ s}_{t+T-1}^{i},\\widehat{r}_{t+T-1}^{i},\\ \\ i\\in[m]. \\tag{15}\\]\n' +
+      '\n' +
+      'Then, we take the 1st sample as the DWM output with modified reward:\n' +
+      '\n' +
+      '\\[\\tilde{r}_{t^{\\prime}}=\\sum_{i=1}^{m}\\frac{1}{m}\\widehat{r}_{t^{ \\prime}}^{i}-\\kappa\\max_{i\\in[m],j\\in[m]}\\left(\\left\\|\\widehat{r}_{t^{\\prime}}^ {i}-\\widehat{r}_{t^{\\prime}}^{j}\\right\\|^{2}+\\left\\|\\widehat{s}_{t^{\\prime}+1}^ {i}-\\widehat{s}_{t^{\\prime}+1}^{j}\\right\\|^{2}_{2}\\right),\\ \\ t^{\\prime}=t,\\dots,t+T-2. \\tag{16}\\]\n' +
+      '\n' +
+      'This provides an efficient way to construct uncertainty-penalized rewards for each timestep along the diffusion predicted trajectories. Note that this does not apply to the reward predicted for the last timestep. The rest of the algorithm follows IQL but using MSE loss instead of expectile loss for updating the value network.\n' +
+      '\n' +
+      'The DWM-PQL algorithm is summarized in Algorithm C.3\n' +
+      '\n' +
+      'For baseline methods with one-step dynamics model, the imagined trajectories starting from sample \\((s_{t},a_{t})\\sim\\mathcal{D}_{\\text{offline}}\\) are derived by recursively sample from the one-step dynamics model \\(f_{\\theta}(\\cdot|s,a)\\) and policy \\(\\pi_{\\psi}(\\cdot|s)\\): \\(\\widehat{\\tau}(s_{t},a_{t})\\sim(f_{\\theta}\\circ\\pi_{\\psi})^{H-1}(s_{t},a_{t})\\). By keeping the rest same as above, it produces MBRL methods with one-step dynamics, namely O-IQL, O-TD3BC and O-PQL.\n' +
+      '\n' +
+      '```\n' +
+      '1Inputs: offline dataset \\(\\mathcal{D}_{\\text{offline}}\\), pretrained diffusion world model \\(p_{\\theta}\\), simulation horizon \\(H\\), conditioning RTG \\(g_{\\text{eval}}\\), target network update frequency \\(n\\), expectile loss parameter \\(\\tau\\)\n' +
+      '2Initialize the actor, critic and value networks \\(\\pi_{\\psi}\\), \\(Q_{\\phi_{1}}\\), \\(Q_{\\phi_{2}}\\), \\(V_{\\xi}\\)\n' +
+      '3Initialize the weights of target networks \\(\\bar{\\phi}_{1}\\leftarrow\\phi_{1}\\), \\(\\bar{\\phi}_{2}\\leftarrow\\phi_{2}\\)\n' +
+      '4for\\(i=1,2,\\dots\\)until convergencedo\n' +
+      '5 Sample state-action pair \\((s_{t},a_{t})\\) from \\(\\mathcal{D}_{\\text{offline}}\\)// diffusion model value expansion Sample \\(\\widehat{r}_{t},\\widehat{s}_{t+1},\\widehat{r}_{t+1},\\dots,\\widehat{s}_{t+T-1},\\widehat{r}_{t+T-1}\\sim p_{\\theta}(\\cdot|s_{t},a_{t},g_{\\text{eval}})\\) Compute the target \\(Q\\) value \\(y=\\sum_{h=0}^{H-1}\\gamma^{h}\\widehat{r}_{t+h}+\\gamma^{H}V_{\\xi}(\\widehat{s}_{t+ H})\\)// update the \\(V\\)-value network \\(\\xi\\leftarrow\\xi-\\eta\\nabla_{\\xi}L^{T}(\\min_{i\\in[1,2]}Q_{\\bar{\\phi}_{i}}(s,a)-V _{\\xi}(s))\\)// update the critic (\\(Q\\)-value networks) \\(\\phi_{1}\\leftarrow\\phi_{1}-\\eta\\nabla_{\\phi_{1}}\\left\\|Q_{\\phi_{1}}(s_{t},a_{t} )-y\\right\\|^{2}_{2}\\)\\(\\phi_{2}\\leftarrow\\phi_{2}-\\eta\\nabla_{\\phi_{2}}\\left\\|Q_{\\phi_{2}}(s_{t},a_{t} )-y\\right\\|^{2}_{2}\\)// update the actor\n' +
+      '6 Update the actor network: \\(\\psi\\leftarrow\\psi+\\eta\\nabla_{\\psi}\\exp\\left(\\beta(\\min_{i\\in\\{1,2\\}}Q_{\\phi _{i}}(s,a)-V_{\\xi}(s))\\right)\\log\\pi_{\\psi}(a|s)\\)// update the target networks\n' +
+      '7ifi mod\\(n\\)then\n' +
+      '8\\(\\bar{\\phi}_{1}\\leftarrow\\bar{\\phi}_{1}+w(\\phi-\\bar{\\phi}_{1})\\)\\(\\bar{\\phi}_{2}\\leftarrow\\bar{\\phi}_{2}+w(\\phi-\\bar{\\phi}_{2})\\)\n' +
+      '9\n' +
+      '10\n' +
+      '11Output:\\(\\pi_{\\psi}\\)\n' +
+      '```\n' +
+      '\n' +
+      '**Algorithm C.2**DWM-IQL\n' +
+      '\n' +
+      '## Appendix D Training and Evaluation Details of Offline RL Algorithms\n' +
+      '\n' +
+      '### Common Settings\n' +
+      '\n' +
+      'We conduct primary tests on TD3+BC and IQL for selecting the best practices for data normalization. Based on the results, TD3+BC, O-TD3BC and DWM-TD3BC applies observation normalization, while other algorithms (O-PQL, DWM-PQL, IQL, O-IQL and DWM-IQL) applies both observation and reward normalization.\n' +
+      '\n' +
+      'All algorithms are trained with a batch size of 128 using a fixed set of pretrained dynamics models (one-step and diffusion). The discount factor is set as \\(\\gamma=0.99\\) for all data.\n' +
+      '\n' +
+      '```\n' +
+      '1Inputs: offline dataset \\(\\mathcal{D}_{\\text{offline}}\\), pretrained diffusion world model \\(p_{\\theta}\\), simulation horizon \\(H\\), conditioning RTG \\(g_{\\text{eval}}\\), target network update frequency \\(n\\), pessimism coefficient \\(\\lambda\\), number of samples for uncertainty estimation \\(m\\)\n' +
+      '2 Initialize the actor, critic and value networks \\(\\pi_{\\psi}\\), \\(Q_{\\phi_{1}}\\), \\(Q_{\\phi_{2}}\\), \\(V_{\\xi}\\)\n' +
+      '3 Initialize the weights of target networks \\(\\bar{\\phi}_{1}\\leftarrow\\phi_{1}\\), \\(\\bar{\\phi}_{2}\\leftarrow\\phi_{2}\\)\n' +
+      '4for\\(i=1,2,\\ldots\\)until convergencedo\n' +
+      '5 Sample state-action pair \\((s_{t},a_{t})\\) from \\(\\mathcal{D}_{\\text{offline}}\\)// diffusion model value expansion Sample \\(m\\) subtrajectories \\(\\{\\tilde{r}^{j}_{t},\\tilde{s}^{j}_{t+1},\\hat{r}^{j}_{t+1},\\ldots,\\tilde{s}^{j}_ {t+T-1},\\hat{r}^{j}_{t+T-1}\\}^{m}_{j=1}\\sim p_{\\theta}(\\cdot|s_{t},a_{t},g_{ \\text{eval}})\\)\n' +
+      '6 Modify the rewards of the first subtrajectory as in Eq. (16): \\(\\tilde{r}_{t}\\), \\(\\hat{s}_{t+1},\\tilde{r}_{t+1},\\ldots,\\hat{s}_{t+T-1},\\hat{r}_{t+T-1}\\)\n' +
+      '7 Compute the target \\(Q\\) value \\(y=\\sum_{h=0}^{H-1}\\gamma^{h}\\tilde{r}_{t+h}+\\gamma^{H}V_{\\xi}(\\tilde{s}^{1}_{t +H})\\)// update the \\(V\\)-value network\n' +
+      '8\\(\\xi\\leftarrow\\xi-\\eta\\nabla_{\\xi}||\\min_{i\\in\\{1,2\\}}Q_{\\bar{\\phi}_{1}}(s,a)-V _{\\xi}(s))||^{2}_{2}\\)// update the critic (\\(Q\\)-value networks)\n' +
+      '9\\(\\phi_{1}\\leftarrow\\phi_{1}-\\eta\\nabla_{\\phi_{1}}\\left|Q_{\\phi_{1}}(s_{t},a_{t})- y\\right|^{2}_{2}\\)\n' +
+      '10\\(\\phi_{2}\\leftarrow\\phi_{2}-\\eta\\nabla_{\\phi_{2}}\\left|Q_{\\phi_{2}}(s_{t},a_{t})- y\\right|^{2}_{2}\\)// update the actor\n' +
+      '11 Update the actor network: \\(\\psi\\leftarrow\\psi+\\eta\\nabla_{\\psi}\\exp\\left(\\beta(\\min_{i\\in\\{1,2\\}}Q_{\\phi_ {i}}(s,a)-V_{\\xi}(s))\\right)\\log\\pi_{\\psi}(a|s)\\)// update the target networks\n' +
+      '12if\\(mod\\ n\\)then\n' +
+      '13\\(\\bar{\\phi}_{1}\\leftarrow\\bar{\\phi}_{1}+w(\\phi-\\bar{\\phi}_{1})\\)\\(\\bar{\\phi}_{2}\\leftarrow\\bar{\\phi}_{2}+w(\\phi-\\bar{\\phi}_{2})\\)\n' +
+      '14\n' +
+      '15Output:\\(\\pi_{\\psi}\\)\n' +
+      '```\n' +
+      '\n' +
+      '**Algorithm C.3**DWM-PQL\n' +
+      '\n' +
+      '### MF Algorithms\n' +
+      '\n' +
+      'TD3+BC and IQL are trained for \\(1\\times 10^{6}\\) iterations, with learning rate \\(3\\times 10^{-4}\\) for actor, critic and value networks. The actor, critic, and value networks are all parameterized by 3-layer MLPs with 256 hidden units per layer. We use the ReLU activation function for each hidden layer. IQL learns a stochastic policy which outputs a Tanh-Normal distribution, while TD3+BC has a deterministic policy with Tanh output activation. The hyperparameters for TD3+BC and IQL are provided in Table D.1.\n' +
+      '\n' +
+      'The baseline DD (Ajay et al., 2022) algorithm uses diffusion models trained with sequence length \\(T=32\\) and number of diffusion steps \\(K=5\\). It requires additionally training an inverse dynamics model (IDM) for action prediction, which is parameterized by a 3-layer MLP with 1024 hidden units for each hidden layer and ReLU activation function. The dropout rate for the MLP is 0.1. The IDMs are trained for \\(2\\times 10^{6}\\) iterations for each environment. For a fair comparison with the other DWM methods, DD uses \\(N=3\\) internal sampling steps as DWM. We search over the same range of evaluation RTG \\(g_{\\text{eval}}\\) for DD and the other DWM methods.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c|c c} \\hline \\hline TD3+BC & & IQL & \\\\ \\hline policy noise & 0.2 & expectile & 0.7 \\\\ noise clip & 0.5 & \\(\\beta\\) & 3.0 \\\\ policy update frequency & 2 & max weight & 100.0 \\\\ target update frequency & 2 & policy update frequence & 1 \\\\ \\(\\alpha\\) & 2.5 & advantage normalization & False \\\\ EMA \\(w\\) & 0.005 & EMA \\(w\\) & 0.005 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table D.1: Hyperparameters for training TD3+BC and IQL.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:19]\n' +
+      '\n' +
+      '### Algorithm 3.1 with Transformer-based World Model\n' +
+      '\n' +
+      'Following the same protocol as DWM, the Transformer model is trained to predict future state-reward sequences, conditioning on the initial state-action pair. We use a 4-layer transformer architecture with 4 attention heads, similar to the one in Zheng et al. (2022). Specifically, all the actions except for the first one are masked out as zeros in the state-action-reward sequences. Distinct from the original DT (Chen et al., 2021) where the loss function only contains the action prediction error, here the Transformer is trained with state and reward prediction loss. The Transformers are trained with optimizers and hyperparameters following ODT (Zheng et al., 2022). The evaluation RTG for Transformers takes values \\(3600/400=9.0,5000/550\\approx 9.1,6000/1200=5.0\\) for hopper, walker2d and halfcheetah environments, respectively. The\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c} \\hline \\hline  & \\multicolumn{3}{c}{Return (mean\\(\\pm\\)std)} \\\\ \\cline{2-4} Env. & Simulation Horizon & DWM-IQL. & DWM-TD3BC \\\\ \\hline \\multirow{4}{*}{**hopper-medium-v2**} & 1 & \\(0.54\\pm 0.11\\) & \\(0.68\\pm 0.12\\) \\\\  & 3 & \\(0.55\\pm 0.10\\) & \\(0.63\\pm 0.11\\) \\\\  & 7 & \\(0.56\\pm 0.09\\) & \\(0.66\\pm 0.13\\) \\\\  & 15 & \\(0.58\\pm 0.12\\) & \\(0.77\\pm 0.15\\) \\\\  & 31 & \\(0.61\\pm 0.11\\) & \\(0.79\\pm 0.15\\) \\\\ \\hline \\multirow{4}{*}{**walker2d-medium-v2**} & 1 & \\(0.65\\pm 0.23\\) & \\(0.56\\pm 0.13\\) \\\\  & 3 & \\(0.74\\pm 0.11\\) & \\(0.74\\pm 0.13\\) \\\\  & 7 & \\(0.71\\pm 0.13\\) & \\(0.74\\pm 0.11\\) \\\\  & 15 & \\(0.66\\pm 0.15\\) & \\(0.73\\pm 0.13\\) \\\\  & 31 & \\(0.67\\pm 0.20\\) & \\(0.75\\pm 0.12\\) \\\\ \\hline \\multirow{4}{*}{**halfcheetah-medium-v2**} & 1 & \\(0.44\\pm 0.01\\) & \\(0.35\\pm 0.03\\) \\\\  & 3 & \\(0.44\\pm 0.01\\) & \\(0.39\\pm 0.01\\) \\\\  & 7 & \\(0.44\\pm 0.01\\) & \\(0.40\\pm 0.01\\) \\\\  & 15 & \\(0.44\\pm 0.02\\) & \\(0.40\\pm 0.01\\) \\\\  & 31 & \\(0.44\\pm 0.01\\) & \\(0.40\\pm 0.01\\) \\\\ \\hline \\multirow{4}{*}{hopper-medium-replay-v2} & 1 & \\(0.18\\pm 0.06\\) & \\(0.52\\pm 0.21\\) \\\\  & 3 & \\(0.37\\pm 0.18\\) & \\(0.44\\pm 0.23\\) \\\\  & 7 & \\(0.39\\pm 0.14\\) & \\(0.52\\pm 0.28\\) \\\\  & 15 & \\(0.37\\pm 0.18\\) & \\(0.67\\pm 0.25\\) \\\\  & 31 & \\(0.37\\pm 0.15\\) & \\(0.59\\pm 0.22\\) \\\\ \\hline \\multirow{4}{*}{**walker2d-medium-replay-v2**} & 1 & \\(0.32\\pm 0.15\\) & \\(0.13\\pm 0.02\\) \\\\  & 3 & \\(0.27\\pm 0.24\\) & \\(0.19\\pm 0.10\\) \\\\  & 7 & \\(0.25\\pm 0.20\\) & \\(0.22\\pm 0.14\\) \\\\  & 15 & \\(0.26\\pm 0.19\\) & \\(0.22\\pm 0.10\\) \\\\  & 31 & \\(0.27\\pm 0.19\\) & \\(0.17\\pm 0.12\\) \\\\ \\hline \\multirow{4}{*}{**halfcheetah-medium-replay-v2**} & 1 & \\(0.38\\pm 0.05\\) & \\(0.02\\pm 0.00\\) \\\\  & 3 & \\(0.39\\pm 0.02\\) & \\(0.17\\pm 0.05\\) \\\\  & 7 & \\(0.39\\pm 0.02\\) & \\(0.22\\pm 0.03\\) \\\\  & 15 & \\(0.38\\pm 0.03\\) & \\(0.26\\pm 0.03\\) \\\\  & 31 & \\(0.37\\pm 0.03\\) & \\(0.26\\pm 0.05\\) \\\\ \\hline \\multirow{4}{*}{**hopper-medium-expert-v2**} & 1 & \\(0.86\\pm 0.25\\) & \\(0.88\\pm 0.17\\) \\\\  & 3 & \\(0.90\\pm 0.19\\) & \\(0.94\\pm 0.22\\) \\\\  & 7 & \\(0.88\\pm 0.28\\) & \\(0.93\\pm 0.24\\) \\\\  & 15 & \\(0.85\\pm 0.20\\) & \\(0.91\\pm 0.19\\) \\\\  & 31 & \\(0.84\\pm 0.23\\) & \\(0.93\\pm 0.23\\) \\\\ \\hline \\multirow{4}{*}{**walker2d-medium-expert-v2**} & 1 & \\(0.80\\pm 0.22\\) & \\(0.74\\pm 0.21\\) \\\\  & 3 & \\(1.02\\pm 0.09\\) & \\(0.89\\pm 0.13\\) \\\\ \\cline{1-1}  & 7 & \\(0.98\\pm 0.2\\) & \\(0.82\\pm 0.19\\) \\\\ \\cline{1-1}  & 15 & \\(1.06\\pm 0.05\\) & \\(0.84\\pm 0.14\\) \\\\ \\cline{1-1}  & 31 & \\(1.05\\pm 0.06\\) & \\(0.87\\pm 0.03\\) \\\\ \\hline \\multirow{4}{*}{**halfcheetah-medium-expert-v2**} & 1 & \\(0.60\\pm 0.18\\) & \\(0.39\\pm 0.01\\) \\\\ \\cline{1-1}  & 3 & \\(0.52\\pm 0.14\\) & \\(0.43\\pm 0.07\\) \\\\ \\cline{1-1}  & 7 & \\(0.63\\pm 0.13\\) & \\(0.44\\pm 0.03\\) \\\\ \\cline{1-1}  & 15 & \\(0.66\\pm 0.14\\) & \\(0.50\\pm 0.08\\) \\\\ \\cline{1-1}  & 31 & \\(0.65\\pm 0.17\\) & \\(0.49\\pm 0.09\\) \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table E.1: Comparison of the normalized returns with different simulation horizons for DWM-TD3BC and DWM-IQL. The reported values are the best performances across different RTG values (listed in Table D.2).\n' +
+      '\n' +
+      '[MISSING_PAGE_EMPTY:21]\n' +
+      '\n' +
+      '[MISSING_PAGE_EMPTY:22]\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:23]\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:24]\n' +
+      '\n' +
+      '### Additional Experiments: RTG Relabeling and Model Fine-tuning\n' +
+      '\n' +
+      'Unlike dynamic programming in traditional RL, sequential modeling methods like diffusion models and DT are suspected to fail to stitch suboptimal trajectories. RTG relabeling is proposed to alleviate this problem for DT (Yamagata et al., 2023), through iteratively relabeling RTG \\(g\\) from training dataset to be:\n' +
+      '\n' +
+      '\\[\\tilde{g}_{t}=r_{t}+\\gamma\\max(g_{t+1},\\widehat{V}(s_{t+1}))=\\max(g_{t},r_{t}+ \\widehat{V}(s_{t+1}), \\tag{18}\\]\n' +
+      '\n' +
+      'Figure E.4: The breakdown prediction errors of DWM at each prediction timestep with different RTG. The DWM is trained with \\(T=32\\) and \\(K=10\\).\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:26]\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:27]\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{|c c c|c c c|c c c|} \\hline \\multicolumn{6}{|c|}{**Diffusion World Model**} \\\\ \\hline \\hline \\multicolumn{6}{|c|}{**hopper-medium-v2**} & \\multicolumn{3}{|c|}{**hopper-medium-replay-v2**} & \\multicolumn{3}{|c|}{**hopper-medium-expert-v2**} \\\\ \\hline Simulation Horizon & RTG & Return (Mean \\(\\pm\\) Std) & Simulation Horizon & RTG & Return (Mean \\(\\pm\\) Std) & Simulation Horizon & RTG & Return (Mean \\(\\pm\\) Std) \\\\ \\hline\n' +
+      '\n' +
+      '[MISSING_PAGE_POST]\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:29]\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
