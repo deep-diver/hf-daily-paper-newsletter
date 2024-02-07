@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# Scaling Laws for Downstream Task Performance of Large Language Models\n' +
+      '\n' +
+      'Berivan Isik\n' +
+      '\n' +
+      'Work done while interning at Google Research. Contact: berivan.isik@stanford.edu\n' +
+      '\n' +
+      'Natalia Ponomareva\n' +
+      '\n' +
+      'Work done while interning at Google Research. Contact: berivan.isik@stanford.edu\n' +
+      '\n' +
+      'Hussein Hazimeh\n' +
+      '\n' +
+      'We use the term downstream to refer to the finetuning task or metrics computed on it, and the term upstream to refer to the metrics computed on the pretraining dataset.\n' +
+      '\n' +
+      'Dimitris Paparas\n' +
+      '\n' +
+      'Sergei Vassilvitskii\n' +
+      '\n' +
+      'Sanni Koyejo\n' +
+      '\n' +
+      'Work done while interning at Google Research. Contact: berivan.isik@stanford.edu\n' +
+      '\n' +
+      'Stanford University\n' +
+      '\n' +
+      'Work done while interning at Google Research. Contact: berivan.isik@stanford.edu\n' +
+      '\n' +
+      'Google Research\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      'Scaling laws provide important insights that can guide the design of large language models (LLMs). Existing work has primarily focused on studying scaling laws for pretraining (upstream) loss. However, in transfer learning settings, in which LLMs are pretrained on an unsupervised dataset and then finetuned on a downstream task, we often also care about the downstream performance. In this work, we study the scaling behavior in a transfer learning setting, where LLMs are finetuned for machine translation tasks. Specifically, we investigate how the choice of the _pretraining_ data and its size affect downstream performance (translation quality) as judged by two metrics: downstream cross-entropy and BLEU score. Our experiments indicate that the size of the finetuning dataset and the distribution alignment between the pretraining and downstream data significantly influence the scaling behavior. With sufficient alignment, both downstream cross-entropy and BLEU score improve monotonically with more pretraining data. In such cases, we show that it is possible to predict the downstream BLEU score with good accuracy using a log-law. However, there are also cases where moderate misalignment causes the BLEU score to fluctuate or get worse with more pretraining, whereas downstream cross-entropy monotonically improves. By analyzing these observations, we provide new practical insights for choosing appropriate pretraining data.\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      'Scaling laws quantify the relationship between a model\'s performance and key design factors such as the size of the training data or the model\'s architecture. In the context of LLMs, these laws offer valuable guidance for model development, resource allocation, and selection of appropriate training data. Extensive research has focused on scaling laws for upstream perplexity or cross-entropy loss (i.e., evaluated on pretraining data), demonstrating that these quantities can be well predicted using power laws (Kaplan et al., 2020; Hoffmann et al., 2022; Gordon et al., 2021; Hernandez et al., 2022; Fernandes et al., 2023; Bansal et al., 2022; Henighan et al., 2020; Johnson et al., 2018). However, in practical applications, LLMs often undergo transfer learning-they are first pretrained on unsupervised data and then finetuned for specific downstream1 tasks such as coding or translation. The question of whether scaling laws can be used to predict downstream task performance is critical, yet remains largely unanswered (Hernandez et al., 2021; Tay et al., 2021). Here, the term _task performance_ refers to metrics that measure task-related quantities such as accuracy and BLEU score, which are different from next-token prediction metrics such as cross-entropy.\n' +
+      '\n' +
+      'Footnote 1: We use the term downstream to refer to the finetuning task or metrics computed on it, and the term upstream to refer to the metrics computed on the pretraining dataset.\n' +
+      '\n' +
+      'In this work, we study scaling laws for transfer learning and focus on machine translation tasks. Specifically, we look into the relation between the pretraining dataset size and the _downstream task performance_ after finetuning on the task. We find that, in addition to the finetuning data size and the choice of the performance metric, this relation fundamentally depends on the alignment between the pretraining data and the downstream task. While similar observations have been made in different contexts in the transfer learning literature(Tamkin et al., 2020; Agostinelli et al., 2022), our work provides new insights and concrete scaling laws for the downstream performance of LLMs.\n' +
+      '\n' +
+      'We carry out systematic experiments in which we pretrain LLMs on multilingual unsupervised datasets and then finetune them on several machine translation tasks. Across the experiments, we vary the type of pretraining data (to control the degree of distribution alignment with the downstream task) and the finetuning data size. We study two metrics: _downstream_ BLEU (Papineni et al., 2002) score2 and _downstream_ cross-entropy. We find that in settings where the distributions are well-aligned, both BLEU and _downstream_ cross-entropy improve monotonically with more pretraining. In these settings, we demonstrate that the BLEU score can be well predicted using the following log-law: \\(f(D_{p})=(\\log(A\\cdot D_{p}^{\\alpha}))^{\\beta}\\), where \\(D_{p}\\) denotes the size of the pretraining data, and \\(A\\), \\(\\alpha\\), \\(\\beta\\) are the coefficients to be fit. We further propose a power-law \\(L(D_{p})=E+\\frac{A}{D_{p}^{\\alpha}}\\) for the _downstream_ cross-entropy as the pretraining data scales - echoing similar laws developed for the _upstream_ cross-entropy as a function of the pretraining dataset size (Kaplan et al., 2020; Hoffmann et al., 2022) and _downstream_ cross-entropy as a function of the finetuning dataset size (Hernandez et al., 2021).\n' +
+      '\n' +
+      'Footnote 2: In the rest of the paper, we will drop “downstream” when we refer to the downstream BLEU score.\n' +
+      '\n' +
+      'However, when distributions are not sufficiently aligned and the finetuning data size is relatively small, we find that there are cases where the BLEU score exhibits an unclear, non-monotonic behavior, whereas the _downstream_ cross-entropy still improves monotonically following a power-law. This observation suggests that using cross-entropy as a proxy for task-related metrics like BLEU score may lead to critical misjudgments in practice if used to make decisions about the "relevance" of the pretraining data for the downstream task or the required size of the pretraining data for the target downstream performance.\n' +
+      '\n' +
+      'Finally, our empirical studies suggest that pretraining brings little to no improvement on the BLEU score when the finetuning (translation) dataset is already large enough, complementing the findings of Hernandez et al. (2021).\n' +
+      '\n' +
+      'Our contributions and main findings can be summarized as:\n' +
+      '\n' +
+      '* We carry out systematic experiments on 770-million and 3-billion encoder-decoder T5 (Raffel et al., 2020) models to study how downstream performance, measured by _downstream_ cross-entropy and BLEU score, scales with the pretraining dataset size. For pretraining, we experiment with different subsets of the Multilingual C4 (MC4) dataset (Raffel et al., 2020), including English (en), German (de), French (fr), and Romanian (ro). For finetuning, we study the following translation tasks: WMT-17 en-de (Bojar et al., 2017), WMT-15 en-fr (Bojar et al., 2014), and WMT-16 en-ro (Bojar et al., 2016).\n' +
+      '* We observe that, when the distributions of the pretraining and downstream tasks are well-aligned, the BLEU score and _downstream_ cross-entropy improve monotonically with more pretraining. For BLEU score, we propose a new log scaling law and show that it has good predictive accuracy.\n' +
+      '* When the distributions are not sufficiently aligned and the finetuning data size is relatively small, the BLEU score fluctuates or even gets worse with more pretraining-losing the monotonic scaling behavior. In these same settings, we find that the _downstream_ cross-entropy still scales monotonically according to a power-law.\n' +
+      '* We argue that the value of pretraining data should be evaluated using _downstream task-related metrics like BLEU score_ and propose a practical guide for such an assessment by leveraging the proposed scaling law for BLEU score.\n' +
+      '\n' +
+      '## 2 Related Work\n' +
+      '\n' +
+      'Scaling laws for transformers.Scaling laws for LLMs have attracted significant attention as they can inform the decisions about key design choices such as model size and the type and size of the pretraining data (Kaplan et al., 2020; Hoffmann et al., 2022; Hernandez et al., 2021). Most of the pioneering work has focused on how _upstream_ cross-entropy loss or perplexity scales with more pretraining data, larger models, or longer training (Kaplan et al., 2020; Hoffmann et al., 2022). Follow-up works have analyzed scaling behavior of translation models (Ghorbani et al., 2021; Zhuocheng et al., 2023; Gordon et al., 2021; Fernandes et al., 2023; Bansal et al., 2022; Zhang et al., 2022), studied theoretical foundation behind scaling laws (Sharma and Kaplan, 2020; Hutter, 2021; Bahri et al., 2021), or extended the laws to the vision models (Zhai et al., 2022; Jain et al., 2023). Closest to our work, Hernandez et al. (2021) have analyzed transfer learning but with a focus on how the cross-entropy loss behaves as the _finetuning_ data scales. Unlike our work, their scaling law describes the relation between the size of a (finetuning) dataset and the cross-entropy loss on the _same_ dataset - making this closer to the standard scaling laws in the literature since the finetuning loss and the finetuning dataset are computed over samples from the same distribution. On the other hand, we propose scaling laws for the _downstream_ metrics on the _finetuning_ dataset as the _pretraining_ data scales - switching the focus to an "out-of-distribution" analysis. The only work we are aware of that has proposed scaling laws for the _downstream task performance_ as a function of pretraining dataset size is by Sun et al. (2017) who have focused on classification tasks in the vision domain and used small models relative to LLMs.\n' +
+      '\n' +
+      'Transferability metrics and value of pretraining.While it may be commonly suggested that pretraining data improves both _upstream_ and _downstream_ performance, this rule has been challenged in the vision domain. Zoph et al. (2020); He et al. (2019); Shen et al. (2019); Ghiasi et al. (2018); Mikami et al. (2022) have demonstrated that pretraining can sometimes have no effect on the _downstream_ task performance and sometimes it can even hurt the performance. We make similar observations in the language domain with extensive experiments on LLMs and identify cases where (a) adding more pretraining data hurts the _downstream task performance_ when pretraining data is not aligned enough with the task and (b) pretraining does not improve the _downstream task performance_ noticeably when the finetuning dataset is large enough. Another related line of work is on transferability metrics (Tamkin et al., 2020; Chiang and Lee, 2022; Ibrahim et al., 2022; Tran et al., 2019; Agostinelli et al., 2022; Tran et al., 2019; Nguyen et al., 2020; You et al., 2021; Dai et al., 2019; Huang et al., 2022; Ibrahim et al., 2022; Tran et al., 2019; Bao et al., 2019; Van Asch and Daelemans, 2010; Plank and Van Noord, 2011), which are efficient heuristics used to select the most appropriate source models or pretraining data for a given target task. We note that transferability metrics are designed to solve ranking problems, different from scaling laws. For example, these metrics answer questions such as given a pool of source models (or pretraining datasets), which source model (or pretraining dataset) is the best to finetune on for a given target task. These metrics are not designed to predict the performance of the model when key quantities (e.g., pretraining data size) are scaled.\n' +
+      '\n' +
+      '## 3 Scaling Laws for Transfer Learning\n' +
+      '\n' +
+      'In this section, we present our proposed scaling laws for BLEU score and _downstream_ cross-entropy. We also discuss when these laws apply and provide practical guidance for assessing the value of a pretraining dataset for a given target downstream task. The details of the experimental results will be later discussed in Section 5.\n' +
+      '\n' +
+      '### A Scaling Law for the BLEU Score\n' +
+      '\n' +
+      'Different from cross-entropy and perplexity, which follow a power-law scaling behavior Kaplan et al. (2020); Hoffmann et al. (2022), we find out that BLEU score scales closer to a log-law, as evident from Figures 1, 2, and 3. Therefore, we propose the following scaling law for BLEU score as a function of the pretraining dataset size \\(D_{p}\\):\n' +
+      '\n' +
+      '\\[f(D_{p})=(\\log(A\\cdot D_{p}^{\\alpha}))^{\\beta}, \\tag{1}\\]\n' +
+      '\n' +
+      'where \\(A\\), \\(\\alpha\\), and \\(\\beta\\) are coefficients to be fit. We notice that these coefficients depend on how aligned the pretraining dataset with the target downstream task (translation from language 1 to language 2) and how large the finetuning (translation) dataset is. With extensive experiments across several translation tasks and multilingual pretrained models, we demonstrate that the law in (1) indeed well describes BLEU score scaling, with a small prediction error which we quantify in Appendix B.2.\n' +
+      '\n' +
+      '### Is Cross-Entropy Loss Always a Good Metric?\n' +
+      '\n' +
+      'We also compare the _downstream_ cross-entropy loss and the BLEU score empirically as prior work has made the assumption that _upstream_ or _downstream_ cross-entropy loss is a good indicator for a model\'s _downstream task performance_. Following the well-understood scaling behavior of the _upstream_ cross-entropy loss as a function of the pretraining dataset size Kaplan et al. (2020); Hoffmann et al. (2022), we demonstrate that the same scaling law can also describe the _downstream_ cross-entropy loss as\n' +
+      '\n' +
+      '\\[L(D_{p})=E+\\frac{A}{D_{p}^{\\alpha}}, \\tag{2}\\]\n' +
+      '\n' +
+      'where \\(E\\), \\(A\\), and \\(\\alpha\\) are the coefficients to be optimized. Throughout the paper, we report BLEU score and cross-entropy together for a direct comparison and discover several cases where the two metrics do not correlate well. This supports some of the findings of Ghorbani et al. (2021) suggesting inconsistency between the BLEU score and the cross-entropy, but also shows that the exponential relationship (between the two metrics) advocated by Gordon et al. (2021) does not always hold. More specifically, our empirical results show that while cross-entropy loss always monotonically decreases (with appropriate learning rate) as the pretraining dataset size increases, BLEU score may show a non-monotonic trend when the pretraining data is not sufficiently aligned with the task. For instance, in Figure 3-(_top, right_), increasing the en-MC4, de-MC4, or ro-MC4 pretraining datasets\' size sometimes decreases the BLEU score on WMT-15 English-to-French (en-fr) translation task. Even though they may initially follow the law in (1) for smaller pretraining dataset sizes, the scaling law breaks for larger data for these datasets and task. Overall, the BLEU score never reaches a good value compared to other pretraining datasets that include some amount of French - indicating that pretraining datasets that do not include French are not aligned enough with this particular translation task. However, if we were to look at only the cross-entropy loss in Figure 3-(_bottom, right_), we would conclude that all the pretraining datasets bring noticeable improvements to the model and they all are worth adding into the pretraining data - which would be a poor decision.\n' +
+      '\n' +
+      'A remotely related observation on the mismatch between the task-related metrics and the cross-entropy by McKenzie et al. (2023), who looked at how the _downstream task performance_ changes as the model grows, suggests that LLMs may show worse task performance with increased model size but, similar to our findings, this is not captured by the monotonically decreasing cross-entropy loss.\n' +
+      '\n' +
+      '### When Do Scaling Laws Fall Short in Transfer Learning?\n' +
+      '\n' +
+      'While the cross-entropy loss always follows a monotonically decreasing trend which can be captured by the scaling law in (2), we do not always see a monotonic increase in the BLEU score when increasing the pretraining dataset size (see Figure 2-(_top, center_) and Figure 3-(_top, right_)). We observe that this only happens when the pretraining dataset is not sufficiently aligned with the translation task - which results in low BLEU scores overall compared to models that were pretrained in other datasets. For the pretrained models that lead to high BLEU scores after finetuning, we consistently see that the BLEU score increases monotonically and can be well described with the scaling law in (1). Therefore, whether the scaling law could fit the empirical BLEU scores or not could be a good first-check in assessing the value of pretraining data for the downstream (translation) task. We elaborate more on this in the next section.\n' +
+      '\n' +
+      '### A Guide for Pretraining Data Valuation\n' +
+      '\n' +
+      'Finally, combining our findings on the scaling behavior of BLEU score, we propose the following guide for assessing the value of pretraining dataset for a target downstream task:\n' +
+      '\n' +
+      '1. Given a pretraining dataset, pretrain as long as possible under the given computational and time constraints3. Periodically choose pretraining checkpoints, finetune on them, and record the downstream performance metric (we recommend the BLEU score over cross-entropy due to the discussion in Section 3.3). Footnote 3: We avoid repeating sequences as repetitions may complicate the scaling behavior (Hernandez et al., 2022; Muennighoff et al., 2023; Tirumala et al., 2023). This means as pretraining goes on, we effectively pretrain each checkpoint on a “larger dataset”.\n' +
+      '\n' +
+      '2. Since the law in (1) has three coefficients to be fit, once we have 3 pairs of (number of pretraining tokens seen, BLEU score), we _try_ to find the optimal coefficients. If the BLEU scores have a non-monotonic behavior, we cannot fit the scaling law. Since the non-monotonic behavior could be an indication of misalignment (following the discussion in Section 3.3), we recommend checking the BLEU score of the best available finetuned checkpoint and comparing it to the performance of the non-pretrained model trained on the downstream task directly. If the scaling law fits well, then we make the initial prediction for the BLEU score as we increase the pretraining dataset size (or pretrain for more steps). If we are not satisfied with the predicted BLEU score, then we conclude that it is not worth pretraining on this dataset. If the predicted BLEU score is high enough, then we keep pretraining until we reach the target BLEU score. If the scaling law breaks at any point, we conclude that the pretraining dataset is not sufficiently aligned with the downstream task and pretraining further may not be beneficial.\n' +
+      '\n' +
+      '## 4 Experimental Setup\n' +
+      '\n' +
+      'In the experiments, we first pretrain a model without doing more than one pass over any of the examples. Then, we finetune selected checkpoints of the pretrained model. Naturally, there is a one-to-one mapping between the checkpoint number and the number of pretraining tokens seen. This way, we collect pairs of (number of pretraining tokens, BLEU score) and (number of pretraining tokens, _downstream_ cross-entropy loss) to analyze them with the proposed scaling laws in (1) and (2). All the plots are on a log-log scale.\n' +
+      '\n' +
+      'Model.We use the 3-billion encoder-decoder T5 model with 24 encoder layers, 24 decoder layers, embedding dimension 1024, and 32 heads with dimension 128. We note that this is the same model as the T5-3B model in Abnar et al. (2022). In Appendix B, we also provide results with a smaller 770-million encoder-decoder T5 model. This model corresponds to T5-Large in Raffel et al. (2020). We share more details about the architectures in Appendix A. For encoding the text as WordPiece tokens (Sennrich et al., 2016; Kudo, 2018), we use SentencePiece (Kudo and Richardson, 2018) trained with a vocabulary of size \\(250,112\\) that covers all the languages in the MC4 dataset (Raffel et al., 2020).\n' +
+      '\n' +
+      'Datasets.We use the English (en), German (de), French (fr), and Romanian (ro) portions of the MC4 dataset. We experiment with both pretraining on these languages individually as well as mixing pairs of languages. In Figure 1, we present results for the models pretrained on (_left_) a mixture of 50% en-MC4 + 50% de-MC4, (_center_) a mixture of 50% en-MC4 + 50% fr-MC4, and (_right_) a mixture of 50% en-MC4 + 50% ro-MC4 - meaning that 50% of one pretraining batch is sampled from en-MC4 and the other 50% is sampled from the other language. In Figure 2, we show results for the models pretrained only on en-MC4. In Figure 3, in addition to these, we also present results for the models pretrained on a mixture of 30% en-MC4 + 70%-fr and a mixture of 70% en-MC4 + 30%-fr as well as models pretrained only on de-MC4, only on fr-MC4, and only on ro-MC4. We finetune the pretrained models on WMT-17 en-de (Bojar et al., 2017), WMT-15 en-fr (Bojar et al., 2014), and WMT-16 en-ro (Bojar et al., 2016), separately. To understand the effect of the finetuning dataset size on the scaling laws, we sometimes use a smaller randomly sampled portion from these translation datasets and indicate the number of tokens used.\n' +
+      '\n' +
+      'Hyperparameters.During pretraining, we use a batch size of 256 and a sequence length of 512 for \\(1,000,000\\) steps except for the ro-MC4 pretraining. For ro-MC4, we pretrain for \\(510,000\\) steps since otherwise, we would need to do repetitions over the sequences. Following Raffel et al. (2020), we use an "inverse square root" learning rate schedule, \\(\\frac{1}{\\sqrt{\\max(n,k)}}\\), where \\(n\\) is the current pretraining step and \\(k\\) is set to \\(10^{4}\\). We do a grid search for the base learning rate from \\(\\{0.05,0.1,0.5,1.0,2.0,5.0\\}\\) and pick the best one for each pretrained model based on _upstream_ cross entropy. During finetuning, again following Raffel et al. (2020), we use a batch size of 128 and a sequence length of 512 for 300 steps. We use a constant learning rate by selecting the best from \\(\\{0.001,0.005,0.01,0.05,0.1\\}\\). In both stages, we use the AdaFactor optimizer (Shazeer and Stern, 2018).\n' +
+      '\n' +
+      'Optimizing the scaling law coefficients.To fit the coefficients in the scaling laws in (1) and (2), similar to Hoffmann et al. (2022), we use the Huber loss (Huber, 1992) and the L-BFGS algorithm (Nocedal, 1980) to estimate the scaling law robustly in the presence of outliers. For the Huber loss, we use \\(\\delta=0.1\\) for the BLEU score and \\(\\delta=1e-3\\) for the _downstream_ cross-entropy loss. We select the best fit among a grid of initializations and report the prediction error computed via the Huber loss in Appendix B.2. To optimize the coefficients, we use the first four data points that require the smallest amount of pretraining data and leave the remaining data points as held-out data to evaluate the accuracy of the laws. We note that, ideally, three points should be enough since both laws have three coefficients to be optimized for. However, adding more points improves the fit by making the optimization more robust to outliers. We provide more details about how to optimize the scaling law coefficients in Appendix A.2. We refer the reader to Appendix B.2 for the list of optimized coefficients and the prediction errors for each law we present in the next section.\n' +
+      '\n' +
+      '## 5 Results and Analysis\n' +
+      '\n' +
+      'In Figure 1, we analyze the models that are pretrained on different portions of _(left)_ a mixture of 50% en-MC4 + 50% de-MC4, _(center)_ a mixture of 50% en-MC4 + 50% fr-MC4, and _(right)_ a mixture of 50% en-MC4 + 50% ro-MC4. These models are then finetuned on different portions of _(left)_ en-de, _(center)_ en-fr, and _(right)_ en-ro translation datasets. In the top row, we report the BLEU score and, in the bottom row, we report the _downstream_ cross-entropy loss. The dotted, dashed, and solid lines correspond to the scaling laws in\n' +
+      '\n' +
+      'Figure 1: **(top) BLEU score vs pretraining dataset size: \\(\\mathbf{f(D_{p})=(\\log(A\\cdot D_{p}^{\\alpha}))^{\\beta}}\\). _(left)_ WMT-17 en-to-de translation task. Pretraining dataset has 50% en-MC4 + 50% de-MC4. Dotted, dashed, and solid blue curves correspond to the fitted scaling laws for different finetuning dataset sizes, \\(D_{f}=6M\\), \\(D_{f}=31M\\), \\(D_{f}=3B\\) tokens, respectively. _(center)_ WMT-15 en-to-fr translation task. Pretraining dataset has 50% en-MC4 and 50% fr-MC4. Dotted, dashed, and solid orange curves correspond to the fitted scaling laws for different finetuning dataset sizes, \\(D_{f}=42M\\), \\(D_{f}=210M\\), \\(D_{f}=21B\\) tokens, respectively. _(right)_ WMT-16 en-to-ro translation task. Pretraining dataset has 50% en-MC4 + 50% ro-MC4. Dotted, dashed, and solid green curves correspond to the fitted scaling laws for different finetuning dataset sizes, \\(D_{f}=625K\\), \\(D_{f}=3M\\), \\(D_{f}=312M\\) tokens, respectively. **(bottom) Cross-entropy (CE) validation loss vs pretraining dataset size: \\(\\mathbf{L(D_{p})=E+\\frac{A}{D_{p}^{\\alpha}}}\\).** Same models as the top row. For all the plots, the markers are the actual experimental results and the black horizontal curves correspond to the non-pretrained model directly trained on the task dataset. **The finetuning dataset size increases in the order of dotted-dashed-solid for all the curves including the black horizontal lines.**\n' +
+      '\n' +
+      '(1) and (2) for different finetuning dataset sizes \\(D_{f}\\). The black lines correspond to "non-pretrained" models (randomly initialized) that are directly trained on different portions of the finetuning dataset. In all cases, the scaling laws fit well to the empirical results (the markers) with prediction error at most \\(0.061\\) for the BLEU score (\\(\\delta=0.1\\)) and \\(5.95e-12\\) for the _downstream_ cross-entropy (\\(\\delta=1e-3\\)) (see Appendix B.2 for more details). As expected, as the finetuning dataset size increases (e.g., going in the order of dotted-dashed-solid lines), the BLEU score increases and the cross-entropy loss decreases smoothly and monotonically. Similarly, as the pretraining dataset size \\(D_{p}\\) increases (along the x-axis), we see improvements in both metrics. Notice that the improvements by an increase in the pretraining dataset size is more effective for smaller finetuning datasets. When the finetuning dataset is large enough (e.g., solid lines), BLEU score is more or less constant regardless of the pretraining dataset size. In fact, we see little to no improvement of pretraining compared to the non-pretrained models (black lines) when the finetuning dataset is large. **This implies that, for these tasks, there is no need to pretrain the models when the finetuning dataset is large enough. Luckily, we can correctly predict whether this is going to be the case (i.e., whether the available finetuning data is enough to eliminate pretraining altogether) with the use of scaling laws. All we need to do is to pretrain the model on a small portion of the pretraining dataset with reasonable compute cost to optimize the coefficients of the scaling laws, and then follow the guideline provided in Section 3.4.**\n' +
+      '\n' +
+      'In Figure 2, we change the pretraining dataset to 100% en-MC4 in all plots. Intuitively, we expect this dataset to be less aligned with the translation tasks than the multilingual pairs in Figure 1 since it does not include one of the languages in the translation tasks. Indeed, we see smaller BLEU score and higher cross-entropy loss in general for the same finetuning dataset size. Most of the conclusions from Figure 1 carry\n' +
+      '\n' +
+      'Figure 2: **(top) BLEU score vs pretraining dataset size: \\(\\mathbf{f(D_{p})=(\\log(A\\cdot D_{p}^{\\alpha}))^{\\beta}}\\). _(left)_ WMT-17 en-to-de translation task. Dotted, dashed, and solid red curves correspond to the fitted scaling laws for different finetuning dataset sizes, \\(D_{f}=6M\\), \\(D_{f}=31M\\), \\(D_{f}=3B\\) tokens, respectively. _(center)_ WMT-15 en-to-fr translation task. Dotted, dashed, and solid red curves correspond to the fitted scaling laws for different finetuning dataset sizes, \\(D_{f}=42M\\), \\(D_{f}=210M\\), \\(D_{f}=21B\\) tokens, respectively. _(right)_ WMT-16 en-to-ro translation task. Dotted, dashed, and solid red curves correspond to the fitted scaling laws for different finetuning dataset sizes, \\(D_{f}=625K\\), \\(D_{f}=3M\\), \\(D_{f}=312M\\) tokens, respectively. **(bottom) Cross-entropy (CE) validation loss vs pretraining dataset size: \\(\\mathbf{L(D_{p})=E+\\frac{A}{D_{p}^{\\alpha}}}\\)**. Same models as the top row. For all the plots, the markers are the actual experimental results and the black horizontal curves correspond to the non-pretrained model directly trained on the task dataset. **The finetuning dataset size increases in the order of dotted-dashed-solid for all the curves including the black horizontal lines.**\n' +
+      '\n' +
+      'over to the results in Figure 2. For instance, the pretraining data matters less when the finetuning dataset is large enough. One noticeable difference is in the BLEU scores for the en-fr translation task (_center_). We see that, for \\(D_{f}=42M\\) and \\(D_{f}=210M\\), the scaling law for BLEU score actually breaks once the pretraining dataset size passes a threshold while the cross-entropy loss scales as expected. This is counter-intuitive because the BLEU score sometimes decreases for larger pretraining dataset. Notice that this break in scaling law does not happen in en-de or en-ro translation tasks as the scaling law fits well to the pretraining data with prediction error at most 0.025 for these tasks (\\(\\delta=0.1\\)). To better investigate this, in Figure 3, we take a closer look at some less aligned pretraining datasets due to the choice of language.\n' +
+      '\n' +
+      'In Figure 3-(_left_), we provide the scaling laws for en-de translation task where the pretraining datasets are 100% en-MC4 (same as Figure 2-(_left_)), 50% en-MC4 and 50% de-MC4 (same as Figure 1-(_left_)), 100% de-MC4, 100% fr-MC4 (less aligned), and 100% ro-MC4 (less aligned). Notice that the last two pretraining datasets are expected to be the least aligned with the translation task since the translation pair does not include these languages. We see that, despite this, the scaling laws consistently fit well for both the BLEU score and the cross-entropy loss. However, this is not always the case for the en-fr translation task. In Figure 3-(_right_), we provide the scaling laws for the en-fr translation task where the pretraining datasets are different mixtures of en-MC4 and fr-MC4 datasets. We also include the "less aligned" pretraining datasets such as 100% de-MC4 and 100% ro-MC4. Surprisingly, we see that the scaling law for the BLEU score breaks after some point for the only-English (100% en-MC4), only-German (100% de-MC4), and only-Romanian (100% ro-MC4) pretraining datasets while the cross-entropy loss always follows the scaling law in (2). Interestingly, we do not observe such a break in the BLEU score scaling for the only-French (100% fr-MC4) pretraining dataset - hinting that not including French data in pretraining leads to poor scaling in the en-fr translation task but not including English does not have such an effect. We also notice that the BLEU score is the lowest for these three pretraining datasets where scaling breaks. **This suggests that the scaling law in (1) works well for the BLEU score as long as the pretraining dataset has the promise to give rise to a good performance. However, when the scaling law does not fit well, we may suspect the BLEU score to be low overall. Therefore, whether we can fit the scaling law for the BLEU score seems to give a good indication about the degree of alignment between the pretraining data and the particular translation task.**\n' +
+      '\n' +
+      '**Remark 5.1**.: _We observe another interesting phenomenon in Figure 3. For both en-de and en-fr tasks, 100% en-MC4 leads to significantly worse BLEU score and downstream cross-entropy than the more aligned 50% en-MC4 + 50% de/fr-MC4 balanced datasets, respectively. However, de-MC4 and fr-MC4 perform almost as well as the balanced datasets in en-de and en-fr tasks. We leave the investigation of why pretraining on only German/French helps more than pretraining on only English for the given en-de and en-fr tasks to future work._\n' +
+      '\n' +
+      'We also highlight that we cannot make any strong conclusion about the degree of alignment of the pretraining dataset with the task by only looking at the _downstream_ cross-entropy loss because of the inconsistency with the BLEU score, a task-related metric, observed in the en-fr plots in Figures 2 and 3. This is a counter-example for the claim by Gordon et al. (2021) that the two metrics have an exponential relation. To better demonstrate this, in Figure 4, we provide a BLEU score vs. _downstream_ cross-entropy log-log plot for en-de and en-fr translation tasks, respectively. While the two metrics indeed seem correlated in Figure 4-(_left_) on the en-de task, we observe a somewhat arbitrary relation for the en-fr task in Figure 4-(_right_) in some cases - which clearly cannot be explained with an exponential relation. **This suggest that _downstream_ cross-entropy is not always a good indicator for BLEU score. This raises the question whether the scaling laws that have been developed for the _upstream_ cross-entropy loss are actually useful predictors for models\' downstream behavior.**\n' +
+      '\n' +
+      '**Remark 5.2**.: _We also revisit the definition of the BLEU score to better understand the root cause of the non-smooth behavior and check if we could see a smooth monotonic scale in at least some elements of the BLEU score calculation. Recall that the common form of BLEU score is defined as_\n' +
+      '\n' +
+      '\\[\\text{BLEU}=\\text{brevity-penalty}\\cdot\\left(\\prod_{i=1}^{4}\\text{precision}_{ i}\\right)^{1/4}, \\tag{3}\\]\n' +
+      '\n' +
+      '_where \\(\\text{precision}_{n}\\) refers to the precision of n-grams, and the second term is the geometric mean of the precision when n is varied from 1 to 4. In all the experiments, we observe brevity-penalty\\(=1\\), i.e., the non-smooth\n' +
+      '\n' +
+      'Figure 4: **BLEU score vs. _downstream_ cross-entropy loss. _(left)_ For en-de translation task, we see a consistent correlation between the two metrics for all the pretraining datasets. This supports the findings of Gordon et al. (2021). _(right)_ For en-fr translation task, the two metrics usually show an arbitrary relation. Sometimes, the BLEU score increases while the cross-entropy also increases. Unlike the en-de results in (left), the exponential relation in (Gordon et al., 2021) is not observed here.\n' +
+      '\n' +
+      'behavior can be attributed to the precision terms. Hence, our findings, including the scaling law in (1), would also apply for precision-another_ downstream _task metric._\n' +
+      '\n' +
+      '## 6 Discussion and Conclusion\n' +
+      '\n' +
+      'We study the scaling behavior of the downstream performance of LLMs as the pretraining data grows and propose scaling laws for both _downstream_ cross-entropy and the BLEU score. We demonstrate through extensive experiments that the scaling behavior is significantly influenced by (1) the degree of alignment between the pretraining and the downstream data and (2) the finetuning dataset size. In favorable cases where the distributions are sufficiently aligned, we show that BLEU score can be accurately predicted using a log scaling law. However, with less alignment, there are cases where BLEU score fluctuates unpredictably whereas _downstream_ cross-entropy improves monotonically. We also observe that when the finetuning dataset size is sufficiently large, pretraining has little to no value.\n' +
+      '\n' +
+      'Our findings highlight the importance of studying downstream performance metrics and not making decisions solely based on cross-entropy (whether upstream or downstream). This echoes the findings of Schaeffer et al. (2023) about the discrepancy in behavior between smooth and non-smooth metrics when models are scaled.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* Abnar et al. (2022) Abnar, S., Dehghani, M., Neyshabur, B., and Sedghi, H. (2022). Exploring the limits of large scale pre-training. In _International Conference on Learning Representations_.\n' +
+      '* Agostinelli et al. (2022) Agostinelli, A., Uijlings, J., Mensink, T., and Ferrari, V. (2022). Transferability metrics for selecting source model ensembles. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 7936-7946.\n' +
+      '* Bahri et al. (2021) Bahri, Y., Dyer, E., Kaplan, J., Lee, J., and Sharma, U. (2021). Explaining neural scaling laws. _arXiv preprint arXiv:2102.06701_.\n' +
+      '* Bansal et al. (2022) Bansal, Y., Ghorbani, B., Garg, A., Zhang, B., Cherry, C., Neyshabur, B., and Firat, O. (2022). Data scaling laws in nmt: The effect of noise and architecture. In _International Conference on Machine Learning_, pages 1466-1482. PMLR.\n' +
+      '* Bao et al. (2019) Bao, Y., Li, Y., Huang, S.-L., Zhang, L., Zheng, L., Zamir, A., and Guibas, L. (2019). An information-theoretic approach to transferability in task transfer learning. In _2019 IEEE international conference on image processing (ICIP)_, pages 2309-2313. IEEE.\n' +
+      '* Bojar et al. (2014) Bojar, O., Buck, C., Federmann, C., Haddow, B., Koehn, P., Leveling, J., Monz, C., Pecina, P., Post, M., Saint-Amand, H., et al. (2014). Findings of the 2014 workshop on statistical machine translation. In _Proceedings of the ninth workshop on statistical machine translation_, pages 12-58.\n' +
+      '* Bojar et al. (2017) Bojar, O. r., Chatterjee, R., Federmann, C., Graham, Y., Haddow, B., Huang, S., Huck, M., Koehn, P., Liu, Q., Logacheva, V., Monz, C., Negri, M., Post, M., Rubino, R., Specia, L., and Turchi, M. (2017). Findings of the 2017 conference on machine translation (wmt17). In _Proceedings of the Second Conference on Machine Translation, Volume 2: Shared Task Papers_, pages 169-214, Copenhagen, Denmark. Association for Computational Linguistics.\n' +
+      '* Bojar et al. (2016) Bojar, O. r., Chatterjee, R., Federmann, C., Graham, Y., Haddow, B., Huck, M., Jimeno Yepes, A., Koehn, P., Logacheva, V., Monz, C., Negri, M., Neveol, A., Neves, M., Popel, M., Post, M., Rubino, R., Scarton, C., Specia, L., Turchi, M., Verspoor, K., and Zampieri, M. (2016). Findings of the 2016 conference on machine translation. In _Proceedings of the First Conference on Machine Translation_, pages 131-198, Berlin, Germany. Association for Computational Linguistics.\n' +
+      '* Bojar et al. (2017)Chiang, C.-H. and Lee, H.-y. (2022). On the transferability of pre-trained language models: A study from artificial datasets. In _Proceedings of the AAAI Conference on Artificial Intelligence_, volume 36, pages 10518-10525.\n' +
+      '* Dai et al. (2019) Dai, X., Karimi, S., Hachey, B., and Paris, C. (2019). Using similarity measures to select pretraining data for mer. In _Proceedings of the 2019 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies, Volume 1 (Long and Short Papers)_, pages 1460-1470.\n' +
+      '* Fernandes et al. (2023) Fernandes, P., Ghorbani, B., Garcia, X., Freitag, M., and Firat, O. (2023). Scaling laws for multilingual neural machine translation. _arXiv preprint arXiv:2302.09650_.\n' +
+      '* Ghiasi et al. (2018) Ghiasi, G., Lin, T.-Y., and Le, Q. V. (2018). Dropblock: A regularization method for convolutional networks. _Advances in neural information processing systems_, 31.\n' +
+      '* Ghorbani et al. (2021) Ghorbani, B., Firat, O., Freitag, M., Bapna, A., Krikun, M., Garcia, X., Chelba, C., and Cherry, C. (2021). Scaling laws for neural machine translation. In _International Conference on Learning Representations_.\n' +
+      '* Gordon et al. (2021) Gordon, M. A., Duh, K., and Kaplan, J. (2021). Data and parameter scaling laws for neural machine translation. In Moens, M.-F., Huang, X., Specia, L., and Yih, S. W.-t., editors, _Proceedings of the 2021 Conference on Empirical Methods in Natural Language Processing_, pages 5915-5922, Online and Punta Cana, Dominican Republic. Association for Computational Linguistics.\n' +
+      '* He et al. (2019) He, K., Girshick, R., and Dollar, P. (2019). Rethinking imagenet pre-training. In _Proceedings of the IEEE/CVF International Conference on Computer Vision_, pages 4918-4927.\n' +
+      '* Henighan et al. (2020) Henighan, T., Kaplan, J., Katz, M., Chen, M., Hesse, C., Jackson, J., Jun, H., Brown, T. B., Dhariwal, P., Gray, S., et al. (2020). Scaling laws for autoregressive generative modeling. _arXiv preprint arXiv:2010.14701_.\n' +
+      '* Hernandez et al. (2022) Hernandez, D., Brown, T., Conerly, T., DasSarma, N., Drain, D., El-Showk, S., Elhage, N., Hatfield-Dodds, Z., Henighan, T., Hume, T., et al. (2022). Scaling laws and interpretability of learning from repeated data. _arXiv preprint arXiv:2205.10487_.\n' +
+      '* Hernandez et al. (2021) Hernandez, D., Kaplan, J., Henighan, T., and McCandlish, S. (2021). Scaling laws for transfer. _arXiv preprint arXiv:2102.01293_.\n' +
+      '* Hoffmann et al. (2022) Hoffmann, J., Borgeaud, S., Mensch, A., Buchatskaya, E., Cai, T., Rutherford, E., Casas, D. d. L., Hendricks, L. A., Welbl, J., Clark, A., et al. (2022). Training compute-optimal large language models. _arXiv preprint arXiv:2203.15556_.\n' +
+      '* Huang et al. (2022) Huang, L.-K., Huang, J., Rong, Y., Yang, Q., and Wei, Y. (2022). Frustratingly easy transferability estimation. In _International Conference on Machine Learning_, pages 9201-9225. PMLR.\n' +
+      '* Huber (1992) Huber, P. J. (1992). Robust estimation of a location parameter. In _Breakthroughs in statistics: Methodology and distribution_, pages 492-518. Springer.\n' +
+      '* Hutter (2021) Hutter, M. (2021). Learning curve theory. _arXiv preprint arXiv:2102.04074_.\n' +
+      '* Ibrahim et al. (2022) Ibrahim, S., Ponomareva, N., and Mazumder, R. (2022). Newer is not always better: Rethinking transferability metrics, their peculiarities, stability and performance. In _Joint European Conference on Machine Learning and Knowledge Discovery in Databases_, pages 693-709. Springer.\n' +
+      '* Jain et al. (2023) Jain, A., Swaminathan, G., Favaro, P., Yang, H., Ravichandran, A., Harutyunyan, H., Achille, A., Dabeer, O., Schiele, B., Swaminathan, A., et al. (2023). A meta-learning approach to predicting performance and data requirements. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 3623-3632.\n' +
+      '* Johnson et al. (2018) Johnson, M., Anderson, P., Dras, M., and Steedman, M. (2018). Predicting accuracy on large datasets from smaller pilot data. In _Proceedings of the 56th Annual Meeting of the Association for Computational Linguistics (Volume 2: Short Papers)_, pages 450-455.\n' +
+      '* Johnson et al. (2018)Kaplan, J., McCandlish, S., Henighan, T., Brown, T. B., Chess, B., Child, R., Gray, S., Radford, A., Wu, J., and Amodei, D. (2020). Scaling laws for neural language models. _arXiv preprint arXiv:2001.08361_.\n' +
+      '* Kudo (2018) Kudo, T. (2018). Subword regularization: Improving neural network translation models with multiple subword candidates. In _Proceedings of the 56th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)_, pages 66-75.\n' +
+      '* Kudo and Richardson (2018) Kudo, T. and Richardson, J. (2018). Sentencepiece: A simple and language independent subword tokenizer and detokenizer for neural text processing. _EMNLP 2018_, page 66.\n' +
+      '* McKenzie et al. (2023) McKenzie, I. R., Lyzhov, A., Pieler, M., Parrish, A., Mueller, A., Prabhu, A., McLean, E., Kirtland, A., Ross, A., Liu, A., et al. (2023). Inverse scaling: When bigger isn\'t better. _arXiv preprint arXiv:2306.09479_.\n' +
+      '* Mikami et al. (2022) Mikami, H., Fukumizu, K., Murai, S., Suzuki, S., Kikuchi, Y., Suzuki, T., Maeda, S.-i., and Hayashi, K. (2022). A scaling law for syn2real transfer: How much is your pre-training effective? In _Joint European Conference on Machine Learning and Knowledge Discovery in Databases_, pages 477-492. Springer.\n' +
+      '* Muennighoff et al. (2023) Muennighoff, N., Rush, A. M., Barak, B., Scao, T. L., Tazi, N., Piktus, A., Pyysalo, S., Wolf, T., and Raffel, C. (2023). Scaling data-constrained language models. In _Thirty-seventh Conference on Neural Information Processing Systems_.\n' +
+      '* Nguyen et al. (2020) Nguyen, C., Hassner, T., Seeger, M., and Archambeau, C. (2020). Leep: A new measure to evaluate transferability of learned representations. In _International Conference on Machine Learning_, pages 7294-7305. PMLR.\n' +
+      '* Nocedal (1980) Nocedal, J. (1980). Updating quasi-newton matrices with limited storage. _Mathematics of computation_, 35(151):773-782.\n' +
+      '* Papineni et al. (2002) Papineni, K., Roukos, S., Ward, T., and Zhu, W.-J. (2002). Bleu: a method for automatic evaluation of machine translation. In _Proceedings of the 40th annual meeting of the Association for Computational Linguistics_, pages 311-318.\n' +
+      '* Plank and Van Nood (2011) Plank, B. and Van Nood, G. (2011). Effective measures of domain similarity for parsing. In _Proceedings of the 49th Annual Meeting of the Association for Computational Linguistics: Human Language Technologies_, pages 1566-1576.\n' +
+      '* Raffel et al. (2020) Raffel, C., Shazeer, N., Roberts, A., Lee, K., Narang, S., Matena, M., Zhou, Y., Li, W., and Liu, P. J. (2020). Exploring the limits of transfer learning with a unified text-to-text transformer. _The Journal of Machine Learning Research_, 21(1):5485-5551.\n' +
+      '* Schaeffer et al. (2023) Schaeffer, R., Miranda, B., and Koyejo, S. (2023). Are emergent abilities of large language models a mirage? In _Thirty-seventh Conference on Neural Information Processing Systems_.\n' +
+      '* Sennrich et al. (2016) Sennrich, R., Haddow, B., and Birch, A. (2016). Neural machine translation of rare words with subword units. In _Proceedings of the 54th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)_, pages 1715-1725.\n' +
+      '* Sharma and Kaplan (2020) Sharma, U. and Kaplan, J. (2020). A neural scaling law from the dimension of the data manifold. _arXiv preprint arXiv:2004.10802_.\n' +
+      '* Shazeer and Stern (2018) Shazeer, N. and Stern, M. (2018). Adafactor: Adaptive learning rates with sublinear memory cost. In _International Conference on Machine Learning_, pages 4596-4604. PMLR.\n' +
+      '* Shen et al. (2019) Shen, Z., Liu, Z., Li, J., Jiang, Y.-G., Chen, Y., and Xue, X. (2019). Object detection from scratch with deep supervision. _IEEE transactions on pattern analysis and machine intelligence_, 42(2):398-412.\n' +
+      '* Sun et al. (2017) Sun, C., Shrivastava, A., Singh, S., and Gupta, A. (2017). Revisiting unreasonable effectiveness of data in deep learning era. In _Proceedings of the IEEE international conference on computer vision_, pages 843-852.\n' +
+      '\n' +
+      'Tamkin, A., Singh, T., Giovanardi, D., and Goodman, N. (2020). Investigating transferability in pretrained language models. In _Findings of the Association for Computational Linguistics: EMNLP 2020_, pages 1393-1401.\n' +
+      '* Tay et al. (2021) Tay, Y., Dehghani, M., Rao, J., Fedus, W., Abnar, S., Chung, H. W., Narang, S., Yogatama, D., Vaswani, A., and Metzler, D. (2021). Scale efficiently: Insights from pretraining and finetuning transformers. In _International Conference on Learning Representations_.\n' +
+      '* Tirumala et al. (2023) Tirumala, K., Simig, D., Aghajanyan, A., and Morcos, A. S. (2023). D4: Improving llm pretraining via document de-duplication and diversification. In _Thirty-seventh Conference on Neural Information Processing Systems Datasets and Benchmarks Track_.\n' +
+      '* Tran et al. (2019) Tran, A. T., Nguyen, C. V., and Hassner, T. (2019). Transferability and hardness of supervised classification tasks. In _Proceedings of the IEEE/CVF International Conference on Computer Vision_, pages 1395-1405.\n' +
+      '* Van Asch and Daelemans (2010) Van Asch, V. and Daelemans, W. (2010). Using domain similarity for performance estimation. In _Proceedings of the 2010 Workshop on Domain Adaptation for Natural Language Processing_, pages 31-36.\n' +
+      '* You et al. (2021) You, K., Liu, Y., Wang, J., and Long, M. (2021). Logme: Practical assessment of pre-trained models for transfer learning. In _International Conference on Machine Learning_, pages 12133-12143. PMLR.\n' +
+      '* Zhai et al. (2022) Zhai, X., Kolesnikov, A., Houlsby, N., and Beyer, L. (2022). Scaling vision transformers. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 12104-12113.\n' +
+      '* Zhang et al. (2022) Zhang, B., Ghorbani, B., Bapna, A., Cheng, Y., Garcia, X., Shen, J., and Firat, O. (2022). Examining scaling and transfer of language model architectures for machine translation. In _International Conference on Machine Learning_, pages 26176-26192. PMLR.\n' +
+      '* Zhuocheng et al. (2023) Zhuocheng, Z., Gu, S., Zhang, M., and Feng, Y. (2023). Scaling law for document neural machine translation. In _Findings of the Association for Computational Linguistics: EMNLP 2023_, pages 8290-8303.\n' +
+      '* Zoph et al. (2020) Zoph, B., Ghiasi, G., Lin, T.-Y., Cui, Y., Liu, H., Cubuk, E. D., and Le, Q. (2020). Rethinking pre-training and self-training. _Advances in neural information processing systems_, 33:3833-3845.\n' +
+      '\n' +
+      'Additional Experimental Details\n' +
+      '\n' +
+      '### Model Architectures\n' +
+      '\n' +
+      'We provide the architecture details of the T5-3B and T5-770M models in Tables 1 and 2. These models were initially introduced by Raffel et al. (2020).\n' +
+      '\n' +
+      '### Optimizing the Scaling Law Coefficients\n' +
+      '\n' +
+      'In this section, we provide more details on how we optimize the coefficients of the scaling laws. Following Hoffmann et al. (2022), we use the Huber loss (Huber, 1992) to minimize overfitting to the outliers. Huber loss is particularly useful to suppress the effect of the outlier data points in the optimization problem. More specifically, if the data point with value \\(r\\) is predicted by the law as \\(\\hat{r}\\), the loss for that data point would be\n' +
+      '\n' +
+      '\\[\\ell_{\\delta}(r,\\hat{r})=\\begin{cases}\\frac{1}{2}(r-\\hat{r})^{2}&\\text{for }|r-\\hat{r}|\\leq\\delta,\\\\ \\delta\\cdot(|r-\\hat{r}|-\\frac{1}{2}\\delta)&\\text{otherwise.}\\end{cases} \\tag{4}\\]\n' +
+      '\n' +
+      'Due to the numerical range difference between the BLEU score (between 0 and 100) and the _downstream_ cross-entropy typically taking much smaller values, we use \\(\\delta=0.1\\) for the BLEU score law in (1) and \\(\\delta=1e-3\\) for the _downstream_ cross-entropy law in (2).\n' +
+      '\n' +
+      'For optimization, we use the L-BFGS algorithm (Nocedal, 1980). Specifically, for the BLEU score law in (1), we solve\n' +
+      '\n' +
+      '\\[\\min_{E,A,\\alpha,\\beta}\\sum_{\\text{Data point }i}\\ell_{\\delta}(\\log f_{i}, \\log\\hat{f}(D_{p_{i}})), \\tag{5}\\]\n' +
+      '\n' +
+      'where \\(D_{p_{i}}\\) is the pretraining dataset size and \\(f_{i}\\) is the BLEU score for the data point \\(i\\), and \\(\\hat{f}(\\cdot)\\) is the approximation for the optimal law \\(f(\\cdot)\\). Similarly, for the _downstream_ cross-entropy loss law in (2), we solve\n' +
+      '\n' +
+      '\\[\\min_{E,A,\\alpha}\\sum_{\\text{Data point }i}\\ell_{\\delta}(\\log L_{i}, \\log\\hat{L}(D_{p_{i}})), \\tag{6}\\]\n' +
+      '\n' +
+      'where \\(D_{p_{i}}\\) is the pretraining dataset size and \\(L_{i}\\) is the _downstream_ cross-entropy loss for the data point \\(i\\), and \\(\\hat{L}(\\cdot)\\) is the approximation for the optimal law \\(L(\\cdot)\\).\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c|c} \\hline Embedding Dimension & 1024 \\\\ Number of Heads & 32 \\\\ Number of Encoder Layers & 24 \\\\ Number of Decoder Layers & 24 \\\\ Head Dimension & 128 \\\\ MLP Dimension & 16384 \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 1: T5-3B Raffel et al. (2020) architecture details.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c|c} \\hline Embedding Dimension & 1024 \\\\ Number of Heads & 16 \\\\ Number of Encoder Layers & 24 \\\\ Number of Decoder Layers & 24 \\\\ Head Dimension & 64 \\\\ MLP Dimension & 2816 \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 2: T5-770M Raffel et al. (2020) architecture details.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:15]\n' +
+      '\n' +
+      '### Optimized Coefficients and Prediction Errors of the Scaling Laws\n' +
+      '\n' +
+      'In Tables 3, 4, 5, and 6, we provide the optimized coefficients for the scaling laws plotted in Figures 1 and 2 together with the prediction error.\n' +
+      '\n' +
+      'Figure 6: **(top) BLEU score vs pretraining dataset size: \\(\\mathbf{f(D_{p})=(\\log(A\\cdot D_{p}^{\\alpha}))^{\\beta}}\\). _(left)_** WMT-17 en-to-de translation task. Dotted and dashed red curves correspond to the fitted scaling laws for different finetuning dataset sizes, \\(D_{f}=6M\\) and \\(D_{f}=31M\\) tokens, respectively. _(right)_ WMT-15 en-to-fr translation task. Dotted and dashed red curves correspond to the fitted scaling laws for different finetuning dataset sizes, \\(D_{f}=42M\\) and \\(D_{f}=210M\\) tokens, respectively. **(bottom) Cross-entropy (CE) validation loss vs pretraining dataset size: \\(\\mathbf{L(D_{p})=E+\\frac{A}{D_{p}^{\\alpha}}.}\\)** Same models as the top row. For all the plots, the markers are the actual experimental results and the black horizontal curves correspond to the non-pretrained model directly trained on the task dataset. **The finetuning dataset size increases in the order of dotted-dashed for all the curves including the black horizontal lines.**\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c|c c c|c} \\hline \\hline Pretraining Dataset & Finetuning Dataset & Finetuning Dataset Size & \\(E\\) & \\(A\\) & \\(\\alpha\\) & Prediction Error \\\\ \\hline\n' +
+      '100\\% en +MC4 & WMT-17 en-de & 6M & \\(-18.88\\) & \\(0.15\\) & \\(3.30\\) & \\(0.014\\) \\\\\n' +
+      '100\\% en +MC4 & WMT-17 en-de & 31M & \\(-1.81\\times 10^{4}\\) & \\(896.12\\) & \\(0.28\\) & \\(0.006\\) \\\\\n' +
+      '100\\% en +MC4 & WMT-17 en-de & 3B & \\(1.02\\times 10^{-7}\\) & \\(104.92\\) & \\(0.42\\) & \\(0.015\\) \\\\ \\hline\n' +
+      '100\\% en +MC4 & WMT-15 en-fr & 42M & \\(1.00\\) & \\(2.57\\times 10^{-5}\\) & \\(1.11\\times 10^{4}\\) & \\(0.042\\) \\\\\n' +
+      '100\\% en +MC4 & WMT-15 en-fr & 210M & \\(-6.38\\times 10^{7}\\) & \\(3.43\\times 10^{6}\\) & \\(0.20\\) & \\(0.034\\) \\\\\n' +
+      '100\\% en +MC4 & WMT-15 en-fr & 21B & \\(204.81\\) & \\(3.80\\times 10^{14}\\) & \\(9.97\\times 10^{-3}\\) & \\(0.004\\) \\\\ \\hline\n' +
+      '100\\% en +MC4 & WMT-16 en-ro & 625K & \\(-10.54\\) & \\(0.55\\) & \\(1.12\\) & \\(0.008\\) \\\\\n' +
+      '100\\% en +MC4 & WMT-16 en-ro & 3M & \\(-40.41\\) & \\(2.11\\) & \\(0.79\\) & \\(0.025\\) \\\\\n' +
+      '100\\% en +MC4 & WMT-16 en-ro & 312M & \\(3.61\\) & \\(8.17\\times 10^{5}\\) & \\(0.19\\) & \\(0.018\\) \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 6: The coefficients for the _downstream_ cross-entropy law \\(L(D_{p})=E+\\frac{A}{D_{p}^{\\alpha}}\\) for the results in Figure 2-(**bottom**). For the _downstream_ cross-entropy laws, we use \\(\\delta=10^{-5}\\) for the Huber Loss.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c|c c c|c} \\hline \\hline Pretraining Dataset & Finetuning Dataset & Finetuning Dataset Size & \\(E\\) & \\(A\\) & \\(\\alpha\\) & Prediction Error \\\\ \\hline\n' +
+      '50\\% en + 50\\% de-MC4 & WMT-17 en-de & 6M & \\(-180.75\\) & \\(9.00\\) & \\(0.75\\) & \\(0.034\\) \\\\\n' +
+      '50\\% en + 50\\% de-MC4 & WMT-17 en-de & 31M & \\(-1.68\\times 10^{3}\\) & \\(84.04\\) & \\(0.49\\) & \\(0.050\\) \\\\\n' +
+      '50\\% en + 50\\% de-MC4 & WMT-17 en-de & 3B & \\(-1.64\\times 10^{8}\\) & \\(9.91\\times 10^{6}\\) & \\(0.19\\) & \\(0.048\\) \\\\ \\hline\n' +
+      '50\\% en + 50\\% fr-MC4 & WMT-15 en-fr & 42M & \\(-1.82\\times 10^{4}\\) & \\(8.98\\times 10^{2}\\) & \\(0.42\\) & \\(0.061\\) \\\\\n' +
+      '50\\% en + 50\\% fr-MC4 & WMT-15 en-fr & 210M & \\(-2.33\\times 10^{4}\\) & \\(1.21\\times 10^{3}\\) & \\(0.40\\) & \\(0.013\\) \\\\\n' +
+      '50\\% en + 50\\% fr-MC4 & WMT-15 en-fr & 21B & \\(5.08\\times 10^{3}\\) & \\(4.61\\times 10^{8}\\) & \\(0.16\\) & \\(0.005\\) \\\\ \\hline\n' +
+      '50\\% en + 50\\% ro-MC4 & WMT-16 en-ro & 625K & \\(-36.02\\) & \\(1.77\\) & \\(1.28\\) & \\(0.042\\) \\\\\n' +
+      '50\\% en + 50\\% ro-MC4 & WMT-16 en-ro & 3M & \\(-0.115.03\\) & \\(5.69\\) & \\(0.89\\) & \\(0.015\\) \\\\\n' +
+      '50\\% en + 50\\% ro-MC4 & WMT-16 en-ro & 312M & \\(-1.82\\times 10^{4}\\) & \\(9.04\\times 10^{2}\\) & \\(0.40\\) & \\(0.015\\) \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 3: The coefficients for the BLEU score law \\(f(D_{p})=(\\log(A\\cdot D_{p}^{\\alpha}))^{\\beta}\\) for the results in Figure 1-(**top**). For the BLEU score laws, we use \\(\\delta=0.1\\) for the Huber Loss. We report \\(\\log A\\) instead of \\(A\\) since \\(A\\) typically takes very small and very large values.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c|c c c|c} \\hline \\hline Pretraining Dataset & Finetuning Dataset & Finetuning Dataset Size & \\(E\\) & \\(A\\) & \\(\\alpha\\) & Prediction Error \\\\ \\hline\n' +
+      '50\\% en + 50\\% de-MC4 & WMT-17 en-de & 6M & \\(-18.075\\) & \\(9.00\\) & \\(0.75\\) & \\(0.034\\) \\\\\n' +
+      '50\\% en + 50\\% de-MC4 & WMT-17 en-de & 31M & \\(-1.68\\times 10^{3}\\) & \\(84.04\\) & \\(0.49\\) & \\(0.050\\) \\\\\n' +
+      '50\\% en + 50\\% de-MC4 & WMT-17 en-de & 3B & \\(-1.64\\times 10^{8}\\) & \\(9.91\\times 10^{6}\\) & \\(0.19\\) & \\(0.048\\) \\\\ \\hline\n' +
+      '50\\% en + 50\\% fr-MC4 & WMT-15 en-fr & 42M & \\(-1.82\\times 10^{4}\\) & \\(8.98\\times 10^{2}\\) & \\(0.42\\) & \\(0.061\\) \\\\\n' +
+      '50\\% en + 50\\% fr-MC4 & WMT-15 en-fr & 210M & \\(-2.33\\times 10^{4}\\) & \\(1.21\\times 10^{3}\\) & \\(0.40\\) & \\(0.013\\) \\\\\n' +
+      '50\\% en + 50\\% fr-MC4 & WMT-15 en-fr & 21B & \\(5.08\\times 10^{3}\\) & \\(4.61\\times 10^{8}\\) & \\(0.16\\) & \\(0.005\\) \\\\ \\hline\n' +
+      '50\\% en + 50\\% ro-MC4 & WMT-16 en-ro & 625K & \\(-36.02\\) & \\(1.77\\) & \\(1.28\\) & \\(0.042\\) \\\\\n' +
+      '50\\% en + 50\\% ro-MC4 & WMT-16 en-ro & 3M & \\(-0.115.03\\) & \\(5.69\\) & \\(0.89\\) & \\(0.015\\) \\\\\n' +
+      '50\\% en + 50\\% ro-MC4 & WMT-16 en-ro & 312M & \\(-1.82\\times 10^{4}\\) & \\(9.04\\times 10^{2}\\) & \\(0.40\\) & \\(0.015\\) \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 4: The coefficients for the _downstream_ cross-entropy law \\(L(D_{p})=E+\\frac{A}{D_{p}^{\\alpha}}\\) for the results in Figure 1-(**bottom**). For the results in Figure 1-(**bottom**). For the _downstream_ cross-entropy laws, we use \\(\\delta=10^{-5}\\) for the Huber Loss.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c|c c c|c} \\hline \\hline Pretraining Dataset & Finetuning Dataset & Finetuning Dataset Size & \\(\\log A\\) & \\(\\alpha\\) & \\(\\beta\\) & Prediction Error \\\\ \\hline\n' +
+      '100\\% en +MC4 & WMT-17 en-de & 6M & \\(-1.88\\) & \\(0.15\\) & \\(3.30\\) & \\(0.014\\) \\\\\n' +
+      '100\\% en-MC4 & WMT-17 en-de & 31M & \\(-1.81\\times 10^{4}\\) & \\(896.12\\) & \\(0.28\\) & \\(0.006\\) \\\\\n' +
+      '100\\% en-MC4 & WMT-17 en-de & 3B & \\(1.02\\times 10^{-7}\\) & \\(104.92\\) & \\(0.42\\) & \\(0.015\\) \\\\ \\hline\n' +
+      '100\\% en-MC4 & WMT-15 en-fr & 42M & \\(1.00\\) & \\(2.57\\times 10^{-5}\\) & \\(1.11\\times 10^{4}\\) & \\(0.042\\) \\\\\n' +
+      '100\\% en-MC4 & WMT-15 en-fr & 210M & \\(-6.38\\times 10^{7}\\) & \\(3.43\\times 10^{6}\\) & \\(0.20\\\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
