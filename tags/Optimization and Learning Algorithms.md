@@ -23,3 +23,4 @@
 - [Direct-a-Video: Customized Video Generation with User-Directed Camera Movement and Object Motion](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/18/2024-02-06+Direct-a-Video%3A+Customized+Video+Generation+with+User-Directed+Camera+Movement+and+Object+Motion.yaml) / 2024-02-06
 - [Rethinking Optimization and Architecture for Tiny Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/18/2024-02-06+Rethinking+Optimization+and+Architecture+for+Tiny+Language+Models.yaml) / 2024-02-06
 - [Shortened LLaMA: A Simple Depth Pruning for Large Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/18/2024-02-06+Shortened+LLaMA%3A+A+Simple+Depth+Pruning+for+Large+Language+Models.yaml) / 2024-02-06
+- [Diffusion World Model](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/19/2024-02-07+Diffusion+World+Model.yaml) / 2024-02-07

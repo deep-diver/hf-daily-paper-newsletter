@@ -16,3 +16,5 @@
 - [StepCoder: Improve Code Generation with Reinforcement Learning from Compiler Feedback](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/17/2024-02-05+StepCoder%3A+Improve+Code+Generation+with+Reinforcement+Learning+from+Compiler+Feedback.yaml) / 2024-02-05
 - [LiPO: Listwise Preference Optimization through Learning-to-Rank](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/18/2024-02-06+LiPO%3A+Listwise+Preference+Optimization+through+Learning-to-Rank.yaml) / 2024-02-06
 - [V-IRL: Grounding Virtual Intelligence in Real Life](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/18/2024-02-06+V-IRL%3A+Grounding+Virtual+Intelligence+in+Real+Life.yaml) / 2024-02-06
+- [Diffusion World Model](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/19/2024-02-07+Diffusion+World+Model.yaml) / 2024-02-07
+- [MusicRL: Aligning Music Generation to Human Preferences](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/19/2024-02-07+MusicRL%3A+Aligning+Music+Generation+to+Human+Preferences.yaml) / 2024-02-07

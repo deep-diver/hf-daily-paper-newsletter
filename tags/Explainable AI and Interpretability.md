@@ -19,3 +19,4 @@
 - [K-Level Reasoning with Large Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/17/2024-02-05+K-Level+Reasoning+with+Large+Language+Models.yaml) / 2024-02-05
 - [OpenMoE: An Early Effort on Open Mixture-of-Experts Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/18/2024-02-06+OpenMoE%3A+An+Early+Effort+on+Open+Mixture-of-Experts+Language+Models.yaml) / 2024-02-06
 - [Rethinking Interpretability in the Era of Large Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/18/2024-02-06+Rethinking+Interpretability+in+the+Era+of+Large+Language+Models.yaml) / 2024-02-06
+- [Self-Discover: Large Language Models Self-Compose Reasoning Structures](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/19/2024-02-07+Self-Discover%3A+Large+Language+Models+Self-Compose+Reasoning+Structures.yaml) / 2024-02-07

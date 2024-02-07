@@ -1,0 +1,1 @@
+- [Scaling Laws for Downstream Task Performance of Large Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/19/2024-02-07+Scaling+Laws+for+Downstream+Task+Performance+of+Large+Language+Models.yaml) / 2024-02-07

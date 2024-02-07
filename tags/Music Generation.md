@@ -1,1 +1,2 @@
 - [DITTO: Diffusion Inference-Time T-Optimization for Music Generation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/8/2024-01-23+DITTO%3A+Diffusion+Inference-Time+T-Optimization+for+Music+Generation.yaml) / 2024-01-23
+- [MusicRL: Aligning Music Generation to Human Preferences](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/19/2024-02-07+MusicRL%3A+Aligning+Music+Generation+to+Human+Preferences.yaml) / 2024-02-07
