@@ -24,3 +24,6 @@
 - [Rethinking Optimization and Architecture for Tiny Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/18/2024-02-06+Rethinking+Optimization+and+Architecture+for+Tiny+Language+Models.yaml) / 2024-02-06
 - [Shortened LLaMA: A Simple Depth Pruning for Large Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/18/2024-02-06+Shortened+LLaMA%3A+A+Simple+Depth+Pruning+for+Large+Language+Models.yaml) / 2024-02-06
 - [Diffusion World Model](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/19/2024-02-07+Diffusion+World+Model.yaml) / 2024-02-07
+- [BiLLM: Pushing the Limit of Post-Training Quantization for LLMs](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/20/2024-02-08+BiLLM%3A+Pushing+the+Limit+of+Post-Training+Quantization+for+LLMs.yaml) / 2024-02-08
+- [Progressive Gradient Flow for Robust N:M Sparsity Training in Transformers](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/20/2024-02-08+Progressive+Gradient+Flow+for+Robust+N%3AM+Sparsity+Training+in+Transformers.yaml) / 2024-02-08
+- [TP-Aware Dequantization](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/20/2024-02-08+TP-Aware+Dequantization.yaml) / 2024-02-08

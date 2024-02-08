@@ -18,3 +18,4 @@
 - [V-IRL: Grounding Virtual Intelligence in Real Life](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/18/2024-02-06+V-IRL%3A+Grounding+Virtual+Intelligence+in+Real+Life.yaml) / 2024-02-06
 - [Diffusion World Model](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/19/2024-02-07+Diffusion+World+Model.yaml) / 2024-02-07
 - [MusicRL: Aligning Music Generation to Human Preferences](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/19/2024-02-07+MusicRL%3A+Aligning+Music+Generation+to+Human+Preferences.yaml) / 2024-02-07
+- [CodeIt: Self-Improving Language Models with Prioritized Hindsight Replay](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/20/2024-02-08+CodeIt%3A+Self-Improving+Language+Models+with+Prioritized+Hindsight+Replay.yaml) / 2024-02-08
