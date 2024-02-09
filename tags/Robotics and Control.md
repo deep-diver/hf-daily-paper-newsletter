@@ -8,3 +8,5 @@
 - [Agile But Safe: Learning Collision-Free High-Speed Legged Locomotion](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/15/2024-02-01+Agile+But+Safe%3A+Learning+Collision-Free+High-Speed+Legged+Locomotion.yaml) / 2024-02-01
 - [CARFF: Conditional Auto-encoded Radiance Field for 3D Scene Forecasting](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/15/2024-02-01+CARFF%3A+Conditional+Auto-encoded+Radiance+Field+for+3D+Scene+Forecasting.yaml) / 2024-02-01
 - [V-IRL: Grounding Virtual Intelligence in Real Life](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/18/2024-02-06+V-IRL%3A+Grounding+Virtual+Intelligence+in+Real+Life.yaml) / 2024-02-06
+- [An Interactive Agent Foundation Model](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/21/2024-02-09+An+Interactive+Agent+Foundation+Model.yaml) / 2024-02-09
+- [Driving Everywhere with Large Language Model Policy Adaptation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/21/2024-02-09+Driving+Everywhere+with+Large+Language+Model+Policy+Adaptation.yaml) / 2024-02-09

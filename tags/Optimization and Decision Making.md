@@ -2,3 +2,4 @@
 - [Synthesizing Moving People with 3D Control](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/7/2024-01-22+Synthesizing+Moving+People+with+3D+Control.yaml) / 2024-01-22
 - [BiTA: Bi-Directional Tuning for Lossless Acceleration in Large Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/9/2024-01-24+BiTA%3A+Bi-Directional+Tuning+for+Lossless+Acceleration+in+Large+Language+Models.yaml) / 2024-01-24
 - [CroissantLLM: A Truly Bilingual French-English Language Model](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/16/2024-02-02+CroissantLLM%3A+A+Truly+Bilingual+French-English+Language+Model.yaml) / 2024-02-02
+- [Driving Everywhere with Large Language Model Policy Adaptation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/21/2024-02-09+Driving+Everywhere+with+Large+Language+Model+Policy+Adaptation.yaml) / 2024-02-09

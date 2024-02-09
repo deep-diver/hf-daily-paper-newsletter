@@ -19,3 +19,6 @@
 - [Diffusion World Model](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/19/2024-02-07+Diffusion+World+Model.yaml) / 2024-02-07
 - [MusicRL: Aligning Music Generation to Human Preferences](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/19/2024-02-07+MusicRL%3A+Aligning+Music+Generation+to+Human+Preferences.yaml) / 2024-02-07
 - [CodeIt: Self-Improving Language Models with Prioritized Hindsight Replay](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/20/2024-02-08+CodeIt%3A+Self-Improving+Language+Models+with+Prioritized+Hindsight+Replay.yaml) / 2024-02-08
+- [An Interactive Agent Foundation Model](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/21/2024-02-09+An+Interactive+Agent+Foundation+Model.yaml) / 2024-02-09
+- [Driving Everywhere with Large Language Model Policy Adaptation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/21/2024-02-09+Driving+Everywhere+with+Large+Language+Model+Policy+Adaptation.yaml) / 2024-02-09
+- [Offline Actor-Critic Reinforcement Learning Scales to Large Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/21/2024-02-09+Offline+Actor-Critic+Reinforcement+Learning+Scales+to+Large+Models.yaml) / 2024-02-09

@@ -15,3 +15,4 @@
 - [Boximator: Generating Rich and Controllable Motions for Video Synthesis](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/17/2024-02-05+Boximator%3A+Generating+Rich+and+Controllable+Motions+for+Video+Synthesis.yaml) / 2024-02-05
 - [PokéLLMon: A Human-Parity Agent for Pokémon Battles with Large Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/17/2024-02-05+Pok%C3%A9LLMon%3A+A+Human-Parity+Agent+for+Pok%C3%A9mon+Battles+with+Large+Language+Models.yaml) / 2024-02-05
 - [EscherNet: A Generative Model for Scalable View Synthesis](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/19/2024-02-07+EscherNet%3A+A+Generative+Model+for+Scalable+View+Synthesis.yaml) / 2024-02-07
+- [An Interactive Agent Foundation Model](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/21/2024-02-09+An+Interactive+Agent+Foundation+Model.yaml) / 2024-02-09

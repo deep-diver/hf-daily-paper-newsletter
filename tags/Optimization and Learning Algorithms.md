@@ -27,3 +27,4 @@
 - [BiLLM: Pushing the Limit of Post-Training Quantization for LLMs](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/20/2024-02-08+BiLLM%3A+Pushing+the+Limit+of+Post-Training+Quantization+for+LLMs.yaml) / 2024-02-08
 - [Progressive Gradient Flow for Robust N:M Sparsity Training in Transformers](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/20/2024-02-08+Progressive+Gradient+Flow+for+Robust+N%3AM+Sparsity+Training+in+Transformers.yaml) / 2024-02-08
 - [TP-Aware Dequantization](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/20/2024-02-08+TP-Aware+Dequantization.yaml) / 2024-02-08
+- [Implicit Diffusion: Efficient Optimization through Stochastic Sampling](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/21/2024-02-09+Implicit+Diffusion%3A+Efficient+Optimization+through+Stochastic+Sampling.yaml) / 2024-02-09

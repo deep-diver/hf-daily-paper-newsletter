@@ -1,0 +1,1 @@
+- [An Interactive Agent Foundation Model](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/21/2024-02-09+An+Interactive+Agent+Foundation+Model.yaml) / 2024-02-09
