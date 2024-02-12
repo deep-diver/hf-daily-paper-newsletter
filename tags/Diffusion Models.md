@@ -1,1 +1,2 @@
 - [SiT: Exploring Flow and Diffusion-based Generative Models with Scalable Interpolant Transformers](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/5/2024-01-18+SiT%3A+Exploring+Flow+and+Diffusion-based+Generative+Models+with+Scalable+Interpolant+Transformers.yaml) / 2024-01-18
+- [MusicMagus: Zero-Shot Text-to-Music Editing via Diffusion Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/22/2024-02-12+MusicMagus%3A+Zero-Shot+Text-to-Music+Editing+via+Diffusion+Models.yaml) / 2024-02-12

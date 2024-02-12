@@ -1,0 +1,1 @@
+- [MusicMagus: Zero-Shot Text-to-Music Editing via Diffusion Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/22/2024-02-12+MusicMagus%3A+Zero-Shot+Text-to-Music+Editing+via+Diffusion+Models.yaml) / 2024-02-12
