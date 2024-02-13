@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '[MISSING_PAGE_FAIL:1]\n' +
+      '\n' +
+      '(SS3.12) to facilitate the effective deployment of large-ranking models in production.\n' +
+      '\n' +
+      'Proposed modeling advancements within this paper enabled our models to efficiently handle a larger number of parameters, leading to higher-quality content delivery. Within the paper we introduce details of large scale architectures of Feed ranking in SS3.1, Ads CTR model SS3.2, and Job recommendation ranking models in SS5.3.\n' +
+      '\n' +
+      'In SS5, we detail our experiences in deploying large-ranking models in production for Feed Ranking, Jobs Recommendations, and Ads CTR prediction, summarizing key learnings gathered from offline experimentation and A/B tests. Notably, the techniques presented in this work have resulted in significant relative improvements: a 0.5% increase in Feed sessions, a 1.76% enhancement in the number of qualified applicants within Job Recommendations, and a 4.3% boost in Ads CTR. We believe that this work can provide practical solutions and insights for engineers who are interested in applying large DNN ranking models at scale.\n' +
+      '\n' +
+      '## 2. Related Work\n' +
+      '\n' +
+      'The use of deep neural network models in personalized recommender systems has been dominant in academia and industry since the success of the Wide&Deep model(Bordes and McAllester, 2016) in 2016. Typically, these models consist of feature embeddings, feature selection, and feature interaction components, with much research focused on enhancing feature interactions. Tge Wide&Deep model(Bordes and McAllester, 2016) initiated this trend by combining a generalized linear model with an MLP network. Subsequent research aimed to keep the MLP network for implicit feature interactions and replace the linear model with other modules for capturing explicit higher-order feature interactions. Examples include DeepFM(Han et al., 2017), which replaced the linear model with FM; deep cross network (DCN)(Wang et al., 2018) and its follow-up DCNv2(Wang et al., 2018), which introduced a cross network for high-order feature interactions; xDeepFM(Dong et al., 2019), offering compressed interaction network (CIN) for explicit vector-wise feature interactions; AutoInt(Wang et al., 2018), which introduced self-attention networks for explicit feature interaction; AFN(Chen et al., 2018), exploring adaptive-order feature interactions through a logarithmic transformation layer; and FinalMLP(Wang et al., 2018), which achieved impressive performance by combining two MLPs.\n' +
+      '\n' +
+      'We experimented with and customized these architectures for various LinkedIn recommender tasks, with DCNv2 proving to be the most versatile. We propose enhancements to DCNv2, referred to as Residual DCN, in this paper. Additionally, we implemented a model parallelism design in TensorFlow(TF), similar to the approach proposed in the DLRM(Wang et al., 2018) paper, to accelerate model training with large embedding tables.\n' +
+      '\n' +
+      'In our investigation, we\'ve encountered challenges when attempting to seamlessly integrate original architectures into production environments. These challenges often manifest as issues such as model training divergence, over-fitting, or limited observable performance improvements. Crafting a high-performing model by effectively leveraging these architectures demands substantial effort, often characterized by a painstaking process of trial and error. Consequently, in this paper, we aim to offer valuable insights derived from our experiences in successfully assembling state-of-the-art (SOTA) architectures into production-ready ranking models.\n' +
+      '\n' +
+      'While enhancing neural network predictive performance through various optimizations and architectures, the space of calibration remained relatively stable. Traditional industry-standard methods (Krizhevsky et al., 2014) like Histogram binning, Platt Scaling, and Isotonic Regression are applied in post-processing steps after deep model training. Some research has introduced calibration-aware losses to address under/over calibration issues usually resulting in trade-off (Krizhevsky et al., 2014) or slight improved metrics (Bordes and McAllester, 2016). In SS3.4 we propose an isotonic calibration layer within the deep learning model which learns to calibrate deep model scores during model training and improves model predictive accuracy significantly.\n' +
+      '\n' +
+      '## 3. Large Ranking Models\n' +
+      '\n' +
+      'In this section, we introduce large ranking models used by LinkedIn Feed Ranking and Ads CTR (click-through-rate) prediction. We observe that the choice of architecture components varies based on the use case. We\'ll share our insights on building effective ranking models for production scenarios.\n' +
+      '\n' +
+      '### Feed Ranking Model\n' +
+      '\n' +
+      'The primary Feed ranking model employs a point-wise ranking approach, predicting multiple action probabilities including like, comment, share, vote, and long dwell and click for each <member, candidate post- pair. These predictions are linearly combined to generate the final post score. A TF model with a multi-task learning (MTL) architecture generates these probabilities in two towers: the click tower for probabilities of click and long dwell, and contribution tower for contribution and related predictions. Both towers use the same set of dense features normalized based on their distribution(Han et al., 2017), and apply multiple fully-connected layers. Sparse ID embedding features (SSA.1) are transformed into dense embeddings (Han et al., 2017) through lookup in embedding tables of Member/Actor and Hashtag Embedding Table as in Figure 1. For reproducibility in appendix in Figure 8 we provide a diagram showing how different architectures are connected together into a single model.\n' +
+      '\n' +
+      '### Ads CTR Model\n' +
+      '\n' +
+      'At LinkedIn, ads selection relies on click-through-rate (CTR) prediction, estimating the likelihood of member clicks on recommended ads. This CTR probability informs ad auctions for displaying ads to\n' +
+      '\n' +
+      'Figure 1. Contribution tower of the main Feed ranking model\n' +
+      '\n' +
+      'members. Advertisers customize chargeable clicks for campaigns, such as some advertisers consider social interaction such as \'like\', \'comment\' as chargeable clicks while others only consider visiting ads websites as clicks. Usually only positive customized chargeable clicks are treated as positive labels. To better capture user interest, our CTR prediction model is a chargeability-based MTL model with 3 heads that correspond to 3 chargeability categorizations where similar chargeable definitions are grouped together regardless of advertiser customization. Each head employs independent interaction blocks such as MLP and DCNv2 blocks. The loss function combines head-specific losses. For features, besides traditional features from members and advertisers, we incorporate ID features to represent advertisers, campaigns, and advertisements. The model architecture is depicted in Figure 2.\n' +
+      '\n' +
+      '### Residual DCN\n' +
+      '\n' +
+      'To automatically capture feature interactions, we utilized DCNv2 (Sutton et al., 2017). Our offline experiments revealed that two DCNv2 layers provided sufficient interaction complexity, as adding more layers yielded diminishing relevance gains while increasing training and serving times significantly. Despite using just two layers, DCNv2 added a considerable number of parameters due to the large feature input dimension. To address this, we adopted two strategies for enhancing efficiency. First, following (Sutton et al., 2017), we replaced the weight matrix with two skinny matrices resembling a low-rank approximation. Second, we reduced the input feature dimension by replacing sparse one-hot features with embedding-table look-ups, resulting in nearly a 30% reduction. These modifications allowed us to substantially reduce DCNv2\'s parameter count with only minor effects on relevance gains, making it feasible to deploy the model on CPUs.\n' +
+      '\n' +
+      'To further enhance the power of DCNv2, specifically, the cross-network, introduced an attention schema in the low-rank cross net. Specifically, the original low-rank mapping is duplicated as three with different mapping kernels, where the original one serves as the value matrix and the other two as the query and key matrices, respectively. An attention score matrix is computed and inserted between the low-rank mappings. Figure 3 describes the basic scaled dot-product self-attention. A temperature could also be added to balance the complicacy of the learned feature interactions. In the extreme case, the attention cross net will be degenerated to the normal cross net when the attention score matrix is an identity matrix. Practically, we find that adding a skip connection and fine-tuning the attention temperature is beneficial for helping learn more complicated feature correlations while maintain stable training. By paralleling a low-rank cross net with an attention low-rank cross net, we found a statistically significant improvement on feed ranking task (SS5.2).\n' +
+      '\n' +
+      '### Isotonic Calibration Layer in DNN\n' +
+      '\n' +
+      'Model calibration ensures that estimated class probabilities align with real-world occurrences, a crucial aspect for business success. For example, Ads charging prices are linked to click-through rate (CTR) probabilities, making accurate calibration essential. It also enables fair comparisons between different models, as the model score distribution can change when using different models or objectives. Traditionally, calibration is performed post-training using classic methods like Platt scaling and isotonic regression. However, these methods are not well-suited for deep neural network models due to limitations like parameter space constraints and incompatibility. Additionally, scalability becomes challenging when incorporating multiple features like device, channel, or item IDs into calibration.\n' +
+      '\n' +
+      'Figure 4. Isotonic layer representation\n' +
+      '\n' +
+      'Figure 3. Residual Cross Network\n' +
+      '\n' +
+      'Figure 2. Ads CTR chargeability-based multi-task model\n' +
+      '\n' +
+      'To address the issues mentioned above, we developed a customized isotonic regression layer (referred as _isotonic layer_) that can be used as a native neural network layer to be co-trained with a deep neural network model to perform calibration. Similar to the isotonic regression, the isotonic layer follows the piece-wise fitting idea. It buckeizes the predicted values (probabilities must be converted back to logits) by a given interval \\(u_{i}\\) and assigns a trainable weight \\(w_{i}\\) for each bucket, which are updated during the training with other network parameters (Figure 4). The isotonic property is guaranteed by using non-negative weights, which is achieved by using the Relu activation function. To enhance its calibration power with multiple features, the weights can be combined with an embedding representation (a vector whose element is denoted as \\(e_{i}\\)) that derives from all calibration features. Finally we obtain\n' +
+      '\n' +
+      '\\[\\begin{split}& y_{cali}=\\Sigma_{i=0}^{i=k}Relu(e_{i}+w_{i})\\cdot v _{i}+b,v_{i}=\\begin{cases}step,&\\text{if }i<k\\\\ y-step\\cdot k,&\\text{i=k}\\end{cases},\\\\ & k=\\arg\\max_{j}(y-step\\cdot j>0).\\end{split} \\tag{1}\\]\n' +
+      '\n' +
+      '### Dense Gating and Large MLP\n' +
+      '\n' +
+      'Introducing personalized embeddings to global models helps introduce interactions among existing dense features, most of them being multi-dimensional count-based and categorical features. We flattened these multi-dimensional features into a singular dense vector, concatenating it with embeddings before transmitting it to the MLP layers for implicit interactions. A straightforward method to enhance gain was discovered by enlarging the width of each MLP layer, fostering more comprehensive interactions. For Feed, the largest MLP configuration experimented with offline was 4 layers of width 3500 each (refer as "Large MLP", or LMLP). Notably, gains manifest online exclusively when personalized embeddings are in play. However, this enhancement comes at the expense of increased scoring latency due to additional matrix computations. To address this issue, we identified a optimal configuration that maximizes gains within the latency budget.\n' +
+      '\n' +
+      'Later, inspired by Gate Net (Gat et al., 2018), we introduced a gating mechanism to hidden layers. This mechanism regulates the flow of information to the next stage within the neural network, enhancing the learning process. We found that the approach was most cost-effective when applied to hidden layers, introducing only negligible extra matrix computation while consistently producing online lift.\n' +
+      '\n' +
+      'Additionally we have explored sparse gated mixture of expert models (sMoE) (Srivastava et al., 2015). We report ablation studies in SS5.2.\n' +
+      '\n' +
+      '### Incremental Training\n' +
+      '\n' +
+      'Large-scale recommender systems must adapt to rapidly evolving ecosystems, constantly incorporating new content such as Ads, news feed updates, and job postings. To keep pace with these changes, there is a temptation to use the last trained model as a starting point and continue training it with the latest data, a technique known as _warm start_. While this can improve training efficiency, it can also lead to a model that forgets previously learned information, a problem known as catastrophic forgetting(Krishnaman et al., 2017). Incremental training, on the other hand, not only uses the previous model for weight initialization but also leverages it to create an informative regularization term.\n' +
+      '\n' +
+      'Denote the current dataset at timestamp \\(t\\) as \\(\\mathcal{D}_{t}\\), the last estimated weight vector as \\(\\mathbf{w}_{t-1}\\), the Hessian matrix with regard to \\(\\mathbf{w}_{t-1}\\) as \\(\\mathcal{H}_{t-1}\\). The total loss up to timestamp \\(t\\) is approximated as\n' +
+      '\n' +
+      '\\[\\begin{split}\\text{loss}_{\\mathcal{D}_{t}}(\\mathbf{w})+\\lambda_{ f}/2\\times(\\mathbf{w}-\\mathbf{w}_{t-1})^{T}\\mathcal{H}_{t-1}(\\mathbf{w}- \\mathbf{w}_{t-1}),\\end{split} \\tag{2}\\]\n' +
+      '\n' +
+      'where \\(\\lambda_{f}\\) is the forgetting factor for adjusting the contribution from the past samples. In practice \\(\\mathcal{H}_{t-1}\\) will be a very large matrix. Instead of computing \\(\\mathcal{H}_{t-1}\\), we only use the diagonal elements \\(\\text{diag}(\\mathcal{H}_{t-1})\\), which significantly reduces the storage and the computational cost. For large deep recommendation models, since the second order derivative computation is expensive, Empirical Fisher Information Matrix (FIM) (Srivastava et al., 2015; Srivastava et al., 2015) is proposed to approximate the diagonal of the Hessian.\n' +
+      '\n' +
+      'A typical incremental learning cycle consists of training one initial cold start model and training subsequent incrementally learnt models. To further mitigate catastrophic forgetting and address this issue, we use both the prior model and the initial cold start model to initialize the weights and to calculate the regularization term. In this setting, the total loss presented in (2) is:\n' +
+      '\n' +
+      '\\[\\begin{split}&\\text{loss}_{\\mathcal{D}_{t}}(\\mathbf{w})+\\lambda_{ f}/2\\times[\\alpha(\\mathbf{w}-\\mathbf{w}_{0})^{T}\\mathcal{H}_{0}(\\mathbf{w}- \\mathbf{w}_{0})\\\\ &+(1-\\alpha)(\\mathbf{w}-\\mathbf{w}_{t-1})^{T}\\mathcal{H}_{t-1}( \\mathbf{w}-\\mathbf{w}_{t-1})],\\end{split} \\tag{3}\\]\n' +
+      '\n' +
+      'where \\(\\mathbf{w}_{0}\\) is the weight of the initial cold start model and \\(\\mathcal{H}_{0}\\) is the Hessian with regard to \\(\\mathbf{w}_{0}\\) over the cold start training data. Model weight \\(\\mathbf{w}\\) is initialized as \\(\\alpha\\mathbf{w}_{0}+(1-\\alpha)\\mathbf{w}_{t-1}\\). The additional tunable parameter \\(\\alpha\\in[0,1]\\) is referred to as _cold weight_ in this paper. Positive cold weight continuously introduces the information of the cold start model to incremental learning. When cold weight is 0, then equation (3) is the same as (2).\n' +
+      '\n' +
+      '### Member History Modeling\n' +
+      '\n' +
+      'To model member interactions with platform content, we adopt an approach similar to (Srivastava et al., 2015; Srivastava et al., 2015). We create historical interaction sequences for each member, with item embeddings learned during optimization or via a separate model, like (Srivastava et al., 2015). These item embeddings are concatenated with action embeddings and the embedding of the item currently being scored (early fusion). A two-layer Transformer-Encoder (Srivastava et al., 2015) processes this sequence, and the max-pooling token is used as a feature in the ranking model. To enhance information, we also consider the last five sequence steps, flatten and concatenate them as additional input features for the ranking model. To reduce latency, we experimented with shorter sequences and smaller feed-forward network dimensions within the Transformer. In ablation experiments in SS5.2 we refer to history modeling as TransAct.\n' +
+      '\n' +
+      'Our findings show that a two-layer transformer with a feed-forward dimension equal to half the input embedding size delivers most relevance gains. While longer sequences improve relevance metrics, the added training and serving time did not justify extended history sequences.\n' +
+      '\n' +
+      '### Explore and Exploit\n' +
+      '\n' +
+      'The exploration vs exploitation dilemma is common in recommender systems. A simple utilization of member\'s historical feedback data ("exploitation") to maximize immediate performance might hurt long term gain; while boosting new items ("exploration") could help improve future performance at the cost of short term gain. To balance them, the traditional methods such as Upper Confidence Bounds (UCB) and Thompson sampling are utilized, however, they can\'t be efficiently applied to deep neural network models. To reduce the posterior probability computation cost and maintain certain representational power, we adopted a method similar to the Neural Linear method mentioned in the paper (Zhou et al., 2018), namely we performed a Bayesian linear regression on the weights of the last layer of a neural network. Given a predicted value \\(y_{i}\\) for each input \\(x_{i}\\) is given by \\(y_{i}=WZx\\), where \\(W\\) is the weights of last layer and \\(Zx\\) is the input to the last layer given input \\(x\\). Given \\(W\\) we apply a Bayesian linear regression to \\(y\\) with respect to \\(Zx\\), and acquire the posterior probability of \\(W\\), which is fed into Thompson Sampling. Unlike the method mentioned in the paper, we don\'t independently train a model to learn a representation for the last layer. The posterior probability of W is incrementally updated at the end of each offline training in a given period, thus frequent retrainings would capture new information timely. The technique has been applied to feed and online A/B testing showed relative +0.06% professionals Daily Active Users.\n' +
+      '\n' +
+      '### Wide Popularity Features\n' +
+      '\n' +
+      'Our ranking model combines a global model with billions of parameters to capture broad trends and a random effect model to handle variations among individual items, assigning unique values reflecting their popularity among users. Due to our platform\'s dynamic nature, random effect models receive more frequent training to adapt to shifting trends.\n' +
+      '\n' +
+      'For identifiers with high volatility and short-lived posts, known as Root Object ID, we use a specialized Root-object (RO) model. This model is trained every 8 hours with the latest data to approximate the residuals between the main model\'s predictions and actual labels. Due to higher coverage of labels we used Likes and Clicks within RO model.\n' +
+      '\n' +
+      'The final prediction of our model, denoted as \\(y_{\\text{final}}\\), hinges on the summation of logits derived from the global model and the random effect model. It is computed as follows:\n' +
+      '\n' +
+      '\\[y_{\\text{final}}=\\sigma\\left(\\text{logit}(y_{\\text{global\\_effect}})+\\text{ logit}(y_{\\text{random\\_effect}})\\right),\\]\n' +
+      '\n' +
+      'where \\(\\sigma\\) signifies the sigmoid function.\n' +
+      '\n' +
+      'Large embedding tables aid our item ID learning process. We\'ve incorporated an explore/exploit algorithm alongside RO Wide scores, improving the Feed user experience with +0.17% relative increase in engaged DAU (daily active users).\n' +
+      '\n' +
+      '### Multi-task Learning\n' +
+      '\n' +
+      'Multi-task Learning (MTL) is pivotal for enhancing modern feed ranking systems, particularly in Second Pass Ranking (SPR). MTL enables SPR systems to optimize various ranking criteria simultaneously, including user engagement metrics, content relevance, and personalization. Our exploration of MTL in SPR has involved various model architectures designed to improve task-specific learning, each with unique features and benefits: (1) Hard Parameter Sharing: involves sharing parameters directly across tasks, serving as a baseline, (2) Grouping Strategy: tasks are grouped based on similarity, such as positive/negative ratio or semantic content. For example, tasks like \'Like\' and \'Contribution\' are can be grouped together into a single tower supporting both tasks due to their higher positive rates, while \'Comment\' and \'Share\' are grouped separately with lower positive rates. We also explored common approaches, including MMoE (Krizhevsky et al., 2014) and PLE (Peng et al., 2015). In our experiments, the Grouping Strategy showed a modest improvement in metrics with only a slight increase in model parameters (see Table 1). On the other hand, MMoE and PLE, while offering significant performance boosts, expanded the parameter count by 3x-10x, depending on the expert configuration, posing challenges for large-scale online deployment.\n' +
+      '\n' +
+      '### Dwell Time Modeling\n' +
+      '\n' +
+      'Dwell time, reflecting member content interaction duration, provides valuable insights into member\'s behavior and preferences. We introduced a \'long dwell\' signal to detect passive content consumption on the LinkedIn Feed. Implementing this signal effectively, allows the capture of passive but positive engagement. Modeling dwell time presented technical challenges: (1) Noisy dwell time data made direct prediction or logarithmic prediction unsuitable due to high volatility, (2) Static threshold identification for \'long dwell\' couldn\'t adapt to evolving user preferences, manual thresholds lacked consistency and flexibility, (3) Fixed thresholds could bias towards content with longer dwell times, conflicting with our goal of promoting engaging posts across all content types on LinkedIn Feed.\n' +
+      '\n' +
+      'To address these challenges, we designed a \'long dwell\' binary classifier predicting whether there is more time spent on a post than a specific percentile (e.g., 90th percentile). Specific percentiles are\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l l} \\hline \\hline\n' +
+      '**Model** & **Contributions** \\\\ \\hline Hard Parameter Sharing & baseline \\\\ Grouping Strategy & +0.75\\% \\\\ MMoE & +1.19\\% \\\\ PLE & +1.34\\% \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 1. Performance comparison of MTL models\n' +
+      '\n' +
+      'Figure 5. RO Wide model on click and like towers.\n' +
+      '\n' +
+      'determined based on contextual features such as ranking position, content type, and platform, forming clusters for long-dwell threshold setting and enhancing training data. By daily measuring cluster distributions, we capture evolving member consumption patterns and reduce bias and noise in the dwell time signal. The model operates within a Multi-task multi-class framework, resulting in relative improvements of a 0.8% in overall time spent, a 1% boost in time spent per post, and a 0.2% increase in member sessions.\n' +
+      '\n' +
+      '### Model Dictionary Compression\n' +
+      '\n' +
+      'The traditional approach to mapping high-dimensional sparse categorical features to an embedding space involves two steps. First, it converts string-based ID features to integers using a static hashtable. Next, it utilizes a memory-efficient Minimal Perfect Hashing Function (MPHF) (Brock et al., 2017) to reduce in-memory size. These integer IDs serve as indices for accessing rows in the embedding matrix, with cardinality matching that of the static hashtable or unique IDs in the training data, capped at a maximum limit. The static hashtable contributes for about 30% of memory usage, which can become inefficient as vocabulary space grow and the vocabulary-to-model size ratio increases. Continuous training further complicates matters, as it demands incremental vocabulary updates to accommodate new data.\n' +
+      '\n' +
+      'QR hashing (Kang et al., 2017) offers a solution by decomposing large matrices into smaller ones using quotient and remainder techniques while preserving embedding uniqueness across IDs. For instance, a vocabulary of 4 billion with a 1000x compression ratio in a QR strategy results in two tiny embedding matrices of approximately 4 million rows in sum -- roughly 4 million from the quotient matrix and around 1000 from the remainder matrix. This approach has demonstrated comparable performance in offline and online metrics in Feed/Ads. We found that sum aggregation worked the best, while multiplication aggregation suffered from convergence issues due to numerical precision, when embeddings are initialized close to 0. QR hashing\'s compatibility with extensive vocabulary opens doors to employing a collision-resistant hashing function like MurmurHash, potentially eliminating vocabulary maintenance. It also generates embedding vectors for every training item ID, resolving the Out-of-Vocabulary (OOV) problem and can potentially capture more diverse signals from the data. Refer Figure 9 in Appendix for illustration on the technique.\n' +
+      '\n' +
+      '### Embedding Table Quantization\n' +
+      '\n' +
+      'Embedding tables, often exceeding 90% of a large-scale deep ranking model\'s size, pose challenges with increasing feature, entity, and embedding dimension sizes. These components can reach trillions of parameters, causing storage and inference bottlenecks due to high memory usage (Brock et al., 2017) and intensive lookup operations. To tackle this, we explore embedding table quantization, a model dictionary compression method that reduces embedding precision and overall model size. For example, using an embedding table of 10 million rows by 128 with fp32 elements, 8-bit row-wise min-max quantization (Kang et al., 2017) can reduce the table size by over 70%. Research has shown that 8-bit post-training quantization maintains performance and inference speed without extra training costs or calibration data requirements (Brock et al., 2017), unlike training-aware quantization. To ensure quick model delivery, engineer flexibility, and smooth model development and deployment, we opt for post-training quantization, specifically employing middle-max row-wise embedding-table quantization. Unlike min-max row-wise quantization which saves the minimum value and the quantization bin-scale value of each embedding row, middle-max quantization saves the middle values of each row defined by \\(\\mathbf{X}_{i_{c}}^{middle}=\\frac{\\mathbf{X}_{i_{c}}^{max}x_{i_{c}}^{high-1} \\mathbf{x}_{i_{c}}^{min}+2bitx_{i_{c}}-1}{2^{bitx_{i_{c}}-1}}\\), where \\(\\mathbf{X}_{i_{c}}^{min}\\) and \\(\\mathbf{X}_{i_{c}}^{max}\\) indicate the minimum and maximum value of the \\(i\\)-th row of an embedding table X. The quantization and dequantization steps are described as: \\(\\mathbf{X}_{i_{c}}^{int}=round(\\frac{\\mathbf{X}_{i_{c}}-\\mathbf{X}_{i_{c}}^{ middle}}{\\mathbf{X}_{i_{c}}^{total}})\\) and \\(\\mathbf{X}_{i_{c}}^{dequant}=\\mathbf{X}_{i_{c}}^{middle}+\\mathbf{X}_{i_{c}}^{ int}*\\mathbf{X}_{i_{c}}^{scale}\\), where \\(\\mathbf{X}_{i_{c}}^{scale}=\\frac{\\mathbf{X}_{i_{c}}^{max}-\\mathbf{X}_{i_{c}}^{ min}}{2^{bits}-1}\\).\n' +
+      '\n' +
+      'We choose middle-max quantization for two reasons: (1) Embedding values typically follow a normal distribution, with more values concentrated in the middle of the quantization range. Preserving these middle values reduces quantization errors for high-density values, potentially enhancing generalization performance. (2) The range of \\(\\mathbf{X}_{i_{c}}^{int}\\) values falls within \\([-128,127]\\), making integer casting operations from float to int8 reversible and avoiding 2\'s complement conversion issues, i.e., cast(cast(x, int8), int32) may not be equal to x due to the 2\'s complement conversion if \\(x\\in[0,255]\\). Experimental results show that 8-bit quantization generally achieves performance parity with full precision, maintaining reasonable serving latency even in CPU serving environments with native TF operations. In Ads CTR prediction, we observed a +0.9% CTR relative improvement in online testing, which we attribute to quantization smoothing decision boundaries, improving generalization on unseen data, and enhancing robustness against outliers and adversaries.\n' +
+      '\n' +
+      '## 4. Training Scalability\n' +
+      '\n' +
+      'During development of large ranking models we optimized training time via set of techniques including 4D Model Parallelism, Avro Tensor Dataset Loader, offloading last-mile transformation to async stage and prefetching data to GPU with significant improvements to training speed (see Table 2). Below we provide descriptions on why and how we developed it.\n' +
+      '\n' +
+      '### 4D Model Parallelism\n' +
+      '\n' +
+      'We utilized Horovod to scale out synchronous training with multiple GPUs. During benchmarking, we have observed performance bottlenecks during gradient synchronization of the large embedding tables. We implemented 4D model parallelism in TensorFlow (TF) to distribute the embedding table into different processes. Each worker process will have one specific part of the embedding table shared among all the workers. We were able to reduce the gradient synchronization time by exchanging input features via all-to-all (to share the features related to the embedding lookup to specific workers), which has a lower communication cost compared to exchanging gradients for large embedding tables. From our benchmarks, model parallelism reduced training time from 70 hours to 20 hours.\n' +
+      '\n' +
+      '### Avro Tensor Dataset Loader\n' +
+      '\n' +
+      'We also implemented and open sourced a TF Avro reader that is up to 160x faster than the existing Avro dataset reader according to our benchmarks. Our major optimizations include removing unnecessary type checks, fusing I/O operations (parsing, batching, shuffling), and thread auto-balancing and tuning. With our dataset loader, we were able to resolve the I/O bottlenecks for training job, which is common for large ranking model training. The e2e training time was reduced by 50% according to our benchmark results (Table 2).\n' +
+      '\n' +
+      '### Offload Last-mile Transformation to Asynchronous Data Pipeline\n' +
+      '\n' +
+      'We observed some last-mile in-model transformation that happens inside the training loop (ex. filling empty rows, conversion to Dense, etc.). Instead of running the transformation + training synchronously in the training loop, we moved the non-training related transformation to a transformation model, and the data transformation is happening in the background I/O threads that is happening asynchronously with the training step. After the training is finished, we stitched the two model together into the final model for serving. The e2e training time was reduced by 20% according to our benchmark results (Table 2).\n' +
+      '\n' +
+      '### Prefetch Dataset to GPU\n' +
+      '\n' +
+      'During the training profiling, we saw CPU -> GPU memory copy happens during the beginning of training step. The memory copy overhead became significant once we increased the batch size to larger values (taking up to 15% of the training time). We utilized customized TF dataset pipeline and Keras Input Layer to prefetch the dataset to GPU in parallel before the next training step begins.\n' +
+      '\n' +
+      '## 5. Experiments\n' +
+      '\n' +
+      'We conduct offline ablation experiments and A/B tests across various surfaces, including Feed Ranking, Ads CTR prediction, and Job recommendations. In Feed Ranking, we rely on offline replay metrics, which have shown a correlation with production online A/B test results. Meanwhile, for Ads CTR and Job recommendations, we find that offline AUC measurement aligns well with online experiment outcomes.\n' +
+      '\n' +
+      '### Incremental Learning\n' +
+      '\n' +
+      'We tested incremental training on both Feed ranking models and Ads CTR models. The experiment configuration is set in Table 3. We start with a cold start model, followed by a number of incremental training iterations (6 for Feed ranking models and 4 for Ads CTR models). For each incrementally trained model, we evaluate on a fixed test dataset and average the metrics. The baseline is the evaluation metric on the same fixed test dataset using the cold start model.\n' +
+      '\n' +
+      'Table 4 and 5 summarize the metrics improvements and training time improvements for both Feed ranking models and Ads CTR models, after tuning the cold weight and \\(\\lambda\\). For both models, incremental training boosted metrics with significant training time reduction. Contributions measurement for Feed is explained in SS5.2.\n' +
+      '\n' +
+      '### Feed Ranking\n' +
+      '\n' +
+      'To assess and compare Feed ranking models offline, we employ a "replay" metric that estimates the model\'s online contribution rate (e.g., likes, comments, re-posts). For evaluation, we rank a small portion of LinkedIn Feed sessions using a pseudo-random ranking model, which uses the current production model to rank all items but randomizes the order of the top N items uniformly. After training a new experimental model, we rank the same sessions offline with it. When a matched impression appears at the top position ("matched imp @ 1," meaning both models ranked the same item at Feed position 1) and the member served the randomized model makes a contribution to that item, we assign a contribution reward to the experimental model: contribution rate = # of matched imps @ 1 with contribution\n' +
+      '\n' +
+      '* of matched imps @ 1\n' +
+      '\n' +
+      'This methodology allows unbiased offline comparison of experimental models (Han et al., 2017). We use offline replay to assess Feed Ranking models, referred to as "contribution\' throughout the paper (Table 6). The table illustrates the impact of various production modeling techniques on offline replay metrics, including Isotonic calibration layer, low-rank DCNv2, Residual DCN, Dense Gating, Large MLP layer, Sparse Features, MTL enhancements, TransAct, and Sparsely Gated MMoE. These techniques, listed in Table 6, are presented in chronological order of development, highlighting incremental improvements. We\'ve deployed these techniques to production, and through online A/B testing, we observed a 0.5% relative increase in the number of member sessions visiting LinkedIn.\n' +
+      '\n' +
+      '### Jobs Recommendations\n' +
+      '\n' +
+      'In Job Search (JS) and Jobs You Might Be Interested In (JYMBID) ranking models, 40 categorical features are embedded through 5 shared embedding matrices for title, skill, company, industry, and seniority. The model predicts probability of P(job application) and P(job click). We adopted embedding dictionary compression described in SS3.12 with 5x reduction of number of model parameters, and the evaluation does not show any performance loss compared to using vanilla id embedding lookup table. We also did not observe improvement by using Dense Gating (SS3.5) in JYMBII and\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c} \\hline \\hline  & Contributions & Training Time \\\\ \\hline Cold Start & - & - \\\\ Incremental Training & +1.02\\% & -96\\% \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 4. Feed ranking model results summary\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c} \\hline \\hline Experiments & Feed Ranking & Ads CTR \\\\ \\hline Cold Start Data Range & 21 days & 14 days \\\\ Incremental Data Range & 1 day & 0.5 day \\\\ Incremental Iterations & 6 & 4 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 3. Incremental Experiments Settings\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c} \\hline \\hline\n' +
+      '**Optimization Applied** & **e2e Training Time Reduction** \\\\ \\hline\n' +
+      '4D Model Parallelism & 71\\% \\\\ Aroo Tensor Dataset Loader & 50\\% \\\\ Offload last-mile transformation & 20\\% \\\\ Prefetch dataset to GPU & 15\\% \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 2. Training performance relative improvementsJS with extensive tuning of models. These entity id embeddings are shared by Job Search and JYMBII Recommendation, and then a task-specific 2-layer DCN is added on top to explicitly capture the feature interactions. Overall we observe significant offline AUC lift of +1.63% for Job Search and 2.10% for JYMBII. For reproducibility purposes we provide model architecture and ablation study of different components of JYMBII and Job Search model in SSA.8.\n' +
+      '\n' +
+      'The ranking models with higher AUC shown above also transferred to significant metrics lift in the online A/B testing, leading to relative 1.76% improvement in Qualified Applications across Job Search and JYMBII. Percent Chargeable Views is the fraction of clicks among all clicks on promoted jobs. Qualified Application is the total count of all qualified job applications.\n' +
+      '\n' +
+      '### Ads CTR\n' +
+      '\n' +
+      'Our baseline model is a multilayer perceptron model that derived from its predecessor GDMix model (Dosov et al., 2017) with proper hyper-parameter tuning. Features fall into five categories: contextual, advertisement, member, advertiser, ad-member interaction. Baseline model doesn\'t have Id features. In the Table 5 we show relative improvements of each of the techniques including ID embeddings, Quantization, Low-rank DCNv2, TransAct and Isotonic calibration layer. Techniques mentioned in the table are ordered in timeline of development. We have deployed techniques to production and observed 4.3% CTR relative improvement in online A/B tests.\n' +
+      '\n' +
+      '## 6. Deployment Lessons\n' +
+      '\n' +
+      'Over the time of development we learnt many deployment lessons. Here we present couple of interesting examples.\n' +
+      '\n' +
+      '### Scaling up Feed Training Data Generation\n' +
+      '\n' +
+      'At the core of the Feed training data generation is a join between post labels and features. The labels dataset consists of impressed posts from all sessions. The features dataset exists on a session level. Here, each row contains session-level features and all served posts with their post-level features. To combine these, we explode the features dataset to be on a post-level and join with the labels dataset. However, as Feed scaled up from using 13% of sessions for training to using 100% of sessions, this join caused long delay. To optimize the pipeline we made two key changes that reduced the runtime by 80% and stabilized the job. Firstly, we recognized that not all served posts are impressed. This means the join with the labels dataset drastically reduces the number of rows. Furthermore, exploding the features dataset repeats session-level features for every post. We therefore changed the pipeline to explode only the post features and keys, join with the labels, and add the session-level features in a second join. Despite this resulting in two joins, each join was now smaller and resulted in an overall shuffle write size reduction of 60%. Secondly, we tuned the Spark compression, which resulted in an additional 25% shuffle write size reduction. These changes allowed us to move forward with 100% of sessions for training.\n' +
+      '\n' +
+      '### Model Convergence\n' +
+      '\n' +
+      'Adding DCNv2 came with challenges for model training. During initial training experiments with DCNv2 we observed a large number of runs diverging. To improve model training stability we increased learning rate warm-up from 5% to 50% of training steps. This resolved the instability issues and also significantly boosted the offline relevance gains brought about by adding DCNv2. We also applied batch normalization to the numeric input features as suggested in (Zhu et al., 2017). Finally, we found that at our number of training steps we were under-fitting. This became clear when we observed that increasing the training steps significantly improved offline relevance metrics. However, increasing the number of training steps was not an option for production due to the decrease in experimentation velocity. As a solution, we found that given the increased warm-up steps, our training was stable enough for higher learning rates. Increasing the learning rate three-fold allowed us to almost completely bridge any relevance metric gaps we found compared to longer training.\n' +
+      '\n' +
+      'We found that optimization needs varied across different models. While Adam was generally effective, models with numerous sparse features required AdaGrad, which significantly impacted their performance. Furthermore, we employed strategies like learning rate warm-up and gradient clipping, especially beneficial for larger batch sizes, to enhance model generalization. We consistently implemented learning rate warm-up for larger batches, increasing the learning rate over a doubled fraction of steps whenever batch size doubled, but not exceeding 60% of the total training steps. By\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c} \\hline \\hline\n' +
+      '**Model** & **Contributions** \\\\ \\hline Baseline & - \\\\ + 30 dimensional ID embeddings (IDs) & +1.89\\% \\\\ + Isotonic calibration layer & +1.08\\% \\\\ + Large MLP (LMLP) & +1.23\\% \\\\ + Dense Gating (DG) & +1.00\\% \\\\ + Multi-task (MTL) Grouping & +0.75\\% \\\\ + Low-rank DCNv2 (LDCNv2) & +1.26\\% \\\\ + TransAct & +1.66\\% \\\\ + Residual DCN (RDCN) & +2.15\\% \\\\ + LDCNv2+LMLP+TransAct & +3.45\\% \\\\ + RDCN+LMLP+TransAct & +3.62\\% \\\\ + Sparsly Gated MMoE & +4.14\\% \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 6. Ablation study of model architecture components in Feed ranking on the relative off-policy measurement.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c} \\hline \\hline\n' +
+      '**Online Metrics** & Job Search & JYMBII \\\\ \\hline Percent Chargeable Views & +1.70\\% & +4.16\\% \\\\ Qualified Application & +0.89\\% & +0.87\\% \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 7. Online experiment relative metrics improvements of JS and JYMBII ranking\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c} \\hline \\hline\n' +
+      '**Model** & AUC \\\\ \\hline Baseline & - \\\\ ID embeddings (IDs) & +1.27\\% \\\\ IDs+Quantization 8-bit & +1.28\\% \\\\ IDs+DCNv2 & +1.45\\% \\\\ IDs+low-rank DCNv2 & +1.37\\% \\\\ IDs+isotonic layer & +1.39\\% \\\\ (O/E ratio +1.84\\%) \\\\ IDs+low-rank DCNv2+isotonic layer & +1.47\\% \\\\ +2.20\\% \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 8. Ablation study of different Ads CTR model architecture variants on the test AUC.\n' +
+      '\n' +
+      'doing so, we improved generalization across various settings and narrowed the gap in generalization at larger batch sizes.\n' +
+      '\n' +
+      '## 7. Conclusion\n' +
+      '\n' +
+      'In this paper, we introduced the _LiRank_ framework, encapsulating our experience in developing state-of-the-art models. We discussed various modeling architectures and their combination to create a high-performance model for delivering relevant user recommendations. The insights shared in this paper can benefit practitioners across the industry. _LiRank_ has been deployed in multiple domain applications at LinkedIn, resulting in significant production impact.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* (1)\n' +
+      '* Agarwal et al. (2015) Deepak Agarwal, Bee-Chung Chen, Qi He, Zhenhao Hu, Guy Lebanon, Yiming Ma, Pamangadatta Shiwaswamy, Hiao-Ping Tseng, Jaewon Yang, and Liang Zhang. 2015. Personalizing LinkedIn _KDD_.\n' +
+      '* Anil et al. (2022) Rohan Anil, Sandra Gadanho, Da Huang, Nijith Jacob, Zhuoshu Li, Dong Lin, Todd Phillips, Cristina Pov, Revin Eang, Gil I Shamir, Rakesh Shivanna, and Qiqi Yan. 2022. On the Factory Floor: ML Engineering for Industrial-Scale Ads Recommendation Models. In _RecSys_.\n' +
+      '* Antoine et al. (2017) Limassant Antoine, Rizki Gallume, Chikhi Rayan, and Peterlongo Pierre. 2017. Fast and Scalable Minimal Perfect Hashing for Massive Key Sets. _SEA_ (2017).\n' +
+      '* Chen et al. (2019) Qiwei Chen, Huan Zhao, Wei Li, Pipei Huang, and Wenwu Ou. 2019. Behavior sequence transformer for e-commerce recommendation in alibaba. In _Proceedings of the 1st international workshop on deep learning practice for high-dimensional sparse data_. 1-4.\n' +
+      '* Cheng et al. (2016) Heng-Tze Cheng, Levent Koc, Jeremiah Harmsen, Tal Shaked, Tushar Chandra, Hrishi Aradhye, Glen Anderson, Greg Corrado, Wei Chai, Mustafa Ispar, et al. 2016. Wide & Deep Learning for Recommender Systems. _Proceedings of the 1st Workshop on Deep Learning for Recommender Systems_ (2016). [https://doi.org/10.1145/298802.298854](https://doi.org/10.1145/298802.298854)\n' +
+      '* Cheng et al. (2019) Weiyu Cheng, Yanyan Shen, and Limepeng Huang. 2019. Adaptive Factorization Network: Learning Adaptive-Order Feature Interactions. _ArXiv_ abs/1909.03276 (2019). [https://api.semanticshelon.org/CorpusID.202539143](https://api.semanticshelon.org/CorpusID.202539143)\n' +
+      '* Coide (2020) The Apache Software Foundation. 2020. _Apache Commodec_. [https://commons.apache.org/proper/commons-codec](https://commons.apache.org/proper/commons-codec) / A library of utilities for working with encoding, such as Base4 and Hex.\n' +
+      '* Goodfellow et al. (2013) Ian J Goodfellow, Mehdi Mirza, Da Xiao, Aaron Courville, and Yoshua Bengio. 2013. An empirical investigation of catastrophic forgetting in gradient-based neural networks. _arXiv preprint arXiv:1312.6211_ (2013).\n' +
+      '* Guan et al. (2019) Hui Guan, Andrey Malevich, Jiyan Yang, Jongsoo Park, and Hector Yuen. 2019. Post-training 4-bit quantization on embedding tables. _Philished in NeurIPS MLSys Workshop on Systems for ML_ (2019).\n' +
+      '* Guo et al. (2017) Chun Guo, Geoff Pleias, Yu Sun, and Kilian Q Weinberger. 2017. On Calibration of Modern Neural Networks. In _ICML_.\n' +
+      '* Guo et al. (2021) Chun Guo, Geoff Pleias, Yu Sun, and Kilian Q. Weinberger. 2021. Soft Calibration Objectives for Neural Networks. In _NeurIPS_.\n' +
+      '* Guo et al. (2017) Huifeng Guo, Ruiming Zhang, Yiming Ye, Zhenguo Li, and Xiuqiang He. 2017. DeepFM: A Factorization-Machine based Neural Network for CTR Prediction. _ArXiv_ abs/1703.04247 (2017). [https://api.semanticscholar.org/CypusID-970388](https://api.semanticscholar.org/CypusID-970388)\n' +
+      '* Haldar et al. (2019) Malay Haldar, Mustafa Abloel, Prabanf Ramanathan, Tao Xu, Shulin Yang, Huizhong Duan, Qing Zhang, Nick Barrow-Williams, Bradley C. Turnbull, Berendam M. Collins, and Thomas Legrand. 2019. Applying Deep Learning to Airbnb Search. KDD.\n' +
+      '* Huang et al. (2020) Tongwen Huang, Qingyu She, Zhiqiang Wang, and Junlin Zhang. 2020. GateNet: Gating-Enhanced Deep Network for Click-Through Rate Prediction. _CoRR_ abs/2007.03519 (2020).\n' +
+      '* Jun et al. (2021) Shi Jun, Jiang Chengming, Gupta Aman, Zhou Mingzhou, Ouyang Yunbo, Xiao Charates, Song Qingsuan, Wu Alice, Wei Hachao, and Huiji Gao. 2022. Generalized Deep Mixed Models. In _Proceedings of the 28th ACM SIGKDD international conference on knowledge discovery & data mining_.\n' +
+      '* Kripatkpatrick et al. (2016) James Kripatkpatrick, Ravan Pascanu, Neil Rabinovich, Joel Veness, Guillaume Desjardins, Andrei A. Rusu, Kieran Milan, John Quan, Tiago Rannah, Agnieska Grabska-Barwinska, Demis Hassabis, Claudia Clopath, Dharshan Kumaran, and Raia Hadsell. 2016. Overcoming catastrophic forgetting in neural networks. In _Proceedings of the National Academy of Sciences_.\n' +
+      '* Li et al. (2011) Libong Li, Wei Chu, John Langford, Tseus Moon, and Xuanhui Wang. 2011. An Unbiased Offline Evaluation of Contextual Bandit Algorithms with Generalized Linear Models. In _OTAE_.\n' +
+      '* Lian et al. (2018) Jianxun Lian, Xiaohuan Zhou, Fuheng Zhang, Zhongxia Chen, Xing Xie, and Guangzhong Sun. 2018. xlDeepFM: Combining Explicit and Implicit Feature Interactions for Recommender Systems. KDD (2018). [https://api.semanticscholar.org/CorpusID:3930042](https://api.semanticscholar.org/CorpusID:3930042)\n' +
+      '* Ma et al. (2018) Jiaqi Ma, Zhe Zhao, Xinyang Yi, Jilin Chen, Lichan Hong, and Ed H Chi. 2018. Modeling task relationships in multi-task learning with multi-gate mixture-of-experts. In _KDD_. 1390-1393.\n' +
+      '* Mao et al. (2023) Kelong Mao, Jieming Zhu, Liangxi Su, Guohao Cai, Yuru Li, and Zhenhua Dong. 2023. FinallMP: An Enhanced Two-Stream MLP Model for CTR Prediction. In _AAAI Conference on Artificial Intelligence_. [https://api.semanticscholar.org/CorpusID:257913572](https://api.semanticscholar.org/CorpusID:257913572)\n' +
+      '* Naumumov et al. (2019) Maxim Naumov, Dheevats Mudigere, Hao-Jun Michael Shi, Jianyu Huang, Narayan Sundaram, Jongsoo Park, Xiaodeng Wang, Udit Gupta, Carole-jean Wu, Alisson G. Azzolini, Dmytro Dzhulgakov, Andrey Mallevich, Ilia Chemeriswelski, Yinghai Lu, Raghuraman Krishnamoorthi, Anshya Yu, Volodymy Kanderatenko, Stephanie Pereira, Xianjie Chen, Wenlin Chen, Vijay Rao, Bill Jia, Liang Xiong, and Mikhail Smelyanskiy. 2019. Deep Learning Recommendation Model for Personalization and Recommendation Systems. _ArXiv_ abs/1906.00091 (2019). [https://api.semanticscholar.org/CorpusID:27999641](https://api.semanticscholar.org/CorpusID:27999641)\n' +
+      '* Naumov et al. (2019) Maxim Naumov, Dheevats Mudigere, Hao-Jun Michael Shi, Jianyu Huang, Narayan Sundaram, Jongsoo Park, Xiaodong Wang, Udit Gupta, Carole-jean Wu, Alisson G. Azzolini, Dmytro Dzhulgakov, Andrey Mallevich, Ilia Chemeriswelski, Yinghai Lu, Raghuraman Krishnamoorthi, Anshya Yu, Volodymy Kanderatenko, Stephanie Pereira, Xianjie Chen, Wenlin Chen, Vijay Rao, Bill J. Liao, Xiong, and Misha Smelyanskiy. 2019. Deep Learning Recommendation Model for Personalization and Recommendation Systems. _CoRR_ abs/1906.00091 (2019). [https://arxiv.org/abs/1906.00091](https://arxiv.org/abs/1906.00091)\n' +
+      '* Pancha et al. (2022) Nikil Pancha, Andrew Zhai, Jure Leskovec, and Charles Rosenberg. 2022. PinnerFormer: Sequence Modeling for User Representation at Pinterestest. In _KDD_. 3702-3712.\n' +
+      '* Pascanu and Bengio (2013) Razvan Pascanu and Yoshua Bengio. 2013. Revisiting natural gradient for deep networks. _arXiv preprint arXiv:1301.3584_ (2013).\n' +
+      '* Riquenite et al. (2018) Carlos Riquenite, George Tucker, and Jasper Snock. 2018. Deep Bayesian Bandits Showdown: An Empirical Comparison of Bayesian Deep Networks for Thompson Sampling. arXiv:1802.09127\n' +
+      '* Shazeer et al. (2017) Noam Shazeer, Azalia Mirhossehi, Krynstor Maziaz, Andy Davis, Quoc V. Le, Geoffrey E. Hinton, and Jeff Dean. 2017. Outrageously Large Neural Networks: The Sparsely-Gated Mixture-of-Expserve Layer. In _ICLR_.\n' +
+      '* Shen et al. (2020) Sheng Shen, Zhen Dong, Jiayu Ye, Linjian Ma, Zhewei Yao, Amir Gholami, Michael W. Mahoney, and Kurt Keutzer. 2020. Q-BERT: Hessian Based Ultra Low Precision Quantization of BERT. _Proceedings of the AAAI Conference on Artificial Intelligence_ 34 (2020).\n' +
+      '* Shi et al. (2019) Hao-Jun Michael Shi, Dheevatsu Mudigere, Maxim Naumov, and Jiyan Yang. 2019. Compositional Embeddings Using Complementary Partitions for Memory-Efficient Recommendation Systems. _CoRR_ abs/1909.02107 (2019).\n' +
+      '* Song et al. (2018) Weiping Song, Chencie Shen, Zhiping Xiao, Zhijun Duan, Yewen Xu, Ming Zhang, and Jian Tang. 2018. AutoInt: Automatic Feature Interaction Learning via Self-Attentive Neural Networks. _Proceedings of the 28th ACM International Conference on Information and Knowledge Management_ (2018). [https://api.semanticscholar.org/CorpusID:53100214](https://api.semanticscholar.org/CorpusID:53100214)\n' +
+      '* Tang et al. (2020) Hongyan Tang, Junming Liu, Ming Zhao, and Xudong Gong. 2020. Progressive layered extraction (ple): A novel multi-task learning (mlr) model for personalized recommendations. In _Proceedings of the 14th ACM Conference on Recommender Systems_. 269-278.\n' +
+      '* Vaswani et al. (2017) Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N. Gomez, Lukasz Kaiser, and Illia Polosukhin. 2017. Attention is all you need. _Advances in neural information processing systems_ 30 (2017).\n' +
+      '* Vigna (2019) Sebastiano Vigna. 2019. _Jstatail_. [https://github.com/vigna/fastuitl](https://github.com/vigna/fastuitl) A Java library for fast type-specific collections.\n' +
+      '* Wang et al. (2017) Ruoxu Wang, Bin Fu, G. Fu, and Mingliang Wang. 2017. Deep & Cross Network for Ad Click Predictions. _Proceedings of the ADKDD\'17_ (2017). [https://api.semanticscholar.org/CrpusID:6011288](https://api.semanticscholar.org/CrpusID:6011288)\n' +
+      '* Wang et al. (2021) Ruoxu Wang, Rakesh Shivanna, Derek Cheng, Sagar Jain, Dong Lin, Lichan Hong, and Ed Chi. 2021. Dev 2: Improved deep & cross network and practical lessons for web-scale learning to rank systems. In _Proceedings of the web conference 2021_.\n' +
+      '* Wang et al. (2020) Ruoxu Wang, Rakesh Shivanna, Derek Zhiyuan Cheng, Sagar Jain, Dong Lin, Lichan Hong, and Ed H. Chi. 2020. DCN V2: Improved Deep & Cross Network and Practical Lessons for Web-scale Learning to Rank Systems. _Proceedings of the Web Conference 2021_ (2020). [https://api.semanticscholar.org/CorpusID:28448398](https://api.semanticscholar.org/CorpusID:28448398)\n' +
+      '* Yang et al. (2023) Xue Xia, Peng Eksombachachach, Niki Panda, Dhruyun Debarah Badan, Pio-Wei Wang, Neng Gu, Saurabh Vishvshvsh Joshi, Nazarian Farahpour, Zhiyuan Zhang, and Andrew Zhai. 2023. TransAct: Transformer-based Realtime User Action Model for Recommendation at Pinterest. _arXiv preprint arXiv:2306.00248_ (2023).\n' +
+      '\n' +
+      '## Appendix A. Information for Reproducibility\n' +
+      '\n' +
+      '### Feed Ranking Sparse ID features\n' +
+      '\n' +
+      'Theby the viewer, analogous to Viewer-Actor Affinity as in (Bordes and McAteg, 2017), (2) Actor Id, who is the creator of the post, (3) Actor Historical Actor Ids, which are creators who frequently interacted in the past by the creator of the post, (4) Viewer Hashtag Ids, which were frequently interacted in the past by the viewer, (5) Actor Hashtag Ids, which were frequently interacted in the past by the actor of the post and (6) Post Hashtag Ids (e.g. #machinelearning).\n' +
+      '\n' +
+      'We used unlimited dictionary sparse ID features explained in SS3.12. We empirically found 30 dimensions to be optimal for the Id embeddings. The sparse id embedding features mentioned above are concatenated with all other dense features and then passed through a multi-layer perception (MLP) consisting of 4 connected layers, each with output dimension of 100.\n' +
+      '\n' +
+      '### Vocabulary Compression for Serving Large Models\n' +
+      '\n' +
+      'The IDs in large personalizing models are often strings and sparse numerical values. If we want to map the unique sparse IDs to embedding index without any collision, then a lookup table is needed which is typically implemented as a hash table (e.g. std::unordered_map in TF). These hash tables grow into several GBs and often take up even more memory than the model parameters. To resolve the serving memory issue, we implemented minimal perfect hashing function (MPHF) (Bordes and McAteg, 2017) in TF Custom Ops, which reduced the memory usage of vocab lookup by 100x. However, we faced a 3x slowdown in training time as the hashing was performed on the fly as part of training. We observed that the maximum value of our IDs could be represented using int32. To compress the vocabulary without degrading the training time, we first hashed the string id into int32 using (Bordes and McAteg, 2017), and then used the map implementation provided by (Sandel, 2017) to store the vocabulary. We used a Spark job to perform the hashing and thus were able to avoid training time degradation. The hashing from string to int32 provided us with 93% heap size reduction. We didn\'t observe significant degradation in engagement metrics because of hashing.\n' +
+      '\n' +
+      'The subsequent effort mentioned in section SS3.12 successfully eliminated the static hash table from the model artifact by employing collision-resistant hashing and QR hashing techniques. This removal was achieved without any performance drop, considering both runtime and relevance perspectives.\n' +
+      '\n' +
+      '### External Serving of ID Embeddings vs In-memory Serving\n' +
+      '\n' +
+      'One of the challenges was constrained memory on serving hosts, hindering the deployment of multiple models. To expedite the delivery we initially adopted external serving of model parameters in a key-value store (see Figure 6), partitioning model graphs and pre-computing embeddings for online retrieval. We faced issues with (1) iteration flexibility for ML engineers, who depended on the consumption of ID embeddings, and (2) staleness of pre-computed features pushed daily to the online store. To handle billion-parameter models concurrently from memory, we upgraded hardware and optimized memory consumption by garbage collection tuning, and crafting data representations for model parameters through quantization and ID vocabulary transformation optimized memory usage. As we transitioned to in-memory serving, it yielded enhanced engagement metrics and empowered modelers with reduced operational costs.\n' +
+      '\n' +
+      '### 4D Model Parallelism\n' +
+      '\n' +
+      'Figure 7 shows an example for three embedding tables. Each embedding table is placed on a GPU, and each GPU\'s input batch is all-to-all\'ed so that every GPU receives the input columns belonging to its embedding table. Each GPU does its local embedding lookup, and the lookups are all-to-all\'ed to return the output to the GPU that the input column came from. Other layers with fewer parameters (such as MLP layers) are still processed in a data parallel way since exchanging gradients for these layers is not costly. From our benchmarks, model parallelism reduced training time from 70 hours to 20 hours.\n' +
+      '\n' +
+      '### Experimentation on Sequence Length for User History Models\n' +
+      '\n' +
+      'Here we present study on how history length influences the impact of the Feed ranking model in Table 9. We observe increasing trend of engagement increase as we use longer history of user engagement over sequence architecture described in SS3.7.\n' +
+      '\n' +
+      'Figure 6. External serving strategy\n' +
+      '\n' +
+      'Figure 7. Model parallelism for large embedding tables\n' +
+      '\n' +
+      '### Feed Ranking Model Architecture\n' +
+      '\n' +
+      'On the Figure 8 we present Feed Model architecture diagram to provide a flow of the model, and how different parts of the model connected to each other. We found that placement of different modules changes the impact of the techniques significantly.\n' +
+      '\n' +
+      '### Vocabulary Compression\n' +
+      '\n' +
+      'On the Figure 9 we present example diagram of non static vocabulary compression using QR and Murmur hashing. A member ID \\(A\\) in string format like "member:1234," will be mapped with a collision-resistant stateless hashing method (e.g., Murmur hashing) to a space of int64 or int32. The larger space will result in a lower collision rate. In our case, we use int64, and then we use bitcast to convert this int64 to two numbers in int32 space (ranging from 0 to \\(2^{32}-1\\)), \\(B\\) and \\(C\\) which will look from independent sets of QR tables.\n' +
+      '\n' +
+      '### Jobs Recommendations Ranking Model Architecture\n' +
+      '\n' +
+      'As shown in the Figure 10, the jobs recommendation ranking model employs a multi-tasks training framework that unifies Job Search (JS) and Jobs You Might be Interested In (JYMBII) tasks in a single model. The id embedding matrices are added into the bottom layer to be shared by the two tasks, followed by a task-specific 2-layer. DCNv2 to learn feature interactions. We conducted various experiments to apply different architectures of feature interactions, and the 2-layer DCN performs best among all. The results on the JYMBII task are demonstrated in the Table 17.\n' +
+      '\n' +
+      'Figure 8. Feed ranking model architecture\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c} \\hline \\hline\n' +
+      '**Model** & Contributions \\\\ \\hline Baseline & - \\\\ + Member history length 25 & +1.31\\% \\\\ + Member history length 50 & +1.57\\% \\\\ + Member history length 100 & +1.66\\% \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 9. Offline relevance metrics for the feed from the addition of member history modeling with different sequence lengths.\n' +
+      '\n' +
+      'Figure 10. Jobs recommendation ranking model architecture\n' +
+      '\n' +
+      'Figure 9. Example of non static vocab hashing paradigm\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
