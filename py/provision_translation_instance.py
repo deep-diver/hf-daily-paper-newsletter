@@ -144,7 +144,7 @@ if __name__ == "__main__":
   parser = argparse.ArgumentParser()
   parser.add_argument('--dstack-token', type=str, default="")
   parser.add_argument('--dstack-project', type=str, default="deep-diver-main")
-  parser.add_argument('--dstack-run-name', type=str, default="paper-ko-translation-run")
+  parser.add_argument('--dstack-run-name', type=str, default="paper_ko_translation_run")
   parser.add_argument('--dstack-python-version', type=str, default="3.10")
   
   parser.add_argument('--github-token', type=str, default="")
