@@ -1,0 +1,1 @@
+- [LiRank: Industrial Large Scale Ranking Models at LinkedIn](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/23/2024-02-13+LiRank%3A+Industrial+Large+Scale+Ranking+Models+at+LinkedIn.yaml) / 2024-02-13
