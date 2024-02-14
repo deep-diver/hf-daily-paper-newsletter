@@ -27,3 +27,4 @@
 - [ODIN: Disentangled Reward Mitigates Hacking in RLHF](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/23/2024-02-13+ODIN%3A+Disentangled+Reward+Mitigates+Hacking+in+RLHF.yaml) / 2024-02-13
 - [OS-Copilot: Towards Generalist Computer Agents with Self-Improvement](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/23/2024-02-13+OS-Copilot%3A+Towards+Generalist+Computer+Agents+with+Self-Improvement.yaml) / 2024-02-13
 - [Policy Improvement using Language Feedback Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/23/2024-02-13+Policy+Improvement+using+Language+Feedback+Models.yaml) / 2024-02-13
+- [Mixtures of Experts Unlock Parameter Scaling for Deep RL](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/24/2024-02-14+Mixtures+of+Experts+Unlock+Parameter+Scaling+for+Deep+RL.yaml) / 2024-02-14

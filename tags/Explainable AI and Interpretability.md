@@ -24,3 +24,4 @@
 - [Making Flow-Matching-Based Zero-Shot Text-to-Speech Laugh as You Like](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/23/2024-02-13+Making+Flow-Matching-Based+Zero-Shot+Text-to-Speech+Laugh+as+You+Like.yaml) / 2024-02-13
 - [OS-Copilot: Towards Generalist Computer Agents with Self-Improvement](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/23/2024-02-13+OS-Copilot%3A+Towards+Generalist+Computer+Agents+with+Self-Improvement.yaml) / 2024-02-13
 - [Suppressing Pink Elephants with Direct Principle Feedback](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/23/2024-02-13+Suppressing+Pink+Elephants+with+Direct+Principle+Feedback.yaml) / 2024-02-13
+- [ChatCell: Facilitating Single-Cell Analysis with Natural Language](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/24/2024-02-14+ChatCell%3A+Facilitating+Single-Cell+Analysis+with+Natural+Language.yaml) / 2024-02-14
