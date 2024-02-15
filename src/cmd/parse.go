@@ -144,7 +144,7 @@ func SuggestCategories(geminiapikey string, title string, abstract string) []str
 	}
 	defer client.Close()
 	
-	model := client.GenerativeModel("gemini-pro")
+	model := client.GenerativeModel("gemini-1.0-pro")
 
 	resp, err := model.GenerateContent(ctx, genai.Text(prompt))
 	if err != nil {
