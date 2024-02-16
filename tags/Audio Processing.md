@@ -1,0 +1,1 @@
+- [Zero-Shot Unsupervised and Text-Based Audio Editing Using DDPM Inversion](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/26/2024-02-16+Zero-Shot+Unsupervised+and+Text-Based+Audio+Editing+Using+DDPM+Inversion.yaml) / 2024-02-16

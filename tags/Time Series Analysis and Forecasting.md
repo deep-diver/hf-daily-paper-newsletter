@@ -1,2 +1,4 @@
 - [WorldDreamer: Towards General World Models for Video Generation via Predicting Masked Tokens](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/6/2024-01-19+WorldDreamer%3A+Towards+General+World+Models+for+Video+Generation+via+Predicting+Masked+Tokens.yaml) / 2024-01-19
 - [World Model on Million-Length Video And Language With RingAttention](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/24/2024-02-14+World+Model+on+Million-Length+Video+And+Language+With+RingAttention.yaml) / 2024-02-14
+- [Hierarchical State Space Models for Continuous Sequence-to-Sequence Modeling](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/26/2024-02-16+Hierarchical+State+Space+Models+for+Continuous+Sequence-to-Sequence+Modeling.yaml) / 2024-02-16
+- [Rolling Diffusion Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/26/2024-02-16+Rolling+Diffusion+Models.yaml) / 2024-02-16
