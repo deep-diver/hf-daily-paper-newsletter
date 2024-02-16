@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# GES : Generalized Exponential Splatting for Efficient Radiance Field Rendering\n' +
+      '\n' +
+      ' Abdullah Hamdi\\({}^{1}\\)  Luke Melas-Kyriazi\\({}^{1}\\)  Guocheng Qian\\({}^{2,4}\\)  Jinjie Mai\\({}^{2}\\)\n' +
+      '\n' +
+      '**Ruoshi Liu\\({}^{3}\\)  Carl Vondrick\\({}^{3}\\)  Bernard Ghanem\\({}^{2}\\)  Andrea Vedaldi\\({}^{1}\\)**\n' +
+      '\n' +
+      '\\({}^{1}\\)Visual Geometry Group, University of Oxford\n' +
+      '\n' +
+      '\\({}^{2}\\)King Abdullah University of Science and Technology (KAUST)\n' +
+      '\n' +
+      '\\({}^{3}\\)Columbia University \\({}^{4}\\)Snap Inc.\n' +
+      '\n' +
+      'abdullah.hamdi@eng.ox.ac.uk\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      'Advancements in 3D Gaussian Splatting have significantly accelerated 3D reconstruction and generation. However, it may require a large number of Gaussians, which creates a substantial memory footprint. This paper introduces GES (Generalized Exponential Splatting), a novel representation that employs Generalized Exponential Function (GEF) to model 3D scenes, requiring far fewer particles to represent a scene and thus significantly outperforming Gaussian Splatting methods in efficiency with a plug-and-play replacement ability for Gaussian-based utilities. GES is validated theoretically and empirically in both principled 1D setup and realistic 3D scenes. It is shown to represent signals with sharp edges more accurately, which are typically challenging for Gaussians due to their inherent low-pass characteristics. Our empirical analysis demonstrates that GEF outperforms Gaussians in fitting natural-occurring signals (_e.g_. squares, triangles, parabolic signals), thereby reducing the need for extensive splitting operations that increase the memory footprint of Gaussian Splatting. With the aid of a frequency-modulated loss, GES achieves competitive performance in novel-view synthesis benchmarks while requiring less than half the memory storage of Gaussian Splatting and increasing the rendering speed by up to 39%. The code is available on the project website [https://abdullahhamdi.com/ges](https://abdullahhamdi.com/ges).\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      'The pursuit of more engaging and immersive virtual experiences across gaming, cinema, and the metaverse demands advancements in 3D technologies that balance visual richness with computational efficiency. In this regard, 3D Gaussian Splatting (GS) [27] is a recent alternative to neural radiance fields [17, 40, 44, 45, 51, 81] for learning and rendering 3D objects and scenes. GS represents a scene as a large mixture of small, coloured Gaussians. Its key advantage is the existence of a very fast differentiable renderer, which makes this representation ideally suited for real-time applications and significantly reduces the learning cost. Specifically, fast rendering of learnable 3D representations is of key importance for applications like gaming, where high-quality, fluid, and responsive graphics are essential.\n' +
+      '\n' +
+      'However, GS is not without shortcomings. We notice in particular that GS implicitly makes an assumption on the nature of the modeled signals, which is suboptimal. Specifically, Gaussians correspond to _low-pass filters_, but most 3D scenes are far from low-pass as they contain abrupt discontinuities in shape and appearance. Fig.2 demosntrates this inherent low-pass limitation of Gaussian-based methods. As a result, GS needs to use a huge number of very small Gaussians to represent such 3D scenes, far more than if a more appropriate basis was selected, which negatively impacts memory utilization.\n' +
+      '\n' +
+      'To address this shortcoming, in this work, we introduce _GES_ (Generalized Exponential Splatting), a new ap\n' +
+      '\n' +
+      'Figure 1: **GES: Generalized Exponential Splatting** We propose a faster and more memory-efficient alternative to Gaussian Splatting [27] that relies on Generalized exponential Functions (with additional learnable shape parameters) instead of Gaussians.\n' +
+      '\n' +
+      'proach that utilizes the Generalized Exponential Function (GEF) for modeling 3D scenes (Fig.1). Our method is designed to effectively represent signals, especially those with sharp features, which previous Gaussian splatting techniques often smooth out or require extensive splitting to model [27]. Demonstrated in Fig.3, we show that while \\(N=5\\) randomly initialized Gaussians are required to fit a square, only \\(2\\) GEFs are needed for the same signal. This stems from the fact that Gaussian mixtures have a low-pass frequency domain, while many common signals, like the square, are not band-limited. This high-band modeling constitutes a fundamental challenge to Gaussian-based methods. To help GES to train gradually from low-frequency to high-frequency details, we propose a specialized frequency-modulated image loss. This allows GES to achieve more than 50% reduction in the memory requirement of Gaussian splatting and up to 39% increase in rendering speed while maintaining a competitive performance on standard novel view synthesis benchmarks.\n' +
+      '\n' +
+      'We summarize our contributions as follows:\n' +
+      '\n' +
+      '* We present principled numerical simulations motivating the use of the Generalized Exponential Functions (GEF) instead of Gaussians for scene modeling.\n' +
+      '* We propose Generalized Exponential Splatting (GES), a novel 3D representation that leverages GEF to develop a splatting-based method for realistic, real-time, and memory-efficient novel view synthesis.\n' +
+      '* Equipped with a specialized frequency-modulated image loss and through extensive experiments on standard benchmarks on novel view synthesis, GES shows a 50% reduction in memory requirement and up to 39% increase in rendering speed for real-time radiance field rendering based on Gaussian Splatting. GES can act as a plug-and-play replacement for _any_ Gaussian-based utilities.\n' +
+      '\n' +
+      '## 2 Related work\n' +
+      '\n' +
+      '**Multi-view 3D reconstruction.** Multi-view 3D reconstruction aims to recover the 3D structure of a scene from its 2D RGB images captured from different camera positions [1, 16]. Classical approaches usually recover a scene\'s geometry as a point cloud using SIFT-based [39] point matching [61, 63]. More recent methods enhance them by relying on neural networks for feature extraction (_e.g_. [75, 76, 22, 83]). The development of Neural Radiance Fields (NeRF) [37, 44] has prompted a shift towards reconstructing 3D as volume radiance [66], enabling the synthesis of photo-realistic novel views [69, 4, 5]. Subsequent works have also explored the optimization of NeRF in few-shot (_e.g_. [15, 23, 28]) and one-shot (_e.g_. [7, 82]) settings. NeRF does not store any 3D geometry explicitly (only the density field), and several works propose to use a signed distance function to recover a scene\'s surface [77, 78, 12, 33, 34, 71, 72], including in the few-shot setting as well (_e.g_. [84, 85]).\n' +
+      '\n' +
+      '**Differentiable rendering.** Gaussian Splatting is a point-based rendering [2, 19] algorithm that parameterizes 3D points as Gaussian functions (mean, variance, opacity) with spherical harmonic coefficients for the angular radiance component [80]. Prior works have extensively studied differentiable rasterization, with a series of works [38, 26, 36] proposing techniques to define a differentiable function between triangles in a triangle mesh and pixels, which allows for adjusting parameters of triangle mesh from observation. These works range from proposing a differentiable renderer for mesh processing with image filters [32], and proposing to blend schemes of nearby triangles [48], to extending differentiable rasterization to large-scale indoor scenes [79]. On the point-based rendering [19] side, neural point-based rendering [26] allows features to be learned and stored in 3D points for geometrical and textural information. Wiles _et al_. combine neural point-based rendering with an adversarial loss for better photorealism [73], whereas later works use points to represent a radiance field, combining NeRF and point-based rendering [74, 86]. Our GES is a point-based rasterizer in which every point represents a generalized exponential with scale, opacity, and shape, affecting the rasterization accordingly.\n' +
+      '\n' +
+      '**Prior-based 3D reconstruction.** Modern zero-shot text-to\n' +
+      '\n' +
+      'Figure 2: **The Inherent Low-Pass Limitation of Gaussians**. We illustrate the bandwidth constraint of Gaussian functions compared to square and triangle signals. The Gaussian functions’ low-pass property restricts their ability to fit signals with sharp edges that have infinite bandwidth. This limitation constitutes a challenge for 3D Gaussian Splatting [27] in accurately fitting high-bandwidth 3D spatial data.\n' +
+      '\n' +
+      'image generators [55, 56, 59, 3, 18, 60] have improved the results by providing stronger synthesis priors [11, 42, 50, 70, 8, 70]. DreamFusion [50] is a seminal work that proposed to distill an off-the-shelf diffusion model [60] into a NeRF [5, 44] for a given text query. It sparked numerous follow-up approaches for text-to-3D synthesis (_e.g_. [9, 30]) and image-to-3D reconstruction (_e.g_. [13, 35, 41, 64]). The latter is achieved via additional reconstruction losses on the frontal camera position [35] and/or subject-driven diffusion guidance [30, 54]. The developed methods improved the underlying 3D representation [9, 30, 67] and 3D consistency of the supervision [35, 65]; explored task-specific priors [21, 24, 58] and additional controls [43]. Lately, Gaussian-based methods [68] improved the speed of optimization of 3D generation, utilizing the fast rasterization of Gaussian Splatting. We showcase how our GES can act as a plug-and-play replacement for Gaussian Splatting in this application and other utilities.\n' +
+      '\n' +
+      '## 3 Properties of Generalized Exponentials\n' +
+      '\n' +
+      '### Generalized Exponential Function\n' +
+      '\n' +
+      '**Preliminaries.** The Generalized Exponential Function (GEF) is similar to the probability density function (PDF) of the Generalized Normal Distribution (GND) [14]. This function allows for a more flexible adaptation to various data shapes by adjusting the shape parameter \\(\\beta\\in(0,\\infty)\\). The GEF is given by:\n' +
+      '\n' +
+      '\\[f(x|\\mu,\\alpha,\\beta,A)=A\\exp\\left(-\\left(\\frac{|x-\\mu|}{\\alpha}\\right)^{\\beta}\\right) \\tag{1}\\]\n' +
+      '\n' +
+      'where \\(\\mu\\in\\mathbb{R}\\) is the location parameter, \\(\\alpha\\in\\mathbb{R}\\) is the scale parameter, \\(A\\in\\mathbb{R}^{+}\\) defines a positive amplitude. The behavior of this function is illustrated in Fig.3. For \\(\\beta=2\\), the GEF becomes a scaled Gaussian \\(f(x|\\mu,\\alpha,\\beta=2,A)=Ae^{-\\frac{1}{2}\\left(\\frac{x-\\mu}{\\alpha}\\right)^{ 2}}\\). The GEF, therefore, provides a versatile framework for modeling a wide range of data by varying \\(\\beta\\), unlike the Gaussian mixtures, which have a low-pass frequency domain. Many common signals, like the square or triangle, are band-unlimited, constituting a fundamental challenge to Gaussian-based methods. In this paper, we try to _learn_ a positive \\(\\beta\\) for every component of the Gaussian splatting to allow for a generalized 3D representation.\n' +
+      '\n' +
+      '**Theoretical Results.** Despite its generalizable capabilities, the behavior of the GEF cannot be easily studied analytically, as it involves complex integrals of exponentials without closed form that depend on the shape parameter \\(\\beta\\). We demonstrate in Theorem 1 in _the Appendix_ that for specific cases, such as for a square signal, the GEF can achieve a strictly smaller approximation error than the corresponding Gaussian function by properly choosing \\(\\beta\\). The proof exploits the symmetry of the square wave signal to simplify the error calculations. Theorem 1 provides a theoretical foundation for preferring the GEF over standard Gaussian functions in our GES representation instead of 3D Gaussian Splatting [27].\n' +
+      '\n' +
+      '### Assessing 1D GEF Mixtures in Simulation\n' +
+      '\n' +
+      'We evaluate the effectiveness of a mixture of GEFs in representing various one-dimensional (1D) signal types. This evaluation is conducted by fitting the model to synthetic signals that replicate characteristics properties of common real-world signals. More details and additional simulation results are provided in _the Appendix_.\n' +
+      '\n' +
+      '**Simulation Setup.** The experimental framework was based on a series of parametric models implemented in PyTorch [47], designed to approximate 1D signals using mixtures of\n' +
+      '\n' +
+      'Figure 3: **Generalized Exponential Function (GEF). (_a_): We show a family of GEFs \\(f_{\\beta}(x)=Ae^{-\\left(\\frac{|x-\\mu|}{\\alpha}\\right)^{\\beta}}\\) with different \\(\\beta\\) values for \\(\\alpha=1,\\mu=0\\). When \\(\\beta=2\\), the function reduces to the Gaussian function followed in 3D gaussian splatting [27]. In our GES, we learn \\(\\beta\\) as another parameter of each splatting component. (_b_,_c_): The proposed GEF mixture, with learnable \\(\\beta\\), fits the same signal (square) with fewer components compared to Gaussian functions using gradient-based optimizations. (_b_): We show an example of the fitted mixture with \\(N=5\\) components when Gaussians are used _vs_. (_c_) when GEF is used with \\(N=2\\) components. GEF achieves less error loss (0.44) and approximates sharp edges better than the Gaussian counterpart (0.48 error) with less number of components. The optimized individual components (initialized with random parameters) are shown in green after convergence.**\n' +
+      '\n' +
+      'different functions such as Gaussian (low-pass), Difference of Gaussians (DoG), Laplacian of Gaussian (LoG), and a GEF mixture model. Each model comprised parameters for means, variances (or scales), and weights, with the generalized model incorporating an additional parameter, \\(\\beta\\), to control the exponentiation of the GEF function.\n' +
+      '\n' +
+      '**Models.** In this section, we briefly overview the mixture models employed to approximate true signals. Detailed formulations are provided in _the Appendix_.\n' +
+      '\n' +
+      '**Gaussian Mixture:** This model uses a combination of multiple Gaussian functions. Each Gaussian is characterized by its own mean, variance, and weight. The overall model is a weighted sum of these Gaussian functions, which is a low-pass filter.\n' +
+      '\n' +
+      '**Difference of Gaussians (DoG) Mixture:** The DoG model is a variation of the Gaussian mixture. It is formed by taking the difference between pairs of Gaussian functions with a predefined variance ratio. This model is particularly effective in highlighting contrasts in the signal and is considered a band-pass filter.\n' +
+      '\n' +
+      '**Laplacian of Gaussian (LoG) Mixture:** This model combines the characteristics of a Laplacian of Gaussian function. Each component in the mixture has specific parameters that control its shape and scale. Just like the DoG, the LoG model is adept at capturing fine details in the signal and is a band-pass filter.\n' +
+      '\n' +
+      '**Generalized Exponential (GEF) Mixture:** A more flexible version of the Gaussian mixture, this model introduces an additional shape parameter \\(\\beta\\). By adjusting this parameter, we can fine-tune the model to better fit the characteristics of the signal. The GEF Mixture frequency response depends on the shape parameter \\(\\beta\\).\n' +
+      '\n' +
+      '**Model Configuration.** The models were configured with a varying number of components \\(N\\), with tests conducted using \\(N=\\{2,5,8,10,15,20\\}\\). The weights of the components are chosen to be positive. All the parameters of all the \\(N\\) components were learned. Each model was trained using the Adam optimizer with a mean squared error loss function. The input \\(x\\) was a linearly spaced tensor representing the domain of the synthetic signal, and the target \\(y\\) was the value of the signal at each point in \\(x\\). Training proceeded for a predetermined number of epochs, and the loss was recorded at the end of training.\n' +
+      '\n' +
+      '**Data Generation.** Synthetic 1D signals were generated for various signal types over a specified range, with a given data size and signal width. The signals were used as the ground truth for training the mixture models. The ground truth signals used in the experiment are one-dimensional (1D) functions that serve as benchmarks for evaluating signal processing algorithms. The signal types under study are: _square_, _triangle_, _parabolic_, _half sinusoidal_, _Gaussian_, and _exponential_ functions. We show Fig.3 an example of fitting a Gaussian when \\(N=5\\) and a Generalized mixture on the square signal when \\(N=2\\). Note how sharp edges constitute a challenge for Gaussians that have low pass bandwidth while a square signal has an infinite bandwidth known by the sinc function [25].\n' +
+      '\n' +
+      '**Simulation Results.** The models\' performance was evaluated based on the loss value after training. Additionally, the model\'s ability to represent the input signal was visually inspected through generated plots. Multiple runs per configuration were executed to account for variance in the results. For a comprehensive evaluation, each configuration was run multiple times (20 runs per configuration) to account for\n' +
+      '\n' +
+      'Figure 4: **Numerical Simulation Results of Different Mixtures.** We show a comparison of average loss for different mixture models optimized with gradient-based optimizers across varying numbers of components on various signal types (a-f). In the case of ‘NaN’ loss ( gradient explosion), the results are not shown on the plots. Full simulation results are provided in _the Appendix_\n' +
+      '\n' +
+      'variability in the training process. During these runs, the number of instances where the training resulted in a \'nan\' loss was removed from the loss plots, and hence some plots in Fig.4 do not have loss values at some \\(N\\). As depicted in Fig.4, the GEF Mixture consistently yielded the lowest loss across the number of components, indicating its effective approximation of many common signals, especially band-unlimited signals like the square and triangle. The only exception is the Gaussian signal, which is (obviously) fitted better with a Gaussian Mixture.\n' +
+      '\n' +
+      '## 4 Generalized Exponential Splatting (GES)\n' +
+      '\n' +
+      'Having established the benefits of GEF of Eq.(1) over Gaussian functions, we will now demonstrate how to extend GEF into the Generalized Exponential Splatting (GES) framework, offering a plug-and-play replacement for Gaussian Splatting. We also start with a collection of static images of a scene and their corresponding camera calibrations obtained through Structure from Motion (SfM) [62], which additionally provides a sparse point cloud. Moving beyond Gaussian models [27], GES adopts an exponent \\(\\beta\\) to tailor the focus of the splats, thus sharpening the delineation of scene edges. This technique is not only more efficient in memory usage but also can surpass Gaussian splatting in established benchmarks for novel view synthesis.\n' +
+      '\n' +
+      '### Differentiable GES Formulation\n' +
+      '\n' +
+      'Our objective is to enhance novel view synthesis with a refined scene representation. We leverage a generalized exponential form, here termed Generalized Exponential Splatting, which for location \\(\\mathbf{x}\\) in 3D space and a positive definite matrix \\(\\mathbf{\\Sigma}\\), is defined by:\n' +
+      '\n' +
+      '\\[L(\\mathbf{x};\\boldsymbol{\\mu},\\boldsymbol{\\Sigma},\\beta)=\\exp\\left\\{-\\frac{1} {2}\\big{(}(\\mathbf{x}-\\boldsymbol{\\mu})^{\\intercal}\\boldsymbol{\\Sigma}^{-1}( \\mathbf{x}-\\boldsymbol{\\mu})\\big{)}^{\\frac{\\beta}{2}}\\right\\}, \\tag{2}\\]\n' +
+      '\n' +
+      'where \\(\\boldsymbol{\\mu}\\) is the location parameter and \\(\\boldsymbol{\\Sigma}\\) is the covariance matrix equivalance in Gaussian Splatting [27]. \\(\\beta\\) is a shape parameter that controls the sharpness of the splat. When \\(\\beta=2\\), this formulation is equivalent to Gaussian splatting [27]. Our approach maintains an opacity measure \\(\\kappa\\) for blending and utilizes spherical harmonics for coloring, similar to Gaussian splatting [27].\n' +
+      '\n' +
+      'For 2D image projection, we adapt the technique by Zwicker _et al_. [88], but keep track of our variable exponent \\(\\beta\\). The camera-space covariance matrix \\(\\boldsymbol{\\Sigma}^{\\prime}\\) is transformed as follows: \\(\\boldsymbol{\\Sigma}^{\\prime}=\\mathbf{J}\\mathbf{W}\\boldsymbol{\\Sigma}\\mathbf{W }^{\\intercal}\\mathbf{J}^{\\intercal}\\), where \\(\\mathbf{J}\\) is the Jacobian of the transformation from world to camera space, and \\(\\mathbf{W}\\) is a diagonal matrix containing the inverse square root of the\n' +
+      '\n' +
+      'Figure 5: **Visual Comparison on Novel View Synthesis.** We display comparisons between our proposed method and established baselines alongside their respective ground truth images. The depicted scenes are ordered as follows: Garden and Room from the Mip-NeRF360 dataset; DřJohnson from the Deep Blending dataset; and Train from Tanks&Temples. Subtle differences in rendering quality are accentuated through zoomed-in details. These specific scenes were picked similarly to Gaussin Splatting [27] for a fair comparison. It might be difficult in general to see differences between GES and Gaussians because they have almost the same PSNR (despite GES requiring 50% less memory).\n' +
+      '\n' +
+      'eigenvalues of \\(\\mathbf{\\Sigma}\\). We ensure \\(\\mathbf{\\Sigma}\\) remains positively semi-definite throughout the optimization by formulating it as a product of a scaling matrix \\(\\mathbf{S}\\) (modified by some positive modification function \\(\\phi(\\beta)>0\\) as we show later) and a rotation matrix \\(\\mathbf{R}\\), with optimization of these components facilitated through separate 3D scale vectors \\(\\mathbf{s}\\) and quaternion rotations \\(\\mathbf{q}\\).\n' +
+      '\n' +
+      '### Fast Differentiable Rasterizer for Generalized Exponential Splats\n' +
+      '\n' +
+      '**Intuition from Volume Rendering.** The concept of volume rendering in the context of neural radiance fields [44] involves the integration of emitted radiance along a ray passing through a scene. The integral equation for the expected color \\(C(\\mathbf{r})\\) of a camera ray \\(\\mathbf{r}(t)=\\mathbf{o}+t\\mathbf{d}\\), with near and far bounds \\(t_{n}\\) and \\(t_{f}\\), respectively, is given by:\n' +
+      '\n' +
+      '\\[\\begin{split} C(\\mathbf{r})=\\int_{t_{n}}^{t_{f}}T(t)\\kappa( \\mathbf{r}(t))c(\\mathbf{r}(t),\\mathbf{d})\\,dt,\\\\ \\text{where}\\quad T(t)=\\exp\\left(-\\int_{t_{n}}^{t}\\kappa(\\mathbf{ r}(s))\\,ds\\right).\\end{split} \\tag{3}\\]\n' +
+      '\n' +
+      'Here, \\(T(t)\\) represents the transmittance along the ray from \\(t_{n}\\) to \\(t\\), \\(\\kappa(\\mathbf{r}(t))\\) is the volume density, and \\(c(\\mathbf{r}(t),\\mathbf{d})\\) is the emitted radiance at point \\(\\mathbf{r}(t)\\) in the direction \\(\\mathbf{d}\\). The total distance \\([t_{n},t_{f}]\\) crossed by the ray across non-empty space dictates the amount of lost energy and hence the reduction of the intensity of the rendered colors. In the Gaussian Splatting world [27], this distance \\([t_{n},t_{f}]\\) is composed of the projected variances \\(\\alpha\\) of each component along the ray direction \\(\\mathbf{o}+t\\mathbf{d}\\). In our GES of Eq.(2), if the shape parameter \\(\\beta\\) of some individual component changes, the effective impact on Eq.(3) will be determined by the effective variance projection \\(\\widehat{\\alpha}\\) of the same component modified by the modifcation function \\(\\phi(\\beta)\\) as follows:\n' +
+      '\n' +
+      '\\[\\widehat{\\alpha}(\\beta)=\\phi(\\beta)\\alpha\\quad. \\tag{4}\\]\n' +
+      '\n' +
+      'Note that the modification function \\(\\phi\\) we chose does not depend on the ray direction since the shape parameter \\(\\beta\\) is a global property of the splatting component, and we assume the scene to comprise many components. We tackle next the choice of the modification function \\(\\phi\\) and how it fits into the rasterization framework of Gaussian Splatting [27].\n' +
+      '\n' +
+      '**Approximate Rasterization.** The main question is how to represent the GES in the rasterization framework. In effect, the rasterization in Gaussian Splatting [27] only relies on the variance splats of each component. So, we only need to simulate the effect of the shape parameter \\(\\beta\\) on the covariance of each component to get the rasterization of GES. To do that, we modify the scales matrix of the covariance in each component by the scaler function \\(\\phi(\\beta)\\) of that component. From probability theory, the exact conversion between the variance of the generalized exponential distribution and the variance of the Gaussian distribution is given by [14] as\n' +
+      '\n' +
+      '\\[\\phi(\\beta)=\\frac{\\Gamma(3/\\beta)}{\\Gamma(1/\\beta)} \\tag{5}\\]\n' +
+      '\n' +
+      ', where \\(\\Gamma\\) is the Gamma function. This conversion in Eq.(5) ensures the PDF integrates to 1. In a similar manner, the integrals in Eq.(3) under Eq.(4) can be shown to be equivalent for Gaussians and GES using the same modification of Eq.(5). The modification will affect the rasterization _as if_ we did perform the exponent change. It is a trick that allows using generalized exponential rasterization without taking the \\(\\beta\\) exponent. Similarly, the Gaussian splatting [27] is _not learning rigid Gaussians_, it learns properties of point clouds that _act as if_ there are Gaussians placed there when they splat on the image plane. Both our GES and Gaussians are in the same spirit of splatting, and representing 3D with splat properties. Fig.6 demonstrates this concept for an individual splatting component intersecting a ray \\(\\mathbf{r}\\) from the camera and the idea of effective variance projection \\(\\widehat{\\alpha}\\). However, as can be in Fig.6, this scaler modification \\(\\phi(\\beta)\\) introduces some view-dependent boundary effect error (_e.g_. if the ray \\(\\mathbf{r}\\) passed on the diagonal). We provide an upper bound estimate on this error in _the Appendix_.\n' +
+      '\n' +
+      'Due to the instability of the \\(\\Gamma\\) function in Eq.(5), we can approximate \\(\\phi(\\beta)\\) with the following smooth function.\n' +
+      '\n' +
+      '\\[\\bar{\\phi}_{\\rho}(\\beta)=\\frac{2}{1+e^{-(\\rho\\beta-2\\rho)}}\\enspace. \\tag{6}\\]\n' +
+      '\n' +
+      'The difference between the exact modification \\(\\phi(\\beta)\\) and the approximate \\(\\bar{\\phi}_{\\rho}(\\beta)\\) ( controlled by the hyperparameter shape strength \\(\\rho\\) ) is shown in Fig.7. At \\(\\beta=2\\) (Gaussian shape), the modifications \\(\\phi\\) and \\(\\bar{\\phi}\\) are exactly 1. This\n' +
+      '\n' +
+      'Figure 6: **Effective Variance of GES components**. We demonstrate the concept of effective variance projection \\(\\widehat{\\alpha}(\\beta)\\) for an individual splatting component intersecting a camera ray \\(\\mathbf{r}\\) under shape modification (\\(\\beta>2\\)). Note that \\(\\widehat{\\alpha}(\\beta)\\) is a scaled version of the original splat projected variance \\(\\alpha\\).\n' +
+      '\n' +
+      'parameterization \\(\\bar{\\phi}_{\\rho}(\\beta)\\) ensures that the variance of each component remains positive.\n' +
+      '\n' +
+      '### Frequency-Modulated Image Loss\n' +
+      '\n' +
+      'To effectively utilize the broad-spectrum capabilities of GES, it has been enhanced with a frequency-modulated image loss, denoted as \\(\\mathcal{L}_{\\omega}\\). This loss is grounded in the rationale that GES, initially configured with Gaussian low-pass band splats, should primarily concentrate on low-frequency details during the initial stages of training. As training advances, with the splat formations adapting to encapsulate higher frequencies, the optimization\'s emphasis should gradually shift towards these higher frequency bands within the image. This concept bears a technical resemblance to the frequency modulation approach used in BARF [31], albeit applied within the image domain rather than the 3D coordinate space. The loss is guided by a frequency-conditioned mask implemented via a Difference of Gaussians (DoG) filter to enhance edge-aware optimization in image reconstruction tasks modulated by the normalized frequency \\(\\omega\\). The DoG filter acts as a band-pass filter, emphasizing the edges by subtracting a blurred version of the image from another less blurred version, thus approximating the second spatial derivative of the image. This operation is mathematically represented as:\n' +
+      '\n' +
+      '\\[\\text{DoG}(I)=G(I,\\sigma_{1})-G(I,\\sigma_{2}),\\ \\ \\ 0<\\sigma_{2}<\\sigma_{1}\\]\n' +
+      '\n' +
+      'where \\(G(I,\\sigma)\\) denotes the Gaussian blur operation on image \\(I\\) with standard deviation \\(\\sigma\\). The choice of \\(\\sigma\\) values dictates the scale of edges to be highlighted, effectively determining the frequency band of the filter. We chose \\(\\sigma_{1}=2\\sigma_{2}\\) to ensure the validity of the band-pass filter, where the choice of \\(\\sigma_{2}\\) will determine the target frequency band of the filter. In our formulation, we use predetermined target normalized frequencies \\(\\omega\\) ( \\(\\omega=0\\%\\) for low frequencies to \\(\\omega=100\\%\\) for high frequencies). We chose \\(\\sigma_{2}=0.1+10\\omega\\) to ensure the stability of the filter and reasonable resulting masks. The filtered image is then used to generate an edge-aware mask \\(M_{\\omega}\\) through a pixel-wise comparison to a threshold value (after normalization) as follows.\n' +
+      '\n' +
+      '\\[M_{\\omega}=\\mathbb{1}\\left(\\text{DoG}_{\\omega}(I_{\\text{gt}})_{ \\text{normalized}}>\\epsilon_{\\omega}\\right)\\ \\, \\tag{7}\\] \\[\\text{DoG}_{\\omega}(I)=G(I,0.2+20\\omega)-G(I,0.1+10\\omega)\\]\n' +
+      '\n' +
+      ', where \\(0\\leq\\epsilon_{\\omega}\\leq 1\\) is the threshold ( we pick 0.5) for a normalized response of the filter DoG\\({}_{\\omega}\\), \\(I_{\\text{gt}}\\) is the ground truth image, and \\(\\mathbb{1}\\) is the indicator function. See Fig.8 for examples of the masks. The edge-aware frequency-modulated loss \\(\\mathcal{L}_{\\omega}\\) is defined as:\n' +
+      '\n' +
+      '\\[\\mathcal{L}_{\\omega}=\\|(I-I_{\\text{gt}})\\cdot M_{\\omega}\\|_{1}, \\tag{8}\\]\n' +
+      '\n' +
+      'where \\(I\\) is the reconstructed image, and \\(\\|\\cdot\\|_{1}\\) denotes the L1 norm. This term is integrated into the overall loss, as shown later. The mask is targeted for the specified frequencies \\(\\omega\\). We use a linear schedule to determine these target \\(\\omega\\) values in Eq.(8) and Eq.(7) during the optimization of GES, \\(\\omega=\\text{current iteration}\\). The loss \\(\\mathcal{L}_{\\omega}\\) aims to help in tuning the shape \\(\\beta\\) based on the nature of the scene. It does so by focusing the GES components on low pass signals first during the training before focusing on high frequency with tuning \\(\\beta\\) from their initial values. This helps the _efficiency_ of GES as can be seen later in Table 6 (almost free 9% reduction in memory).\n' +
+      '\n' +
+      'Due to DoG filter sensitivity for high-frequencies, the mask for \\(0\\%<\\omega\\leq 50\\%\\) is defined as \\(1-M_{\\omega}\\) of \\(50\\%<\\omega\\leq 100\\%\\). This ensures that all parts of the image will be covered by one of the masks \\(M_{\\omega}\\), while focusing on the details more as the optimization progresses.\n' +
+      '\n' +
+      '### Optimization of the Generalized Exponential Splats\n' +
+      '\n' +
+      'We detail a novel approach for controlling shape density, which selectively prunes GES according to their shape attributes, thus eliminating the need for a variable density mechanism. This optimization strategy encompasses the \\(\\beta\\) parameter as well as the splat\'s position \\(\\mathbf{x}\\), opacity \\(\\kappa\\), covariance matrix \\(\\mathbf{\\Sigma}\\), and color representation through spherical harmonics coefficients [27]. Optimization of these elements is conducted using stochastic gradient descent, with the process accelerated by GPU-powered computation and specialized CUDA kernels.\n' +
+      '\n' +
+      'Starting estimates for \\(\\mathbf{\\Sigma}\\) and \\(\\mathbf{x}\\) are deduced from the SfM points, while all \\(\\beta\\) values are initialized with \\(\\beta=2\\) (pure Gaussian spalts). The loss function integrates an \\(\\mathcal{L}_{1}\\) metric combined with a structural similarity loss (SSIM), and the frequency-modulated loss\\(\\mathcal{L}_{\\omega}\\):\n' +
+      '\n' +
+      '\\[\\mathcal{L}=\\lambda_{\\text{L1}}\\mathcal{L}_{1}+\\lambda_{\\text{ssim}}\\mathcal{L }_{\\text{ssim}}+\\lambda_{\\omega}\\mathcal{L}_{\\omega}, \\tag{9}\\]\n' +
+      '\n' +
+      'Figure 7: **The Modification Function \\(\\phi(\\beta)\\)**. We show different \\(\\rho\\) shape strength values of the approximate functions \\(\\bar{\\phi}_{\\rho}(\\beta)\\) in Eq.(6) and the exact modification function \\(\\phi(\\beta)\\) in Eq.(5). At \\(\\beta=2\\) ( gaussian splats), _all_ functions have a variance modification of 1, and GES reduces to Gaussian Splatting. In the extreme case of \\(\\rho=0\\), GES reduces to Gaussian Splatting for _any_\\(\\beta\\).\n' +
+      '\n' +
+      'where \\(\\lambda_{\\text{ssim}}=0.2\\) is applied uniformly in all evaluations, and \\(\\lambda_{\\text{L1}}=1-\\lambda_{\\text{ssim}}-\\lambda_{\\omega}\\). Expanded details on the learning algorithm and other specific procedural elements are available in _the Appendix_.\n' +
+      '\n' +
+      '## 5 Experiments\n' +
+      '\n' +
+      '### Datasets and Metrics\n' +
+      '\n' +
+      'In our experiments, we utilized a diverse range of datasets to test the effectiveness of our algorithm in rendering real-world scenes. This evaluation encompassed 13 real scenes from various sources. We particularly focused on scenes from the Mip-Nerf360 dataset [5], renowned for its superior NeRF rendering quality, alongside select scenes from the Tanks & Temples dataset [29], and instances provided by Hedman et al. [20] for their work in Deep Blending. These scenes presented a wide array of capture styles, ranging from bounded indoor settings to expansive unbounded outdoor environments.\n' +
+      '\n' +
+      'The quality benchmark in our study was set by the Mip-Nerf360 [4], which we compared against other contemporary fast NeRF methods, such as InstantNGP [45] and Plenoxels. Our train/test split followed the methodology recommended by Mip-NeRF360, using every 8th photo for testing. This approach facilitated consistent and meaningful error metric comparisons, including standard measures such as PSNR, L-PIPS, and SSIM, as frequently employed in existing literature (see Table 1). Our results encompassed various configurations and iterations, highlighting differences in training time, rendering speeds, and memory requirements for optimized parameters.\n' +
+      '\n' +
+      '### Implementation Details of GES\n' +
+      '\n' +
+      'Our methodology maintained consistent hyperparameter settings across all scenes, ensuring uniformity in our evaluations. We deployed an A6000 GPU for most of our tests. Our Generalized Exponential Splatting (GES ) was implemented over 40,000 iterations, and the density gradient threshold is set to 0.0003. The learning rate for the shape parameter was set at 0.0015, with a shape reset interval of 1000 iterations and a shape pruning interval of 100 iterations. The threshold for pruning based on shape was set at 0.5, while the shape strength parameter was determined to be 0.1, offering a balance between accuracy and computational load. Additionally, the Image Laplacian scale factor was set at 0.2, with the corresponding \\(\\lambda_{\\omega}\\) frequency loss coefficient marked at 0.5, ensuring edge-enhanced optimization in our image reconstruction tasks. The other hyperparameters and design choices (like opacity splitting and pruning) shared with Gaussian splitting [27] were kept the same. More details are provided in _the Appendix_.\n' +
+      '\n' +
+      '## 6 Results\n' +
+      '\n' +
+      '### Novel View Synthesis Results\n' +
+      '\n' +
+      'We evaluated _GES_ against several state-of-the-art techniques in both novel view synthesis tasks. Table 1 encapsulate the comparative results in addition to Fig.5. Table 1 demonstrates that _GES_ achieves a balance between high fidelity and efficiency in novel view synthesis. Although it does not always surpass other methods in SSIM or PSNR, it significantly excels in memory usage and speed. With only 377MB of memory and a processing speed of 2 minutes, _GES_ stands out as a highly efficient method, particularly when compared to the 3D Gaussians-30K and Instant NGP, which require substantially more memory or longer processing times. Overall, the results underscore _GES_\'s capability to deliver balanced performance with remarkable efficiency, making it a viable option for real-time applications that demand both high-quality output and operational speed and memory efficiency.\n' +
+      '\n' +
+      'Note that it is difficult to see the differences in _visual effects_ between GES and Gaussians in Fig.5 since they have almost the same PSNR but a different file size (Table 1). For a fair visual comparison, we restrict the number of components to be roughly the same (by controlling the splitting of Gaussians) and show the results in Fig.9. It clearly shows that GES can model tiny and sharp edges for that scene bet\n' +
+      '\n' +
+      'Figure 8: **Frequency-Modulated Image Masks. For the input example image on the left, We show examples of the frequency loss masks \\(M_{\\omega}\\) used in Sec.4.3 for different numbers of target normalized frequencies \\(\\omega\\) ( \\(\\omega=0\\%\\) for low frequencies to \\(\\omega=100\\%\\) for high frequencies). This masked loss helps our GES learn specific bands of frequencies. We use a linear schedule to determine these target \\(\\omega\\) values during the optimization of GES, \\(\\omega=\\frac{\\text{current iteration}}{\\text{total iterations}}\\). Note that due to DoG filter sensitivity for high-frequencies, the mask for \\(0<\\omega\\leq 50\\%\\) is defined as \\(1-M_{\\omega}\\) of \\(50<\\omega\\leq 100\\%\\). This ensures that all parts of the image will be covered by one of the masks \\(M_{\\omega}\\), while focusing on the details more as the optimization progresses.**\n' +
+      '\n' +
+      'ter than Gaussians.\n' +
+      '\n' +
+      '### Ablation and analysis\n' +
+      '\n' +
+      '**Shape parameters.** In Table 2, we explore the effect of important hyperparameters associated with the new shape parameter on novel view synthesis performance. We see that proper approximation \\(\\bar{\\phi}_{\\rho}\\) in Eq.(6) is necessary, because if we set \\(\\rho=10\\) for \\(\\bar{\\phi}_{\\rho}\\) to be as close to the exact \\(\\phi(\\beta)\\) (Fig.7), the PSNR would drop to 11.6. Additional detailed analysis is provided in _the Appendix_.\n' +
+      '\n' +
+      '**Effect of frequency-modulated image loss.** We study the effect of the frequency loss \\(\\mathcal{L}_{\\omega}\\) introduced in Sec.4.3 on the performance by varying \\(\\lambda_{\\omega}\\). In table 2 and in Fig.10 we demonstrate how adding this \\(\\mathcal{L}_{\\omega}\\) improves the optimization in areas where large contrast exists or where the smooth background is rendered and also improves the efficiency of GES. We notice that increasing \\(\\lambda_{\\omega}\\) in GES indeed reduces the size of the file, but can affect the performance. We chose \\(\\lambda_{\\omega}=0.5\\) as a middle ground between improved performance and reduced file size.\n' +
+      '\n' +
+      '**Analyzing memory reduction.** We find that the reduction in memory after learning \\(\\beta\\) is indeed attributed to the reduction of the number of components needed. For example, in the "Train" sequence, the number of components is 1,087,264 and 548,064 for Gaussian splatting and GES respectively. This translates into the reduction of file size from 275 MB to 129.5 MB when utilizing GES.\n' +
+      '\n' +
+      '**Applying GES in fast 3D generation.** Recent works have proposed to use Gaussian Splatting for 3D generation pipelines such as DreamGaussian [68] and Text-to-3D using Gaussian Splatting [10]. Integrating GES into these Gaussian-based 3D generation pipelines has yielded fast and compelling results with a plug-and-play ability of GES in place of Gaussian Splatting (see Fig.11).\n' +
+      '\n' +
+      '## 7 Conclusion and discussion\n' +
+      '\n' +
+      'This paper introduced _GES_ (Generalized Exponential Splatting), a new technique for 3D scene modeling that improves upon Gaussian Splatting in memory efficiency and signal representation, particularly for high-frequency signals. Our empirical results demonstrate its efficacy in novel view synthesis and 3D generation tasks.\n' +
+      '\n' +
+      '**Limitation.** One obvious limitation in our approach is that performance typically drops trying to make the representation as memor-efficient and as compact as possible. This is more noticeable for more complex scenes due to the pruning operations that depend on \\(\\beta\\)-tuning. Removing many of the components can eventually drop the PSNR performance (Table 1 last 2 rows). Future research could focus on enhancing GES\'s performance in more complex and dynamic environments and exploring its integration with other technologies in 3D modeling.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* [1] Sameer Agarwal, Yasutaka Furukawa, Noah Snavely, Ian Simon, Brian Curless, Steven M Seitz, and Richard Szeliski. Building come in a day. _Communications of the ACM_, 54(10):105-112, 2011.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c c c c c c c c c c c c c c} \\hline \\hline Dataset & \\multicolumn{6}{c}{Mip-NeRF360 Dataset} & \\multicolumn{6}{c}{Deep Blending} \\\\ Method–Metric & \\(SSIM^{\\dagger}\\) & \\(PSNR^{\\ddagger}\\) & \\(TPIPS^{\\ddagger}\\) & Train\\({}^{\\ddagger}\\) & PS\\(SIIM^{\\dagger}\\) & \\(PSNR^{\\ddagger}\\) & \\(TPIPS^{\\ddagger}\\) & Train\\({}^{\\ddagger}\\) & PS\\(SIIM^{\\dagger}\\) & \\(PSNR^{\\ddagger}\\) & \\(TPIPS^{\\ddagger}\\) & Train\\({}^{\\ddagger}\\) & PS\\(SIIM^{\\dagger}\\) & \\(PSNR^{\\ddagger}\\) & \\(TPIPS^{\\ddagger}\\) & Train\\({}^{\\ddagger}\\) \\\\ \\hline Phenoels & 0.626 & 23.08 & 0.463 & 26nm & 6.79 & 2.16B & 0.719 & 21.08 & 0.379 & 25m & 13.0 & 2.36B & 0.795 & 23.06 & 0.510 & 28m & 11.2 & 2.7GB \\\\ INGP & 0.699 & 25.59 & 0.331 & 7.5m & 9.43 & 48.88M & 0.745 & 21.92 & 0.305 & 7m & 14.4 & 48.88M & 0.817 & 24.96 & 0.390 & 8m & 2.79 & **68MM** \\\\ WebRF360 & 0.792 & 27.69 & 0.237 & 48.0 & 0.86M & 0.759 & 22.22 & 0.257 & 48.1 & 48.1 & **0.68M** & 0.901 & 29.40 & 0.245 & 48.0 & 0.98 & **68MM** \\\\\n' +
+      '3D Gaussians-7K & 0.770 & 25.60 & 0.279 & 6.5m & 160 & 52.3MB & 0.767 & 21.20 & 0.280 & 7m & 197.720MB & 0.755 & 27.78 & 0.317 & 4.5m & 1027 & 36.8MB \\\\\n' +
+      '3D Gaussians-30K & 0.815 & 27.21 & 0.214 & 42m & 134 & 734MB & 0.841 & 25.14 & 0.183 & 26m & 154 & 411MB & 0.903 & 29.41 & 0.243 & 36m & 137 & 67.6MB \\\\ \\hline GES (ours) & 0.794 & 26.91 & 0.250 & 32m & 18.36 & 377MB & 0.836 & 23.35 & 0.198 & 21m & 20.222MB & 0.901 & 29.68 & 0.252 & 30m & 160 & 399MB \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 1: **Comparative Analysis of Novel View Synthesis Techniques.** This table presents a comprehensive comparison of our approach with established methods across various datasets. The metrics, inclusive of SSIM, PSNR, and LPIPS, alongside training duration, frames per second, and memory usage, provide a multidimensional perspective of performance efficacy. Note that our training time numbers of the different methods may be computed on different GPUs; they are not necessarily perfectly comparable but are still valid. Note that non-explicit representations (INGGP, Mip-NeRF360) have low memory because they rely on additional slow neural networks for decoding. Red-colored results are the best.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c} \\hline \\hline Ablation Setup & \\(PSNR^{\\ddagger}\\) & \\(SSIM^{\\dagger}\\) & \\(LPIPS^{\\ddagger}\\) & **Size (MB)\\({}^{\\ddagger}\\)** \\\\ \\hline Gaussians & 27.21 & 0.815 & 0.214 & 734 \\\\ \\hline GES w/o approx. \\(\\phi_{\\rho}\\) & 11.60 & 0.345 & 0.684 & 364 \\\\ GES w/o shape reset & 26.57 & 0.788 & 0.257 & 374 \\\\ GES w/o \\(\\mathcal{L}_{\\omega}\\) loss & 27.07 & 0.800 & 0.250 & 411 \\\\ Full GES & 26.91 & 0.794 & 0.250 & 377 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 2: **Ablation Study on Novel View Synthesis.** We study the impact of several components in GES on the reconstruction quality and file size in the Mip-NeRF360 dataset.\n' +
+      '\n' +
+      'Figure 9: **Fair Visual Comparison.** We show an example of Gaussians [27] and GES when constrained to _the same number_ of splatting components for a fair visual comparison. It clearly shows that GES can model tiny and sharp edges for that scene better than Gaussians.\n' +
+      '\n' +
+      '* [2] Kara-Ali Aliev, Artem Sevastopolsky, Maria Kolos, Dmitry Ulyanov, and Victor Lempitsky. Neural point-based graphics. In _Computer Vision-ECCV 2020: 16th European Conference, Glasgow, UK, August 23-28, 2020, Proceedings, Part XXII 16_, pages 696-712. Springer, 2020.\n' +
+      '* [3] Yogesh Balaji, Seungjun Nah, Xun Huang, Arash Vahdat, Jiaming Song, Karsten Kreis, Miika Aittala, Timo Aila, Samuli Laine, Bryan Catanzaro, et al. ediffin: Text-to-image diffusion models with an ensemble of expert denoisers. _arXiv preprint arXiv:2211.01324_, 2022.\n' +
+      '* [4] Jonathan T Barron, Ben Mildenhall, Matthew Tancik, Peter Hedman, Ricardo Martin-Brualla, and Pratul P Srinivasan. Mip-nerf: A multiscale representation for anti-aliasing neural radiance fields. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_, pages 5855-5864, 2021.\n' +
+      '* [5] Jonathan T. Barron, Ben Mildenhall, Dor Verbin, Pratul P. Srinivasan, and Peter Hedman. Mip-nerf 360: Unbounded anti-aliased neural radiance fields. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_, pages 5470-5479, June 2022.\n' +
+      '* [6] Jonathan T. Barron, Ben Mildenhall, Dor Verbin, Pratul P. Srinivasan, and Peter Hedman. Zip-nerf: Anti-aliased grid-based neural radiance fields. _ICCV_, 2023.\n' +
+      '* [7] Eric R Chan, Connor Z Lin, Matthew A Chan, Koki Nagano, Boxiao Pan, Shalini De Mello, Orazio Gallo, Leonidas J Guibas, Jonathan Tremblay, Sameh Khamis, et al. Efficient geometry-aware 3d generative adversarial networks. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_, pages 16123-16133, 2022.\n' +
+      '* [8] Dave Zhenyu Chen, Yawar Siddiqui, Hsin-Ying Lee, Sergey Tulyakov, and Matthias Niessner. Text2tex: Text-driven texture synthesis via diffusion models. _arXiv preprint arXiv:2303.11396_, 2023.\n' +
+      '* [9] Rui Chen, Yongwei Chen, Ningxin Jiao, and Kui Jia. Fantasia3d: Disentangling geometry and appearance for high-quality text-to-3d content creation. _arXiv preprint arXiv:2303.13873_, 2023.\n' +
+      '* [10] Zilong Chen, Feng Wang, and Huaping Liu. Text-to-3d using gaussian splatting. _arXiv preprint arXiv:2309.16585_, 2023.\n' +
+      '* [11] Yen-Chi Cheng, Hsin-Ying Lee, Sergey Tulyakov, Alexander G Schwing, and Liang-Yan Gui. Sdfusion: Multimodal 3d shape completion, reconstruction, and generation. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_, 2023.\n' +
+      '* [12] Francois Darmon, Benedicate Bascle, Jean-Clement Devaux, Pascal Monasse, and Mathieu Aubry. Improving neural implicit surfaces geometry with patch warping. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_, pages 6260-6269, 2022.\n' +
+      '* [13] Matt Deitke, Ruoshi Liu, Matthew Wallingford, Huong Ngo, Oscar Michel, Aditya Kusupati, Alan Fan, Christian Laforte, Vikram Voleti, Samir Yitzhak Gadre, et al. Obiayares-xl: A universe of 10m+ 3d objects. _arXiv preprint arXiv:2307.05663_, 2023.\n' +
+      '* [14] J Armando Dominguez-Molina, Graciela Gonzalez-Faras, Ramon M Rodriguez-Dagnino, and ITESM Campus Monterrey. A practical procedure to estimate the shape parameter in the generalized gaussian distribution. _available through link [https://www.cimat.mx/BiblioAdmin/RTAdmin/reportes/enlinea/10-18_eng.pdf_](https://www.cimat.mx/BiblioAdmin/RTAdmin/reportes/enlinea/10-18_eng.pdf_), 1, 2003.\n' +
+      '* [15] Yilun Du, Cameron Smith, Ayush Tewari, and Vincent Sitzmann. Learning to render novel views from wide-baseline stereo pairs. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_, 2023.\n' +
+      '* [16] Olivier D Faugeras. What can be seen in three dimensions with an uncalibrated stereo rig? In _Computer Vi\n' +
+      '\n' +
+      'Figure 11: **GES Application: Fast Image-to-3D Generation**. We show selected 3D generated examples from Co3D images [57] by combining GES with the Gaussian-based 3D generation pipeline [68], highlighting the plug-and-play benefits of GES to replace Gaussian Splatting [27].\n' +
+      '\n' +
+      'Figure 10: **Frequency-Modulated Loss Effect.** We show the effect of the frequency-modulated image loss \\(\\mathcal{L}_{\\omega}\\) on the performance on novel views synthesis. Note how adding this \\(\\mathcal{L}_{\\omega}\\) improves the optimization in areas where a large contrast exists or a smooth background is rendered.\n' +
+      '\n' +
+      'sion--ECCV\'92: Second European Conference on Computer Vision Santa Margherita Ligure, Italy, May 19-22, 1992 Proceedings 2_, pages 563-578. Springer, 1992.\n' +
+      '* [17] Sara Fridovich-Keil, Alex Yu, Matthew Tancik, Qinhong Chen, Benjamin Recht, and Angjoo Kanazawa. Plenoxels: Radiance fields without neural networks. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_, pages 5501-5510, June 2022.\n' +
+      '* [18] Oran Gafni, Adam Polyak, Oron Ashual, Shelly Sheynin, Devi Parikh, and Yaniv Taigman. Make-a-scene: Scene-based text-to-image generation with human priors. In _Proceedings of the European Conference on Computer Vision (ECCV)_, pages 89-106, 2022.\n' +
+      '* [19] Markus Gross and Hanspeter Pfister. _Point-based graphics_. Elsevier, 2011.\n' +
+      '* [20] Peter Hedman, Julien Philip, True Price, Jan-Michael Frahm, George Drettakis, and Gabriel Brostow. Deep blending for free-viewpoint image-based rendering. _ACM Trans. on Graphics (TOG)_, 37(6), 2018.\n' +
+      '* [21] Lukas Hollein, Ang Cao, Andrew Owens, Justin Johnson, and Matthias Niessner. Text2room: Extracting textured 3d meshes from 2d text-to-image models. _arXiv preprint arXiv:2303.11989_, 2023.\n' +
+      '* [22] Po-Han Huang, Kevin Matzen, Johannes Kopf, Narendra Ahuja, and Jia-Bin Huang. Deepmvs: Learning multi-view stereopsis. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_, pages 2821-2830, 2018.\n' +
+      '* [23] Ajay Jain, Matthew Tancik, and Pieter Abbeel. Putting nerf on a diet: Semantically consistent few-shot view synthesis. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_, pages 5885-5894, 2021.\n' +
+      '* [24] Tomas Jakab, Ruining Li, Shangzhe Wu, Christian Rupprecht, and Andrea Vedaldi. Farm3d: Learning articulated 3d animals by distilling 2d diffusion. _arXiv preprint arXiv:2304.10535_, 2023.\n' +
+      '* [25] A.J. Jerri. The shannon sampling theorem--its various extensions and applications: A tutorial review. _Proceedings of the IEEE_, 65(11):1565-1596, 1977.\n' +
+      '* [26] Hiroharu Kato, Yoshitaka Ushiku, and Tatsuya Harada. Neural 3d mesh renderer. In _Proceedings of the IEEE conference on computer vision and pattern recognition_, pages 3907-3916, 2018.\n' +
+      '* [27] Bernhard Kerbl, Georgios Kopanas, Thomas Leimkuhler, and George Drettakis. 3d gaussian splatting for real-time radiance field rendering. _ACM Transactions on Graphics_, 42(4), July 2023.\n' +
+      '* [28] Mijeong Kim, Seonguk Seo, and Bohyung Han. Infonerf: Ray entropy minimization for few-shot neural volume rendering. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_, pages 12912-12921, 2022.\n' +
+      '* [29] Arno Knapitsch, Jaesik Park, Qian-Yi Zhou, and Vladlen Koltun. Tanks and temples: Benchmarking large-scale scene reconstruction. _ACM Transactions on Graphics_, 36(4), 2017.\n' +
+      '* [30] Chen-Hsuan Lin, Jun Gao, Luming Tang, Towaki Takikawa, Xiaohui Zeng, Xun Huang, Karsten Kreis, Sanja Fidler, Ming-Yu Liu, and Tsung-Yi Lin. Magic3d: High-resolution text-to-3d content creation. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_, 2023.\n' +
+      '* [31] Chen-Hsuan Lin, Wei-Chiu Ma, Antonio Torralba, and Simon Lucey. Barf: Bundle-adjusting neural radiance fields. In _IEEE International Conference on Computer Vision (ICCV)_, 2021.\n' +
+      '* [32] Hsueh-Ti Derek Liu, Michael Tao, and Alec Jacobson. Paparazzi: surface editing by way of multi-view image processing. _ACM Trans. Graph._, 37(6):221-1, 2018.\n' +
+      '* [33] Ruoshi Liu, Sachit Menon, Chengzhi Mao, Dennis Park, Simon Stent, and Carl Vondrick. What you can reconstruct from a shadow. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 17059-17068, 2023.\n' +
+      '* [34] Ruoshi Liu and Carl Vondrick. Humans as light bulbs: 3d human reconstruction from thermal reflection. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 12531-12542, 2023.\n' +
+      '* [35] Ruoshi Liu, Rundi Wu, Basile Van Hoorick, Pavel Tokmakov, Sergey Zakharov, and Carl Vondrick. Zero-1-to-3: Zero-shot one image to 3d object. _arXiv preprint arXiv:2303.11328_, 2023.\n' +
+      '* [36] Shichen Liu, Tianye Li, Weikai Chen, and Hao Li. Soft rasterizer: A differentiable renderer for image-based 3d reasoning. In _Proceedings of the IEEE/CVF International Conference on Computer Vision_, pages 7708-7717, 2019.\n' +
+      '* [37] Stephen Lombardi, Tomas Simon, Jason Saragih, Gabriel Schwartz, Andreas Lehrmann, and Yaser Sheikh. Neural volumes: Learning dynamic renderable volumes from images. _arXiv preprint arXiv:1906.07751_, 2019.\n' +
+      '* [38] Matthew M Loper and Michael J Black. Opendr: An approximate differentiable renderer. In _Computer Vision-ECCV 2014: 13th European Conference, Zurich, Switzerland, September 6-12, 2014, Proceedings, Part VII 13_, pages 154-169. Springer, 2014.\n' +
+      '* [39] David G Lowe. Distinctive image features from scale-invariant keypoints. _International Journal of Computer Vision (IJCV)_, 60:91-110, 2004.\n' +
+      '* [40] Ricardo Martin-Brualla, Noha Radwan, Mehdi SM Sajjadi, Jonathan T Barron, Alexey Dosovitskiy, and Daniel Duckworth. Nerf in the wild: Neural radiance fields for unconstrained photo collections. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_, pages 7210-7219, 2021.\n' +
+      '* [41] Luke Melas-Kyriazi, Christian Rupprecht, Iro Laina, and Andrea Vedaldi. Realfusion: 360{deg} reconstruction of any object from a single image. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_, 2023.\n' +
+      '* [42] Gal Metzer, Elad Richardson, Or Patashnik, Raja Giryes, and Daniel Cohen-Or. Latent-nerf for shape-guided generation of 3d shapes and textures. _arXiv preprint arXiv:2211.07600_, 2022.\n' +
+      '* [43]* [43] Aryan Mikaeili, Or Perel, Daniel Cohen-Or, and Ali Mahdavi-Amiri. Sked: Sketch-guided text-based 3d editing. _arXiv preprint arXiv:2303.10735_, 2023.\n' +
+      '* [44] Ben Mildenhall, Pratul P Srinivasan, Matthew Tancik, Jonathan T Barron, Ravi Ramamoorthi, and Ren Ng. Nerf: Representing scenes as neural radiance fields for view synthesis. In _Proceedings of the European Conference on Computer Vision (ECCV)_, pages 405-421. Springer, 2020.\n' +
+      '* [45] Thomas Muller, Alex Evans, Christoph Schied, and Alexander Keller. Instant neural graphics primitives with a multiresolution hash encoding. _ACM Trans. Graph._, 41(4):102:1-102:15, July 2022.\n' +
+      '* [46] Alex Nichol, Heewoo Jun, Prafulla Dhariwal, Pamela Mishkin, and Mark Chen. Point-e: A system for generating 3d point clouds from complex prompts. _arXiv preprint arXiv:2212.08751_, 2022.\n' +
+      '* [47] Adam Paszke, Sam Gross, Francisco Massa, Adam Lerer, James Bradbury, Gregory Chanan, Trevor Killeen, Zeming Lin, Natalia Gimelshein, Luca Antiga, et al. PyTorch: An imperative style, high-performance deep learning library. In _Advances in Neural Information Processing Systems (NeurIPS)_, 2019.\n' +
+      '* [48] Felix Petersen, Amit H Bermano, Oliver Deussen, and Daniel Cohen-Or. Pix2vex: Image-to-geometry reconstruction using a smooth differentiable renderer. _arXiv preprint arXiv:1903.11149_, 2019.\n' +
+      '* [49] Dustin Podell, Zion English, Kyle Lacey, Andreas Blattmann, Tim Dockhorn, Jonas Muller, Joe Penna, and Robin Rombach. Sdxl: Improving latent diffusion models for high-resolution image synthesis, 2023.\n' +
+      '* [50] Ben Poole, Ajay Jain, Jonathan T Barron, and Ben Mildenhall. Dreamfusion: Text-to-3d using 2d diffusion. _International Conference on Learning Representations (ICLR)_, 2022.\n' +
+      '* [51] Albert Pumarola, Enric Corona, Gerard Pons-Moll, and Francesc Moreno-Noguer. D-nerf: Neural radiance fields for dynamic scenes. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_, pages 10318-10327, 2021.\n' +
+      '* [52] Guocheng Qian, Jinjie Mai, Abdullah Hamdi, Jian Ren, Aliaksandr Siarohin, Bing Li, Hsin-Ying Lee, Ivan Skorokhodov, Peter Wonka, Sergey Tulyakov, and Bernard Ghanem. Magic123: One image to high-quality 3d object generation using both 2d and 3d diffusion priors. _arXiv preprint arXiv:2306.17843_, 2023.\n' +
+      '* [53] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, et al. Learning transferable visual models from natural language supervision. In _Proceedings of the International Conference on Machine Learning (ICML)_, pages 8748-8763. PMLR, 2021.\n' +
+      '* [54] Amit Raj, Srinivas Kaza, Ben Poole, Michael Niemeyer, Nataniel Ruiz, Ben Mildenhall, Shiran Zada, Kfir Aherman, Michael Rubinstein, Jonathan Barron, et al. Dream-booth3d: Subject-driven text-to-3d generation. _arXiv preprint arXiv:2303.13508_, 2023.\n' +
+      '* [55] Aditya Ramesh, Prafulla Dhariwal, Alex Nichol, Casey Chu, and Mark Chen. Hierarchical text-conditional image generation with clip latents. _arXiv preprint arXiv:2204.06125_, 2022.\n' +
+      '* [56] Aditya Ramesh, Mikhail Pavlov, Gabriel Goh, Scott Gray, Chelsea Voss, Alec Radford, Mark Chen, and Ilya Sutskever. Zero-shot text-to-image generation. In _Proceedings of the International Conference on Machine Learning (ICML)_, pages 8821-8831. PMLR, 2021.\n' +
+      '* [57] Jeremy Reizenstein, Roman Shapovalov, Philipp Henzler, Luca Sbordone, Patrick Labatut, and David Novotny. Common objects in 3d: Large-scale learning and evaluation of real-life 3d category reconstruction. In _Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)_, pages 10901-10911, October 2021.\n' +
+      '* [58] Elad Richardson, Gal Metzzer, Yuval Alaluf, Raja Giryes, and Daniel Cohen-Or. Texture: Text-guided texturing of 3d shapes. _arXiv preprint arXiv:2302.01721_, 2023.\n' +
+      '* [59] Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Bjorn Ommer. High-resolution image synthesis with latent diffusion models. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_, pages 10684-10695, 2022.\n' +
+      '* [60] Chitwan Saharia, William Chan, Saurabh Saxena, Lala Li, Jay Whang, Emily L Denton, Kamyar Ghasemipour, Raphael Gontijo Lopes, Burcu Karagol Ayan, Tim Salimans, et al. Photorealistic text-to-image diffusion models with deep language understanding. _Advances in Neural Information Processing Systems (NeurIPS)_, 35:36479-36494, 2022.\n' +
+      '* [61] Johannes Lutz Schonberger and Jan-Michael Frahm. Structure-from-motion revisited. In _Conference on Computer Vision and Pattern Recognition (CVPR)_, 2016.\n' +
+      '* [62] Johannes Lutz Schonberger and Jan-Michael Frahm. Structure-from-motion revisited. In _Conference on Computer Vision and Pattern Recognition (CVPR)_, 2016.\n' +
+      '* [63] Johannes Lutz Schonberger, Enliang Zheng, Marc Pollefeys, and Jan-Michael Frahm. Pixelwise view selection for unstructured multi-view stereo. In _European Conference on Computer Vision (ECCV)_, 2016.\n' +
+      '* [64] Hoigi Seo, Hayeon Kim, Gwanghyun Kim, and Se Young Chun. Ditto-nerf: Diffusion-based iterative text to omni-directional 3d model. _arXiv preprint arXiv:2304.02827_, 2023.\n' +
+      '* [65] Junyoung Seo, Wooseok Jang, Min-Seop Kwak, Jaehoon Ko, Hyeonsu Kim, Junho Kim, Jin-Hwa Kim, Jiyoung Lee, and Seungryong Kim. Let 2d diffusion model know 3d-consistency for robust text-to-3d generation. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_, 2023.\n' +
+      '* [66] Andrea Tagliasacchi and Ben Mildenhall. Volume rendering digest (for nerf). _arXiv preprint arXiv:2209.02417_, 2022.\n' +
+      '* [67] Jiaxiang Tang. Stable-dreamfusion: Text-to-3d with stable-diffusion, 2022. [https://github.com/ashawkey/stable-dreamfusion](https://github.com/ashawkey/stable-dreamfusion).\n' +
+      '* [68] Jiaxiang Tang, Jiawei Ren, Hang Zhou, Ziwei Liu, and Gang Zeng. Dreamgaussian: Generative gaussian splatting for efficient 3d content creation. _arXiv preprint arXiv:2309.16653_, 2023.\n' +
+      '** [69] Dor Verbin, Peter Hedman, Ben Mildenhall, Todd Zickler, Jonathan T Barron, and Pratul P Srinivasan. Ref-nerf: Structured view-dependent appearance for neural radiance fields. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_, pages 5481-5490. IEEE, 2022.\n' +
+      '* [70] Haochen Wang, Xiaodan Du, Jiahao Li, Raymond A Yeh, and Greg Shakhnarovich. Score jacobian chaining: Lifting pretrained 2d diffusion models for 3d generation. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_, 2023.\n' +
+      '* [71] Peng Wang, Lingjie Liu, Yuan Liu, Christian Theobalt, Taku Komura, and Wenping Wang. Neus: Learning neural implicit surfaces by volume rendering for multi-view reconstruction. In _Advances in Neural Information Processing Systems (NeurIPS)_, 2021.\n' +
+      '* [72] Yiqun Wang, Ivan Skorokhodov, and Peter Wonka. Hf-neus: Improved surface reconstruction using high-frequency details. _Advances in Neural Information Processing Systems (NeurIPS)_, 35:1966-1978, 2022.\n' +
+      '* [73] Olivia Wiles, Georgia Gkioxari, Richard Szeliski, and Justin Johnson. Synsin: End-to-end view synthesis from a single image. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 7467-7477, 2020.\n' +
+      '* [74] Qiangeng Xu, Zexiang Xu, Julien Philip, Sai Bi, Zhixin Shu, Kalyan Sunkavalli, and Ulrich Neumann. Point-nerf: Point-based neural radiance fields. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 5438-5448, 2022.\n' +
+      '* [75] Yao Yao, Zixin Luo, Shiwei Li, Tian Fang, and Long Quan. Mvsnet: Depth inference for unstructured multi-view stereo. In _Proceedings of the European Conference on Computer Vision (ECCV)_, pages 767-783, 2018.\n' +
+      '* [76] Yao Yao, Zixin Luo, Shiwei Li, Tianwei Shen, Tian Fang, and Long Quan. Recurrent mvsnet for high-resolution multi-view stereo depth inference. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_, pages 5525-5534, 2019.\n' +
+      '* [77] Lior Yariv, Jiatao Gu, Yoni Kasten, and Yaron Lipman. Volume rendering of neural implicit surfaces. _Advances in Neural Information Processing Systems (NeurIPS)_, 34:4805-4815, 2021.\n' +
+      '* [78] Lior Yariv, Yoni Kasten, Dror Moran, Meirav Galun, Matan Atzmon, Basri Ronen, and Yaron Lipman. Multiview neural surface reconstruction by disentangling geometry and appearance. _Advances in Neural Information Processing Systems (NeurIPS)_, 33:2492-2502, 2020.\n' +
+      '* [79] Wang Yifan, Felice Serena, Shihao Wu, Cengiz Oztireli, and Olga Sorkine-Hornung. Differentiable surface splatting for point-based geometry processing. _ACM Transactions on Graphics (TOG)_, 38(6):1-14, 2019.\n' +
+      '* [80] Alex Yu, Sara Fridovich-Keil, Matthew Tancik, Qinhong Chen, Benjamin Recht, and Angjoo Kanazawa. Plenoxels: Radiance fields without neural networks. _arXiv preprint arXiv:2112.05131_, (2):6, 2021.\n' +
+      '* [81] Alex Yu, Ruilong Li, Matthew Tancik, Hao Li, Ren Ng, and Angjoo Kanazawa. PlenOctrees for real-time rendering of neural radiance fields. In _Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)_, 2021.\n' +
+      '* [82] Alex Yu, Vickie Ye, Matthew Tancik, and Angjoo Kanazawa. pixelnerf: Neural radiance fields from one or few images. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_, pages 4578-4587, 2021.\n' +
+      '* [83] Zehao Yu and Shenghua Gao. Fast-mvsnet: Sparse-to-dense multi-view stereo with learned propagation and gauss-newton refinement. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_, pages 1949-1958, 2020.\n' +
+      '* [84] Zehao Yu, Songyou Peng, Michael Niemeyer, Torsten Sattler, and Andreas Geiger. Monosdf: Exploring monocular geometric cues for neural implicit surface reconstruction. In _Advances in Neural Information Processing Systems (NeurIPS)_, 2022.\n' +
+      '* [85] Jason Zhang, Gengshan Yang, Shubham Tulsiani, and Deva Ramanan. Ners: neural reflectance surfaces for sparse-view 3d reconstruction in the wild. _Advances in Neural Information Processing Systems (NeurIPS)_, 34:29835-29847, 2021.\n' +
+      '* [86] Qiang Zhang, Seung-Hwan Baek, Szymon Rusinkiewicz, and Felix Heide. Differentiable point-based radiance fields for efficient view synthesis. In _SIGGRAPH Asia 2022 Conference Papers_, pages 1-12, 2022.\n' +
+      '* [87] Richard Zhang, Phillip Isola, Alexei A Efros, Eli Shechtman, and Oliver Wang. The unreasonable effectiveness of deep features as a perceptual metric. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_, 2018.\n' +
+      '* [88] Matthias Zwicker, Hanspeter Pfister, Jeroen Van Baar, and Markus Gross. Ewa volume splatting. _Proceedings Visualization, 2001. VIS\'01._, pages 29-538, 2001.\n' +
+      '\n' +
+      'A Theory Behind Generalized Exponentials\n' +
+      '\n' +
+      '### Generalized Exponential Function\n' +
+      '\n' +
+      'The Generalized Exponential Function (GEF) is similar to the probability density function (PDF) of the Generalized Normal Distribution (GND) [14] with an additional amplitude parameter \\(A\\in\\mathbb{R}\\). This function allows for a more flexible adaptation to various data shapes by adjusting the shape parameter \\(\\beta\\in(0,\\infty)\\). The GEF is given by the following.\n' +
+      '\n' +
+      '\\[f(x|\\mu,\\alpha,\\beta,A)=A\\exp\\left(-\\left(\\frac{|x-\\mu|}{\\alpha}\\right)^{\\beta}\\right) \\tag{10}\\]\n' +
+      '\n' +
+      'where \\(\\mu\\in\\mathbb{R}\\) is the location parameter, \\(\\alpha\\in\\mathbb{R}\\) is the scale parameter, \\(A\\) defines the amplitude, and \\(\\beta>0\\) is the shape parameter. For \\(\\beta=2\\), the GEF becomes a scaled Gaussian distribution:\n' +
+      '\n' +
+      '\\[f(x|\\mu,\\alpha,\\beta=2,A)=\\frac{A}{\\alpha\\sqrt{2\\pi}}\\exp\\left(-\\frac{1}{2} \\left(\\frac{x-\\mu}{\\alpha/\\sqrt{2}}\\right)^{2}\\right) \\tag{11}\\]\n' +
+      '\n' +
+      'And for \\(\\beta=1\\), Eq. 10 reduces to a scaled Laplace distribution:\n' +
+      '\n' +
+      '\\[f(x|\\mu,\\alpha,\\beta=1,A)=\\frac{A}{2\\alpha}\\exp\\left(-\\frac{|x-\\mu|}{\\alpha}\\right) \\tag{12}\\]\n' +
+      '\n' +
+      'The GEF, therefore, provides a versatile framework for modeling a wide range of data by varying \\(\\beta\\), unlike the Gaussian mixtures, which have a low-pass frequency domain. Many common signals, like the square or triangle, are band-unlimited, constituting a fundamental challenge to Gaussian-based methods (see Fig.12). In this paper, we try to _learn_ a positive \\(\\beta\\) for every component of the Gaussian splatting to allow for a generalized 3D representation.\n' +
+      '\n' +
+      '### Theoretical Results\n' +
+      '\n' +
+      'Despite its generalizable capabilities, the GEF has no fixed behavior in terms of frequency domain. The error functions of the GEF and its Fourier domain cannot be studied analytically, as they involve complex integrals of exponentials without closed form that depend on the shape parameter \\(\\beta\\). For example, the Fourier of GEF is given by\n' +
+      '\n' +
+      '\\[\\mathcal{F}(f)(\\xi)=\\int_{-\\infty}^{\\infty}A\\exp\\left(-\\left(\\frac{|x-\\mu|}{ \\alpha}\\right)^{\\beta}\\right)e^{-2\\pi ix\\xi}\\,dx\\]\n' +
+      '\n' +
+      'which does not have a closed-form solution for a general \\(\\beta\\). We demonstrate that for specific cases, such as for a square signal, the GEF can achieve a smaller approximation error than the corresponding Gaussian function by properly choosing \\(\\beta\\). Theorem 1 provides a theoretical foundation for preferring the GEF over standard Gaussian functions in our GES representation instead of 3D Gaussian Splatting [27].\n' +
+      '\n' +
+      '**Theorem 1** (Superiority of GEF Approximation Over Gaussian for Square Wave Signals).: _Let \\(S(t)\\) represent a square wave signal with amplitude \\(A>0\\) and width \\(L>0\\) centered at \\(t=0\\). Define two functions: a scaled Gaussian \\(G(t;\\alpha,A)=Ae^{-\\frac{t^{2}}{\\alpha^{2}}}\\), and a Generalized Exponential Function \\(GEF(t;\\alpha,\\beta,A)=Ae^{-(|t|/\\alpha)^{\\beta}}\\). For any given scale parameter \\(\\alpha\\), there exists a shape parameter \\(\\beta\\) such that the approximation error \\(E_{f}=\\int_{-\\infty}^{\\infty}|S(t)-f(t)|dt\\). of the square signal \\(S(t)\\) using GEF is strictly smaller than that using the Gaussian \\(G\\)._\n' +
+      '\n' +
+      'Proof.: The error metric \\(E_{f}\\) for the square signal \\(S(t)\\) approximation using \\(f\\) function as \\(E_{f}=\\int_{-\\infty}^{\\infty}|S(t)-f(t)|dt\\). Utilizing symmetry and definition of \\(S(t)\\), and the fact that \\(S(t)>G(t;\\alpha,A)\\), the error for the Gaussian approximation simplifies to:\n' +
+      '\n' +
+      '\\[E_{G}=2\\int_{0}^{L/2}A(1-e^{-\\frac{t^{2}}{\\alpha^{2}}})dt+2\\int_{L/2}^{\\infty} Ae^{-\\frac{t^{2}}{\\alpha^{2}}}dt.\\]\n' +
+      '\n' +
+      'For the GEF approximation, the error is:\n' +
+      '\n' +
+      '\\[E_{GEF}=2\\int_{0}^{L/2}A(1-e^{-(t/\\alpha)^{\\beta}})dt+2\\int_{L/2}^{\\infty}Ae^{ -(t/\\alpha)^{\\beta}}dt.\\]\n' +
+      '\n' +
+      'The goal is to show the difference in errors \\(\\Delta E=E_{G}-E_{GEF}\\) to be strictly positive, by picking \\(\\beta\\) appropriately. The error difference can be described as follows.\n' +
+      '\n' +
+      '\\[\\Delta E=\\Delta E_{middle}+\\Delta E_{tail}\\]\n' +
+      '\n' +
+      '\\[\\Delta E_{middle}=2\\int_{0}^{L/2}A(1-e^{-\\frac{t^{2}}{\\alpha^{2}}})dt\\,-\\,2 \\int_{0}^{L/2}A(1-e^{-(t/\\alpha)^{\\beta}})dt\\]\n' +
+      '\n' +
+      '\\[\\Delta E_{tail}=2\\int_{L/2}^{\\infty}Ae^{-\\frac{t^{2}}{\\alpha^{2}}}dt-2\\int_{L/ 2}^{\\infty}Ae^{-(t/\\alpha)^{\\beta}}dt\\]\n' +
+      '\n' +
+      'Let us Define \\(\\text{err}(t)\\) as the difference between the exponential terms:\n' +
+      '\n' +
+      '\\[\\text{err}(t)=e^{-\\frac{t^{2}}{\\alpha^{2}}}-e^{-(t/\\alpha)^{\\beta}}.\\]\n' +
+      '\n' +
+      'The difference in the middle error terms for the Gaussian and GEF approximations, \\(\\Delta E_{middle}\\), can be expressed using \\(\\text{err}(t)\\) as:\n' +
+      '\n' +
+      '\\[\\Delta E_{middle}=2A\\int_{0}^{L/2}\\text{err}(t)\\,dt.\\]\n' +
+      '\n' +
+      'Using the trapezoidal approximation of the integral, this simplifies to:\n' +
+      '\n' +
+      '\\[\\Delta E_{middle}\\approx LA\\,\\text{err}(L/2)=LA\\left(e^{-\\frac{L^{2}}{4\\alpha ^{2}}}-e^{-(L/2\\alpha)^{\\beta}}\\right).\\]\n' +
+      '\n' +
+      'Based on the fact that the negative exponential is monotonically decreasing and to ensure \\(\\Delta E_{middle}\\) is always positive, we choose \\(\\beta\\) based on the relationship between \\(L/2\\) and \\(\\alpha\\) :* If \\(\\frac{L}{2}>\\alpha\\) (i.e., \\(\\frac{L}{2\\alpha}>1\\)), choosing \\(\\beta>2\\) ensures \\(e^{-(L/2\\alpha)^{\\beta}}<e^{-\\frac{L^{2}}{4\\alpha^{2}}}\\).\n' +
+      '* If \\(\\frac{L}{2}<\\alpha\\) (i.e., \\(\\frac{L}{2\\alpha}<1\\)), choosing \\(0<\\beta<2\\) results in \\(e^{-(L/2\\alpha)^{\\beta}}<e^{-\\frac{L^{2}}{4\\alpha^{2}}}\\).\n' +
+      '\n' +
+      'Thus, \\(\\Delta E_{middle}\\) can always be made positive by choosing \\(\\beta\\) appropriately, implying that the error in the GEF approximation in the interval \\([-L/2,L/2]\\) is always less than that of the Gaussian approximation. Similarly, the difference of tail errors \\(\\Delta E_{tail}\\) can be made positive by an appropriate choice of \\(\\beta\\), concluding that the total error \\(E_{GEF}\\) is strictly less than \\(E_{G}\\). This concludes the proof. \n' +
+      '\n' +
+      '### Numerical Simulation of Gradient-Based 1D Mixtures\n' +
+      '\n' +
+      '**Objective.** The primary objective of this numerical simulation is to evaluate the effectiveness of the generalized exponential model in representing various one-dimensional (1D) signal types. This evaluation was conducted by fitting the model to synthetic signals generated to embody characteristics of square, triangle, parabolic, half sinusoidal, Gaussian, and exponential functions, which can constitute a non-exclusive list of basic topologies available in the real world.\n' +
+      '\n' +
+      '**Simulation Setup.** The experimental framework was based on a series of parametric models implemented in PyTorch, designed to approximate 1D signals using mixtures of different functions such as Gaussian, Difference of Gaussians (DoG), Laplacian of Gaussian (LoG), and a Generalized mixture model. Each model comprised parameters for means, variances (or scales), and weights, with the generalized model incorporating an additional parameter, \\(\\beta\\), to control the exponentiation of the Gaussian function.\n' +
+      '\n' +
+      '**Models.** Here, we describe the mixture models used to approximate the true signal forms.\n' +
+      '\n' +
+      '* **Gaussian Mixture Model (GMM):** The GMM combines several Gaussian functions, each defined by its mean (\\(\\mu_{i}\\)), variance (\\(\\sigma_{i}^{2}\\)), and weight (\\(w_{i}\\)). For a set of \\(N\\) Gaussian functions, the mixture model \\(g(x)\\) can be expressed as: \\[g(x)=\\sum_{i=1}^{N}w_{i}\\exp\\left(-\\frac{(x-\\mu_{i})^{2}}{2\\sigma_{i}^{2}+ \\epsilon}\\right),\\] (13) where \\(\\epsilon\\) is a small constant to avoid division by zero, with \\(\\epsilon=1e-8\\).\n' +
+      '* **Difference of Gaussians (DoG) Mixture Model:** The DoG mixture model is comprised of elements that represent the difference between two Gaussian functions with a fixed variance ratio \\(\\nu\\). The model \\(d(x)\\) for \\(N\\) components is given by: \\[d(x)=\\sum_{i=1}^{N}w_{i}D_{i}\\] \\[D_{i}= \\left(\\exp\\left(-\\frac{(x-\\mu_{i})^{2}}{2\\sigma_{i}^{2}+ \\epsilon}\\right)-\\exp\\left(-\\frac{(x-\\mu_{i})^{2}}{2(\\sigma_{i}^{2}/\\nu)+ \\epsilon}\\right)\\right),\\] (14) where \\(\\sigma_{i}\\) is a scale parameter, and the variance ratio \\(\\nu\\) is fixed to be 4.\n' +
+      '* **Laplacian of Gaussian (LoG) Mixture Model:** The LoG mixture model is formed by a series of Laplacian of Gaussian functions, each defined by a mean (\\(\\mu_{i}\\)), scale (\\(\\gamma_{i}\\)), and weight (\\(w_{i}\\)). The mixture model \\(l(x)\\) is: \\[l(x)=\\sum_{i=1}^{N}w_{i}\\left(-\\frac{(x-\\mu_{i})^{2}}{\\gamma_{i}^{2}}+1\\right) \\exp\\left(-\\frac{(x-\\mu_{i})^{2}}{2\\gamma_{i}^{2}+\\epsilon}\\right),\\] (15)\n' +
+      '* **Generalized Mixture Model:** This model generalizes the Gaussian mixture by introducing a shape parameter \\(\\beta\\). Each component of the model \\(h(x)\\) is expressed as: \\[h(x)=\\sum_{i=1}^{N}w_{i}\\exp\\left(-\\frac{|x-\\mu_{i}|^{\\beta}}{2\\sigma_{i}^{2}+ \\epsilon}\\right),\\] (16) where \\(\\beta\\) is a learnable parameter that is optimized alongside other parameters. When \\(\\beta=2\\) is fixed, the equation in Eq.(16) reduces to the one in Eq.(13).\n' +
+      '\n' +
+      '**Model Configuration.** The models were configured with a varying number of components \\(N\\), with tests conducted using \\(N=\\{2,5,8,10,15,20,50,100\\}\\). The weights of the components could be either positive or unrestricted. For the generalized model, the \\(\\beta\\) parameter was learnable.\n' +
+      '\n' +
+      '**Training Procedure.** Each model was trained using the Adam optimizer with a mean squared error loss function. The input \\(x\\) was a linearly spaced tensor representing the domain of the synthetic signal, and the target \\(y\\) was the value of the signal at each point in \\(x\\). Training proceeded for a predetermined number of epochs, and the loss was recorded at the end of training.\n' +
+      '\n' +
+      '**Data Generation.** Synthetic 1D signals were generated for various signal types over a specified range, with a given data size and signal width. The signals were used as the ground truth for training the mixture models. The ground truth signals used in the experiment are one-dimensional (1D) functions that serve as benchmarks for evaluating signal processing algorithms. Each signal type is defined within a specified width around the origin, and the value outside this interval is zero ( see Fig.12). The parameter width \\(\\sigma\\) dictates the effective span of the non-zero portion of the signal. We define six distinct signal types as follows:1. **Square Signal:** The square signal is a binary function where the value is 1 within the interval \\((-\\frac{\\sigma}{2},\\frac{\\sigma}{2})\\) and 0 elsewhere. Mathematically, it is represented as \\[f_{\\text{square}}(x)=\\begin{cases}1&\\text{if }-\\frac{\\sigma}{2}<x<\\frac{ \\sigma}{2},\\\\ 0&\\text{otherwise}.\\end{cases}\\] (17) Its Fourier Transform is given by \\[\\text{FT}\\{\\text{Square Wave}\\}(f)=\\text{sinc}\\left(\\frac{f\\cdot\\sigma}{\\pi}\\right)\\] (18)\n' +
+      '2. **Triangle Signal:** This signal increases linearly from the left edge of the interval to the center and decreases symmetrically to the right edge, forming a triangular shape. It is defined as \\[f_{\\text{triangle}}(x)=\\begin{cases}\\frac{\\sigma}{2}-|x|&\\text{if }-\\frac{\\sigma}{2}<x<\\frac{\\sigma}{2},\\\\ 0&\\text{otherwise}.\\end{cases}\\] (19) Its Fourier Transform is \\[\\text{FT}\\{\\text{Triangle Wave}\\}(f)=\\left(\\text{sinc}\\left(\\frac{f\\cdot \\sigma}{2\\pi}\\right)\\right)^{2}\\] (20)\n' +
+      '3. **Parabolic Signal:** This signal forms a downward-facing parabola within the interval, and its expression \\[f_{\\text{parabolic}}(x)=\\begin{cases}(\\frac{\\sigma}{2})^{2}-x^{2}&\\text{if }- \\frac{\\sigma}{2}<x<\\frac{\\sigma}{2},\\\\ 0&\\text{otherwise}.\\end{cases}\\] (21) The Fourier Transform of the parabolic signal is \\[\\text{FT}\\{\\text{Parabolic Wave}\\}(f)=\\frac{3\\cdot\\left(\\text{sinc}\\left(\\frac{ f\\cdot\\sigma}{2\\pi}\\right)\\right)^{2}}{\\pi^{2}\\cdot f^{2}}\\] (22)\n' +
+      '4. **Half Sinusoid Signal:** A half-cycle of a sine wave is contained within the interval, starting and ending with zero amplitude. Its formula is \\[f_{\\text{half\\_sinusoid}}(x)=\\begin{cases}\\sin\\left((x+\\frac{\\sigma}{2})\\frac{ \\pi}{\\sigma}\\right)&\\text{if }-\\frac{\\sigma}{2}<x<\\frac{\\sigma}{2},\\\\ 0&\\text{otherwise}.\\end{cases}\\] (23) Its Fourier Transform is described by \\[\\text{FT}\\{\\text{Half Sinusoid}\\}(f)=\\begin{cases}\\frac{\\sigma}{2}&\\text{if }f=0\\\\ \\frac{\\sigma\\cdot\\sin(\\pi\\cdot f\\cdot\\sigma)}{\\pi^{2}\\cdot f^{2}}&\\text{ otherwise}\\end{cases}\\] (24)\n' +
+      '\n' +
+      'Figure 12: **Commony Signals Used and Their Fourier Transforms**. Note that the Gaussian function is low-pass bandwidth, while common signals like the square and triangle with sharp edges have infinite bandwidth, making them challenging to be fitted with mixtures that have low-pass frequency bandwidth (_e.g._ Gaussian mixtures, represented by Gaussian Splitting [27]).\n' +
+      '\n' +
+      '5. **Exponential Signal:** Exhibiting an exponential decay centered at the origin, this signal is represented by \\[f_{\\text{exponential}}(x)=\\begin{cases}\\exp(-|x|)&\\text{if }-\\frac{\\sigma}{2}<x<\\frac{\\sigma}{2},\\\\ 0&\\text{otherwise.}\\end{cases}\\] (25) The Fourier Transform for the exponential signal is \\[\\text{FT}\\{\\text{Exponential}\\}(f)=\\frac{\\sigma}{f^{2}+\\left(\\frac{\\sigma}{2} \\right)^{2}}\\] (26)\n' +
+      '6. **Gaussian Signal:** Unlike the others, the Gaussian signal is not bounded within a specific interval but instead extends over the entire range of \\(x\\), with its amplitude governed by a Gaussian distribution. It is given by \\[f_{\\text{Gaussian}}(x)=\\exp\\left(-\\frac{x^{2}}{2\\sigma^{2}}\\right).\\] (27) The Fourier Transform of the Gaussian signal is also a Gaussian, which in the context of standard deviation \\(\\sigma\\) is represented as \\[\\text{FT}\\{\\text{Gaussian}\\}(f)=\\sqrt{2\\pi}\\cdot\\sigma\\cdot\\exp\\left(-2\\pi^{ 2}\\sigma^{2}f^{2}\\right)\\] (28)\n' +
+      '\n' +
+      'As shown in Fig.12, the Gaussian function has a low-pass band, while signals like the square and triangle with sharp edges have infinite bandwidth, making them challenging for mixtures that have low-pass frequency bandwidth (_e.g_. Gaussian mixtures, represented by Gaussian Splatting [27]).\n' +
+      '\n' +
+      'Each signal is sampled at discrete points using a PyTorch tensor to facilitate computational manipulation and analysis within the experiment\'s framework. We show in Fig.14,15,16,17,18,19,20,21,22,23,24, and 25 examples of fitting all the mixture on all different signal types of interest when positive weighting is used in the mixture _vs_. when allowing real weighting in the combinations in the above equations. Note how sharp edges constitute a challenge for Gaussians that have low pass bandwidth while a square signal has an infinite bandwidth known by the sinc function [25].\n' +
+      '\n' +
+      '**Loss Evaluation.** The models\' performance was evaluated based on the loss value after training. Additionally, the model\'s ability to represent the input signal was visually inspected through generated plots. Multiple runs per configuration were executed to account for variance in the results.\n' +
+      '\n' +
+      '**Stability Evaluation.** Model stability and performance were assessed using a series of experiments involving various signal types and mixture models. Each model was trained on a 1D signal generated according to predefined signal types (square, triangle, parabolic, half sinusoid, Gaussian, and exponential), with the goal of minimizing the mean squared error (MSE) loss between the model output and the ground truth signal. The number of components in the mixture models (\\(N\\)) varied among a set of values, and models were also differentiated based on whether they were constrained to positive weights. For a comprehensive evaluation, each configuration was run multiple times (20 runs per configuration) to account for variability in the training process. During these runs, the number of instances where the training resulted in a NaN loss was recorded as an indicator of stability issues. The stability of each model was quantified by the percentage of successful training runs (\\(\\frac{\\text{Total\\;Rans}-\\text{NaN\\;Loss\\;Counts}}{\\text{Total\\;Rans}}\\times 100\\%\\)). The experiments that failed failed because the loss has diverged to NaN. This typical numerical instability in optimization is the result of learning the variance which can go close to zero, resulting in the exponential formula (in Eq.(10)) to divide by an extremely small number.\n' +
+      '\n' +
+      'The average MSE loss from successful runs was calculated to provide a measure of model performance. The results of these experiments were plotted, showing the relationship between the number of components and the stability and loss of the models for each signal type.\n' +
+      '\n' +
+      '**Simulation Results.** In the conducted analysis, both the loss and stability of various mixture models with positive and non-positive weights were evaluated on signals with different shapes. As depicted in Figure 13, the Gaussian Mixture Model with positive weights consistently yielded the lowest loss across the number of components, indicating its effective approximation of the square signal. Conversely, non-positive weights in the Gaussian and General models showed a higher loss, emphasizing the importance of weight sign-on model performance. These findings highlight the intricate balance between model complexity and weight constraints in achieving both low loss and high stability. Note that GEF is very efficient in fitting the square with few components, while LoG and DoG are more stable for a larger number of components. Also, note that positive weight mixtures tend to achieve lower loss with a smaller number of components but are less stable for a larger number of components.\n' +
+      '\n' +
+      'Figure 13: **Numerical Simulation Results of Different Mixtures.** We show a comparison of average loss and stability (percentage of successful runs) for different mixture models optimized with gradient-based optimizers across varying numbers of components and weight configurations (positive _vs_. real weights) on various signal types (a-f).\n' +
+      '\n' +
+      'Figure 14: **Numerical Simulation Examples of Fitting Squares with Positive Weights Mixtures ( N= 2, 5, 8, and 10 )**. We show some fitting examples for Square signals with positive weights mixtures. The four mixtures used from left to right are Gaussians, LoG, DoG, and General mixtures. From top to bottom: N = 2, 8, and 10 components. The optimized individual components are shown in green. Some examples fail to optimize due to numerical instability in both Gaussians and GEF mixtures. Note that GEF is very efficient in fitting the Square with few components while LoG and DoG are more stable for a larger number of components.\n' +
+      '\n' +
+      'Figure 15: **Numerical Simulation Examples of Fitting Squares with Real Weights Mixtures ( N = 2, 5, 8, and 10 )**. We show some fitting examples for Square signals with Real weights mixtures (can be negative). The four mixtures used from left to right are Gaussians, LoG, DoG, and General mixtures. From top to bottom: N = 2, 8, and 10 components. The optimized individual components are shown in green. Some examples fail to optimize due to numerical instability in both Gaussians and GEF mixtures. Note that GEF is very efficient in fitting the Square with few components while LoG and DoG are more stable for a larger number of components.\n' +
+      '\n' +
+      'Figure 16: **Numerical Simulation Examples of Fitting parabolics with Positive Weights Mixtures ( N= 2, 5, 8, and 10 )**. We show some fitting examples for parabolic signals with positive weights mixtures. The four mixtures used from left to right are Gaussians, LoG, DoG, and General mixtures. From top to bottom: N = 2, 8, and 10 components. The optimized individual components are shown in green. Some examples fail to optimize due to numerical instability in both Gaussians and GEF mixtures. Note that GEF is very efficient in fitting the parabolic with few components while LoG and DoG are more stable for a larger number of components.\n' +
+      '\n' +
+      'Figure 17: **Numerical Simulation Examples of Fitting Parabolics with Real Weights Mixtures ( N= 2, 5, 8, and 10 )**. We show some fitting examples for parabolic signals with Real weights mixtures (can be negative). The four mixtures used from left to right are Gaussians, LoG, DoG, and General mixtures. From top to bottom: N = 2, 8, and 10 components. The optimized individual components are shown in green. Some examples fail to optimize due to numerical instability in both Gaussians and GEF mixtures. Note that GEF is very efficient in fitting the parabolic with few components while LoG and DoG are more stable for a larger number of components.\n' +
+      '\n' +
+      '## Appendix A\n' +
+      '\n' +
+      'Figure 18: **Numerical Simulation Examples of Fitting Exponentials with Positive Weights Mixtures ( N = 2, 5, 8, and 10 )**. We show some fitting examples for exponential signals with positive weight mixtures. The four mixtures used from left to right are Gaussians, LoG, DoG, and General mixtures. From top to bottom: N = 2, 8, and 10 components. The optimized individual components are shown in green. Some examples fail to optimize due to numerical instability in both Gaussians and GEF mixtures. Note that GEF is very efficient in fitting the exponential with few components while LoG and DoG are more stable for a larger number of components.\n' +
+      '\n' +
+      'Figure 19: **Numerical Simulation Examples of Fitting Exponentials with Real Weights Mixtures ( N= 2, 5, 8, and 10 ). We show some fitting examples for exponential signals with Real weights mixtures (can be negative). The four mixtures used from left to right are Gaussians, LoG, DoG, and General mixtures. From top to bottom: N = 2, 8, and 10 components. The optimized individual components are shown in green. Some examples fail to optimize due to numerical instability in both Gaussians and GEF mixtures. Note that GEF is very efficient in fitting the exponential with few components while LoG and DoG are more stable for a larger number of components.**\n' +
+      '\n' +
+      'Figure 20: **Numerical Simulation Examples of Fitting Triangles with Positive Weights Mixtures ( N= 2, 5, 8, and 10 )**. We show some fitting examples for triangle signals with positive weight mixtures. The four mixtures used from left to right are Gaussians, LoG, DoG, and General mixtures. From top to bottom: N = 2, 8, and 10 components. The optimized individual components are shown in green. Some examples fail to optimize due to numerical instability in both Gaussians and GEF mixtures. Note that GEF is very efficient in fitting the triangle with few components while LoG and DoG are more stable for a larger number of components.\n' +
+      '\n' +
+      'Figure 21: **Numerical Simulation Examples of Fitting Triangles with Real Weights Mixtures ( N= 2, 5, 8, and 10 )**. We show some fitting examples for triangle signals with Real weights mixtures (can be negative). The four mixtures used from left to right are Gaussians, LoG, DoG, and General mixtures. From top to bottom: N = 2, 8, and 10 components. The optimized individual components are shown in green. Some examples fail to optimize due to numerical instability in both Gaussians and GEF mixtures. Note that GEF is very efficient in fitting the triangle with few components while LoG and DoG are more stable for a larger number of components.\n' +
+      '\n' +
+      'Figure 22: **Numerical Simulation Examples of Fitting Gaussians with Positive Weights Mixtures ( N= 2, 5, 8, and 10 )**. We show some fitting examples for Gaussian signals with positive weight mixtures. The four mixtures used from left to right are Gaussians, LoG, DoG, and General mixtures. From top to bottom: N = 2, 8, and 10 components. The optimized individual components are shown in green. Some examples fail to optimize due to numerical instability in both Gaussians and GEF mixtures. Note that GEF is very efficient in fitting the Gaussian with few components while LoG and DoG are more stable for a larger number of components.\n' +
+      '\n' +
+      'Figure 23: **Numerical Simulation Examples of Fitting Gaussians with Real Weights Mixtures ( N= 2, 5, 8, and 10 )**. We show some fitting examples for Gaussian signals with Real weights mixtures (can be negative). The four mixtures used from left to right are Gaussians, LoG, DoG, and General mixtures. From top to bottom: N = 2, 8, and 10 components. The optimized individual components are shown in green. Some examples fail to optimize due to numerical instability in both Gaussians and GEF mixtures. Note that GEF is very efficient in fitting the Gaussian with few components while LoG and DoG are more stable for a larger number of components.\n' +
+      '\n' +
+      'Figure 24: **Numerical Simulation Examples of Fitting Half sinusoids with Positive Weights Mixtures ( N= 2, 5, 8, and 10 )**. We show some fitting examples for half sinusoid signals with positive weights mixtures. The four mixtures used from left to right are Gaussians, LoG, DoG, and General mixtures. From top to bottom: N = 2, 8, and 10 components. The optimized individual components are shown in green. Some examples fail to optimize due to numerical instability in both Gaussians and GEF mixtures. Note that GEF is very efficient in fitting the half sinusoid with few components while LoG and DoG are more stable for a larger number of components.\n' +
+      '\n' +
+      'Figure 25: **Numerical Simulation Examples of Fitting Half sinusoids with Real Weights Mixtures ( N= 2, 5, 8, and 10 )**. We show some fitting examples for half sinusoid signals with Real weights mixtures (can be negative). The four mixtures used from left to right are Gaussians, LoG, DoG, and General mixtures. From top to bottom: N = 2, 8, and 10 components. The optimized individual components are shown in green. Some examples fail to optimize due to numerical instability in both Gaussians and GEF mixtures. Note that GEF is very efficient in fitting the half sinusoid with few components while LoG and DoG are more stable for a larger number of components.\n' +
+      '\n' +
+      '### B. Genealized Exponential Splatting Details\n' +
+      '\n' +
+      '#### Upper Bound on the Boundary View-Dependant Error in the Approximate GES Rasterization\n' +
+      '\n' +
+      'Given the Generalized Exponential Splatting (GES) function defined in Eq.(2) and our approximate rasterization given by Eq.(3),4, and 5, we seek to establish an upper bound on the error of our approximation in GES rendering. Since it is very difficult to estimate the error accumulated in each individual pixel from Eq.(3), we seek to estimate the error directly on each splatting component affecting the energy of all passing rays.\n' +
+      '\n' +
+      'Let us consider a simple 2D case with symmetrical components as in Fig.6. The error between the scaled Gaussian component and the original GES component is related to the energy loss of rays and can be represented by simply estimating the _ratio_\\(\\eta\\) between the area difference and the area of the scaled Gaussian. Here we will show we can estimate an upper bound on \\(\\eta\\) relative to the area of each component.\n' +
+      '\n' +
+      'For the worst-case scenario when \\(\\beta\\rightarrow\\infty\\), we consider two non-overlapping conditions for the approximation: one where the square is the outer shape and one where the circle covers the square. The side length of the square is \\(2r\\) for the former case and \\(2r/\\sqrt{2}\\) for the latter case. The radius \\(r\\) of the circle is determined by the effective projected variance \\(\\alpha\\) from Eq.(4). For a square with side length \\(2r\\) and a circle with radius \\(r\\), we have: \\(A_{\\text{square}}=4r^{2},A_{\\text{circle}}=\\pi r^{2}\\). For a square with side length \\(2r/\\sqrt{2}\\), the area is:\\(A_{\\text{square, covered}}=2r^{2}\\).\n' +
+      '\n' +
+      'The area difference \\(\\Delta A\\) is:\n' +
+      '\n' +
+      '\\[\\Delta A_{\\text{square larger}} =A_{\\text{square}}-A_{\\text{circle}}=4r^{2}-\\pi r^{2}, \\tag{29}\\] \\[\\Delta A_{\\text{circle larger}} =A_{\\text{circle}}-A_{\\text{square, covered}}=\\pi r^{2}-2r^{2}. \\tag{30}\\]\n' +
+      '\n' +
+      'The ratio of the difference in areas to the area of the inner shape, denoted as \\(\\eta\\), is bounded by:\n' +
+      '\n' +
+      '\\[\\eta_{\\text{square larger}} =\\frac{\\Delta A_{\\text{square larger}}}{A_{\\text{circle}}}=\\frac {4r^{2}-\\pi r^{2}}{\\pi r^{2}}\\approx 0.2732, \\tag{31}\\] \\[\\eta_{\\text{circle larger}} =\\frac{\\Delta A_{\\text{circle larger}}}{A_{\\text{circle}}}=\\frac {\\pi r^{2}-2r^{2}}{\\pi r^{2}}\\approx 0.3634. \\tag{32}\\]\n' +
+      '\n' +
+      'Due to the PDF normalization constraint in GND [14], the approximation followed in Eq.(4), and 5 will always ensure \\(\\eta_{\\text{square larger}}\\leq\\eta\\leq\\eta_{\\text{circle larger}}\\). Thus, our target ratio \\(\\eta\\) when using our approximate scaling of variance based on \\(\\beta\\) should be within the range \\(0.2732\\leq\\eta\\leq 0.3634\\). This implies in the worst case, our GES approximation will result in 36.34% energy error in the lost energy of all rays passing through _all_ the splatting components. In practice, the error will be much smaller due to the large number of components and the small scale of all the splatting components.\n' +
+      '\n' +
+      '#### Implementation Details\n' +
+      '\n' +
+      'Note that the DoG in Eq.(7) will be very large when \\(\\sigma_{2}\\) is large, so we downsample the ground truth image by a factor \'\\(\\text{scale}_{\\text{im,freq}}\\)\' and upsample the mask \\(M_{\\omega}\\) similarly before calculating the loss in Eq.(8). In the implementation of our Generalized Exponential Splatting (GES ) approach, we fine-tuned several hyperparameters to optimize the performance. The following list details the specific values and purposes of each parameter in our implementation:\n' +
+      '\n' +
+      '* Iterations: The algorithm ran for a total of 40,000 iterations.\n' +
+      '* Learning Rates:\n' +
+      '* Initial position learning rate (\\(\\text{lr}_{\\text{pos, init}}\\)) was set to 0.00016.\n' +
+      '* Final position learning rate (\\(\\text{lr}_{\\text{pos, final}}\\)) was reduced to 0.0000016.\n' +
+      '* Learning rate delay multiplier (\\(\\text{lr}_{\\text{delay\\,mut}}\\)) was set to 0.01.\n' +
+      '* Maximum steps for position learning rate (\\(\\text{lr}_{\\text{pos, max steps}}\\)) were set to 30,000.\n' +
+      '* Other Learning Rates:\n' +
+      '* Feature learning rate (\\(\\text{lr}_{\\text{feature}}\\)) was 0.0025.\n' +
+      '* Opacity learning rate (\\(\\text{lr}_{\\text{opacity}}\\)) was 0.05.\n' +
+      '* Shape and rotation learning rates (\\(\\text{lr}_{\\text{shape}}\\) and \\(\\text{lr}_{\\text{rotation}}\\)) were both set to 0.001.\n' +
+      '* Scaling learning rate (\\(\\text{lr}_{\\text{scaling}}\\)) was 0.005.\n' +
+      '* Density and Pruning Parameters:\n' +
+      '* Percentage of dense points (\\(\\text{percent}_{\\text{dense}}\\)) was 0.01.\n' +
+      '* Opacity and shape pruning thresholds were set to 0.005.\n' +
+      '* Loss Weights and Intervals:\n' +
+      '* SSIM loss weight (\\(\\lambda_{\\text{ssim}}\\)) was 0.2.\n' +
+      '* Densification, opacity reset, shape reset, and shape pruning intervals were set to 100, 3000, 1000, and 100 iterations, respectively.\n' +
+      '* Densification Details:\n' +
+      '* Densification started from iteration 500 and continued until iteration 15,000.\n' +
+      '* Gradient threshold for densification was set to 0.0003.\n' +
+      '* Image Laplacian Parameters:\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:32]\n' +
+      '\n' +
+      'Figure 27: **Ablation Study of Densification Threshold on Novel View Synthesis.** Impact of the densification threshold on reconstruction quality (LPIPS) and file size (MB) for our method and Gaussian Splatting [27], averaged across all scenes in the MipNeRF dataset. We see that the densification threshold has a significant impact on both file size and quality. Across the board, our method produces smaller scenes than Gaussian Splatting with similar or even slightly improved performance.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l l r r r r} \\hline \\hline \\(\\lambda_{\\text{freq}}\\) & Method & PSNR & LPIPS & SSIM & Size \\\\ \\hline \\multicolumn{6}{c}{_Deep Blending_} \\\\ \\hline \\multirow{2}{*}{0.05} & GES & 29.58 & 0.252 & 0.900 & 431 \\\\  & GES (fixed \\(\\beta=2\\)) & 29.53 & 0.251 & 0.901 & 433 \\\\ \\hline \\multirow{2}{*}{0.10} & GES & 29.54 & 0.252 & 0.901 & 428 \\\\  & GES (fixed \\(\\beta=2\\)) & 29.61 & 0.252 & 0.901 & 435 \\\\ \\hline \\multirow{2}{*}{0.50} & GES & 29.66 & 0.251 & 0.901 & 397 \\\\  & GES (fixed \\(\\beta=2\\)) & 29.61 & 0.252 & 0.901 & 437 \\\\ \\hline \\multirow{2}{*}{0.90} & GES & 27.21 & 0.259 & 0.899 & 366 \\\\  & GES (fixed \\(\\beta=2\\)) & 29.62 & 0.252 & 0.901 & 434 \\\\ \\hline \\multicolumn{6}{c}{_MipNeRF_} \\\\ \\hline \\multirow{2}{*}{0.05} & GES & 27.08 & 0.250 & 0.796 & 405 \\\\  & GES (fixed \\(\\beta=2\\)) & 27.05 & 0.250 & 0.795 & 411 \\\\ \\hline \\multirow{2}{*}{0.10} & GES & 27.05 & 0.250 & 0.795 & 403 \\\\  & GES (fixed \\(\\beta=2\\)) & 27.05 & 0.250 & 0.796 & 412 \\\\ \\hline \\multirow{2}{*}{0.50} & GES & 26.97 & 0.252 & 0.794 & 376 \\\\  & GES (fixed \\(\\beta=2\\)) & 27.09 & 0.250 & 0.796 & 415 \\\\ \\hline \\multirow{2}{*}{0.90} & GES & 25.82 & 0.255 & 0.792 & 364 \\\\  & GES (fixed \\(\\beta=2\\)) & 27.08 & 0.250 & 0.795 & 413 \\\\ \\hline \\multicolumn{6}{c}{_Tanks and Temples_} \\\\ \\hline \\multirow{2}{*}{0.05} & GES & 23.49 & 0.196 & 0.837 & 251 \\\\  & GES (fixed \\(\\beta=2\\)) & 23.55 & 0.196 & 0.836 & 255 \\\\ \\hline \\multirow{2}{*}{0.10} & GES & 23.54 & 0.196 & 0.837 & 247 \\\\  & GES (fixed \\(\\beta=2\\)) & 23.53 & 0.196 & 0.837 & 255 \\\\ \\hline \\multirow{2}{*}{0.50} & GES & 23.35 & 0.197 & 0.836 & 221 \\\\  & GES (fixed \\(\\beta=2\\)) & 23.65 & 0.196 & 0.837 & 256 \\\\ \\hline \\multirow{2}{*}{0.90} & GES & 22.65 & 0.200 & 0.834 & 210 \\\\  & GES (fixed \\(\\beta=2\\)) & 23.50 & 0.197 & 0.836 & 256 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 4: **Ablation of \\(\\lambda_{\\text{freq}}\\).** We show a comparison of performance (PSNR, LPIPS, SSIM) for various values of \\(\\lambda_{\\text{freq}}\\). Note that increasing \\(\\lambda_{\\text{freq}}\\) in GES indeed reduces the size of the file, but can affect the performance. We chose \\(\\lambda_{\\text{freq}}=0.5\\) as a middle ground between improved performance and reduced file size.\n' +
+      '\n' +
+      'Figure 26: **Visualization for 3D generation**. We show selected generated examples by GES from Realfusion15 (_left_) and NeRF4 datasets (_middle_). Additionally, we pick two text prompts: _“a car made out of sushi” and ”Michelangelo style statue of an astronat”_, and then use StableDiffusion-XL [49] to generate the reference images before using GES on them(_right_).\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:34]\n' +
+      '\n' +
+      '## Appendix A\n' +
+      '\n' +
+      'Figure 30: **Convergence Plots of Gaussians** _vs._**GES**. We show an example of the convergence plots of both GES and Gaussians if the training continues up to 50K iterations to inspect the diminishing returns of more training. Despite requiring more iterations to converge, GES trains faster than Gaussians due to its smaller number of splatting components.\n' +
+      '\n' +
+      'Figure 31: **Frequency-Modulated Image Masks.** For the input example image on the top left, We show examples of the frequency loss masks \\(M_{\\omega}\\) used in Sec.4.3 for different numbers of target normalized frequencies \\(\\omega\\) ( \\(\\omega=0\\%\\) for low frequencies to \\(\\omega=100\\%\\) for high frequencies). This masked loss helps our GES learn specific bands of frequencies. Note that due to Laplacian filter sensitivity for high-frequencies, the mask for \\(0<\\omega\\leq 50\\%\\) is defined as \\(1-M_{\\omega}\\) for \\(50<\\omega\\leq 100\\%\\). This ensures that all parts of the image will be covered by one of the masks \\(M_{\\omega}\\), while focusing on the details more as the optimization progresses.\n' +
+      '\n' +
+      'Figure 32: **Comparative Visualization Across Methods.** Displayed are side-by-side comparisons between our proposed method and established techniques alongside their respective ground truth imagery. The depicted scenes are ordered as follows: Bicycle, Garden, Stump, Counter, and Room from the Mip-NeRF360 dataset; Playroom and DrJohnson from the Deep Blending dataset, and Truck and Train from Tanks&Temples. Subtle variances in rendering quality are accentuated through zoomed-in details. It might be difficult to see differences between GES and Gaussians because they have almost the same PSNR (despite GES requiring 50% less memory).\n' +
+      '\n' +
+      'Figure 33: **Detailed Per Scene Results On MipNeRF 360 for Different Iteration Numbers.** We show PSNR, LPIPS, SSIM, and file size, results for every single scene in MIPNeRF 360 dataset [5] of our GES and re-running the Gaussian Splitting [27] baseline with the _exact same_ hyperparameters of our GES and on different number of iterations.\n' +
+      '\n' +
+      'Figure 34: **Frequency-Modulated Loss Effect.** We show the effect of the frequency-modulated image loss \\(\\mathcal{L}_{\\omega}\\) on the performance on novel views synthesis. Note how adding this \\(\\mathcal{L}_{\\omega}\\) improves the optimization in areas where large contrast exists or where a smooth background is rendered.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>

@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# DreamMatcher: Appearance Matching Self-Attention\n' +
+      '\n' +
+      'for Semantically-Consistent Text-to-Image Personalization\n' +
+      '\n' +
+      'Jisu Nam\n' +
+      '\n' +
+      ' Korea University 2\n' +
+      '\n' +
+      'Heesu Kim\n' +
+      '\n' +
+      ' NAVER Cloud\n' +
+      '\n' +
+      ' DongJae Lee\n' +
+      '\n' +
+      ' NAVER Cloud\n' +
+      '\n' +
+      ' Siyoon Jin\n' +
+      '\n' +
+      ' Korea University 2\n' +
+      '\n' +
+      'Seungryong Kim\n' +
+      '\n' +
+      ' Korea University 2\n' +
+      '\n' +
+      'Seunggyu Chang\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      'The objective of text-to-image (T2I) personalization is to customize a diffusion model to a user-provided reference concept, generating diverse images of the concept aligned with the target prompts. Conventional methods representing the reference concepts using unique text embeddings often fail to accurately mimic the appearance of the reference. To address this, one solution may be explicitly conditioning the reference images into the target denoising process, known as key-value replacement. However, prior works are constrained to local editing since they disrupt the structure path of the pre-trained T2I model. To overcome this, we propose a novel plug-in method, called DreamMatcher, which reformulates T2I personalization as semantic matching. Specifically, DreamMatcher replaces the target values with reference values aligned by semantic matching, while leaving the structure path unchanged to preserve the versatile capability of pre-trained T2I models for generating diverse structures. We also introduce a semantic-consistent masking strategy to isolate the personalized concept from irrelevant regions introduced by the target prompts. Compatible with existing T2I models, DreamMatcher shows significant improvements in complex scenarios. Intensive analyses demonstrate the effectiveness of our approach.\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      'The objective of text-to-image (T2I) personalization [17, 32, 44] is to customize T2I diffusion models based on the subject images provided by users. Given a few reference images, they can generate novel renditions of the subject across diverse scenes, poses, and viewpoints, guided by the target prompts.\n' +
+      '\n' +
+      'Conventional approaches [14, 17, 21, 32, 44, 62] for T2I personalization often represent subjects using unique text embeddings [42], by optimizing either the text embedding itself or the parameters of the diffusion model. However, as shown in Figure 1, they often fail to accurately mimic the appearance of subjects, such as colors, textures, and shapes. This is because the text embeddings lack sufficient spatial expressivity to represent the visual appearance of the subject [22, 42]. To overcome this, recent works [8, 10, 18, 29, 34, 48, 53, 63, 65] enhance the expressivity by training T2I models with large-scale datasets, but they require extensive text-image pairs for training.\n' +
+      '\n' +
+      'To address the aforementioned challenges, one solution may be explicitly conditioning the reference images into the target denoising process. Recent subject-driven image editing techniques [4, 9, 11, 28, 31, 37] propose conditioning the reference image through the self-attention module of a denoising U-Net, which is often called key-value replacement. In the self-attention module [25], image features from preceding layers are projected into queries, keys, and values. They are then self-aggregated by an attention operation [61]. Leveraging this mechanism, previous image editing methods [4, 37] replace the keys and values from the target with those from the reference to condition the reference image into the target synthesis process. As noted in [1, 24, 55, 60], we analyze the self-attention module into two distinct paths having different roles for T2I personalization: the query-key similarities form the _structure_ path, determining the layout of the generated images, while the values form the _appearance_ path, infusing spatial appearance into the image layout.\n' +
+      '\n' +
+      'As demonstrated in Figure 2, our key observation is that the replacement of target keys with reference keys in the self-attention module disrupts the structure path of the pre-trained T2I model. Specifically, an optimal key point for a query point can be unavailable in the replaced reference keys, leading to a sub-optimal matching between target queries and reference keys on the structure path. Consequently, reference appearance is then applied based on this imperfect correspondence. For this reason, prior methods incorporating key and value replacement often fail at generating personalized images with large structural differences, thus being limited to local editing. To resolve this, ViCo [22] incorporates the tuning of a subset of model weights combined with key and value replacement. However, this approach necessitates a distinct tuning process prior to its actual usage.\n' +
+      '\n' +
+      'In this paper, we propose a plug-in method dubbed DreamMatcher that effectively transfers reference appearance while generating diverse structures. DreamMatcher concentrates on the appearance path within the self-attention module for personalization, while leaving the structure path unchanged. However, a simple replacement of values from the target with those from the reference can lead to structure-appearance misalignment. To resolve this, we propose a matching-aware value injection leveraging semantic correspondence to align the reference appearance toward the target structure. Moreover, it is essential to isolate only the matched reference appearance to preserve other structural elements of the target, such as occluding objects or background variations. To this end, we introduce a semantic-consistent masking strategy, ensuring selective incorporation of semantically consistent reference appearances into the target structure. Combined, only the correctly aligned reference appearance is integrated into the target structure through the self-attention module at each time step. However, the estimated reference appearance in early diffusion time steps may lack the fine-grained subject details. To overcome this, we introduce a sampling guidance technique, named semantic matching guidance, to provide rich reference appearance in the middle of the target denoising process.\n' +
+      '\n' +
+      'DreamMatcher is compatible with any existing T2I personalized models without any training or fine-tuning. We show the effectiveness of our method on three different baselines [17, 32, 44]. DreamMatcher achieves state-of-the-art performance compared with existing tuning-free plug-in methods [4, 49, 68] and even a learnable method [22]. As shown in Figure 1, DreamMatcher is effective even in extreme non-rigid personalization scenarios. We further validate the robustness of our method in challenging personalization scenarios. The ablation studies confirm our design choices and emphasize the effectiveness of each component.\n' +
+      '\n' +
+      'Figure 2: **Intuition of DreamMatcher:** (a) reference image, (b) disrupted target structure path by key-value replacement [4, 9, 11, 28, 31, 37], (c) generated image by (b), (d) target structure path in pre-trained T2I model [44], and (e) generated image by DreamMatcher. For visualization, principal component analysis (PCA) [41] is applied to the structure path. Key-value replacement disrupts target structure, yielding sub-optimal personalized results, whereas DreamMatcher preserves target structure, producing high-fidelity subject images aligned with target prompts.\n' +
+      '\n' +
+      '## 2 Related Work\n' +
+      '\n' +
+      '**Optimization-based T2I Personalization.** Given a handful of images, T2I personalization aims to generate new image variations of the given concept that are consistent with the target prompt. Earlier diffusion-based techniques [14, 17, 21, 32, 44, 62] encapsulate the given concept within the textual domain, typically represented by a specific token. Textual Inversion [17] optimizes a textual embedding and synthesizes personalized images by integrating the token with the target prompt. DreamBooth [44] proposes optimizing all parameters of the denoising U-Net based on a specific token and the class category of the subject. Several works [7, 21, 22, 32, 35, 45, 55, 64] focus on optimizing weight subsets or an additional adapter for efficient optimization and better conditioning. For example, CustomDiffusion [32] fine-tunes only the cross-attention layers in the U-Net, while ViCo [22] optimizes an additional image encoder. Despite promising results, the aforementioned approaches often fail to accurately mimic the appearance of the subject.\n' +
+      '\n' +
+      '**Training-based T2I Personalization.** Several studies [8, 10, 18, 29, 34, 48, 53, 63, 65] have shifted their focus toward training a T2I personalized model with large text-image pairs. For instance, Taming Encoder [29], Instant-Booth [48], and FastComposer [65] train an image encoder, while SuTI [10] trains a separate network. While these approaches circumvent fine-tuning issues, they necessitate extensive pre-training with a large-scale dataset.\n' +
+      '\n' +
+      '**Plug-in Subject-driven T2I Synthesis.** Recent studies [4, 20, 37, 47, 49, 68] aim to achieve subject-driven T2I personalization or non-rigid editing without the need for additional fine-tuning or training. Specifically, MasaCtrl [4] leverages dual-branch pre-trained diffusion models to incorporate image features from the reference branch into the target branch. FreeU [49] proposes reweighting intermediate feature maps from a pre-trained personalized model [44], based on frequency analysis. MagicFusion [68] introduces a noise blending method between a pre-trained diffusion model and a T2I personalized model [44]. DreamMatcher is in alignment with these methods, designed to be compatible with any off-the-shelf T2I personalized models, thereby eliminating additional fine-tuning or training.\n' +
+      '\n' +
+      '## 3 Preliminary\n' +
+      '\n' +
+      '### Latent Diffusion Models\n' +
+      '\n' +
+      'Diffusion models [25, 50] generate desired data samples from Gaussian noise through a gradual denoising process. Latent diffusion models [43] perform this process in the latent space projected by an autoencoder, instead of RGB space. Specifically, an encoder maps an RGB image \\(x_{0}\\) into a latent variable \\(z_{0}\\) and a decoder then reconstructs it back to \\(x_{0}\\). In forward diffusion process, Gaussian noise is gradually added to the latent \\(z_{t}\\) at each time step \\(t\\) to produce the noisy latent \\(z_{t+1}\\). In reverse diffusion process, the neural network \\(\\epsilon_{\\theta}(z_{t},t)\\) denoises \\(z_{t}\\) to produce \\(z_{t-1}\\) with the time step \\(t\\). By iteratively sampling \\(z_{t-1}\\), Gaussian noise \\(z_{T}\\) is transformed into latent \\(z_{0}\\). The denoised \\(z_{0}\\) is converted back to \\(x_{0}\\) using the decoder. When the condition, e.g., text prompt \\(P\\), is added, \\(\\epsilon_{\\theta}(z_{t},t,P)\\) generates latents that are aligned with the text descriptions.\n' +
+      '\n' +
+      '### Self-Attention in Diffusion Models\n' +
+      '\n' +
+      'Diffusion model is often based on a U-Net architecture that includes residual blocks, cross-attention modules, and self-attention modules [25, 43, 50]. The residual block processes the features from preceding layers, the cross-attention module integrates these features with the condition, e.g., text prompt, and the self-attention module aggregates image features themselves through the attention operation.\n' +
+      '\n' +
+      'Specifically, the self-attention module projects the image feature at time step \\(t\\) into queries \\(Q_{t}\\), keys \\(K_{t}\\), and values\n' +
+      '\n' +
+      'Figure 3: **Overall architecture: Given a reference image \\(I^{X}\\), appearance matching self-attention (AMA) aligns the reference appearance into the fixed target structure in self-attention module of pre-trained personalized model \\(\\epsilon_{\\theta}\\). This is achieved by explictly leveraging reliable semantic matching from reference to target. Furthermore, semantic matching guidance enhances the fine-grained details of the subject in the generated images.**\\(V_{t}\\). The resulting output from this module is defined by:\n' +
+      '\n' +
+      '\\[\\mathrm{SA}(Q_{t},K_{t},V_{t})=\\mathrm{Softmax}\\left(\\frac{Q_{t}K_{t}^{T}}{\\sqrt{d }}\\right)V_{t}. \\tag{1}\\]\n' +
+      '\n' +
+      'Here, \\(\\mathrm{Softmax}(\\cdot)\\) is applied over the keys for each query. \\(Q_{t}\\in\\mathbb{R}^{h\\times w\\times d}\\), \\(K_{t}\\in\\mathbb{R}^{h\\times w\\times d}\\), and \\(V_{t}\\in\\mathbb{R}^{h\\times w\\times d}\\) are the projected matrices, where \\(h\\), \\(w\\), and \\(d\\) refer to the height, width, and channel dimensions, respectively. As analyzed in [1, 24, 55, 60], we view the self-attention module as two distinct paths: the _structure_ and _appearance_ paths. More specifically, the structure path is defined by the similarities \\(\\mathrm{Softmax}(Q_{t}K_{t}^{T}/\\sqrt{d})\\), which controls the spatial arrangement of image elements. The values \\(V_{t}\\) constitute the appearance path, injecting visual attributes such as colors, textures, and shapes, to each corresponding element within the image.\n' +
+      '\n' +
+      '## 4 Method\n' +
+      '\n' +
+      'Given a set of \\(n\\) reference images \\(\\mathcal{X}=\\{I_{n}^{X}\\}_{n1}^{N}\\), conventional methods [17, 32, 44] personalize the T2I models \\(\\epsilon_{\\theta}(\\cdot)\\) with a specific text prompt for the subject (e.g., \\(\\langle S^{*}\\rangle\\)). In inference, \\(\\epsilon_{\\theta}(\\cdot)\\) can generate novel scenes from random noises through iterative denoising processes with the subject aligned by the target prompt (e.g., \\(A\\)\\(\\langle S^{*}\\rangle\\)_in the jungle_). However, they often fail to accurately mimic the subject appearance because text embeddings lack the spatial expressivity to represent the visual attributes of the subject [22, 42]. In this paper, with a set of reference images \\(\\mathcal{X}\\) and a target text prompt \\(P\\), we aim to enhance the subject appearance in the personalized image \\(I^{Y}\\), while preserving the detailed target structure directed by the prompt \\(P\\). DreamMatcher comprises a reference-target dual-branch framework. \\(I^{X}\\) is inverted to \\(z_{T}^{X}\\) via DDIM inversion [50] and then reconstructed to \\(\\hat{I}^{X}\\), while \\(I^{Y}\\) is generated from a random Gaussian noise \\(z_{T}^{Y}\\) guided by \\(P\\). At each time step, the self-attention module from the reference branch projects image features into queries \\(Q_{t}^{X}\\), \\(K_{t}^{X}\\), and \\(V_{t}^{X}\\), while the target branch produces \\(Q_{t}^{Y}\\), \\(K_{t}^{Y}\\), and \\(V_{t}^{Y}\\). The reference appearance \\(V_{t}^{X}\\) is then transferred to the target denoising U-Net through its self-attention module. The overall architecture of DreamMatcher is illustrated in Figure 3.\n' +
+      '\n' +
+      '### Appearance Matching Self-Attention\n' +
+      '\n' +
+      'As illustrated in Figure 4, we propose an appearance matching self-attention (AMA) which manipulates only the appearance path while retaining the pre-trained target structure path, in order to enhance subject expressivity while preserving the target prompt-directed layout.\n' +
+      '\n' +
+      'However, naively swapping the target appearance \\(V_{t}^{Y}\\) with that from the reference \\(V_{t}^{X}\\) results in structure-appearance misalignment, which reformulates Equation 1 as:\n' +
+      '\n' +
+      '\\[\\mathrm{SA}(Q_{t}^{Y},K_{t}^{Y},V_{t}^{X})=\\mathrm{Softmax}\\left(\\frac{Q_{t}^ {Y}(K_{t}^{Y})^{T}}{\\sqrt{d}}\\right)V_{t}^{X}. \\tag{2}\\]\n' +
+      '\n' +
+      'To solve this, we propose a matching-aware value injection method that leverages semantic matching to accurately align the reference appearance \\(V_{t}^{X}\\) with the fixed target structure \\(\\mathrm{Softmax}(Q_{t}^{Y}(K_{t}^{Y})^{T}/\\sqrt{d})\\). Specifically, AMA warps the reference values \\(V_{t}^{X}\\) by the estimated semantic correspondence \\(F_{t}^{X\\to Y}\\) from reference to target, which is a dense displacement field [12, 38, 56, 57, 59] between semantically identical locations in both images. The warped reference values \\(V_{t}^{X\\to Y}\\) are formulated by:\n' +
+      '\n' +
+      '\\[V_{t}^{X\\to Y}=\\mathcal{W}(V_{t}^{X};F_{t}^{X\\to Y}), \\tag{3}\\]\n' +
+      '\n' +
+      'where \\(\\mathcal{W}\\) represents the warping operation [58].\n' +
+      '\n' +
+      'In addition, it is crucial to isolate only the matched reference appearance and filter out outliers. This is because typical personalization scenarios often involve occlusions, different viewpoints, or background changes that are not present in the reference images, as shown in Figure 1. To achieve this, previous methods [4, 22] use a foreground mask \\(M_{t}\\) to focus only on the subject foreground and handle background variations. \\(M_{t}\\) is obtained from the averaged cross-attention map for the subject text prompt (e.g., \\(\\langle S^{*}\\rangle\\)). With these considerations, Equation 3 can be reformulated as follows:\n' +
+      '\n' +
+      '\\[V_{t}^{W}=V_{t}^{X\\to Y}\\odot M_{t}+V_{t}^{Y}\\odot(1-M_{t}), \\tag{4}\\]\n' +
+      '\n' +
+      'where \\(\\odot\\) represents Hadamard product [27].\n' +
+      '\n' +
+      'AMA then implants \\(V_{t}^{W}\\) into the fixed target structure path through the self-attention module. Equation 2 is reformulated as:\n' +
+      '\n' +
+      '\\[\\mathrm{AMA}(Q_{t}^{Y},K_{t}^{Y},V_{t}^{W})=\\mathrm{Softmax}\\left(\\frac{Q_{t}^ {Y}(K_{t}^{Y})^{T}}{\\sqrt{d}}\\right)V_{t}^{W}. \\tag{5}\\]\n' +
+      '\n' +
+      'In our framework, we find semantic correspondence between reference and target, aligning with standard semantic\n' +
+      '\n' +
+      'Figure 4: **Comparison between (a) key-value replacement and (b) appearance matching self-attention (AMA):** AMA aligns the reference appearance path toward the fixed target structure path through explicit semantic matching and consistency modeling.\n' +
+      '\n' +
+      ' matching workflows [12, 13, 26, 38, 56, 57]. Figure 5 provides a detailed schematic of the proposed matching process. In the following, we will explain the process in detail.\n' +
+      '\n' +
+      '**Feature Extraction.** Classical matching pipelines [12, 13, 26, 38, 56, 57] contain pre-trained feature extractors [6, 23, 40] to obtain feature descriptors \\(\\psi^{X}\\) and \\(\\psi^{Y}\\) from image pairs \\(I^{X}\\) and \\(I^{Y}\\). However, finding good features tailored for T2I personalization is not trivial due to the noisy nature of estimated target images in reverse diffusion process, requiring additional fine-tuning of the existing feature extractors. To address this, we focus on the diffusion feature space [54, 67] in the pre-trained T2I model itself to find a semantic matching tailored for T2I personalization.\n' +
+      '\n' +
+      'Let \\(\\epsilon_{\\theta,l}(\\cdot,t+1)\\) denote the output of the \\(l\\)-th decoder layer of the denoising U-Net [25]\\(\\epsilon_{\\theta}\\) at time step \\(t+1\\). Given the latent \\(z_{t+1}\\) with time step \\(t+1\\) and text prompt \\(P\\) as inputs, we extract the feature descriptor \\(\\psi_{t+1,l}\\) from the \\(l\\)-th layer of the U-Net decoder. The process is given by:\n' +
+      '\n' +
+      '\\[\\psi_{t+1,l}=\\epsilon_{\\theta,l}(z_{t+1},\\,t+1,\\,P), \\tag{6}\\]\n' +
+      '\n' +
+      'where we obtain \\(\\psi^{X}_{t+1,l}\\) and \\(\\psi^{Y}_{t+1,l}\\) from \\(z^{X}_{t+1}\\) and \\(z^{Y}_{t+1}\\), respectively. For brevity, we will omit \\(l\\) in the following discussion.\n' +
+      '\n' +
+      'To explore the semantic relationship within the diffusion feature space between reference and target, Figure 6 visualizes the relation between \\(\\psi^{X}_{t+1}\\) and \\(\\psi^{Y}_{t+1}\\) at different time steps using principal component analysis (PCA) [41]. We observe that the foreground subjects share similar semantics, even they have different appearances, as the target image from the pre-trained personalized model often lacks subject expressivity. This observation inspires us to leverage the internal diffusion features to establish semantic matching between estimated reference and target at each time step of sampling phase.\n' +
+      '\n' +
+      'Based on this, we derive \\(\\psi_{t+1}\\in\\mathbb{R}^{H\\times W\\times D}\\) by combining PCA features from different layers using channel concatenation, where \\(D\\) is the concatenated channel dimension. Detailed analysis and implementation on feature extraction is provided in E.1.\n' +
+      '\n' +
+      '**Flow Computation.** Following conventional methods [12, 26, 56, 57, 59], we build the matching cost by calculating the pairwise cosine similarity between feature descriptors for both the reference and target images. For given \\(\\psi^{X}_{t+1}\\) and \\(\\psi^{Y}_{t+1}\\) at time step \\(t+1\\), the matching cost \\(C_{t+1}\\) is computed by taking dot products between all positions in the feature descriptors. This is formulated as:\n' +
+      '\n' +
+      '\\[C_{t+1}(i,j)=\\frac{\\psi^{X}_{t+1}(i)\\cdot\\psi^{Y}_{t+1}(j)}{\\|\\psi^{X}_{t+1}(i )\\|\\|\\psi^{Y}_{t+1}(j)\\|}, \\tag{7}\\]\n' +
+      '\n' +
+      'where \\(i,j\\in[0,H)\\times[0,W)\\), and \\(\\|\\cdot\\|\\) denotes \\(l\\)-2 normalization.\n' +
+      '\n' +
+      'Subsequently, we derive the dense displacement field from the reference to the target at time step \\(t\\), denoted as \\(F^{X\\to Y}_{t}\\in\\mathbb{R}^{H\\times W\\times 2}\\), using the argmax operation [12] on the matching cost \\(C_{t+1}\\). Figure 7(c) shows the warped reference image obtained using the predicted correspondence \\(F^{X\\to Y}_{t}\\) between \\(\\psi^{X}_{t+1}\\) and \\(\\psi^{Y}_{t+1}\\) in the middle of the generation process. This demonstrates that the correspondence is established reliably in reverse diffusion process, even in intricate non-rigid target contexts that include large displacements, occlusions, and novel-view synthesis.\n' +
+      '\n' +
+      '### Consistency Modeling\n' +
+      '\n' +
+      'As depicted in Figure 7(d), the forground mask \\(M_{t}\\) is insufficient to address occlusions and background clutters, (e.g., _a chef outfit_ or _a bouquet of flowers_), as these are challenging to distinguish within the cross-attention module.\n' +
+      '\n' +
+      'To compensate for this, we introduce a confidence mask \\(U_{t}\\) to discard erroneous correspondences, thus preserving detailed target structure. Specifically, we enforce a cycle consistency constraint [30], simply rejecting any correspondence greater than the threshold we set. In other words,\n' +
+      '\n' +
+      'Figure 5: **Semantic matching and consistency modeling:** We leverage internal diffusion features at each time step to find semantic matching \\(F^{X\\to Y}_{t}\\) between reference and target. Additionally, we compute the confidence map of the predicted matches \\(U_{t}\\) through cycle-consistency.\n' +
+      '\n' +
+      'Figure 6: **Diffusion feature visualization:** Upper displays intermediate estimated images of reference and target, with the target generated by DreamBooth [44] using the prompt _A \\(\\langle S^{*}\\rangle\\) on the beach_. Lower visualizes the three principal components of intermediate diffusion features. The similar semantics share similar colors.\n' +
+      '\n' +
+      'we only accept correspondences where a target location \\(x\\) remains consistent when a matched reference location, obtained by \\(F_{t}^{Y\\to X}\\), is re-warped using \\(F_{t}^{X\\to Y}\\). We empirically set the threshold proportional to the target foreground area. This is formulated by:\n' +
+      '\n' +
+      '\\[U_{t}(x)=\\begin{cases}1,&\\text{if }\\left\\|\\mathcal{W}\\left(F_{t}^{Y\\to X};F_{t}^{X \\to Y}\\right)(x)\\right\\|<\\gamma\\lambda_{c},\\\\ 0,&\\text{otherwise}.\\end{cases} \\tag{8}\\]\n' +
+      '\n' +
+      'where \\(\\left\\|\\cdot\\right\\|\\) denotes a \\(l\\)-2 norm, and \\(\\mathcal{W}\\) represents the warping operation [58]. \\(F_{t}^{Y\\to X}\\) indicates the reverse flow field of its forward counterpart, \\(F_{t}^{X\\to Y}\\). \\(\\gamma\\) is a scaling factor designed to be proportional to foreground area, and \\(\\lambda_{c}\\) is a hyperparameter. More details are available in Appendix E.2.\n' +
+      '\n' +
+      'Finally, we define a semantic-consistent mask \\(M_{t}^{\\prime}\\) by combining \\(M_{t}\\) and \\(U_{t}\\) using the Hadamard product [27], so that \\(M_{t}\\) coarsely captures the foreground subject, while \\(U_{t}\\) finely filters out unreliable matches and preserves the fine-grained target context. As shown in Figure 7(e), our network selectively incorporates only the confident matches, effectively addressing intricate non-rigid scenarios.\n' +
+      '\n' +
+      'We now apply a confidence-aware modification to appearance matching self-attention in Equation 4, by replacing \\(M_{t}\\) with \\(M_{t}^{\\prime}\\).\n' +
+      '\n' +
+      '### Semantic Matching Guidance\n' +
+      '\n' +
+      'Our method uses intermediate reference values \\(V_{t}^{X}\\) at each time step. However, we observe that in early time steps, these noisy values may lack fine-grained subject details, resulting in suboptimal results. To overcome this, we further introduce a sampling guidance technique, named semantic matching guidance, to provide rich reference semantics in the middle of the target denoising process.\n' +
+      '\n' +
+      'In terms of the score-based generative models [51, 52], the guidance function \\(g\\) steers the target images towards higher likelihoods. The updated direction \\(\\hat{\\epsilon}_{t}\\) at time step \\(t\\) is defined as follows [16]:\n' +
+      '\n' +
+      '\\[\\hat{\\epsilon}_{t}=\\epsilon_{\\theta}(z_{t},t,P)-\\lambda_{g}\\sigma_{t}\\nabla_{ z_{t}}g(z_{t},t,P), \\tag{9}\\]\n' +
+      '\n' +
+      'where \\(\\lambda_{g}\\) is a hyperparameter that modulates the guidance strength, and \\(\\sigma_{t}\\) represents the noise schedule parameter at time step \\(t\\).\n' +
+      '\n' +
+      'We design the guidance function \\(g\\) using \\(z_{0}^{X}\\) from DDIM inversion [50], which encapsulates detailed subject representation at the final reverse step \\(t=0\\). At each time step \\(t\\), \\(z_{0}^{X}\\) is transformed to align with the target structure through \\(F_{t}^{X\\to Y}\\), as follows:\n' +
+      '\n' +
+      '\\[z_{0,t}^{X\\to Y}=\\mathcal{W}(z_{0}^{X};F_{t}^{X\\to Y}). \\tag{10}\\]\n' +
+      '\n' +
+      'The guidance function \\(g_{t}\\) at time step \\(t\\) is then defined as the pixel-wise difference between the aligned \\(z_{0,t}^{X\\to Y}\\) and the target latent \\(\\hat{z}_{0,t}^{Y}\\) which is calculated by reparametrization trick [50], taking into account the semantic-consistent mask \\(M_{t}^{\\prime}\\) :\n' +
+      '\n' +
+      '\\[g_{t}=\\frac{1}{|M_{t}^{\\prime}|}\\sum_{i\\in M_{t}^{\\prime}}\\left\\|z_{0,t}^{X \\to Y}(i)-\\hat{z}_{0,t}^{Y}(i)\\right\\|, \\tag{11}\\]\n' +
+      '\n' +
+      'where \\(\\|\\cdot\\|\\) denotes a \\(l\\)-2 norm.\n' +
+      '\n' +
+      'Note that our approach differs from existing methods [2, 16, 37] that provide coarse appearance guidance by calculating the average feature difference between foregrounds. Instead, we leverage confidence-aware semantic correspondence to offer more precise and pixel-wise control.\n' +
+      '\n' +
+      '## 5 Experiments\n' +
+      '\n' +
+      '### Experimental Settings\n' +
+      '\n' +
+      '**Dataset.** ViCo [22] gathered an image-prompt dataset from previous works [17, 32, 44], comprising 16 concepts and 31 prompts. We adhered to the ViCo dataset and evaluation settings, testing 8 samples per concept and prompt, for a total of 3,969 images. To further evaluate the robustness of our method in complex non-rigid personalization scenarios, we created a prompt dataset divided into three categories: large displacements, occlusions, and novel-view synthesis. This dataset includes 10 prompts for large displacements and occlusions, and 4 for novel-view synthesis, all created using ChatGPT [39]. The detailed procedure and the prompt list are in the Appendix B.\n' +
+      '\n' +
+      '**Baseline and Comparison.** DreamMatcher is designed to be compatible with any T2I personalized models. We implemented our method using three baselines: Textual Inversion [17], DreamBooth [44], and CustomDiffusion [32]. We benchmarked DreamMatcher against previous tuning-free plug-in models, FreeU [49] and MagicFusion [68], and also against the optimization-based model, ViCo [22]. Note that additional experiments, including DreamMatcher on Stable\n' +
+      '\n' +
+      'Figure 7: **Correspondence visualization: (a) Reference image. (b) Estimated target image from DreamBooth [44] at 50% of the reverse diffusion process. (c) Warped reference image based on predicted correspondence \\(F_{t}^{X\\to Y}\\). (d) Warped reference image combined with foreground mask \\(M_{t}\\). (e) Warped reference image combined with both \\(M_{t}\\) and confidence mask \\(U_{t}\\).**\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:7]\n' +
+      '\n' +
+      'complex real-world personalization applications.\n' +
+      '\n' +
+      '**Comparison with Optimization-based Models.** We further evaluated DreamMatcher against the optimization-based model, ViCo [22], which fine-tunes an image adapter with 51.3M parameters. For a balanced comparison, we compared ViCo with DreamMatcher combined with CustomDiffusion [32], configured with a similar count of trainable parameters (57.1M). Table 4 shows DreamMatcher notably surpasses ViCo in all subject fidelity metrics, without requiring extra fine-tuning. Figure 9 provides the qualitative comparison. More results are provided in Appendix F.2.\n' +
+      '\n' +
+      '**User Study.** We also present the user study results in Figure 10, where DreamMatcher significantly surpasses all other methods in both subject and prompt fidelity. Further details are provided in Appendix D.2.\n' +
+      '\n' +
+      '### Ablation Study\n' +
+      '\n' +
+      'In this ablation study, we aim to demonstrate the effectiveness of each component in our framework. Figure 11 and Table 5 summarize the results. (b) and (I) present the results of the baseline, while (II) shows the results of key-value replacement, which fails to preserve the target structure and generates a static subject image. (c) and (III) display AMA using predicted correspondence, enhancing subject fidelity compared to (b) and (I), but drastically reducing prompt fidelity, as it could not filter out unreliable matches. This is addressed in (d) and (IV), which highlight the effectiveness of the semantic-consistent mask in significantly improving prompt fidelity, up to the baseline (I). Finally, the comparison between (d) and (e) demonstrate that semantic-matching guidance improves subject expressivity with minimal sacrifice in target structure, which is further evidenced by (V). More analyses and ablation studies, including a user study comparing DreamMatcher and MasaCtrl, are provided in Appendix E.\n' +
+      '\n' +
+      'Figure 11: **Component analysis:** (a) reference image, (b) generated image by DreamBooth [44], (c) with proposed semantic matching, (d) further combined with semantic-consistent mask, and (e) further combined with semantic matching guidance.\n' +
+      '\n' +
+      'Figure 10: **User study.**\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c|c|c c c} \\hline \\hline  & Component & \\(I_{\\text{DISO}}\\uparrow\\) & \\(I_{\\text{CLIP}}\\uparrow\\) & \\(T_{\\text{CLIP}}\\uparrow\\) \\\\ \\hline (I) & Baseline (DreamBooth [44]) & 0.638 & 0.808 & 0.237 \\\\ \\hline (II) & (I) + Key-Value Replacement (MasaCtrl [4]) & 0.728 & 0.854 & 0.201 \\\\ \\hline (III) & (I) + Semantic Matching & 0.683 & 0.830 & 0.201 \\\\ (IV) & (III) + Semantic-Consistent Mask (AMA) & 0.676 & 0.818 & 0.232 \\\\ (V) & (IV) + Semantic Matching Guid. (Ours) & 0.680 & 0.821 & 0.231 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 5: **Component analysis.** For this analysis, we used DreamBooth [44] for the baseline.\n' +
+      '\n' +
+      'Figure 9: **Qualitative comparison with previous works [4, 22, 44, 49, 68]:** For this comparison, DreamBooth [44] was used as the baseline of MasaCtrl, FreeU, MagicFusion, and DreamMatcher.\n' +
+      '\n' +
+      '## 6 Conclusion\n' +
+      '\n' +
+      'We present DreamMatcher, a tuning-free plug-in for text-to-image (T2I) personalization. DreamMatcher enhances appearance resemblance in personalized images by providing semantically aligned visual conditions, leveraging the generative capabilities of the self-attention module within pretrained T2I personalized models. DreamMatcher pioneers the significance of semantically aligned visual conditioning in personalization and offers an effective solution within the attention framework. Experiments show that DreamMatcher enhances the personalization capabilities of existing T2I models and outperforms other plug-in and tuning-based baselines, even in complex scenarios.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* [1] Yogesh Balaji, Seungjun Nah, Xun Huang, Arash Vahdat, Jiaming Song, Karsten Kreis, Miika Aittala, Timo Aila, Samuli Laine, Bryan Catanzaro, et al. ediffi: Text-to-image diffusion models with an ensemble of expert denoisers. _arXiv preprint arXiv:2211.01324_, 2022.\n' +
+      '* [2] Arpit Bansal, Hong-Min Chu, Avi Schwarzschild, Soumyadip Sengupta, Micah Goldblum, Jonas Geiping, and Tom Goldstein. Universal guidance for diffusion models. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 843-852, 2023.\n' +
+      '* [3] Tim Brooks, Aleksander Holynski, and Alexei A Efros. Instructix2pix: Learning to follow image editing instructions. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 18392-18402, 2023.\n' +
+      '* [4] Mingdeng Cao, Xintao Wang, Zhongang Qi, Ying Shan, Xiaohu Qie, and Yinqiang Zheng. Masactrl: Tuning-free mutual self-attention control for consistent image synthesis and editing. _arXiv preprint arXiv:2304.08465_, 2023.\n' +
+      '* [5] Mathilde Caron, Hugo Touvron, Ishan Misra, Herve Jegou, Julien Mairal, Piotr Bojanowski, and Armand Joulin. Emerging properties in self-supervised vision transformers. In _Proceedings of the IEEE/CVF international conference on computer vision_, pages 9650-9660, 2021.\n' +
+      '* [6] Ken Chatfield, Karen Simonyan, Andrea Vedaldi, and Andrew Zisserman. Return of the devil in the details: Delving deep into convolutional nets. _arXiv preprint arXiv:1405.3531_, 2014.\n' +
+      '* [7] Hong Chen, Yipeng Zhang, Xin Wang, Xuguang Duan, Yuwei Zhou, and Wenwu Zhu. Disenbooth: Disentangled parameter-efficient tuning for subject-driven text-to-image generation. _arXiv preprint arXiv:2305.03374_, 2023.\n' +
+      '* [8] Li Chen, Mengyi Zhao, Yiheng Liu, Mingxu Ding, Yangyang Song, Shizun Wang, Xu Wang, Hao Yang, Jing Liu, Kang Du, et al. Photoverse: Tuning-free image customization with text-to-image diffusion models. _arXiv preprint arXiv:2309.05793_, 2023.\n' +
+      '* [9] Songyan Chen and Jiancheng Huang. Fec: Three finetuning-free methods to enhance consistency for real image editing. _arXiv preprint arXiv:2309.14934_, 2023.\n' +
+      '* [10] Wenhu Chen, Hexiang Hu, Yandong Li, Nataniel Rui, Xuhui Jia, Ming-Wei Chang, and William W Cohen. Subject-driven text-to-image generation via apprenticeship learning. _arXiv preprint arXiv:2304.00186_, 2023.\n' +
+      '* [11] Xi Chen, Lianghua Huang, Yu Liu, Yujun Shen, Deli Zhao, and Hengshuang Zhao. Anydoor: Zero-shot object-level image customization. _arXiv preprint arXiv:2307.09481_, 2023.\n' +
+      '* [12] Seokju Cho, Sunghwan Hong, Sangryul Jeon, Yunsung Lee, Kwanghoon Sohn, and Seungryong Kim. Cats: Cost aggregation transformers for visual correspondence. _Advances in Neural Information Processing Systems_, 34:9011-9023, 2021.\n' +
+      '* [13] Seokju Cho, Sunghwan Hong, and Seungryong Kim. Cats++: Boosting cost aggregation with convolutions and transformers. _IEEE Transactions on Pattern Analysis and Machine Intelligence_, 2022.\n' +
+      '* [14] Ziyi Dong, Pengxu Wei, and Liang Lin. Dreamartist: Towards controllable one-shot text-to-image generation via contrastive prompt-tuning. _arXiv preprint arXiv:2211.11337_, 2022.\n' +
+      '* [15] Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov, Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner, Mostafa Dehghani, Matthias Minderer, Georg Heigold, Sylvain Gelly, et al. An image is worth 16x16 words: Transformers for image recognition at scale. _arXiv preprint arXiv:2010.11929_, 2020.\n' +
+      '* [16] Dave Epstein, Allan Jabri, Ben Poole, Alexei A Efros, and Aleksander Holynski. Diffusion self-guidance for controllable image generation. _arXiv preprint arXiv:2306.00986_, 2023.\n' +
+      '* [17] Rinon Gal, Yuval Alaluf, Yuval Atzmon, Or Patashnik, Amit H Bermano, Gal Chechik, and Daniel Cohen-Or. An image is worth one word: Personalizing text-to-image generation using textual inversion. _arXiv preprint arXiv:2208.01618_, 2022.\n' +
+      '* [18] Rinon Gal, Moab Arar, Yuval Atzmon, Amit H Bermano, Gal Chechik, and Daniel Cohen-Or. Designing an encoder for fast personalization of text-to-image models. _arXiv preprint arXiv:2302.12228_, 2023.\n' +
+      '* [19] Dhruba Ghosh, Hanna Hajishirzi, and Ludwig Schmidt. Geneval: An object-focused framework for evaluating text-to-image alignment. _arXiv preprint arXiv:2310.11513_, 2023.\n' +
+      '* [20] Jing Gu, Yilin Wang, Nankuan Zhao, Tsu-Jui Fu, Wei Xiong, Qing Liu, Zhifei Zhang, He Zhang, Jianming Zhang, Hyun-Joon Jung, et al. Photoswap: Personalized subject swapping in images. _arXiv preprint arXiv:2305.18286_, 2023.\n' +
+      '* [21] Ligong Han, Yinxiao Li, Han Zhang, Peyman Milanfar, Dimitris Metaxas, and Feng Yang. Svdiff: Compact parameter space for diffusion fine-tuning. _arXiv preprint arXiv:2303.11305_, 2023.\n' +
+      '* [22] Shaozhe Hao, Kai Han, Shihao Zhao, and Kwan-Yee K Wong. Vico: Detail-preserving visual condition for personalized text-to-image generation. _arXiv preprintarXiv:2306.00971_, 2023.\n' +
+      '* [23] Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun. Deep residual learning for image recognition. In _Proceedings of the IEEE conference on computer vision and pattern recognition_, pages 770-778, 2016.\n' +
+      '* [24] Amir Hertz, Ron Mokady, Jay Tenenbaum, Kfir Aherman, Yael Pritch, and Daniel Cohen-Or. Prompt-to-prompt image editing with cross attention control. _arXiv preprint arXiv:2208.01626_, 2022.\n' +
+      '* [25] Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising diffusion probabilistic models. _Advances in neural information processing systems_, 33:6840-6851, 2020.\n' +
+      '* [26] Sunghwan Hong, Jisu Nam, Seokju Cho, Susung Hong, Sangryul Jeon, Dongbo Min, and Seungryong Kim. Neural matching fields: Implicit representation of matching fields for visual correspondence. _Advances in Neural Information Processing Systems_, 35:13512-13526, 2022.\n' +
+      '* [27] Roger A Horn. The hadamard product. In _Proc. Symp. Appl. Math_, pages 87-169, 1990.\n' +
+      '* [28] Jiancheng Huang, Yifan Liu, Jin Qin, and Shifeng Chen. Kv inversion: Kv embeddings learning for text-conditioned real image action editing. _arXiv preprint arXiv:2309.16608_, 2023.\n' +
+      '* [29] Xuhui Jia, Yang Zhao, Kelvin CK Chan, Yandong Li, Han Zhang, Boqing Gong, Tingbo Hou, Huisheng Wang, and Yu-Chuan Su. Taming encoder for zero fine-tuning image customization with text-to-image diffusion models. _arXiv preprint arXiv:2304.02642_, 2023.\n' +
+      '* [30] Wei Jiang, Eduard Trulls, Jan Hosang, Andrea Tagliasacchi, and Kwang Moo Yi. Cotr: Correspondence transformer for matching across images. In _Proceedings of the IEEE/CVF International Conference on Computer Vision_, pages 6207-6217, 2021.\n' +
+      '* [31] Anant Khandelwal. Infusion: Inject and attention fusion for multi concept zero-shot text-based video editing. In _Proceedings of the IEEE/CVF International Conference on Computer Vision_, pages 3017-3026, 2023.\n' +
+      '* [32] Nupur Kumari, Bingliang Zhang, Richard Zhang, Eli Shechtman, and Jun-Yan Zhu. Multi-concept customization of text-to-image diffusion. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 1931-1941, 2023.\n' +
+      '* [33] Jason Lee, Kyunghyun Cho, and Douwe Kiela. Countering language drift via visual grounding. _arXiv preprint arXiv:1909.04499_, 2019.\n' +
+      '* [34] Dongxu Li, Junnan Li, and Steven CH Hoi. Blip-diffusion: Pre-trained subject representation for controllable text-to-image generation and editing. _arXiv preprint arXiv:2305.14720_, 2023.\n' +
+      '* [35] Zhiheng Liu, Yifei Zhang, Yujun Shen, Kecheng Zheng, Kai Zhu, Ruili Feng, Yu Liu, Deli Zhao, Jingren Zhou, and Yang Cao. Cones 2: Customizable image synthesis with multiple subjects. _arXiv preprint arXiv:2305.19327_, 2023.\n' +
+      '* [36] Yuchen Lu, Soumye Singhal, Florian Strub, Aaron Courville, and Olivier Pietquin. Countering language drift with seeded iterated learning. In _International Conference on Machine Learning_, pages 6437-6447. PMLR, 2020.\n' +
+      '* [37] Chong Mou, Xintao Wang, Jiechong Song, Ying Shan, and Jian Zhang. Dragondiffusion: Enabling drag-style manipulation on diffusion models. _arXiv preprint arXiv:2307.02421_, 2023.\n' +
+      '* [38] Jisu Nam, Gyuseong Lee, Sunwoo Kim, Hyeonsu Kim, Hyeonwuon Cho, Seyeon Kim, and Seungryong Kim. Diffmatch: Diffusion model for dense matching. _arXiv preprint arXiv:2305.19094_, 2023.\n' +
+      '* [39] OpenAI. Gpt-4 technical report, 2023.\n' +
+      '* [40] Maxime Oquab, Timothee Darcet, Theo Moutakanni, Huy Vo, Marc Szafraniec, Vasil Khalidov, Pierre Fernandez, Daniel Haziza, Francisco Massa, Alaaeldin El-Nouby, et al. Dinov2: Learning robust visual features without supervision. _arXiv preprint arXiv:2304.07193_, 2023.\n' +
+      '* [41] Karl Pearson. Liii. on lines and planes of closest fit to systems of points in space. _The London, Edinburgh, and Dublin philosophical magazine and journal of science_, 2(11):559-572, 1901.\n' +
+      '* [42] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, et al. Learning transferable visual models from natural language supervision. In _International conference on machine learning_, pages 8748-8763. PMLR, 2021.\n' +
+      '* [43] Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Bjorn Ommer. High-resolution image synthesis with latent diffusion models. In _Proceedings of the IEEE/CVF conference on computer vision and pattern recognition_, pages 10684-10695, 2022.\n' +
+      '* [44] Nataniel Ruiz, Yuanzhen Li, Varun Jampani, Yael Pritch, Michael Rubinstein, and Kfir Aherman. Dreambooth: Fine tuning text-to-image diffusion models for subject-driven generation. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 22500-22510, 2023.\n' +
+      '* [45] Nataniel Ruiz, Yuanzhen Li, Varun Jampani, Wei Wei, Tingbo Hou, Yael Pritch, Neal Wadhwa, Michael Rubinstein, and Kfir Aherman. Hyperdreambooth: Hypernetworks for fast personalization of text-to-image models. _arXiv preprint arXiv:2307.06949_, 2023.\n' +
+      '* [46] Christoph Schuhmann, Richard Vencu, Romain Beaumont, Robert Kaczmarczyk, Clayton Mullis, Aarush Katta, Theo Coombes, Jenia Jitsev, and Aran Komatsuzaki. Laion-400m: Open dataset of clip-filtered 400 million image-text pairs. _arXiv preprint arXiv:2111.02114_, 2021.\n' +
+      '* [47] Junyoung Seo, Gyuseong Lee, Seokju Cho, Jiyoung Lee, and Seungryong Kim. Midms: Matching interleaved diffusion models for exemplar-based image translation. In _Proceedings of the AAAI Conference on Artificial Intelligence_, pages 2191-2199, 2023.\n' +
+      '\n' +
+      '[MISSING_PAGE_POST]\n' +
+      '\n' +
+      '* [49] Chenyang Si, Ziqi Huang, Yuming Jiang, and Ziwei Liu. Freeu: Free lunch in diffusion u-net. _arXiv preprint arXiv:2309.11497_, 2023.\n' +
+      '* [50] Jiaming Song, Chenlin Meng, and Stefano Ermon. Denoising diffusion implicit models. _arXiv preprint arXiv:2010.02502_, 2020.\n' +
+      '* [51] Yang Song and Stefano Ermon. Generative modeling by estimating gradients of the data distribution. _Advances in neural information processing systems_, 32, 2019.\n' +
+      '* [52] Yang Song, Jascha Sohl-Dickstein, Diederik P Kingma, Abhishek Kumar, Stefano Ermon, and Ben Poole. Score-based generative modeling through stochastic differential equations. _arXiv preprint arXiv:2011.13456_, 2020.\n' +
+      '* [53] Yu-Chuan Su, Kelvin CK Chan, Yandong Li, Yang Zhao, Han Zhang, Boqing Gong, Huisheng Wang, and Xuhui Jia. Identity encoder for personalized diffusion. _arXiv preprint arXiv:2304.07429_, 2023.\n' +
+      '* [54] Luming Tang, Menglin Jia, Qianqian Wang, Cheng Perng Phoo, and Bharath Hariharan. Emergent correspondence from image diffusion. _arXiv preprint arXiv:2306.03881_, 2023.\n' +
+      '* [55] Yoad Tewel, Rinon Gal, Gal Chechik, and Yuval Atzmon. Key-locked rank one editing for text-to-image personalization. In _ACM SIGGRAPH 2023 Conference Proceedings_, pages 1-11, 2023.\n' +
+      '* [56] Prune Truong, Martin Danelljan, Luc V Gool, and Radu Timofte. Gocor: Bringing globally optimized correspondence volumes into your neural network. _Advances in Neural Information Processing Systems_, 33:14278-14290, 2020.\n' +
+      '* [57] Prune Truong, Martin Danelljan, and Radu Timofte. Glunet: Global-local universal network for dense flow and correspondences. In _Proceedings of the IEEE/CVF conference on computer vision and pattern recognition_, pages 6258-6268, 2020.\n' +
+      '* [58] Prune Truong, Martin Danelljan, Fisher Yu, and Luc Van Gool. Warp consistency for unsupervised learning of dense correspondences. In _Proceedings of the IEEE/CVF International Conference on Computer Vision_, pages 10346-10356, 2021.\n' +
+      '* [59] Prune Truong, Martin Danelljan, Radu Timofte, and Luc Van Gool. Pdc-net+: Enhanced probabilistic dense correspondence network. _IEEE Transactions on Pattern Analysis and Machine Intelligence_, 2023.\n' +
+      '* [60] Narek Tumanyan, Michal Geyer, Shai Bagon, and Tali Dekel. Plug-and-play diffusion features for text-driven image-to-image translation. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 1921-1930, 2023.\n' +
+      '* [61] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Lukasz Kaiser, and Illia Polosukhin. Attention is all you need. _Advances in neural information processing systems_, 30, 2017.\n' +
+      '* [62] Andrey Voynov, Qinghao Chu, Daniel Cohen-Or, and Kfir Aherman. \\(p+\\): Extended textual conditioning in text-to-image generation. _arXiv preprint arXiv:2303.09522_, 2023.\n' +
+      '* [63] Yuxiang Wei, Yabo Zhang, Zhilong Ji, Jinfeng Bai, Lei Zhang, and Wangmeng Zuo. Elite: Encoding visual concepts into textual embeddings for customized text-to-image generation. _arXiv preprint arXiv:2302.13848_, 2023.\n' +
+      '* [64] Chendong Xiang, Fan Bao, Chongxuan Li, Hang Su, and Jun Zhu. A closer look at parameter-efficient tuning in diffusion models. _arXiv preprint arXiv:2303.18181_, 2023.\n' +
+      '* [65] Guangxuan Xiao, Tianwei Yin, William T Freeman, Fredo Durand, and Song Han. Fastcomposer: Tuning-free multi-subject image generation with localized attention. _arXiv preprint arXiv:2305.10431_, 2023.\n' +
+      '* [66] Michal Yarom, Yonatan Bitton, Soravit Changpinyo, Roee Aharoni, Jonathan Herzig, Oran Lang, Eran Ofek, and Idan Szpektor. What you see is what you read? improving text-image alignment evaluation. _arXiv preprint arXiv:2305.10400_, 2023.\n' +
+      '* [67] Junyi Zhang, Charles Herrmann, Junhwa Hur, Luisa Polania Cabrera, Varun Jampani, Deqing Sun, and Ming-Hsuan Yang. A tale of two features: Stable diffusion complements dino for zero-shot semantic correspondence. _arXiv preprint arXiv:2305.15347_, 2023.\n' +
+      '* [68] Jing Zhao, Heliang Zheng, Chaoyue Wang, Long Lan, and Wenjing Yang. Magicfusion: Boosting text-to-image generation performance by fusing diffusion models. _arXiv preprint arXiv:2303.13126_, 2023.\n' +
+      '\n' +
+      '## Appendix A Implementation Details\n' +
+      '\n' +
+      'For all experiments, we used an NVIDIA GeForce RTX 3090 GPU and a DDIM sampler [50], setting the total sampling time step to \\(T=50\\). We empirically set the time steps to \\(t\\in[4,50)\\) for performing both our appearance matching self-attention and semantic matching guidance. We converted all self-attention modules in every decoder layer \\(l\\in[1,4)\\) to the proposed appearance matching self-attention. We chose \\(\\lambda_{c}=0.4\\) and \\(\\lambda_{g}=75\\) for evaluation on the ViCo [22] dataset, and \\(\\lambda_{c}=0.4\\) and \\(\\lambda_{g}=50\\) for evaluation on the proposed challenging prompt list.\n' +
+      '\n' +
+      '## Appendix B Dataset\n' +
+      '\n' +
+      'Prior works [17, 32, 44] in Text-to-Image (T2I) personalization have used different datasets for evaluation. To ensure a fair and unbiased evaluation, ViCo [22] collected an image dataset from these works [17, 32, 44], comprising 16 unique concepts, which include 6 toys, 5 live animals, 2 types of accessories, 2 types of containers, and 1 building. For the prompts, ViCo gathered 31 prompts for 11 non-live objects and another 31 prompts for 5 live objects. These were modified from the original DreamBooth [44] prompts to evaluate the expressiveness of the objects in more complex textual contexts. For a fair comparison, in this paper, we followed the ViCo dataset and its evaluation settings, producing 8 samples for each object and prompt, totaling 3,969 images.\n' +
+      '\n' +
+      'Our goal is to achieve semantically-consistent T2I personalization in complex non-rigid scenarios. To assess the robustness of our method in intricate settings, we created a prompt dataset using ChatGPT [39], which is categorized into three parts: large displacements, occlusions, and novel-view synthesis. The dataset comprises 10 prompts each for large displacements and occlusions, and 4 for novel-view synthesis, separately for live and non-live objects. Specifically, we define the text-to-image diffusion personalization task, provide an example prompt list from ViCo, and highlight the necessity of a challenging prompt list aligned with the objectives of our research. We then asked ChatGPT to create distinct prompt lists for each category. The resulting prompt list, tailored for complex non-rigid personalization scenarios, is detailed in Figure A.12.\n' +
+      '\n' +
+      '## Appendix C Baseline and Comparison\n' +
+      '\n' +
+      '### Baseline\n' +
+      '\n' +
+      'DreamMatcher is designed to be compatible with any T2I personalized model. We implemented our method using three baselines: Textual Inversion [17], DreamBooth [44], and CustomDiffusion [32].\n' +
+      '\n' +
+      'Textual Inversion [17] encapsulates a given subject into 768-dimensional textual embeddings derived from the special token \\(\\langle S^{*}\\rangle\\). Using a few reference images, this is achieved by training the textual embeddings while keeping the T2I diffusion model frozen. During inference, the model can generate novel renditions of the subject by manipulating the target prompt with \\(\\langle S^{*}\\rangle\\). DreamBooth [44] extends this approach by further fine-tuning a T2I diffusion model with a unique identifier and the class name of the subject (e.g., \\(A\\) [V] _cat_). However, fine-tuning all parameters can lead to a language shift problem [33, 36]. To address this, DreamBooth proposes a class-specific prior preservation loss, which trains the model with diverse samples generated by pre-trained T2I models using the category name as a prompt (e.g., _A cat_). Lastly, CustomDiffusion [32] demonstrates that fine-tuning only a subset of parameters, specifically the cross-attention projection layers, is efficient for learning new concepts. Similar to DreamBooth, this is implemented by using a text prompt that combines a unique instance with a general category, and it also includes a regularization dataset from the large-scale open image-text dataset [46]. Despite promising results, the aforementioned approaches frequently struggle to accurately mimic the appearance of the subject, including colors, textures, and shapes. To address this, we propose a tuning-free plug-in method that significantly enhances the reference appearance while preserving the diverse structure from target prompts.\n' +
+      '\n' +
+      '### Comparision\n' +
+      '\n' +
+      'We benchmarked DreamMatcher against previous tuning-free plug-in models, FreeU [49] and MagicFusion [68], and also against the optimization-based model, ViCo [22].\n' +
+      '\n' +
+      'The key insight of FreeU [49] is that the main backbone of the denoising U-Net contributes to low-frequency semantics, while its skip connections focus on high-frequency details. Leveraging this observation, FreeU proposes a frequency-aware reweighting technique for these two distinct features, and demonstrates improved generation quality when integrated into DreamBooth [44]. MagicFusion [68] introduces a saliency-aware noise blending method, which involves combining the predicted noises from two distinct pre-trained diffusion models. MagicFusion demonstrates its effectiveness in T2I personalization when integrating a personalized model, DreamBooth [44], with a general T2I diffusion model. ViCo [22] optimizes an additional image adapter designed with the concept of key-value replacement.\n' +
+      '\n' +
+      '## Appendix D Evaluation\n' +
+      '\n' +
+      '### Evaluation Metrics\n' +
+      '\n' +
+      'For evaluation, we focused on two primary aspects: subject fidelity and prompt fidelity. For subject fidelity, following prior studies [17, 22, 32, 44], we adopted the CLIP [42] and DINO [5] image similarity metrics, denoted as \\(I_{\\mathrm{CLIP}}\\) and \\(I_{\\mathrm{DINO}}\\), respectively. Note that \\(I_{\\mathrm{DINO}}\\) is our preferredmetric for evaluating subject expressivity. As mentioned in [22, 44], DINO is trained in a self-supervised manner to distinguish objects within the same category, so that it is more suitable for evaluating different methods that aim to mimic the visual attributes of the same subject. For prompt fidelity, following [17, 22, 32, 44], we adopted the image-text similarity metric \\(T_{\\text{CLIP}}\\), comparing CLIP visual features of the generated images to CLIP textual features of the corresponding text prompts, excluding placeholders. Following previous works [17, 22, 32, 44], we used ViT-B/32 [15] and ViT-S/16 [15] for CLIP and DINO, respectively.\n' +
+      '\n' +
+      '### User study\n' +
+      '\n' +
+      'An example question of the user study is provided in Figure A.13. We conducted a paired human preference study about subject and prompt fidelity, comparing DreamMatcher to previous works [22, 49, 68]. The results are summarized in Figure 10 in the main paper. For subject fidelity, participants were presented with a reference image and generated images from different methods, and were asked which better represents the subject in the reference. For prompt fidelity, they were shown the generated images from different works alongside the corresponding text prompt, and were asked which aligns more with the given prompt. 45 users responded to 32 comparative questions, resulting in a total of 1440 responses. We distributed two different questionnaires, with 23 users responding to one and 22 users to the other. Note that samples were chosen randomly from a large, unbiased pool.\n' +
+      '\n' +
+      '## Appendix E Analysis\n' +
+      '\n' +
+      '### Appearance Matching Self-Attention\n' +
+      '\n' +
+      '**Feature extraction.** Figure A.1 visualizes PCA [41] results on feature descriptors extracted from different decoder layers. Note that, for this analysis, we do not apply any of our proposed techniques. PCA is applied to the intermediate feature descriptors of the estimated reference image and target image from DreamBooth [44], at 50% of the reverse diffusion process. Our primary insight is that earlier layers capture high-level semantics, while later layers focus on finer details of the generated images. Specifically, \\(l=1\\) captures overly high-level and low-resolution semantics, failing to provide sufficient semantics for finding correspondence. Conversely, \\(l=4\\) focuses on too fine-grained details, making it difficult to find semantically-consistent regions between features. In contrast, \\(l=2\\) and \\(l=3\\) strike a balance, focusing on sufficient semantical and structural information to facilitate semantic matching. Based on this analysis, we use concatenated feature descriptors from decoder layers \\(l\\in[2,3]\\), resulting in \\(\\psi_{t}\\in\\mathbb{R}^{H\\times W\\times 1920}\\). We then apply PCA to these feature descriptors, which results in \\(\\psi_{t}\\in\\mathbb{R}^{H\\times W\\times 256}\\) to enhance matching accuracy and reduce memory consumption. The diffusion feature visualization across different time steps is presented in Figure 6 in our main paper.\n' +
+      '\n' +
+      'Note that our approach differs from prior works [37, 54, 67], which select a specific time step and inject the corresponding noise into clean RGB images before passing them through the pre-trained diffusion model. In contrast, we utilize diffusion features from each time step of the reverse diffusion process to find semantic matching during each step of the personalization procedure.\n' +
+      '\n' +
+      '**AMA on different time steps and layers.** We ablate starting time steps and decoder layers in relation to the proposed appearance matching self-attention (AMA) module. Figure A.2 summarizes the results. Interestingly, we observe that applying AMA at earlier time steps and decoder layers effectively corrects the overall appearance of the subject, including shapes, textures, and colors. In contrast, AMA applied at later time steps and layers tends to more closely preserve the appearance of the subject as in the baseline. Note that injecting AMA at every time step yields sub-optimal re\n' +
+      '\n' +
+      'Figure A.1: **Diffusion feature visualization at different decoder layers: The left side displays intermediate estimated reference and target images at 50% of the reverse diffusion process. The target is generated by DreamBooth [44] using the prompt _A \\(\\langle S^{*}\\rangle\\) on the beach_. The right side visualizes the top three principal components of diffusion feature descriptors from different decoder layers \\(l\\). Semantically similar regions share similar colors.**\n' +
+      '\n' +
+      'Figure A.2: **Ablating AMA on different time steps and layers: The left section shows a reference image and a target image generated by the baseline [44]. The right section displays the improved target image generated by appearance matching self-attention on (a) different time steps and (b) different decoder layers. For this ablation study, we do not use semantic matching guidance.**\n' +
+      '\n' +
+      'sults, as the baselines prior to time step 4 have not yet constructed the target image layout. Based on this analysis, we converted the self-attention module in the pre-trained U-Net into the appearance matching self-attention for \\(t\\in[4,50)\\) and \\(l\\in[1,4)\\) in all our evaluations.\n' +
+      '\n' +
+      '### Consistency Modeling\n' +
+      '\n' +
+      'In Figure A.3, we show the quantitative relationship between the cycle-consistency hyperparameter \\(\\lambda_{c}\\) and personalization fidelity. As we first introduce \\(\\lambda_{c}\\), prompt fidelity \\(T_{\\mathrm{CLIP}}\\) drastically improves, demonstrating that the confidence mask effectively filters out erroneous matches, allowing the model to preserve the detailed target structure. Subsequently, higher \\(\\lambda_{c}\\) values inject more reference appearance into the target structure, increasing \\(I_{\\mathrm{DINO}}\\) and \\(I_{\\mathrm{CLIP}}\\), but slightly sacrificing prompt fidelity \\(T_{\\mathrm{CLIP}}\\). This indicates that users can control the extent of reference appearance and target structure preservation by adjusting \\(\\lambda_{c}\\). The pseudo code for overall AMA is available in Algorithm 1.\n' +
+      '\n' +
+      '### Semantic Matching Guidance\n' +
+      '\n' +
+      'In Figure A.4, we display the quantitative relationship between semantic matching guidance \\(\\lambda_{g}\\) and personalization fidelity. Increasing \\(\\lambda_{g}\\) enhances subject fidelity \\(I_{\\mathrm{DINO}}\\) and \\(I_{\\mathrm{CLIP}}\\), by directing the generated target \\(\\hat{z}_{0,t}^{\\mathrm{Y}}\\) closer to the clean reference latent \\(z_{0}^{\\mathrm{X}}\\). However, excessively high \\(\\lambda_{g}\\) can reduce subject fidelity due to discrepancies between the reference and target latents in early time steps. We carefully ablated the parameter \\(\\lambda_{g}\\) and chose \\(\\lambda_{g}=75\\) for the ViCo dataset and \\(\\lambda_{g}=50\\) for the proposed challenging dataset. The pseudo code for overall semantic matching guidance is available in Algorithm 2.\n' +
+      '\n' +
+      '### Key-Value Replacement vs. DreamMatcher\n' +
+      '\n' +
+      'MasaCtrl [4] introduced a key-value replacement technique for local editing tasks. Several subsequent works [4, 9, 11, 28, 31, 37] have adopted and further developed this framework. As shown in Figure A.5, which provides a qualitative comparison of DreamMatcher with MasaCtrl, the key-value replacement is prone to producing subject-centric images, often having poses similar to those of the subject in the reference image. This tendency arises because key-value replacement disrupts the target structure from the pre-trained self-attention module and relies on sub-optimal matching between target keys and reference queries. Furthermore, this technique does not consider the uncertainty of predicted matches, which leads to the injection of irrelevant elements from the reference image into the changed background or into newly emergent objects that are produced by the target prompts.\n' +
+      '\n' +
+      'In contrast, DreamMatcher preserves the fixed target structure and accurately aligns the reference appearance by explicitly leveraging semantic matching. Our method also takes into account the uncertainty of predicted matches, thereby filtering out erroneous matches and maintaining newly introduced image elements by the target prompts. Note that the image similarity metrics \\(I_{\\mathrm{DINO}}\\) and \\(I_{\\mathrm{CLIP}}\\) do not simultaneously consider both the preservation of the target structure and the reflection of the reference appearance. They only calculate the similarities between the overall pixels of the reference and generated images. As a result, the key-value replacement, which generates subject-centric images and injects irrelevant elements from reference images into the target context, achieves better image similarities than DreamMatcher, as seen in Table 5 in the main paper. However, as shown in Figure A.5, DreamMatcher more ac\n' +
+      '\n' +
+      'Figure A.3: **Relation between \\(\\lambda_{c}\\) and personalization fidelity.** In this ablation study, we evaluate our method using the proposed challenging prompt list.\n' +
+      '\n' +
+      'Figure A.6: **User study:** In this study, DreamBooth [44] is used as the baseline for both MasaCtrl and DreamMatcher.\n' +
+      '\n' +
+      'Figure A.4: **Relation between \\(\\lambda_{g}\\) and personalization fidelity.** In this ablation study, we evaluate our method using the proposed challenging prompt list.\n' +
+      '\n' +
+      'curately aligns the reference appearance into the target context, even with large structural displacements. More qualitative comparisons are provided in Figures A.17 and A.18.\n' +
+      '\n' +
+      'This is further demonstrated in a user study comparing MasaCtrl [4] and DreamMatcher, summarized in Figure A.6. A total of 39 users responded to 32 comparative questions, resulting in 1248 responses. These responses were divided between two different questionnaires, with 20 users responding to one and 19 to the other. Samples were chosen randomly from a large, unbiased pool. An example of this user study is shown in Figure A.14. DreamMatcher significantly surpasses MasaCtrl for both fidelity by a large margin, demonstrating the effectiveness of our proposed matching-aware value injection method.\n' +
+      '\n' +
+      '### Justification of Key Retention\n' +
+      '\n' +
+      'DreamMatcher brings warped reference values to the target structure through semantic matching. This design choice is rational because we leverage the pre-trained U-Net, which has been trained with pairs of queries and keys sharing the same structure. This allows us to preserve the pre-trained target structure path by keeping target keys and queries unchanged. To validate this, Table A.1 shows a quantitative comparison between warping only reference values and warping both reference keys and values, indicating that anchoring the target structure path while only warping the reference appearance is crucial for overall performance. Concerns may arise regarding the misalignment between target keys and warped reference values. However, we emphasize that our appearance matching self-attention accurately aligns reference values with the target structure, ensuring that target keys and warped reference values are geometrically aligned as they were pre-trained.\n' +
+      '\n' +
+      '### Reference Selection\n' +
+      '\n' +
+      'We evaluate the stability of DreamMatcher against variations in reference image selection by measuring the variance of all metrics across five sets of randomly selected reference images. Figure A.7 indicates that all metrics are closely distributed around the average. Specifically, the average \\(I_{\\mathrm{DINO}}\\) is 0.683 with a variance of \\(6e{-6}\\), and the average \\(T_{\\mathrm{CLIP}}\\) is 0.225 with a variance of \\(3e{-5}\\). This highlights that our method is robust to reference selection and consistently generates reliable results. We further discuss the qualitative comparisions- with different reference images in Section G.\n' +
+      '\n' +
+      '### DreamMatcher on Stable Diffusion\n' +
+      '\n' +
+      'DreamMatcher is a plug-in method dependent on the baseline, so we evaluated DreamMatcher on pre-trained personalized models [17, 32, 44] in the main paper. In this section, we also evaluated DreamMatcher using Stable Diffusion as a baseline. Table A.2 and Figure A.8 show that DreamMatcher enhances subject fidelity without any off-the-shelf pre-trained models, even surpassing \\(I_{\\mathrm{DINO}}\\) and \\(I_{\\mathrm{CLIP}}\\) of Textual Inversion which optimizes the 769-dimensional text embeddings.\n' +
+      '\n' +
+      '### Multiple Subjects Personalization\n' +
+      '\n' +
+      'As shown in Figure A.9, we extend DreamMatcher for multiple subjects. For this experiments, we used CustomDiffusion [32] as a baseline. Note that a simple modification, which involves batching two different subjects as input, enables this functionality.\n' +
+      '\n' +
+      '### Computational Complexity\n' +
+      '\n' +
+      'We investigate time and memory consumption on different configurations of our framework, as summarized in Table A.3. As seen, DreamMatcher significantly improves subject appearance with a reasonable increase in time and memory, compared to the baseline DreamBooth [44]. Additionally, we observe that reducing the PCA [41] dimension of feature descriptors before building the cost volume does not affect the overall performance, while dramatically reducing time consumption. Note that our method, unlike previous training-based [8, 10, 18, 29, 34, 48, 53, 63, 65] or\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c} \\hline Method & \\(I_{\\mathrm{DINO}}\\uparrow\\) & \\(I_{\\mathrm{CLIP}}\\uparrow\\) & \\(T_{\\mathrm{CLIP}}\\uparrow\\) \\\\ \\hline \\hline Textual Inversion [17] & 0.529 & 0.762 & **0.220** \\\\ \\hline Stable Diffusion (SD) & 0.770 & **0.778** & 0.220 \\\\ DreamMatcher & **0.571** (+10.74\\%) & **0.785** (+1.95\\%) & 0.214 (-0.50\\%) \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table A.2: **Quantitative results of DreamMatcher on Stable Diffusion.**\n' +
+      '\n' +
+      'Figure A.7: **Statistical results from 5 sets of randomly selected reference images.**\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c} \\hline Method & \\(I_{\\mathrm{DINO}}\\uparrow\\) & \\(I_{\\mathrm{CLIP}}\\uparrow\\) & \\(T_{\\mathrm{CLIP}}\\uparrow\\) \\\\ \\hline \\hline Warping only reference values (DreamMatcher) & **0.680** & **0.821** & 0.231 \\\\ Warping both reference keys and values & 0.654 & 0.809 & **0.235** \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table A.1: **Ablation study on key retention.**\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:16]\n' +
+      '\n' +
+      'the target image due to a lack of confidently matched appearances. This indicates even if our method is robust in reference selection, a better reference image which contains rich visual attributes of the subject will be beneficial for performance. Our future studies will focus on automating the selection of reference images or integrating multiple reference images jointly.\n' +
+      '\n' +
+      'Figure A.12: **Challenging text prompt list:** Evaluation prompts in complex, non-rigid scenarios for both non-live and live subjects. ‘{}’ represents \\(\\langle S^{*}\\rangle\\) in Textual Inversion [17] and ‘[V] class’ in DreamBooth [44] and CustomDiffusion [32].\n' +
+      '\n' +
+      'Figure A.13: **An example of a user study comparing DreamMacher with previous methods:** For subject fidelity, we provide the reference image and generated images from different methods, ViCo [22], FreeU [49], MagicFusion [68] and DreamMatcher. For prompt fidelity, we provide the target prompt and the generated images from those methods. For a fair comparison, we randomly choose the image samples from a large, unbiased pool.\n' +
+      '\n' +
+      'Figure A.14: **An example of a user study comparing DreamMatcher with MasaCtrl [4]:** For subject fidelity, we provide the reference image and images generated from two different methods, MasaCtrl and DreamMatcher. For prompt fidelity, the target prompt and generated images from these two methods are provided. For a fair comparison, image samples are randomly chosen from a large, unbiased pool.\n' +
+      '\n' +
+      '```\n' +
+      'defAMA(self,pca_feats,q_tgt,q_ref,k_tgt,k_ref,v_tgt,v_ref,mask_tgt,cc_thres,num_heads,**kwargs):  #Initializedimensionsandrearrangeinputs.  B,H,W=init_dimensions(q_tgt,num_heads)  q_tgt,q_ref,K_tgt,k_ref,v_tgt,v_ref=rearrange_inputs(q_tgt,q_ref,k_tgt,k_ref,v_tgt,v_ref,num_heads,H,W)  #Performfeatureinterpolationandrearrangement.  src_feat,trg_feat=interpolate_and_rearrangerange(pca_feats,H)  src_feat,trg_feat=12_norm(src_feat,trg_feat)  #Computesimilarity.  sim=compute_similarity(trg_feat,src_feat)  #Calculateforwardandbackwardsimilaritiesandflows.  sim_backward=rearrange(sim,"b(HtWt)(HWsWs)->b(HWsWs)HtWt")  sim_forward=rearrange(sim,"b(HtWt)(HWsWs)->b(HtWt)HsWs\')  flow_tgt_to_ref,flow_ref_to_tgt=compute_flows_with_argmax(sim_backward,sim_forward)  #Computecycleconsistencyerrorandconfidence.  cc_error=compute_cycle_consistency(flow_tgt_to_ref,flow_ref_to_tgt)  f_g_ratio=mask_tgt.sum()/(H*W)  confidence=(cc_error<cc_thres*H*fg_ratio)  #Warpvalueandapplysemantic-consistentmask.  warped_v=warp_verf,flow_tgt_to_ref  warped_v=warped_v*confidence+v_tgt*(1-confidence)  warped_v=warped_v*mask_tgt+v_tgt*(1-mask_tgt)  #Performself-attention.  aff=compute_affinity(q_tgt,k_tgt)  attn=aff_softmax(-1)  out=compute_output(attn,warped_v)  returnout\n' +
+      '```\n' +
+      '\n' +
+      '**Algorithm 1** Pseudo-Code for Appearance Matching Self-Attention, PyTorch-like```\n' +
+      '``` fori,tininenumerate(tqdm(self.scheduler.timesteps)):\n' +
+      '#Definemodelinputs. latents=combine_latents(latents_ref,latents_tgt)\n' +
+      '#Enablegradientcomputationformatchingguidance. enable_gradients(latents)\n' +
+      '#SamplingandfeatureextractionfromtheU-Net. noise_pred,feats=self.unet(latents,t,text_embeddings)\n' +
+      '#Interpolationandconcatenatingfeaturesfromdifferentlayers. src_feat_uncond,tgt_feat_uncond,src_feat_cond,tgt_feat_cond=interpolate_and_concat(feats)\n' +
+      '#PerformPCAandnormalizethefeatures. pca_feats=perform_pca_and_normalize(src_feat_uncond,tgt_feat_uncond,src_feat_cond,tgt_feat_cond)\n' +
+      '#Applysemanticmatchingguidanceifrequired. ifmatching_guidanceand(iinself.mg_step_idx): _pred_z0_tgt=self.step(noise_pred,t,latents) pred_z0_src=image_to_latent(src_img) uncond_grad,cond_grad=compute_gradients(pred_z0_tgt,pred_z0_src,t,pca_feats) alpha_prod_t=self.scheduler.aligns_cumprod[t] beta_prod_t=1-alpha_prod_t noise_pred[1]-grad_weight*beta_prod_t*.0.5*uncond_grad noise_pred[3]-grad_weight*beta_prod_t**0.5*cond_grad\n' +
+      '#Applyclassifier-freeguidanceforenhancedgeneration. ifguidance_scale>1.0: noise_pred=classifier_free_guidance(noise_pred,guidance_scale)\n' +
+      '#Stepfromz_ttoz_t-1. latents=self.step(noise_pred,t,latents)\n' +
+      '```\n' +
+      '\n' +
+      '**Algorithm 2** Pseudo-Code for Semantic Matching Guidance, PyTorch-like\n' +
+      'Figure A.15: **Qualitative comparision with baselines for live objects:** We compare DreamMatcher with three different baselines, Textual Inversion [17], DreamBooth [44], and CustomDiffusion [32].\n' +
+      '\n' +
+      'Figure A.16: **Qualitative comparision with baselines for non-live objects:** We compare DreamMatcher with three different baselines, Textual Inversion [17], DreamBooth [44], and CustomDiffusion [32].\n' +
+      '\n' +
+      'Figure A.17: **Qualitative comparison with previous works [4, 22, 44, 49, 68] for live objects:** For this comparison, DreamBooth [44] is used as the baseline for MasaCtrl [4], FreeU [49], MagicFusion [68], and DreamMatcher.\n' +
+      '\n' +
+      'Figure A.18: **Qualitative comparison with previous works [4, 22, 44, 49, 68] for non-live objects:** For this comparison, Dream-Booth [44] is used as the baseline for MasaCtrl [4], FreeU [49], MagicFusion [68], and DreamMatcher.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
