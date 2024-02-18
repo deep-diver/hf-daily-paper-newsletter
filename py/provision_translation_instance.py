@@ -55,7 +55,7 @@ def parallel_job_split(i, client, arxiv_ids, args):
   )
   
   run = client.runs.submit(
-      run_name=f"{args.dstack_run_name}_{i}",
+      run_name=f"{args.dstack_run_name}{i}",
       configuration=task,
       resources=Resources(
           gpu=GPU(memory="16GB")
@@ -144,7 +144,7 @@ if __name__ == "__main__":
   parser = argparse.ArgumentParser()
   parser.add_argument('--dstack-token', type=str, default="")
   parser.add_argument('--dstack-project', type=str, default="deep-diver-main")
-  parser.add_argument('--dstack-run-name', type=str, default="paper_ko_translation_run")
+  parser.add_argument('--dstack-run-name', type=str, default="paperkotranslationrun")
   parser.add_argument('--dstack-python-version', type=str, default="3.10")
   
   parser.add_argument('--github-token', type=str, default="")
