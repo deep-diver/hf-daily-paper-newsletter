@@ -14,6 +14,7 @@ def parallel_job_split(i, client, arxiv_ids, args):
   task = Task(
       python=args.dstack_python_version,
       commands=[
+          'apt-get update && apt-get install ffmpeg libsm6 libxext6  -y',
           'echo "Cloneing the arXiv translator repo..."',
           f'git clone https://{args.github_username}:{args.github_token}@github.com/deep-diver/arxiv-translator.git -b modelv1',
           f'git clone https://{args.github_username}:{args.github_token}@github.com/{args.target_archive_github_repo}.git',
