@@ -1,1 +1,2 @@
 - [LiRank: Industrial Large Scale Ranking Models at LinkedIn](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/23/2024-02-13+LiRank%3A+Industrial+Large+Scale+Ranking+Models+at+LinkedIn.yaml) / 2024-02-13
+- [SPAR: Personalized Content-Based Recommendation via Long Engagement Attention](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/27/2024-02-19+SPAR%3A+Personalized+Content-Based+Recommendation+via+Long+Engagement+Attention.yaml) / 2024-02-19
