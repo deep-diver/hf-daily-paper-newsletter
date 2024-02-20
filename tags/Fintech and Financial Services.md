@@ -1,0 +1,1 @@
+- [FinTral: A Family of GPT-4 Level Multimodal Financial Large Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/28/2024-02-20+FinTral%3A+A+Family+of+GPT-4+Level+Multimodal+Financial+Large+Language+Models.yaml) / 2024-02-20
