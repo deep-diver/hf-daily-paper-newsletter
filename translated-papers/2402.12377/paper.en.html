@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# Binary Opacity Grids: Capturing Fine Geometric Detail for Mesh-Based View Synthesis\n' +
+      '\n' +
+      'CHRISTIAN REISER\n' +
+      '\n' +
+      'University of Tubingen\n' +
+      '\n' +
+      'Tubingen Al Center\n' +
+      '\n' +
+      'Google Research\n' +
+      '\n' +
+      'Germany\n' +
+      '\n' +
+      'STEPHAN GARBIN\n' +
+      '\n' +
+      'Google Research\n' +
+      '\n' +
+      'United Kingdom\n' +
+      '\n' +
+      'PRATUL P. SRINIVASAN\n' +
+      '\n' +
+      'Google Research\n' +
+      '\n' +
+      'United States of America\n' +
+      '\n' +
+      'DOR VERBIN\n' +
+      '\n' +
+      'Google Research\n' +
+      '\n' +
+      'United States of America\n' +
+      '\n' +
+      'RICHARD SZELISKI\n' +
+      '\n' +
+      'Google Research\n' +
+      '\n' +
+      'United States of America\n' +
+      '\n' +
+      'BEN MILDENHALL\n' +
+      '\n' +
+      'Google Research\n' +
+      '\n' +
+      'United States of America\n' +
+      '\n' +
+      'JONATHAN T. BARRON\n' +
+      '\n' +
+      'Google Research\n' +
+      '\n' +
+      'United States of America\n' +
+      '\n' +
+      'PETER HEDMAN\n' +
+      '\n' +
+      'Google Research\n' +
+      '\n' +
+      'United Kingdom\n' +
+      '\n' +
+      'ANDREAS GEIGER\n' +
+      '\n' +
+      'University of Tubingen\n' +
+      '\n' +
+      'Tubingen Al Center\n' +
+      '\n' +
+      'Germany\n' +
+      '\n' +
+      '###### Abstract.\n' +
+      '\n' +
+      'While surface-based view synthesis algorithms are appealing due to their low computational requirements, they often struggle to reproduce thin structures. In contrast, more expensive methods that model the scene\'s geometry as a volumetric density field (e.g. NeRF) excel at reconstructing fine geometric detail. However, density fields often represent geometry in a "fuzzy" manner, which hinders exact localization of the surface. In this work, we modify density fields to encourage them to converge towards surfaces, without compromising their ability to reconstruct thin structures. First, we employ a discrete opacity grid representation instead of a continuous density field, which allows opacity values to discontinuously transition from zero to one at the surface. Second, we anti-alias by casting multiple rays per pixel, which allows occlusion boundaries and subpixel structures to be modelled without using semi-transparent voxels. Third, we minimize the binary entropy of the opacity values, which facilitates the extraction of surface geometry by encouraging opacity values to binizate towards the end of training. Lastly, we develop a fusion-based meshing strategy followed by mesh simplification and appearance model fitting. The compact meshes produced by our model can be rendered in real-time on mobile devices and achieve significantly higher view synthesis quality compared to existing mesh-based approaches. Additional Key Words and Phrases: Novel View Synthesis, Differentiable Rendering, Neural Radiance Fields, Multiview-to-3D, Real-Time Rendering\n' +
+      '\n' +
+      '## 1. Introduction\n' +
+      '\n' +
+      'Surface rendering is generally considered to be more efficient than volume rendering, as surface rendering ideally only requires reading appearance data from a single 3D location, while volume rendering requires aggregating colors and densities across multiple points along each ray. Nevertheless, the current highest-quality view synthesis algorithms (Barron et al., 2023; Duckworth et al., 2023; Kerbl et al., 2023) all use volume rendering. These algorithms tend to represent even hard surfaces as "fuzzy" volumes, which leads to their high computational cost. This also holds when applying surface-promoting regularizers (Barron et al., 2022), see Figure 2.\n' +
+      '\n' +
+      'Recently, BakedSDF (Yariv et al., 2023) has demonstrated that accurate view synthesis is also possible with a surface-based approach. However, in contrast to volumetric methods, BakedSDF struggles with recovering fine geometric detail. One reason for this is that BakedSDF adopts the currently dominant paradigm for 3D reconstruction, where the SDF is converted to a fuzzy volume during training (Li et al., 2023; Wang et al., 2021; Yariv et al., 2021; Yu\n' +
+      '\n' +
+      'Figure 1. Our method reconstructs triangle meshes from multi-view images and is able to capture fine geometric detail such as leaves, branches and grass (left). At the same time our meshes are compact enough for real-time view synthesis on a Google Pixel 8 Pro (right).\n' +
+      '\n' +
+      'et al., 2022). This soft conversion from SDF to volumetric density allows the model to "cheat" by representing thin structures in a fuzzy manner. As a result, during meshing, thin structures often vanish. Furthermore, during training, the validity of the recovered SDF must be ensured using an Eikonal loss, which acts as a smoothness prior and thereby tends to remove fine geometric detail.\n' +
+      '\n' +
+      'To avoid these weaknesses of SDF-based approches, we investigate an alternative strategy that does not require an Eikonal loss or soft density conversion. We use a volume-based representation whose geometry we successively "sharpen" during training. We achieve this surface convergence by applying the following three modifications to an existing state-of-the-art radiance field model (Barron et al., 2023). First, we employ a discrete opacity grid instead of a continuous density field, which enables opacity values to discontinuously transition from zero to one at the surface (Chen et al., 2023). Second, we cast multiple rays per pixel to allow our model to accurately reproduce anti-aliased occlusion boundaries without using semi-transparent voxels. Third, we explicitly encourage hard surfaces by enforcing a binary entropy loss on the opacity values. As shown in Figure 2, this causes opacity values to binarize to zero or one as training converges, which enables the extraction of surface geometry. We demonstrate that all three of these elements are required for accurate reconstruction of subpixel structures.\n' +
+      '\n' +
+      'Furthermore, we present a fusion-based meshing strategy for converting our recovered binary opacity grid into a triangle mesh after training. The resulting mesh can then be simplified with off-the-shelf tools to a complexity that is adequate for real-time rendering while still preserving thin structures. Finally, we equip that mesh with a lightweight view-dependent appearance model that is well-suited for real-time viewer applications. Because the standard approach of UV mapping is problematic for our highly detailed meshes, we systematically evaluate alternative appearance representations and find the combination of triplanes with a low-resolution voxel grid as the preferred method (Reiser et al., 2023). Our triangle mesh and appearance representation are compact enough to be rendered in real-time on mobile devices and achieve significantly higher view synthesis quality compared to existing mesh-based models. As such, our work represents a step towards closing the gap between surface-based view synthesis methods and volume-based ones.\n' +
+      '\n' +
+      '## 2. Related Work\n' +
+      '\n' +
+      'In this section, we review real-time view synthesis methods that fit a 3D scene representation to calibrated multi-view images using differentiable rendering. These methods can be subdivided according to their rendering formulation into volume-based, surface-based and hybrid methods.\n' +
+      '\n' +
+      '**Volume-based Methods.** The highest-quality view synthesis methods use volume rendering during optimization and inference (Barron et al., 2023). Many techniques in this category follow the neural radiance fields (NeRFs) paradigm (Mildenhall et al., 2020). NeRFs associate a density and view-dependent color value with each 3D point and can be fitted using differentiable volume rendering to multi-view images with a re-rendering objective. The original NeRF uses an MLP to represent the scene, which results in slow rendering. Follow-up works speed-up rendering by using alternative representations such as voxel grids (Garbin et al., 2021; Hedman et al., 2021; Yan et al., 2023; Yu et al., 2021), triplanes (Chen et al., 2022; Duckworth et al., 2023; Reiser et al., 2023), or point-based representations (Kerbl et al., 2023; Kopanas et al., 2021; Ruckert et al., 2022a, b; Xu et al., 2022).\n' +
+      '\n' +
+      '**Surface-based Methods.** Although recent volume-based methods such as SDF or 3DGS are capable of real-time rendering, they are slower than surface-based alternatives such as BakedSDF, as demonstrated in Duckworth et al. (2023). In volume rendering, computing a pixel\'s value requires compositing colors from _multiple_ sampling locations (SMERF) or primitives (3DGS), while surface rendering (under typical conditions) only requires reading appearance data from a _single_ surface location. This is the case for surface-based view synthesis methods that employ a triangle mesh, which can be efficiently rendered using hardware-accelerated rasterization.\n' +
+      '\n' +
+      'Early view-synthesis methods used surface geometry from multi-view stereo (Jancossek and Pajdla, 2011; Schonberger et al., 2016) and modelled appearance by blending between input images (Debevec et al., 1998; Waechter et al., 2014; Wood et al., 2000). Later methods improved visual quality by predicting the appearance of the surface with a trained neural network (Philip et al., 2021; Riegler and Koltun, 2021; Thies et al., 2019). However, these approaches were constrained by the quality of the reconstructed surface, as they did not jointly optimize for appearance and geometry.\n' +
+      '\n' +
+      'MobileNeRF is similar to our method in that it also uses an opacity-based representation during training (Chen et al., 2023). The key difference is that MobileNeRF outputs a coarse proxy mesh equipped with binary alpha masks, whereas we aim for a traditional mesh, which enables wider compatibility. To this end, we use a significantly higher voxel grid resolution than MobileNeRF and rely on simplification to obtain a compact mesh. Our fine grid is more geometrically expressive than MobileNeRF\'s alpha-textured coarse mesh, which is unable to represent multiple close-by sheets of geometry. During training, we achieve surface convergence using a combination of supersampling and entropy regularization, while MobileNeRF differentiably quantizes opacity values.\n' +
+      '\n' +
+      'UNISURF also uses an opacity-based representation (Oechsle et al., 2021). In addition to volume rendering, UNISURF uses a second rendering formulation where the 0.5 level set defines the surface (Niemeyer et al., 2020; Yariv et al., 2020). We instead obtain hard surfaces by regularizing opacity values.\n' +
+      '\n' +
+      'Figure 2. We visualize the volume rendering weights for rays corresponding to a row of pixels (left, in pink). Density fields such as Zip-NeRF (Barron et al., 2023) tend to represent hard surfaces as semi-transparent volumes despite their use of surface-promoting regularizers. In contrast, our opacity grid converges to a hard surface. Note that, since each pixel column visualizes the volume rendering weights of a single ray, gaps in this visualization do not indicate the presence of holes in the underlying representation.\n' +
+      '\n' +
+      'BakedSDF optimizes a signed distance function (SDF) that can be converted into a mesh after training and encodes appearance as vertex attributes (Yariv et al., 2023). Similar to VolSDF (Yariv et al., 2021), NeuS (Wang et al., 2021), or NeuralAngelo (Li et al., 2023), BakedSDF converts signed distances to density values during optimization, and those densities are used for volume rendering. Valid SDFs are encouraged through the use of a loss to enforce the Eikonal constraint, but this constraint is sometimes violated in favor of reconstructing fine geometric detail in a fuzzy manner. As a result, thin structures often vanish when "baking" these SDFs into meshes. In contrast, in our method, there is high agreement between optimized and extracted geometry, since opacity values mostly become binary towards the end of the training.\n' +
+      '\n' +
+      'A number of recent papers also focus on fine geometric detail. NeRFMeshing and NeRF2Mesh both convert a density field into a triangle mesh (Rakotosaoa et al., 2023; Tang et al., 2023). Since density fields do not have a clearly defined surface, these methods compensate for lossy mesh conversion with an additional optimization stage. LoD-NeuS uses an error-guided SDF growth strategy to featurizes conical frusta along each ray (Zhuang et al., 2023).\n' +
+      '\n' +
+      'DMTet and FlexiCubes differentiably convert an implicit representation to a triangle mesh during training. Similar to our method, any mismatch between optimized and baked geometry is avoided, but these methods do not scale to high resolutions because they require that the full grid be processed during each forward pass (Liao et al., 2018; Munkberg et al., 2022; Shen et al., 2021, 2023).\n' +
+      '\n' +
+      '**Hybrid Methods.** Recently, some methods have emerged that use a combination of surface and volume rendering during inference (Guo et al., 2023; Turki et al., 2023; Wang et al., 2023). These models aim to model the majority of the scene as surface geometry, while modeling whatever small subsets of the scene that happen to look "fuzzy" as volumes. Our goal is to expand the portion of the scene that can be represented as a surface, aiming to use volume rendering as sparingly as possible to ensure optimal performance.\n' +
+      '\n' +
+      '## 3. Binary Opacity Grids\n' +
+      '\n' +
+      'To capture thin structures with a surface-based representation, our model first uses an opacity-based voxel grid representation. Through the use of an entropy regularizer and supersampling, our opacity values become binary (either zero or one) towards the end of training. This enables us to exactly locate the surface, which is essential for the conversion of our recovered model into a triangle mesh.\n' +
+      '\n' +
+      '### Representation\n' +
+      '\n' +
+      'During training, we represent the scene with an \\(\\mathrm{R}\\times\\mathrm{R}\\times\\mathrm{R}\\) voxel grid, using a 3D contraction function, as described in Appendix C. With each voxel, we associate an opacity value \\(\\alpha\\in[0,1]\\) and a color value \\(\\mathbf{c}\\in[0,1]^{3}\\), which also depends on the view direction. To render a pixel, we cast a ray from the camera origin through the center of the pixel, and this ray is then intersected with all of the voxels along its path. For each intersected voxel, we query its opacity value \\(\\alpha_{\\mathrm{K}}\\) and its color value \\(\\mathbf{c}_{\\mathrm{K}}\\). The final pixel value \\(\\mathbf{C}\\) is computed using front-to-back alpha compositing:\n' +
+      '\n' +
+      '\\[\\mathbf{C}=\\sum_{k}\\alpha_{k}\\left(\\prod_{j=1}^{k-1}\\alpha_{j}\\right)\\mathbf{ c}_{k}\\,. \\tag{1}\\]\n' +
+      '\n' +
+      'Following MobileNeRF, we directly parameterize opacity values in \\([0,1]\\), unlike NeRF, which parameterizes density values that are later converted to opacity values using the distance between sampling points (Mildenhall et al., 2020). In contrast to density-based volume rendering, our formulation does not involve any approximation since it is a finite sum over values associated with the voxels along the ray. One advantage of our formulation is that, when all opacity values are binary, the surface must be located at the first voxel along the ray with an opacity value of one (Chen et al., 2023).\n' +
+      '\n' +
+      'To represent thin structures, we require a high voxel grid resolution \\(\\mathrm{R}\\) on the order of \\(2^{13}\\). Directly optimizing a voxel grid of this size is not feasible, as this would require \\(>2\\) terabytes of memory to store opacity values alone. Instead, we predict the grid values using an MLP equipped with a multi-resolution hash encoding as in Muller et al. (2022). Note that our overall representation is still discrete in nature because the MLP is only queried at quantized positions (Reiser et al., 2023).\n' +
+      '\n' +
+      'The number of voxels that intersect a ray is proportional to the grid resolution \\(\\mathrm{R}\\). Therefore, with a high resolution, it becomes computationally intractable to query the representation at all intersected voxels. To address this, prior work adopted a coarse-to-fine strategy in combination with empty space skipping, but it has been observed that this can cause thin structures to be lost during early training iterations (Liu et al., 2020; Muller et al., 2022). For standard density-based NeRFs, this issue can be circumvented with hierarchical sampling using a "proposal" MLP (Barron et al., 2022; Mildenhall et al., 2020). However, this strategy relies on the assumption that, at the beginning of training, the volume rendering integral can be well-approximated with randomly placed samples due to the initial volume being somewhat smooth. Since opacity-based rendering does not incorporate the distance between sample points, the finite sum in Equation (1) can only be poorly estimated with a small number of randomly placed samples. To circumvent this, we first train a Zip-NeRF to produce a converged proposal MLP, which encodes the coarse geometry of the scene (Barron et al., 2023). When training our model, we query our representation only at a fixed number of samples from the distribution predicted by the pre-trained proposal MLP, whose weights are kept fixed. These samples represent a superset of the actual surface locations, which entails that the finite sum in Equation (1) is computed accurately. If more than one sampled position falls within the same voxel, only the first position is used, which ensures that each voxel only contributes at most once.\n' +
+      '\n' +
+      '### Training strategy\n' +
+      '\n' +
+      'Locating a surface and extracting a triangle mesh from an opacity grid requires binary opacity values, but optimizing the opacity values of our grid with no additional regularization does not naturally result in binarized values at the end of training. To encourage binary opacity values, we use an entropy loss that pulls opacity values smaller than 0.5 towards 0 and opacity values larger than 0.5 towards 1. We apply this loss to the opacity values \\(\\alpha_{\\mathrm{K}}\\) of all voxelssampled along each ray:\n' +
+      '\n' +
+      '\\[\\mathcal{L}_{\\text{ent}}=\\frac{1}{k}\\sum_{k}\\mathrm{H}(\\alpha_{k}), \\tag{2}\\]\n' +
+      '\n' +
+      'where \\(\\mathrm{H}\\) is the binary entropy function:\n' +
+      '\n' +
+      '\\[\\mathrm{H}(p)=-p\\log_{2}(p)-(1-p)\\log_{2}(1-p). \\tag{3}\\]\n' +
+      '\n' +
+      'This alone, however, is not sufficient to accurately reconstruct fine geometric detail. This is because, in a properly anti-aliased image (such as the photographs we use as inputs), each pixel\'s value is the integral of all light within the cone associated with that pixel.\n' +
+      '\n' +
+      'Consider the case of a "mixed pixel" at an occlusion boundary, where a pixel\'s value depends on light emitted from both a foreground object and a background object. In volumetric methods such as NeRF or 3DGS, such a pixel will be modeling by reconstructing a semi-transparent region of the foreground object, such that the ray being cast partially penetrates it and proceeds to the background object. This correctly yields a reconstructed pixel value that contains contributions from both the foreground and background objects. But this use of semi-transparency violates the binary entropy assumption required by our model: if opacity values are all binary, casting a single ray through the center of a pixel will result in _either_ the foreground or the background object being struck, and will therefore yield an incorrect and aliased pixel intensity (i.e., "jaggies"). It is therefore infeasible to accurately reconstruct these mixed pixels using binary opacity values, assuming a single ray is cast for each pixel. To correctly disambiguate the contributions from multiple surfaces, we therefore cast _multiple_ rays per pixel during training. More specifically, we uniformly sample 16 sub-rays within the footprint of each pixel. After rendering each sub-ray, the final pixel value is computed as the arithmetic mean of the subpixel values. We observe that supersampling produces a significant improvement in geometric quality, especially regarding the reconstruction of thin structures, which often cover less than a single pixel.\n' +
+      '\n' +
+      '## 4. Mesh Conversion\n' +
+      '\n' +
+      'After optimization, we convert the recovered binary opacity grid into a triangular mesh -- the most ubiquitous and practical representation for geometry in computer graphics. If done naively, this conversion leads to a mesh consisting of billions of tiny cubes, which is prohibitively large for real-time rendering. To mitigate this, we design a simple and scalable baking pipeline that outputs a mesh that can be simplified using off-the-shelf tools.\n' +
+      '\n' +
+      '### Volumetric Fusion for Outlier Removal\n' +
+      '\n' +
+      'The most basic strategy for converting our binary occupancy grid representation into a triangle mesh is to simply instantiate a surface quad between every pair of voxels with opposing opacity values. This works poorly, because the opacity values of voxels in free space are completely unconstrained, as these voxels are never sampled during training. Similarly, occluded space is not constrained by the re-rendering objective, which leads to arbitrary opacity values in the interior of objects. Therefore this strategy results in the creation of many random surfaces, which are either distracting floating artifacts in front of objects or invisible but computationally-wasteful pseudo-geometry in the interior of objects.\n' +
+      '\n' +
+      'A better strategy is to incorporate the proposal MLP that encodes which opacity values are constrained by the training objective. Prior work does this by rendering all training views using the proposal MLP (Reiser et al., 2023; Yariv et al., 2023) and then only instantiating surfaces in the vicinity of voxels that contribute to rendering of any pixel. This leads to the filtering of unconstrained areas, since only parts of the scene that are not occluded and sampled by the proposal MLP and thus receive supervision are considered for meshing. However, in our model, this strategy still produces a significant number of floating artifacts, as can be seen in the bottom left image of Figure 3. This is because some voxels are severely underconstrained, as they are not consistently sampled by the proposal MLP during training. In other words, during training, some voxels are only sampled in a fraction of the training views that observe a voxel. These underconstrained voxels may get erroneously assigned an opacity value of 1 despite being far from any surface. Since these voxels are still sampled in some of the training views, they are incorrectly appended to the final mesh. To filter these false positives, we employ volumetric fusion (Curless and Levoy, 1996) as described in Appendix A. The bottom right image of Figure 3 demonstrates the effectiveness of volumetric fusion for removing outliers.\n' +
+      '\n' +
+      'Another important motivation for using volumetric fusion is that it outputs a dense implicit representation of the scene. As shown in Curless and Levoy (1996), this implicit representation can be converted into a hole-free mesh, which is\n' +
+      '\n' +
+      'Figure 3. **Comparison between different meshing strategies.** The bottom left image shows a depth map rendered from a mesh that was obtained by applying the meshing strategy from Yariv et al. (2023) to our representation. Geometry is instantiated at all visible voxels with an opacity value of 1 that are sampled by the proposal MLP in _any_ training view. This leads to numerous floating artifacts, as infrequently sampled voxels in free space are severely underconstrained by the training loss. The bottom right shows that these underconstrained voxels can be effectively filtered by running volumetric fusion on depth maps rendered from our model. This filtering step also fully preserves thin structures, as can be seen in the top image.\n' +
+      '\n' +
+      'most mesh simplification algorithms. Before conversion to a mesh with marching cubes, we filter the implicit representation with a small Gaussian blur with \\(\\sigma=1\\) to remove geometric noise in the underconstrained outer parts of the scene.\n' +
+      '\n' +
+      '### Simplification and Visibility Culling\n' +
+      '\n' +
+      'To produce a more compact representation, we simplify the mesh with an off-the-shelf tool based on quadric edge collapse decimation (Garland and Heckbert, 1997). We found this approach to dramatically simplify our meshes while still preserving thin structures. We explicitly simplify the mesh in far-away regions more aggressively, as described in Appendix C. After simplification, we cull triangles that are not visible from any training camera, which leads to another significant reduction in the number of triangles. Only using the training cameras\' poses for visibility estimation leads to holes in the mesh that become apparent during novel view synthesis. To combat this, we augment the set of camera poses used for visibility estimation: we create additional poses by adding randomly sampled offsets and rotations to the poses of the training cameras, as described in Appendix C. We find that it is crucial to perform culling _after_ simplification, as mesh simplification methods tend to not be robust to the numerous small holes introduced by culling.\n' +
+      '\n' +
+      '## 5. View-dependent appearance for meshes\n' +
+      '\n' +
+      'To enable view synthesis we need a view-dependent appearance model for our reconstructed mesh. To this end, we evaluate a number of potential representations and encodings for view-dependent color, with a focus on options that are suited for real-time rendering.\n' +
+      '\n' +
+      '### Spatial Parameterization\n' +
+      '\n' +
+      'We begin by exploring parameterizations which efficiently map positions on our mesh to coefficients that encode appearance.\n' +
+      '\n' +
+      '**UV mapping.** UV texture maps are the most ubiquitous representation for appearance. However, we found that current UV mapping tools cannot deal well with the complexity of our input mesh, which contains a lot of fine geometric detail (though concurrent work such as Srinivasan et al. (2023) may provide a viable path).\n' +
+      '\n' +
+      '**Vertex Attributes.** Prior mesh-based view synthesis methods like Yariv et al. (2023) store appearance coefficients at vertex attributes on the mesh and then interpolate them across each face. Unfortunately, this requires the vertex density to be higher than the desired texture density, which results in prohibitively large and expensive meshes. This is not the case for us, as our meshes are drastically simplified, leading to large triangles in geometrically simple regions.\n' +
+      '\n' +
+      '**Volume Textures.** We can directly associate a color value with each 3D position using a 3D volume texture. A simple way to encode a volume sparsely is to subdivide the volume into blocks of D\\({}^{3}\\) voxels and store only the nonempty blocks (Hedman et al., 2021). The choice of the block size D involves a trade-off: A small block size yields high compactness, but results in poor data locality, which leads to slow rendering. A large block size comes with high memory consumption, since any block that contains a single surface-adjacent voxel must be allocated. This also holds for alternative sparse data structures such as octrees (Benson and Davis, 2002) or spatial hashing (Lefebvre and Hoppe, 2006), since they equally depend on blocking for fast access.\n' +
+      '\n' +
+      '**Triplanes and Low-resolution Voxel Grid.** Recently, it has been shown that volume textures can be encoded compactly with a combination of triplanes and a low-resolution voxel grid (Reiser et al., 2023; Reiser et al., 2023). Both the triplanes and the low-resolution voxel grid are cache-friendly, leading to fast random access.\n' +
+      '\n' +
+      'Table 1 shows that volume textures yield the highest quality, followed by the combination of triplanes and low-resolution voxel grid. The gap to vertex attributes is more pronounced, which you can also see in Figure 4: vertex attributes look blurry in geometrically simple regions. Finally, while the triplane and grid combination uses less memory than and is much faster than volume textures, these representations look nearly identical in Figure 4.\n' +
+      '\n' +
+      '### View-Dependence\n' +
+      '\n' +
+      'We also investigate several encodings for view-dependent color: **spherical harmonics** and **spherical Gaussians**, which are established formats for view-dependent colors in real-time view synthesis systems (Fridovich-Keil et al., 2022; Yariv et al., 2023; Yu et al., 2021),\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c c c}  & PSNR \\(\\uparrow\\) & SSIM \\(\\uparrow\\) & LPIPS \\(\\downarrow\\) & VRAM \\(\\downarrow\\) & FPS \\(\\uparrow\\) \\\\ \\hline vertex attributes & 25.58 & 0.771 & 0.211 & **97** & 261 \\\\ volume textures & **26.25** & **0.820** & **0.143** & 4513 & 169 \\\\ triplane + voxel & 26.02 & 0.807 & 0.157 & 629 & **477** \\\\ \\hline offline & 26.86 & 0.830 & 0.135 & – & – \\\\ \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 1. Comparison between representations for mesh appearance on gardenvasse. Replacing vertex attributes by a grid-based representation leads to higher quality. However, the sparse voxel grid representation leads to a high memory consumption (VRAM). At a slight loss of quality, the “triplane + voxel” option is considerably more compact, while having the fastest rendering among all alternatives.\n' +
+      '\n' +
+      'Figure 4. **Comparison between different representations for mesh appearance. Replacing vertex attributes with a grid representation leads to sharper textures. There is almost no difference between “voxel grid” and the cheaper alternative “triplane + voxel”.**\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:6]\n' +
+      '\n' +
+      'baselines MERF and 3DGS and the surface-based method BakedSDF on a Google Pixel 8 Pro smartphone, a MacBook M1 Pro (2022) laptop and a desktop equipped with an NVIDIA RTX 3090 graphics card. We report the harmonic mean of frames per second (FPS) on the outdoor scenes of the Mip-NeRF 360 dataset (Barron et al., 2022). In terms of rendering speed, our mesh-based representation outperforms all volume-based baselines, see Table 4. In terms of quality metrics, our method still lags behind the most recent volume-based baselines, as can be seen in Table 3. However, the quality gap between surface-based and volume-based methods is significantly reduced, especially when it comes to the reconstruction of thin structures, as can be seen in Figure 5.\n' +
+      '\n' +
+      '### Geometry Ablations\n' +
+      '\n' +
+      'To investigate which elements contribute the most to geometric quality, we conduct an ablation study on the outdoor scenes from mip-NeRF 360 (Barron et al., 2022). We focus here on the training of the initial opacity grid, which determines the quality of the mesh.\n' +
+      '\n' +
+      'We train a variant of our model without supersampling (a). In this case, we only disable supersampling during training of the binary occupancy grid, but we still use supersampling for fitting the mesh appearance model and for computing quality metrics. This isolates the effect supersampling has on the quality of the obtained mesh. As shown by the top row of Figure 7, thin structures are hard to recover well without casting multiple rays per pixel during training.\n' +
+      '\n' +
+      'Next, we train a variant of our model without the entropy loss (b). Since for this model, many opacity values do not become binary during the course of training, we define depth as the distance to the first voxel along the ray with an opacity value greater than 0.5. Similar to (a), the effect of this is most pronounced for very thin structures such as the ones shown in Figure 7.\n' +
+      '\n' +
+      'Finally, we decrease the resolution R of the binary opacity grid (c). For this experiment, we only decrease the resolution of the initial binary opacity grid, but we use the same resolution of triplanes and the low-resolution voxel grid during mesh appearance fitting as for the full model. This isolates the effect geometric resolution has on mesh quality. As can be seen in Figure 7, a high resolution is crucial for reconstructing thin structures. Quantitative results for these ablations are given in Table 7.\n' +
+      '\n' +
+      '### Storage Analysis\n' +
+      '\n' +
+      'Finally, we study how the individual components of our representation contribute to disk storage and memory consumption. We split our representation into a mesh and an appearance model. As we have shown experimentally, reconstructing thin structures requires a high grid resolution. As can be seen in Table 8, without any further processing, this leads to meshes with billions of faces, resulting in an impractical storage requirement of over 20 GiB. However, using mesh simplification and culling, the size of the mesh can be reduced by a factor of 100 to around 200 MiB. This results in the overall size of the representation being dominated by the appearance model, which occupies around 76% of the overall storage.\n' +
+      '\n' +
+      '### Limitations and Future Work\n' +
+      '\n' +
+      'Training-time supersampling adds a large computational overhead. The reconstruction of the underconstrained background of the scene is often highly noisy, which significantly increases the size of our meshes. This could potentially be mitigated with a smoothness regularizer. The concurrent work Nuvo presents a UV mapping method that is suited for high-detail meshes such as ours (Srinivasan et al., 2023). Replacing our appearance representation with UV textures and obtaining more compact meshes using smoothness regularization could lead to further, significant speed-ups and memory savings. Finally, we found the quality difference between our approach and\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c c}  & PSNR \\(\\uparrow\\) & SSIM \\(\\uparrow\\) & LPIPS \\(\\downarrow\\) & \\#faces \\(\\downarrow\\) \\\\ \\hline BakedSDF & 22.47 & 0.585 & 0.349 & 40M \\\\ BakedSDF++ & 22.50 & 0.612 & 0.315 & 40M \\\\ Ours (SSAA) & **23.94** & **0.680** & **0.263** & **13M** \\\\ \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 6. Comparison between BakedSDF, an improved version of BakedSDF (BakedSDF++) and our method on the outdoor scenes from mip-NeRF 360 (Barron et al., 2022). Our method achieves higher view synthesis quality than BakedSDF++, which indicates that our compact meshes are better suited for view synthesis than BakedSDF’s meshes.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c}  & PSNR \\(\\uparrow\\) & SSIM \\(\\uparrow\\) & LPIPS \\(\\downarrow\\) \\\\ \\hline (a) No supersampling & 23.38 & 0.645 & 0.292 \\\\ (b) No entropy loss & 23.21 & 0.635 & 0.293 \\\\ (c) R = 2048 instead of R = 8192 & 22.44 & 0.582 & 0.343 \\\\ Ours (SSAA) & **23.94** & **0.680** & **0.263** \\\\ \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 7. Quantitative results for geometric ablations on the outdoor scenes from the mip-NeRF 360 dataset (Barron et al., 2022).\n' +
+      '\n' +
+      'Figure 5. Our method narrows the quality gap between surface-based and volume-based methods when it comes to the reconstruction of thin structures.\n' +
+      '\n' +
+      'volume-based methods larger in the indoor scenes. We attribute this to changes in illumination (e.g. shadows) between images that are difficult to capture on surfaces with a low-capacity view-dependence model. Indeed, we found a large offline view-dependence network to yield significantly higher quality in these scenes. The interpolated view-dependence networks from SMERF (Duckworth et al., 2023) seem like a promising real-time alternative.\n' +
+      '\n' +
+      '## 7. Conclusion\n' +
+      '\n' +
+      'We have presented the first mesh-based view synthesis algorithm that is capable of reproducing subpixel structures in the input images by employing a high-resolution opacity grid combined with supersampling and a binary entropy loss. In contrast to volume-based alternatives, our method renders in real-time on affordable smartphones. Compared to BakedSDF, the previous state-of-the-art in mesh-based view synthesis, our method yields 3 times more compact meshes and achieves 1.46 dB higher PSNR in outdoor scenes.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* (1)\n' +
+      '* Barron et al. (2022) Jonathan T. Barron, Ben Mildenhall, Dor Verbin, Pratul P. Srinivasan, and Peter Hedman. 2022. Mip-NetRF 300: Unbounded, Anti-Alsaceal Neural Radiance Fields. _CVPR_ (2022).\n' +
+      '* Barron et al. (2023) Jonathan T. Barron, Ben Mildenhall, Dor Verbin, Pratul P. Srinivasan, and Peter Hedman. 2023. ZweBF: NetRF: Anti-Alsaceal Grid-Based Neural Radiance Fields. _ICCV_ (2023).\n' +
+      '* Benson and Davis (2002) David Benson and Joel Davis. 2002. Octree textures. _ACM Transactions on Graphics (TOG)_ (2002).\n' +
+      '* Chen et al. (2022) Angel Chen, Zexiang Xu, Andreas Geiger, Jingyi Yu, and Hao Su. 2022. Tensorf: Tensorfial radiance fields. In _European Conference on Computer Vision_. Springer, 333-350.\n' +
+      '* Chen et al. (2023) Zhiqun Chen, Thomas Funkhouser, Peter Hedman, and Andrea Taglassacchi. 2023. MobileNet: Exploiting the Polygon Masterization Pipeline for Efficient Neural Field Rendering on Mobile Architectures. _CVPR_ (2023).\n' +
+      '* Curless and Levoy (1996) Brian Curless and Marc Levoy. 1996. A Volumetric Method for Building Complex Models from Range Images. _SIGGRAPH_ (1996).\n' +
+      '* Debeve et al. (1998) Paul Debeve, Yichou Yu, and George Borshkov. 1998. Efficient view-dependent image-based rendering with projective texture-mapping. _EGSR_ (1998).\n' +
+      '* Duckworth (1979) Claude D. 1979. Lanco filtering in one and two dimensions. _Journal of Applied Meteorology and Climatology_ (1979).\n' +
+      '* Duckworth et al. (2023) Daniel Duckworth, Peter Hedman, Christian Reiser, Peter Zhihain, Jean-Francois Thibibert, Marc Lucic, Richard Szeliski, and Jonathan T. Barron. 2023. SMERF: Streamable Memory Efficient Radiance Fields for Real-Time Large-Scene Exploration. _ArXivcs.CV_/2312.07541\n' +
+      '* Fridovich-Keel et al. (2022) Sara Fridovich-Keel, Alex Yu, Matthew Tancki, Qinhong Chen, Benjamin Recht, and Angelo Kozanzawa. 2022. Plenoxels: Radiance fields without neural networks. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_. 5501-5510.\n' +
+      '* Grablin et al. (2021) Stephan Grablin, Marek Kowalski, Matthew Johnson, Jamie Shotton, and Julien Valentin. 2021. FastNeRF: High-Fidelity Neural Rendering at 200fps. _ICCV_ (2021).\n' +
+      '* Garland and Heckbert (1997) Michael Garland and Paul S. Heckbert. 1997. Surface simplification using quadric error metrics. _SIGGRAPH_ (1997).\n' +
+      '* Guo et al. (2023) Yuan-Chen Guo, Yan-Pei Cao, Chen Wang, Yu He, Ying Shan, and Song-Hai Zhang. 2023. VRSA: Hybrid volume-mesh representation for efficient view synthesis. _SIGGRAPH Asia_ (2023).\n' +
+      '* Hedman et al. (2021) Peter Hedman, Pratul P. Srinivasan, Ben Mildenhall, Jonathan T. Barron, and Paul Debeve. 2021. Bagging Neural Radiance Fields for Real-Time View Synthesis. _ICCV_ (2021).\n' +
+      '* Janockes and Jajla (2011) Michal Janockes and Tomas Jajla. 2011. Multi-view reconstruction preserving weakly-supported surfaces. _CVPR_ (2011).\n' +
+      '* Karis (2014) Brian Karis. 2014. High Quality Temporal Supersampling. ACM SIGGRAPH Courses: Advances in Real-Time Rendering in Games.\n' +
+      '* Kershl et al. (2023) Bernhard Kershl, Georgios Koprans, Thomas Lemikuhler, and George Drettakis. 2023. 3D Gaussian Splitting for Real-Time Radiance Field Rendering. _ACM Transactions on Graphics_ (2023).\n' +
+      '* Kingma and Ba (2014) Diederik P Kingma and Jimmy Ba. 2014. Adam: A method for stochastic optimization. _arXiv_ (2014).\n' +
+      '* Keppans et al. (2021) Georgios Koppans, Julien Philip, Thomas Lemikuhler, and George Drettakis. 2021. Point-Based Neural Rendering with Per-View Optimization. In _Computer Graphics Forum_, Vol. 40. Wiley Online Library, 29-43.\n' +
+      '* Lefebvre and Hoppe (2006) Sylvain Lefebvre and Hugues Hoppe. 2006. Perfect spatial hashing. _ACM Transactions on Graphics (TOG)_ (2006).\n' +
+      '* Li et al. (2023) Zluoshuo Li, Thomas Muller, Alex Evans, Russell H Taylor, Mathias Unberath, Ming-Yu Liu, and Chen-Hsuan Lin. 2023. Neurallangel: High-Fidelity Neural Surface Reconstruction. _CVPR_ (2023).\n' +
+      '* Liao et al. (2018) Yiyi Liao, Simon Donne, and Andreas Geiger. 2018. Deep marching cubes: Learning explicit surface representations. In _Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition_. 2916-2925.\n' +
+      '* Li et al. (2020) Lingie Liu, Jianto Guo, Kyaw Zaw Lin, Tat-Seng Chua, and Christian Theobalt. 2020. Neural Sparse Voxel Features. _NeurIPS_ (2020).\n' +
+      '* Mildenhall et al. (2020) Ben Mildenhall, Pratul P. Srinivasan, Matthew Tancki, Jonathan T. Barron, Ravi Ramamoorthi, and Ren B. 2020. NeRF: Representing Semes as Neural Radiance Fields for View Synthesis. _ECCV_ (2020).\n' +
+      '* Muller et al. (2022) Thomas Muller, Alex Evans, Christoph Schied, and Alexander Keller. 2022. Instant Neural Graphics Primitives with a Multiresolution Hash Encoding. _ACM Trans. Graph_ (2022).\n' +
+      '* Munkberg et al. (2022) Jacob Munkberg, Jon Hasselgren, Tianchang Shen, Jun Gao, Wenzheng Chen, Alex Evans, Thomas Muller, and Sanja Fidler. 2022. Extracting Triangular 3D Models, Materials, and Lighting From Images. _CVPR_ (June 2022).\n' +
+      '* Niemeyer et al. (2020) Michael Niemeyer, Lars Mescheder, Michael Oechsle, and Andreas Geiger. 2020. Differentiable Volumetric Rendering: Learning Implicit 3D Representations without 3D Supervision. _CVPR_ (2020).\n' +
+      '* Oechle et al. (2021) Michael Oechle, Songyong Peng, and Andreas Geiger. 2021. UNIBUR: Unifying Neural Implicit Surfaces and Radiance Fields for Multi-View Reconstruction. _ICCV_ (2021).\n' +
+      '* Philip et al. (2021) Julien Philip, Sebastien Morgenthaler, Michael Gharbi, and George Drettakis. 2021. Free-viewpoint indoor neural relighting from multi-view stereo. _ACM Transactions on Graphics (TOG)_ (2021).\n' +
+      '* Rakotosona et al. (2023) Marie-Julie Rakotosona, Fabian Manhardt, Diego Martin Arroyo, Michael Niemeyer, Abhijit Kundu, and Federico Tomblari. 2023. NeRFMembishing: Distilling Neural Radiance Fields into Geometrically-Accurately 3d Meshes. _3DV_ (2023).\n' +
+      '* Rieser et al. (2023) Christian Rieser, Rick Szeliski, Dor Verbin, Pratul Srinivasan, Ben Mildenhall, Andreas Geiger, Jon Barron, and Peter Hedman. 2023. MERF: Memory-Efficient Radiance Fields for Real-Time View Synthesis in Unbounded Seemes. _ACM Trans. Graph._ (2023).\n' +
+      '* Riedger and Koltun (2021) Gernot Riedger and Vladlen Koltun. 2021. Stable View Synthesis. _CVPR_ (2021).\n' +
+      '* Radivert et al. (2022) Darrius Radivert, Linus Franke, and Marc Stamminger. 2022a. Adop: Approximate differentiable one-pixel point rendering. _ACM Transactions on Graphics (ToG)_ 41, 4, 2022).\n' +
+      '* Ruckert et al. (2022) Darus Ruckert, Yuanhao Wang, Rui Li, Ramzi Houghi, and Wolfgang Heidrich. 2022b. Neet: Neural adaptive tomography. _ACM Transactions on Graphics_ (TOG) 41, 4, 2022), 1-13.\n' +
+      '* Saki (2016) Marco Saki. 2016. An excursion in temporal supersampling. Game Developer Conference.\n' +
+      '* Schonberger et al. (2016) Johannes Lutz Schonberger, Enliang Zheng, Marc Pollefeys, and Jan-Michael Frahm. 2016. Pixelving View Selection for Unstructured Multi-View Stereo. _ECCV_ (2016).\n' +
+      '* Shen et al. (2021) Tianchang Shen, Jun Gao, Kangcue Yin, Ming-Yu Liu, and Sanja Fidler. 2021. Deep Marching Tetrahedra: A Hybrid Representation for High-Resolution 3D Shape Synthesis. _NeurIPS_ (2021).\n' +
+      '* Shen et al. (2023) Tianchang Shen, Jacob Munkberg, Jon Hasselgren, Kangcue Yin, Zian Wang, Wenzheng Chen, Zan Gojcic, Sanja Faller, Nicholas Sharp, and Jun Gao. 2023. Flexible Isosurface Extraction for Gradient-Based Mesh Optimization. _ACM Trans. Graph._ (2023).\n' +
+      '* Srinivasan et al. (2023) Pratul P. Srinivasan, Stephan J. Garbin, Dor Verbin, Jonathan T. Barron, and Ben Mildenhall. 2023. Nuvc: Neural UV Mapping for Unvuly 3D Representations. _arXiv_ (2023).\n' +
+      '* Tang et al. (2013) Jiaxiang Tang, Hang Zhou, Xiaokang Chen, Tianshun Hu, Errui Ding, Jingdong Wang, and Gang Zeng. 2023. Deplicate Textured Mesh Recovery from NeelFi via Adaptive Surface Refinement. _ICCV_ (2023).\n' +
+      '* Thies et al. (2019) Justus Thies, Michael Zollhofer, and Matthias Niedner. 2019. Defeered Neural Rendering: Image Synthesis using Neural Textures. _ACM Transactions on Graphics (TOG)_ (2019).\n' +
+      '* Turki et al. (2022) Haithen Turki, Vasa Agrawal, Samuel Rota Bulo, Lorenzo Porzi, Peter Kontschieder, Deva Ramanan, Michael Zollhofer, and Christian Richard. 2022. HybridNetRF: Efficient Neural Rendering via Adaptive Volumetric Surfaces. arXivcs.CVE-2213.01360.\n' +
+      '* Unke and Moenner (2024) Oliver T. Unke and Hartmut Moenner. 2024. 52x: [G3-].\n' +
+      '* Waeetheret et al. (2014) Michael Waeetheret, Nils Moenbride, and Michael Goesele. 2014. Let there be color! Large-scale texturing of 3D reconstructions. _ECCV_ (2014).\n' +
+      '* Wang et al. (2021) Peng Wang, Lingie Liu, Yuan Liu, Christian Theobalt, Taku Komura, and Wenping Wang. 2021. Neets: Learning Neural Implicit Surfaces by Volume Rendering for Multi-view Reconstruction. _NeurIPS_ (2021).\n' +
+      '* Wang et al. (2023) Zian Wang, Tianchang Shen, Merlin Nusser-David, Nicholas Sharp, Jun Gao, Alexander Keller, Sanja Fidler, Thomas Miller, and Zan Gogic. 2023. Adaptive Shells for Efficient Neural Radiance Field Rendering. _ACM Trans. Graph._ (2023).\n' +
+      '* Wood et al. (2000) Daniel N. Wood, Daniel L. Anuma, Ken Adlinger, Brian Curless, Tom DuchampHan Yan, Celong Liu, Chao Ma, and Xing Mei. 2023. PleuYDIB: Memory Efficient VDIB-Based Radiance Fields for Fast Training and Rendering. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_. 88-96.\n' +
+      '* Liu et al. (2020) Lei Ying, Shiqai Liu, and Marco Salvi. 2020. A Survey of Temporal Antialiasing Techniques. _Computer Graphics Forum_ (2020).\n' +
+      '* Yariv et al. (2021) Lior Yariv, Jiatao Gu, Yoni Kasten, and Yaron Lipman. 2021. Volume rendering of neural implicit surfaces. _NeurIPS_ (2021).\n' +
+      '* Yariv et al. (2023) Izor Yariv, Peter Hedham, Christian Reiser, Dror Verbin, Pratul P. Srinivasan, Richard Szeliski, Jonathan T. Barron, and Ben Mildenhall. 2023. BakedSDf: Meshing Neural SDFs for Real-Time View Synthesis. _SIGGRAPH_ (2023).\n' +
+      '* Yariv et al. (2020) Izor Yariv, Yoni Kasten, Dror Moran, Meirav Galun, Matan Atzmon, Basri Ronen, and Yaron Lipman. 2020. Multiview neural surface reconstruction by disentangling geometry and appearance. _Advances in Neural Information Processing Systems_ 33 (2020), 2492-2502.\n' +
+      '* Yu et al. (2021) Alex Yu, Ruilong Li, Matthew Tancik, Hao Li, Ren Ng, and Angjoo Kanazawa. 2021. PreDetorse for Real-time Rendering of Neural Radiance Fields. _ICCV_ (2021).\n' +
+      '* Yu et al. (2022) Zehao Yu, Songru Peng, Michael Niemeyer, Torsten Sattler, and Andreas Geiger. 2022. MonoSDF: Exploring Monocular Geometric Cues for Neural Implicit Surface Reconstruction. _NeurIPS_ (2022).\n' +
+      '* Zhuang et al. (2023) Yiying Zhuang, Qiang Zhang, Ying Feng, Hao Zhu, Yao Yao, Xiaoyu Li, Yan-Pei Cao, Ying Shan, and Xun Cao. 2023. Anti-Aliased Neural Implicit Surfaces with Encoding Level of Detail. _SIGGRAPH Asia_ (2023).\n' +
+      '\n' +
+      '## Appendix A Fusion Algorithm\n' +
+      '\n' +
+      'When converting our trained binary opacity grid into a triangle mesh, it is crucial to only instantiate geometry in regions that were sampled by the proposal MLP, since only these regions were supervised during training. This can be achieved by rendering depth maps from the training viewpoints using the proposal MLP and creating surface voxels via unprojection. However, during training, some voxels may only be sampled in a fraction of the views and thus have incorrect opacity values. This leads to floating artifacts in the resulting mesh (see Figure 3 in the main paper).\n' +
+      '\n' +
+      'We use volumetric fusion to filter these underconstrained voxels. Specifically, for each voxel, we count how for many depth maps the voxel is observed 1) in free space and 2) on the surface. As underconstrained voxels appear in very few training views, we can detect and discard them by only keeping voxels that are more frequently observed on the surface rather than in free space.\n' +
+      '\n' +
+      'Another important motivation for volumetric fusion is that it outputs a dense implicit representation which can easily be converted into a hole-free mesh -- the preferred input for most simplification algorithms. Consequently, we would like our fusion algorithm to also label unobserved voxels as "inside" or "outside". A simple heuristic is to lo label unobserved voxels as "inside" [23]. However, in rare cases, the proposal MLP does not sample the surface of an object, which carves large holes into the resulting mesh. We address this by requiring several views to observe a voxel in free space before it can be labelled as outside.\n' +
+      '\n' +
+      'This leads to our fusion algorithm. For each voxel, we count:\n' +
+      '\n' +
+      '* \\(\\mathcal{S}\\): the number of views where it is observed on the surface.\n' +
+      '* \\(\\mathcal{F}\\): the number of views where it is observed in front of the surface, i.e. in free space.\n' +
+      '* \\(\\mathcal{O}\\): the number of views in which it is observed at all.\n' +
+      '\n' +
+      'Specifically, we project the voxel into each training view where we obtain a depth value \\(d\\). Then, we increment \\(\\mathcal{S}\\) if the voxel\'s depth is approximately the same as \\(d\\). We increment \\(\\mathcal{F}\\) if the voxels\' depth is smaller than \\(d\\). If the voxel is within the training camera\'s frustum, we increment \\(\\mathcal{O}\\). Finally, we label the voxel as "inside" if any of the following conditions is met:\n' +
+      '\n' +
+      '1. \\(s\\mathcal{S}>\\mathcal{F}\\)\n' +
+      '2. \\(\\mathcal{F}<t(\\mathcal{O})\\)\n' +
+      '3. \\(\\mathcal{S}=0\\) and \\(\\mathcal{F}=0\\)\n' +
+      '4. \\(\\mathcal{O}<2\\)\n' +
+      '\n' +
+      'We multiply \\(\\mathcal{S}\\) with a number \\(s>1\\) to bias the reconstruction towards surfaces, which helps preserve thin structures. Weighing \\(\\mathcal{S}\\) and \\(\\mathcal{F}\\) equally leads to the erosion of objects, as voxels at object boundaries are not consistently sampled by the proposal MLP. Rule (2) is motivated by the fact that sometimes the proposal MLP misses an entire object altogether. In the unobserved interior of an object, \\(\\mathcal{S}\\) will be equal to zero in this case, but since \\(\\mathcal{F}\\) is nonzero, this leads to incorrectly labeling the voxel as outside. Rule (2) fixes this by requiring a minimum number of views that need to observe a voxel to lie in free space for it to labelled as outside. This threshold needs to be dependent on then number of views that observe a voxel, since otherwise sparsely observed voxels are always labelled as inside. Rule (3) ensures that completely unobserved parts of the scene are labelled as inside. The optional rule (4) ensures that only voxels are considered that are observed in at least two views, since parts of the scene that are only observed by a single camera are inherently underconstrained and thus only contribute geometric noise. As can be seen in Figure 3 of the main paper, this algorithm effectively removes floating artifacts, while preserving thin structures.\n' +
+      '\n' +
+      '## Appendix B Scalable Mesh Conversion via Chunking\n' +
+      '\n' +
+      'To capture thin structures with a surface-based approach, a very high grid resolution of 81923 is required. Processing such a high resolution grid in one pass requires too much memory. Fortunately, all of the steps (volumetric fusion, filtering, marching cubes, and simplification) in our pipeline can be executed in 10243 chunks, which allows scaling to arbitrary resolutions. To avoid discontinuities at chunk boundaries, we configure the mesh simplification algorithm to keep boundary vertices intact. The final mesh can then be computed by concatenating sub-meshes and merging the duplicate boundary vertices. To speed up volumetric fusion, we only process voxels that are sufficiently close to an initial estimate of the surface. We obtain this initial estimate of the surface by unprojecting the depth values contained in the depth maps of all input views. We then quantize the resulting 3D points based on grid resolution (81923), which gives us a list of surface voxels. We then subdivide the scene into 163 blocks and determine for each block whether it contains a voxel that is maximally \\(D=64\\) voxels apart from a\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{r c|c c c}  & & (a) Dense Mesh & (b) + Simpl. & (c) + Culling \\\\ \\hline Mesh & \\#vertices & 606M & 9M & **7M** \\\\ Mesh & \\#faces & 1208M & 18M & **10M** \\\\ Mesh & VRAM & 20.28 GiB & 0.30 GiB & **0.19 GiB** \\\\ Mesh & DISK & 21.40 GiB & 0.32 GiB & **0.20 GiB** \\\\ \\hline Appearance & VRAM & 0.75 GiB & 0.75 GiB & **0.75 GiB** \\\\ Appearance & DISK & 0.65 GiB & 0.65 GiB & **0.65 GiB** \\\\ \\hline \\hline Total & VRAM & 21.02 GiB & 1.05 GiB & **0.94 GiB** \\\\ Total & DISK & 22.05 GiB & 0.97 GiB & **0.85 GiB** \\\\ \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 8. Memory consumption and storage impact of our method. (a) The dense mesh before simplification, (b) after simplification, (c) after culling. Simplification and culling are crucial for attaining practical mesh sizes. Results are averaged over all scenes from mipNeRF-360 [3].\n' +
+      '\n' +
+      'voxel in the previously computed list of observed surface voxels. During fusion we skip blocks that are not marked as alive. Since we are no longer densely computing the implicit representation, it is no longer guaranteed that running marching cubes results in a hole-free mesh, which is the preferred input for most simplification algorithm. However, we find that with our choice of \\(D=64\\), only a moderate number of holes are introduced. These holes are usually not observed and therefore the quality of the reconstruction does not suffer. This technique also leads to slightly smaller meshes.\n' +
+      '\n' +
+      '## Appendix C Implementation Details and Hyperparameters\n' +
+      '\n' +
+      '**Architecture.** For the proposal MLPs and the MLP that predicts binary opacity values and view-dependent colors, we closely follow Zip-NeRF\'s (Barron et al., 2023) architecture based on a multi-resolution hash encoding (Muller et al., 2022). To bound opacity and color values between 0 and 1, we use a sigmoid activation function. Following Reiser et al. (2023), during mesh appearance fitting, we predict the values of the triplanes and low-resolution voxel grid with a hash grid-equipped MLP. For this MLP, we use the same architecture as the MLP that parameterizes the binary opacity grid.\n' +
+      '\n' +
+      'In unbounded scenes, regions that are only observed from far away can be represented with a low resolution. To achieve a resolution that smoothly decreases with the distance from the scene\'s center, we apply MERF\'s contraction function to each position \\(\\mathbf{x}\\) before querying the MLP:\n' +
+      '\n' +
+      '\\[\\text{contract}(\\mathbf{x})=\\begin{cases}x&\\text{if }\\|\\mathbf{x}\\|_{ \\infty}\\leq 1\\\\ \\frac{x}{\\|\\mathbf{x}\\|_{\\infty}}&\\text{if }x\\neq\\|\\mathbf{x}\\|_{\\infty}>1\\\\ \\left(2-\\frac{1}{|x|}\\right)\\frac{x}{|x|}&\\text{if }x=\\|\\mathbf{x}\\|_{\\infty}>1 \\end{cases} \\tag{4}\\]\n' +
+      '\n' +
+      'Before applying the contraction function, we scale input coordinates by a factor of 2.5 to allocate more representation power to the foreground. For the standalone voxel grid, we use a resolution of \\(2048^{3}\\). For the combination of triplane and low-resolution voxel grid, we use a resolution of \\(2048^{2}\\) and \\(512^{3}\\), respectively.\n' +
+      '\n' +
+      '**Optimization.** For binary opacity grid optimization, we use Adam (Kingma and Ba, 2014) with an initial learning rate of 0.01, a final learning rate of 0.001 and 25K steps. For mesh appearance optimization, we use Adam with an initial learning rate of 0.0005, a final learning rate of 0.00005 and 100K steps. The learning rate is warmed up for 2500 steps. For the binary entropy loss, we use a weight of 0.05.\n' +
+      '\n' +
+      '**Simplification.** For mesh simplification, we need to specify a ratio \\(R\\) that controls what fraction of original triangles should be kept. We want to simplify the background more aggressively than the foreground, since we find it to be less important for accurate view synthesis. As detailed in the previous section, simplification is executed on a chunk-by-chunk basis. The scene is subdivided into an \\(8^{3}\\) grid of chunks. We define a chunk as lying in the background if its center lies outside of the \\([-1,1]^{3}\\) unit cube. For foreground chunks, we set \\(R\\) to 0.03. We simplify backgrounds chunks twice as aggressively by setting \\(R\\) to 0.015. In addition, we make sure that a background chunk contains at most 0.5M faces by adjusting \\(R\\) accordingly.\n' +
+      '\n' +
+      '**Visibility Culling.** For visibility culling, we not only use the camera poses of the training images, but also generate 6 additional poses for each training pose by adding random offsets and rotations to the original pose. Let \\(\\mathbf{o}\\) be the origin of the training camera let \\(\\mathbf{d}\\) be the direction the training camera faces to. We obtain a new origin \\(\\mathbf{o}\\) by applying isotropic Gaussian noise. To obtain a new direction \\(\\hat{\\mathbf{d}}\\), we use the E3X library (Unke and Maennel, 2024) and draw a a uniform sample from an \\(\\epsilon\\)-neighborhood of the the direction vector:\n' +
+      '\n' +
+      '\\[\\hat{\\mathbf{o}} \\sim\\mathcal{N}(\\mathbf{o},\\sigma^{2}\\mathbf{I}))\\,, \\tag{6}\\] \\[\\hat{\\mathbf{d}} \\sim\\mathcal{U}(\\{\\mathbf{v}\\in\\mathbb{R}^{3}:||\\mathbf{v}- \\mathbf{d}||_{2}<\\epsilon,||\\mathbf{v}||_{2}=1\\})\\,. \\tag{5}\\]\n' +
+      '\n' +
+      'We find that the additional poses are crucial for avoiding visible holes in the final mesh.\n' +
+      '\n' +
+      '## Appendix D Temporal Anti-Aliasing\n' +
+      '\n' +
+      'We implement our temporal anti-aliasing strategy (Yang et al., 2020) following industry best practices (Karis, 2014). Namely, we jitter the projection matrix with a \\(\\text{Halton}(2,3)\\) sequence of length 16 and reproject the previous frame\'s color using the current depth buffer. We then average the reprojected color with the current frame\'s color using an exponentially moving average with a blend factor of 0.05. To reduce blur from repeated resampling, we use a Lanczos kernel (Duchon, 1979) with a radius of 3 for reprojection. Finally, to limit ghosting artifacts for disoccluded content, we clip the reprojected color using variance-box (Salvi, 2016) neighborhood clamping in the YCoCg color space (Karis, 2014).\n' +
+      '\n' +
+      'Since TAA is known to cause blur under motion, we evaluate the quality of our test set images with a moving camera. Given a target camera pose, we first extract its "up" vector \\(\\mathbf{u}\\) and its "left" vector \\(\\mathbf{l}\\). We then translate the camera from an initial position \\(\\mathbf{p}+c(\\mathbf{u}+\\mathbf{l})\\) to the target position \\(\\mathbf{p}\\) over a fixed number of frames \\(T=100\\):\n' +
+      '\n' +
+      '\\[\\mathbf{p}(t)=\\mathbf{p}+\\lambda c(\\mathbf{u}+\\mathbf{l}) \\tag{7}\\]\n' +
+      '\n' +
+      'where \\(\\lambda=1-\\frac{t}{T-1}\\) and the time step \\(t\\) ranges from 0 to \\(T-1\\). The factor \\(c=0.05\\) controls how far the initial position is from the target position. The camera\'s rotation is kept fixed during the entire trajectory. The frame used for computing quality metrics is captured when the camera has arrived at the target position.\n' +
+      '\n' +
+      '## Appendix E Frame Rate Benchmarking\n' +
+      '\n' +
+      'We follow the evaluation protocol from Duckworth et al. (2023) and measure the average frame rate over the scene\'s test set camera poses. Following Duckworth et al. (2023), we render for each camera pose 100 frames and compute the average frame time. Similar to SMERF, for the browser-based viewer applications (BakedSDF (Tariw et al., 2023), MERF (Reiser et al., 2023)) and our method, we measure frame rates that exceed the browser\'s frame rate limit by drawing each frame \\(k\\) times before scheduling it for display. Following SMERF, we measure frame times with three different values of \\(k\\), where we choose the initial value for \\(k\\) to ensure that frame rate lies below 60 FPS. We then perform two additional measurements with larger values for \\(k\\). Finally, for each frame, we report the minimum average frame time over \\(k\\).\n' +
+      '\n' +
+      '[MISSING_PAGE_EMPTY:11]\n' +
+      '\n' +
+      'Figure 7: **Qualitative results for geometric ablations.** Our model’s ability to accurately reconstruct challenging thin structures depends critically on (a) casting multiple rays per pixel, (b) enforcing the entropy loss, and (c) employing a high resolution grid.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
