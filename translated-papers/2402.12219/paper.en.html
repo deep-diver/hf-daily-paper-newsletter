@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# Reformatted Alignment\n' +
+      '\n' +
+      'Run-Ze Fan\\({}^{1,6}\\)  Xuefeng Li\\({}^{1,6}\\)  Haoyang Zou\\({}^{3,6}\\)  Junlong Li\\({}^{1,6}\\)  Shwai He\\({}^{4}\\)\n' +
+      '\n' +
+      'Ethan Chern\\({}^{1,6}\\)  Jiewen Hu\\({}^{5,6}\\)  Pengfei Liu\\({}^{1,2,6*}\\)\n' +
+      '\n' +
+      '\\({}^{1}\\)Shanghai Jiao Tong University \\({}^{2}\\)Shanghai Aritical Intelligence Laboratory\n' +
+      '\n' +
+      '\\({}^{3}\\)Fudan University \\({}^{4}\\)University of Maryland, College Park\n' +
+      '\n' +
+      '\\({}^{5}\\)CMU \\({}^{6}\\)Generative AI Research Lab (GAIR)\n' +
+      '\n' +
+      'runze.fan@icloud.com, pengfei@sjtu.edu.cn\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      'The quality of finetuning data is crucial for aligning large language models (LLMs) with human values. Current methods to improve data quality are either labor-intensive or prone to factual errors caused by LLM hallucinations. This paper explores elevating the quality of existing instruction data to better align with human values, introducing a simple and effective approach named ReAlign, which _reformats_ the responses of instruction data into a format that better aligns with pre-established criteria and the collated evidence. This approach minimizes human annotation, hallucination, and the difficulty in scaling, remaining orthogonal to existing alignment techniques. Experimentally, ReAlign significantly boosts the general alignment ability, math reasoning, factuality, and readability of the LLMs.\n' +
+      '\n' +
+      'Encouragingly, _without_ introducing any additional data or advanced training techniques, and merely by reformatting the response, LLaMA-2-13B\'s mathematical reasoning ability on GSM8K can be improved **from 46.77% to 56.63%** in accuracy. Additionally, a mere 5% of ReAlign data yields a 67% boost in general alignment ability measured by the Alpaca dataset. This work highlights the need for further research into the _science_ and _mechanistic interpretability_ of LLMs. We have made the associated code and data publicly accessible to support future studies at [https://github.com/GAIR-NLP/ReAlign](https://github.com/GAIR-NLP/ReAlign).\n' +
+      '\n' +
+      'Figure 1: The accuracy of the GSM8K test set for LLaMA-2-13B and Mistral-7B models fine-tuned on the training set of GSM8K and MATH with and without ReAlign. (a): Training and testing on GSM8K. (b): Training on MATH and testing on GSM8K (Out-of-Distribution Setting).\n' +
+      '\n' +
+      'Introduction\n' +
+      '\n' +
+      'Alignment has been witnessed to be an effective technique for aligning large language models (LLMs) to human values and human intent (Ouyang et al., 2022), which usually requires fine-tuning on a large amount of synthetic data derived from LLMs (Wang et al., 2023; Honovich et al., 2023; Peng et al., 2023; Xu et al., 2023) or human-annotated instruction data (Ouyang et al., 2022; Kopf et al., 2023).\n' +
+      '\n' +
+      'Recent studies, notably by Zhou et al. (2023) highlight the critical role of instruction data quality in this process. Numerous works (Wang et al., 2023; Zhou et al., 2023; Cao et al., 2023; Chen et al., 2023; Li et al., 2023; Lu et al., 2023) have contributed to enhancing instruction quality by focusing on the diversity and complexity of input queries as well as the quality of responses. These efforts can be divided into two primary approaches. The first approach, advocated by Ouyang et al. (2022) and Touvron et al. (2023), involves the manual creation of high-quality data. Although this method creates complex queries and factually correct and highly readable responses, it is labor-intensive and challenging to scale. The second approach revolves around the automated extraction of high-quality instructions from existing datasets due to their extensive availability (Cao et al., 2023; Chen et al., 2023; Li et al., 2023; Lu et al., 2023). However, this method inherits the limitations associated with distilled data, such as containing factually incorrect content (Ji et al., 2023; Gudibande et al., 2023) and the format and style of the generated response are often determined by distilled LLMs\' preference.\n' +
+      '\n' +
+      'In this paper, instead of focusing on the creation of instruction data from scratch, we investigate how existing instruction data can be made higher quality and better aligned with human values. We propose a simple and effective method, named Realign, which is orthogonal to the above existing approaches. Specifically, Realign necessitates a base instruction dataset, which can be sourced from extensive existing supervised datasets (e.g., GSM8K (Cobbe et al., 2021)), or publicly available instruction data compiled through various methods (e.g., Self-Instruct (Wang et al., 2023b), Evol-Instruct (Xu et al., 2023), and Self-Alignment (Li et al., 2023b)). The Realign process unfolds in three main steps. The first step involves **criteria definition** (SS3.1), where humans define their preferences (e.g., the preferred format of responses) in various scenarios in the form of natural language. In this paper, we meticulously define criteria for 46 distinct scenarios. The second step, **retrieval augmentation** (SS3.2), broadens the knowledge base for knowledge-intensive tasks like open-domain QA and fact verification. This is achieved by incorporating additional information, thereby improving the factuality and informativeness of responses. The final step, **reformatting** (SS3.3), aims to re-align the responses with the pre-established criteria and the collated evidence, guaranteeing outputs that are both structured and substantiated. As demonstrated in Fig. 2, the realigned response provides a better format and a clearer chain of thoughts.\n' +
+      '\n' +
+      'The underlying _philisophy_ of ReAlign is to re-coordinate the roles of humans and LLMs in the alignment process, leveraging their complementary strengths - humans articulate their preferences, and LLMs, in turn, reconstruct instructions based on their generative power (e.g., instruction-following ability), without directly using distilled LLM knowledge. Through this collaborative synergy, we expect the generated instruction data to be not only more contextually precise but also more closely aligned with human preferences.\n' +
+      '\n' +
+      'We operationalize this idea on five types of existing instruction data, where three are general datasets (i.e., Open-Platypus (Lee et al., 2023), No Robots (Rajani et al., 2023), and Alpaca (Taori et al., 2023)) and two are mathematical datasets (i.e., GSM8K (Cobbe et al., 2021) and MATH (Hendrycks et al., 2021)). The performance of Realign has been validated across various well-established benchmarks, including AlpacaEval (Li et al., 2023c), MT-Bench (Zheng et al., 2023), and Vicuna-Bench (Chiang et al., 2023) for general alignment, as well as GSM8K and MATH for mathematical reasoning. Additionally, it has also been evaluated for factuality and readability, demonstrating its proficiency. In particular, ReAlign significantly boosts math reasoning, even up to 9.86% on GSM8K for LLaMA-2-13B. Notably, we find that only 5% of the Realign data yields a 67% boost in general alignment ability compared to the full Realign data based on the Alpaca dataset, indicating that only a small amount of data is required to learn style and format.\n' +
+      '\n' +
+      '## 2 Related Work\n' +
+      '\n' +
+      '### Instruction Creation\n' +
+      '\n' +
+      'Creating instructional data significantly improves LLMs\' alignment abilities. High-quality instruction generation traditionally depends on human annotation for tasks like query writing, response drafting, and preference indication. This approach produces premium open-source datasets (e.g., Open-Platypus (Lee et al., 2023) and OpenAssistant (Kopf et al., 2023)) and supports advanced LLMs (e.g., LLMA (Zhou et al., 2023) and LLaMA-2 (Touvron et al., 2023)), but it\'s hard to scale due to high labor costs and the need for domain-specific expertise. Many studies have explored using LLMs (e.g., GPT-3 (Brown et al., 2020) and GPT-4 (OpenAI, 2023)) to generate instruction data. Techniques like unnatural instructions (Honovich et al., 2023) and self-instruct (Wang et al., 2023b) utilize GPT-3\'s in-context learning with seed data to generate instructions, while evol-instruct (Xu et al., 2023) generates more complex and varied instructions through ChatGPT. Recently, training with self-generated\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:3]\n' +
+      '\n' +
+      '## 3 Realign\n' +
+      '\n' +
+      'Given a base instruction dataset \\(\\mathcal{D}=\\{(q_{1},r_{1}),\\cdots,(q_{n},r_{n})\\}\\), where \\(q\\) and \\(r\\) are the input query and response respectively, ReAlign aims to improve the quality of responses by three steps as shown in Fig. 3: (1) Criteria Definition: defining the criteria including tasks and formats for each task, (2) Retrieval Augmentation: retrieving relevant external information for the knowledge-intensive tasks, and (3) Reformatting: reformatting the original response based on the guidance consisting of hand-written format and the retrieved information. An overview of our method is shown in Fig. 3.\n' +
+      '\n' +
+      '### Criteria Definition\n' +
+      '\n' +
+      'The predefined criteria consist of the tasks and the corresponding formats:\n' +
+      '\n' +
+      'Tasks.Clearly defining tasks is crucial to subsequently devising tailored formats, as the optimal format varies across distinct tasks. In this paper, we follow Li et al. (2024) to define 46 different tasks \\(\\{T_{1},\\cdots,T_{N=46}\\}\\), categorized into 10 major groups, as shown in Tab. 1. The detailed description for each task is shown in Tab. 8, SSB. We also train a task classifier C, detailed in SSC.\n' +
+      '\n' +
+      'Format.Due to the distinct formatting requisites associated with diverse tasks, we meticulously devised tailored formats \\(\\{F_{1},\\cdots,F_{N=46}\\}\\) for each task based on the task definition and description, encompassing considerations such as organizational structure, section content, and output modality. This format, which has been carefully designed for different tasks, is more readable than the generic format. Each format has a task name and a detailed format description. We show an example of a format for "email generation" in Tab. 2 (The complete version is shown in Tab. 14).\n' +
+      '\n' +
+      'In this step, we input query \\(q_{i}\\) to the task classifier C (detailed in SSC) to acquire the category \\(t_{i}\\):\n' +
+      '\n' +
+      '\\[t_{i}=\\texttt{C}(q_{i}),\\]\n' +
+      '\n' +
+      'and then obtain the corresponding format \\(f_{i}\\).\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l l} \\hline \\hline\n' +
+      '**Group** & **Tasks** \\\\ \\hline Generation & question generation; story generation; poem generation; email generation; data generation; text-to-text translation \\\\ \\hline Brainstorming & advice giving; recommendations; how-to generation; planning \\\\ \\hline Code & code correction; code simplification; explain code; text-to-code translation; code-to-code translation; \\\\  & language learning questions; code language classification; code-to-text-translation \\\\ \\hline Rewriting & instructional rewriting; language polishing; paraphrasing; text correction \\\\ \\hline Extraction & information extraction; keywords extraction; table extraction \\\\ \\hline Summarization & title generation; text summarization; note summarization \\\\ \\hline Conversation & open qz; closed qz; fact verification; value judgment; roleplay; explain answer \\\\ \\hline Education. & natural language hotter; exam problem tutor; at tutor; math puzzles; fill in the blank \\\\ \\hline Classification & general classification; ordering; sentiment analysis; language classification; topic classification \\\\ \\hline Others & rejecting; others \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 1: The category of tasks. “Education.” denotes Specialized Educational Dialog.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l} \\hline \\hline\n' +
+      '**Email Generation** \\\\ \\hline It is an email-writing task. Here is a general guideline for creating a well-structured and professional email: \\\\ \\hline \\(\\texttt{I}\\): Subject Line; Write a clear and concise subject line that accurately summarizes the content of your email... \\\\ \\(\\texttt{2}\\): Saluation: Begin your email with a formal solution such as “Dear [Recipient’s Name].”... \\\\ \\(\\texttt{3}\\): Interdoctoral Surt your email with a brief introduction... \\\\ \\(\\texttt{4}\\): Body: This is the main content of your email... \\\\ \\(\\texttt{5}\\): Peleness and Tone; Maintain a polite and respefential tone throughout your email. \\\\ \\(\\texttt{6}\\): Closing: Conclude your email with a closing remark, such as “Thank you,” “Best regards,” followed by your name... \\\\ \\(\\texttt{7}\\): Signature include your real turn, job title, and context information (e.g. phone number, email address)... \\\\ \\(\\texttt{8}\\): Attachment if you need to include attachments, mention them... \\\\ \\(\\texttt{9}\\): Protoreal: Before sending the email, provided it for any grammatical or spelling errors... \\\\ \\hline \\multicolumn{2}{l}{The best emails are short, direct, professional, and scannable for the recipient. Follow a formal business email structure unless you have} \\\\ \\multicolumn{2}{l}{an established casual report with the recipient.} \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 2: An example of the format for the “email generation” task.\n' +
+      '\n' +
+      '### Retrieval Augmentation\n' +
+      '\n' +
+      'Knowledge-intensive language tasks (KILT), such as open-domain QA and fact verification, usually require large and external knowledge sources as the evidence to ensure the factuality (Petroni et al., 2021). Thus, we follow Petroni et al. (2021) to choose five knowledge-intensive tasks and use the query \\(q_{i}\\) to retrieve relevant information as our evidence. The tasks for retrieval augmentation are shown in Tab. 8. Specifically, we follow Chern et al. (2023) and use the Google Search API as our retriever R provided by Serper1 to retrieve the most relevant search snippets included in the API\'s answer. We then parse the response to obtain different types of snippets such as answer boxes, knowledge graphs, and organic search results. Finally, we choose the top-\\(k\\) snippets and filter them as our evidence \\(E_{i}=e_{i1},\\cdots,e_{ik}\\):\n' +
+      '\n' +
+      'Footnote 1: [https://serper.dev/](https://serper.dev/)\n' +
+      '\n' +
+      '\\[E_{i}=\\texttt{R}(q_{i}).\\]\n' +
+      '\n' +
+      'We show an example of a knowledge-intensive language task in Tab. 15, demonstrating that retrieval augmentation enables the response more factual and informative.\n' +
+      '\n' +
+      '### Reformatting\n' +
+      '\n' +
+      '#### 3.3.1 Rewriting\n' +
+      '\n' +
+      'In this step, we leverage large language models (e.g., ChatGPT) to rewrite the response \\(r_{i}\\) based on the given format \\(f_{i}\\) and retrieved evidence \\(E_{i}\\) (for knowledge-intensive tasks). Since certain queries have additional requirements (e.g., specific formatting or specified information), an adaptive rewriting strategy is employed. This approach involves initially using LLMs to determine whether the format matches the query requirements. Subsequently, if it matches, the LLMs rewrite the response accordingly. We divide the tasks into two categories:\n' +
+      '\n' +
+      'Non-knowledge-intensive tasksFor the non-knowledge-intensive tasks, we decide to rewrite a part of the tasks. This decision stems from the observation that certain tasks are not amenable to a standardized format, exemplified by instances such as story generation and poem generation (see Tab. 8 for details). We guide LLMs to rewrite the original responses \\(r_{i}\\), organizing the query \\(q_{i}\\), original response \\(r_{i}\\), and the format \\(f_{i}\\) together via the prompt in Tab. 11:\n' +
+      '\n' +
+      '\\[\\hat{r}_{i}=\\texttt{LLM}(q_{i},r_{i},f_{i}),\\]\n' +
+      '\n' +
+      'where \\(\\hat{r}_{i}\\) is the reformatted response.\n' +
+      '\n' +
+      'Knowledge-intensive tasks.For the knowledge-intensive tasks, we additionally utilize the retrieved evidence \\(E_{i}\\) compared to non-knowledge-intensive tasks. Specifically, We guide LLM to rewrite the original response \\(r_{i}\\), organizing the query \\(q_{i}\\), original response \\(r_{i}\\), format \\(f_{i}\\), and the retrieved evidence \\(E_{i}\\) together via the prompt in Tab. 12:\n' +
+      '\n' +
+      '\\[\\hat{r}_{i}=\\texttt{LLM}(q_{i},r_{i},f_{i},E_{i}).\\]\n' +
+      '\n' +
+      'Figure 3: An overview of our ReAlign including three steps. KILT denotes Knowledge Intensive Language Tasks.\n' +
+      '\n' +
+      '#### 3.3.2 Post-processing\n' +
+      '\n' +
+      'Length filtering.We find that LLMs sometimes fail to reformat and only output the changed sentences, whose output length plummets. To filter out the data that fails to be reformatted, we keep the original response instead of using the reformatted response that is less than half the length of the original response.\n' +
+      '\n' +
+      'Task-based filtering.To mitigate the problem of error propagation in task classification, we design filtering rules for specific tasks: (i) For code-related tasks (e.g., "code correction"), the keyword matching rule is employed to ascertain whether both the original and the reformatted versions contain code. If only one of the original responses or the reformatted response incorporates code, it signifies a failure in reformatting, and the original response is retained. (ii) For the "exam problem tutor" task, reformatted responses that do not contain the accurate result will not be accepted. (iii) For the "planning" task, if the query does not contain a planning-related keyword (e.g., plan or planning), the original answer is retained.\n' +
+      '\n' +
+      'Finally, we could acquire the reformatted dataset \\(\\hat{\\mathcal{D}}=\\{(q_{1},\\hat{r}_{1}),\\cdots,(q_{n},\\hat{r}_{n})\\}\\) (denotes as ReAlign dataset).\n' +
+      '\n' +
+      '## 4 Experiments\n' +
+      '\n' +
+      '### Datasets\n' +
+      '\n' +
+      'For evaluation of general ability, we select two high-quality manual datasets and one distillation dataset for instruction tuning: (1) Open-Platypus(Lee et al., 2023) is an amalgamation of 11 open-source datasets, carefully curated to enhance LLM performance in STEM and logical domains. It consists of 25k questions, with around 90% written by humans and the rest generated by LLM. (2) No Robots(Rajani et al., 2023) is a high-quality dataset of 10k instructions and demonstrations created by skilled human annotators. (3) **Alpaca**(Taori et al., 2023) is an open-source instruction tuning dataset generated from text-davinci-003 (Ouyang et al., 2022) by the _Self-Instruct_(Wang et al., 2023b) method, containing 52k samples. Additionally, we also choose two manual datasets to evaluate the math reasoning after using ReAlign: (4) **GSM8K**(Cobbe et al., 2021) is a high-quality grade school math problems dataset created by human problem writers, consisting of 7.5k training problems and 1k test problems. (5) **MATR**(Hendrycks et al., 2021) is a dataset of mathematics competitions problems, including 7.5k for training and 5k for testing.\n' +
+      '\n' +
+      '### Models\n' +
+      '\n' +
+      'We select two well-known open-source base models for fine-tuning: (1) **LLaMA-2-13B**(Touvron et al., 2023) is a open-source pre-trained model using 2T tokens. (2) **Mistral-7B**(Jiang et al., 2023) is the current state-of-the-art base language model at the 7B parameter scale.\n' +
+      '\n' +
+      '### Evaluation\n' +
+      '\n' +
+      'We evaluate ReAlign on general alignment and specific alignment ability including math reasoning, factuality, and readability.\n' +
+      '\n' +
+      '#### 4.3.1 General Alignment\n' +
+      '\n' +
+      'To evaluate the general alignment ability, we follow Wang et al. (2023a) to employ the most widely recognized benchmarks, including: **AlpacaEval**(Li et al., 2023c), **MT-Bench**(Zheng et al., 2023), **Vicuna-Bench**(Chiang et al., 2023). Specifically, we use GPT-3.5 and Auto-J (detailed in 5D) as the evaluators for AlpacaEval due to the cost of GPT-4, which has an extremely strong correlation with human (Li et al., 2024; Sun et al., 2024), and GPT-4 for MT-Bench and Vicuna-Bench.\n' +
+      '\n' +
+      '#### 4.3.2 Specific Alignment\n' +
+      '\n' +
+      'We evaluate specific perspectives for alignment, including math reasoning, factuality, and readability.\n' +
+      '\n' +
+      'Math Reasoning.To evaluate math reasoning, we finetune LLaMA-2-13B and Mistral-7B on GSMSK and MATH training datasets, respectively, and test afterward. The prompt template for training and testing is \'Question:\\n {input}\\n Answer:\\nLet\'s think step by step.\\n\'\'. Since both datasets consist of math problems in the same style, we apply forced rewriting instead of adaptive, which does not require the determination of whether the query and format match but rather mandates a rewriting. We determine the accuracy by extracting the last number from the responses and comparing it directly to the ground truth.\n' +
+      '\n' +
+      'Factuality.To evaluate the factuality of models, we randomly select 100 cases from the Natural Questions dataset (NQ) (Kwiatkowski et al., 2019), a public Q&A dataset rich in fact-based queries and their verified answers. We employ GPT-4 to rate these instances on a factuality scale of 1 to 10, considering the question, the response, and the ground truth (referred to as the factuality score). The evaluation prompt is shown in Tab. 17.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:7]\n' +
+      '\n' +
+      'the MATH dataset can augment GSM8K performance by 10.69% based on LLaMA-2-13B. One possible reason is that ReAlign can provide more and clearer intermediate steps and explanations, thereby bolstering the reasoning ability of models.\n' +
+      '\n' +
+      'ReAlign Can Enhance Factuality.To evaluate the factuality, we employ ReAlign to Open-Platypus, No Robots, and Alpaca datasets with LLaMA-2-13B, subsequently comparing the response to ground truth in NQ samples. Fig. 4 shows ReAlign elevates the factuality, highlighting its efficacy. This improvement is probably due to the addition of retrieval augmentation.\n' +
+      '\n' +
+      'ReAlign Can Improve Readability.To evaluate the readability of the responses, we use a readability evaluation prompt (refer to Tab. 16) to guide GPT-4 and human to compare the model trained on the original dataset with the model trained with the addition of ReAlign. As shown in Fig. 5, we see that ReAlign can improve the readability of three datasets, especially in the Open-Platypus dataset (i.e., 18.7% improvements in GPT-4 judgments). It demonstrates that designing different formats for different tasks and reformatting them can effectively improve readability. In addition, human tends to provide more ties for judgments compared to GPT-4. A possible reason is that ReAlign can provide better structure, causing GPT-4 to be limited to surface formats ignoring content and deep structure. In contrast, humans can read more carefully not being limited to surface formats.\n' +
+      '\n' +
+      '### Analysis\n' +
+      '\n' +
+      '#### 4.5.1 Datasets Analysis\n' +
+      '\n' +
+      'First, we compare the change in the length of responses (i.e., the number of tokens) between the original datasets and the addition of ReAlign, finding that Open-Platypus becomes shorter and No Robots does not change much, while Alpaca, GSM8K, and MATH become longer (see Tab. 5). Second, we calculate the percentage of responses for which the adaptive rewriting method selects rewrite by edit distance (the results are shown in Tab 5). Specifically, we compute the edit distance (including substitution, deletion, and insertion) on a word basis, then divide the edit distance by the length of the longest of the original and rewritten responses to obtain the edit rate, and finally record those with an edit rate greater than 0.2 as rewritten, and the rest as unrewritten. For GSM8K and MATH datasets, all data are ReAligned as adaptive rewriting was not applied to them.\n' +
+      '\n' +
+      'Figure 4: The results of the factuality score.\n' +
+      '\n' +
+      'Figure 5: The readability win-rate of the original dataset + ReAlign against the original dataset based on LLaMA-2-13B, judged by GPT-4 and human.\n' +
+      '\n' +
+      '#### 4.5.2 Alignment Tax\n' +
+      '\n' +
+      'When the model is fine-tuned on the ReAlign dataset, a question worth exploring is whether there is a drop in knowledge ability even as alignment ability improves. To evaluate the knowledge ability, we follow (Mitra et al., 2023) to employ the following benchmarks: **Big Bench Hard (BBH)**(Suzgun et al., 2022) and **AGIEval**(Zhong et al., 2023), which is multiple choices knowledge-intensive QA task. As shown in Fig. 6, we can see that ReAlign has little effect on the knowledge-based tasks, indicating that our approach does not impair the knowledge in the original dataset. It is worth noting that in some cases ReAlign will also provide a significant boost to knowledge, such as Open-Platypus on AGIEval. Possible reasons are that a well-defined format can facilitate the accuracy of the knowledge-based tasks (Wei et al., 2022) and that retrieving external information can augment knowledge.\n' +
+      '\n' +
+      '#### 4.5.3 Ablation Studies\n' +
+      '\n' +
+      'We rewrite two variants of the Open-Platypus dataset and train them based on LLaMA-2-13B for ablation studies:\n' +
+      '\n' +
+      '(1) **W/o Retrieval Augmentation**: We remove the retrieval augmentation from ReAlign and rewrite all tasks without evidences. As shown in Tab. 6, the general alignment ability, knowledge ability, and factuality score (FS) are reduced, indicating the effectiveness of retrieval augmentation. Interestingly, the FS metrics are higher without RAG than in the original dataset, suggesting that ReAlign also has the potential to improve the factuality.\n' +
+      '\n' +
+      '(2) **W/o Adaption**: We remove the adaptive rewriting from ReAlign and use force rewriting. Tab. 6 shows the general alignment and knowledge ability decrease. This may be because forced rewriting, while making the responses more structured, ignores the question\'s requirements, weakening the instruction-following ability. In\n' +
+      '\n' +
+      'Figure 6: The results of the knowledge abilities, including the Big Bench Hard (BBH) (3-shot), and AGIEval (zero-shot). We evaluate the abilities across the Open-Platypus, No Robots, and Alpaca datasets, based on LLaMA-2-13B.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c} \\hline \\hline Dataset & Response Len. & ReAlign \\% \\\\ \\hline Open–Platypus & 224.92 & - \\\\ + ReAlign & 206.91 & 28.5\\% \\\\ \\hline No Robots & 211.99 & - \\\\ + ReAlign & 211.54 & 15.9\\% \\\\ \\hline Alpaca & 65.51 & - \\\\ + ReAlign & 72.38 & 29.9\\% \\\\ \\hline GSM8K & 130.59 & - \\\\ + ReAlign & 327.65 & 100\\% \\\\ \\hline MATH & 243.73 & - \\\\ + ReAlign & 375.35 & 100\\% \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 5: The datasets analysis includes original datasets and them + ReAlign. Response Len. is the average number of tokens of the responses. ReAlign % denotes the percentage of successful reformatting after the adaptive rewriting.\n' +
+      '\n' +
+      'addition, FS has increased, probably because forced rewriting leads to a larger amount of ReAlign data, introducing more retrieved knowledge and boosting factuality.\n' +
+      '\n' +
+      '#### 4.5.4 The Scaling Law of Realign\n' +
+      '\n' +
+      'We experiment to explore the impact of the number of ReAlign. Specifically, we randomly sample a \\(k\\%\\) (\\(k=0,5,10,20\\), Full, with Full being \\(29.9\\%\\)) of ReAlign Alpaca data, and fill in the remainder with original responses. The original Alpaca dataset corresponds to \\(0\\%\\). Interestingly, we find that only 5% of the ReAlign data yields a 67% boost in general alignment ability compared to the entire ReAlign data (see Fig. 7). This suggests that only a small amount of data is required to learn style and format, to expose the knowledge and capabilities that were already acquired during pretraining (Zhou et al., 2023). Additionally, the knowledge capability continues to improve as the amount of ReAlign data improves.\n' +
+      '\n' +
+      '#### 4.5.5 Case Study\n' +
+      '\n' +
+      'We show a case from the MT-Bench test set in Tab. 7. This example shows that the response given by the ReAlign model has a better format.\n' +
+      '\n' +
+      '## 5 Conclusion\n' +
+      '\n' +
+      'In this work, we propose ReAlign, a simple and effective method for alignment, which automatically improves the quality of the existing instruction datasets while minimizing labor costs and hallucinations. We create five new high-quality datasets from Open-Platypus(Lee et al., 2023), No Robots(Rajani et al., 2023), Alpaca(Taori et al., 2023), GSM8K(Cobbe et al., 2021), and MATH(Hendrycks et al., 2021) and high-quality manual-written natural language formats. Experiments demonstrate that ReAlign significantly boosts general alignment ability, math reasoning, factuality, and readability without impairing knowledge ability. Last but not least, we release the code and data to facilitate future research.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c} \\hline \\hline Dataset & General Align. & Know. Ab. & FS \\\\ \\hline Open-Platypus & 6.18 & 39.65 & 5.1 \\\\ + ReAlign & **6.24** & **41.35** & 5.5 \\\\ \\hline W/o RAG & 6.18 & 40.6 & 5.3 \\\\ W/o Adaption & 6.17 & 39.8 & **5.6** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 6: Ablation study results show that removing retrieval augmentation is indicated by ”W/o RAG” and removing adaptive rewriting by ”W/o Adaption” in ReAlign. “General Align.” and “Know. Ab.” denotes general alignment ability and Knowledge Ability, which are the average results. FS denotes Factuality Score. **Bold** denotes the best.\n' +
+      '\n' +
+      'Figure 7: The scaling trends in ReAlign data percentage, including general alignment ability and knowledge ability. We conduct the experiment in the Alpaca dataset based on LLaMA-2-13B.\n' +
+      '\n' +
+      '### Limitations\n' +
+      '\n' +
+      'First, our approach relies on the ability to reformatting models, which is currently less effective in open-source models (e.g., LLaMA2 (Touvron et al., 2023)) but more costly in closed-source models (e.g., GPT-4 (OpenAI, 2023)). Second, the task categories we define cannot cover all tasks in reality, as real questions may be more complex and involve multiple tasks. Therefore, it is necessary to define more tasks and formats for a wide range of diverse and regional scenarios. Last, applying Realign only to single-turn conversations has the potential to hurt the alignment ability of the second-turn conversations, hence extending ReAlign to multi-turn conversation would also be valuable.\n' +
+      '\n' +
+      '## Ethics Statement\n' +
+      '\n' +
+      'We take ethical considerations very seriously. In this paper, both the datasets and models are publicly available and have been widely adopted by researchers. We ensure that the findings and conclusions of this paper are reported accurately and objectively.\n' +
+      '\n' +
+      '## Acknowledgements\n' +
+      '\n' +
+      'We thank the GAIR members for reviewing our paper and giving valuable feedback. We appreciate the authors in Wang et al. (2023) for providing the training codebase and the helpfulness.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* Brown et al. (2023) Tom B. Brown, Benjamin Mann, Nick Ryder, Melanie Subbiah, Jared Kaplan, Prafulla Dhariwal, Arvind Neelakantan, Pranav Shyam, Girish Sastry, Amanda Askell, Sandhini Agarwal, Ariel Herbert-Voss, Gretchen Krueger, Tom Henighan, Rewon Child, Aditya Ramesh, Daniel M. Ziegler, Jeffrey Wu, Clemens Winter, Christopher Hesse, Mark Chen, Eric Sigler, Mateusz Litwin, Scott Gray, Benjamin Chess, Jack Clark, Christopher Berner, Sam McCandlish, Alec Radford, Ilya Sutskever, and Dario Amodei. 2020. Language models are few-shot learners. In _NeurIPS_.\n' +
+      '* Cao et al. (2023) Yihan Cao, Yanbin Kang, and Lichao Sun. 2023. Instruction mining: High-quality instruction data selection for large language models. _arXiv Preprint_.\n' +
+      '* Chen et al. (2023) Lichang Chen, Shiyang Li, Jun Yan, Hai Wang, Kalpa Gunaratna, Vikas Yadav, Zheng Tang, Vijay Srinivasan, Tianyi Zhou, Heng Huang, and Hongxia Jin. 2023. Alpagasus: Training a better alpaca with fewer data. _arXiv Preprint_.\n' +
+      '* Chern et al. (2023) I-Chun Chern, Steffi Chern, Shiqi Chen, Weizhe Yuan, Kehua Feng, Chunting Zhou, Junxian He, Graham Neubig, Pengfei Liu, et al. 2023. Factool: Factool: Factuality detection in generative ai-a tool augmented framework for multi-task and multi-domain scenarios. _arXiv preprint arXiv:2307.13528_.\n' +
+      '* Chiang et al. (2023) Wei-Lin Chiang, Zhuohan Li, Zi Lin, Ying Sheng, Zhanghao Wu, Hao Zhang, Lianmin Zheng, Siyuan Zhuang, Yonghao Zhuang, Joseph E. Gonzalez, Ion Stoica, and Eric P. Xing. 2023. Vicuna: An open-source chatbot impressing gpt-4 with 90%* chatppt quality.\n' +
+      '* Cobbe et al. (2021) Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian, Mark Chen, Heewoo Jun, Lukasz Kaiser, Matthias Plappert, Jerry Tworek, Jacob Hilton, Reiichiro Nakano, Christopher Hesse, and John Schulman. 2021. Training verifiers to solve math word problems. _arXiv preprint arXiv:2110.14168_.\n' +
+      '* Granziol et al. (2022) Diego Granziol, Stefan Zohren, and Stephen Roberts. 2022. Learning rates as a function of batch size: A random matrix theory approach to neural network training. _J. Mach. Learn. Res._, 23:173:1-173:65.\n' +
+      '* Gudibande et al. (2023) Arnav Gudibande, Eric Wallace, Charlie Snell, Xinyang Geng, Hao Liu, Pieter Abbeel, Sergey Levine, and Dawn Song. 2023. The false promise of imitating proprietary lms. _arXiv Preprint_.\n' +
+      '* Hendrycks et al. (2021) Dan Hendrycks, Collin Burns, Saurav Kadavath, Akul Arora, Steven Basart, Eric Tang, Dawn Song, and Jacob Steinhardt. 2021. Measuring mathematical problem solving with the math dataset. _NeurIPS_.\n' +
+      '* Honovich et al. (2023) Or Honovich, Thomas Scialom, Omer Levy, and Timo Schick. 2023. Unnatural instructions: Tuning language models with (almost) no human labor. In _ACL_, pages 14409-14428, Toronto, Canada. Association for Computational Linguistics.\n' +
+      '* Ji et al. (2023) Ziwei Ji, Nayeon Lee, Rita Frieske, Tiezheng Yu, Dan Su, Yan Xu, Etsuko Ishii, Yejin Bang, Andrea Madotto, and Pascale Fung. 2023. Survey of hallucination in natural language generation. _ACM Comput. Surv._, 55(12):248:1-248:38.\n' +
+      '\n' +
+      '* [12] Albert Q. Jiang, Alexandre Sablayrolles, Arthur Mensch, Chris Bamford, Devendra Singh Chaplot, Diego de las Casas, Florian Bressand, Gianna Lengyel, Guillaume Lample, Lucile Saulnier, Lelio Renard Lavaud, Marie-Anne Lachaux, Pierre Stock, Teven Le Scao, Thibaut Lavril, Thomas Wang, Timothee Lacroix, and William El Sayed. 2023. Mistral 7b. _arXiv preprint arXiv:2310.06825_.\n' +
+      '* [13] Tom Kwiatkowski, Jennimaria Palomaki, Olivia Redfield, Michael Collins, Ankur Parikh, Chris Alberti, Danielle Epstein, Illia Polosukhin, Jacob Devlin, Kenton Lee, Kristina Toutanova, Llion Jones, Matthew Kelcey, Ming-Wei Chang, Andrew M. Dai, Jakob Uszkoreit, Quoc Le, and Slav Petrov. 2019. Natural questions: A benchmark for question answering research. _Transactions of the Association for Computational Linguistics_, 7:453-466.\n' +
+      '* democratizing large language model alignment. _arXiv Preprint_.\n' +
+      '* [15] Ariel N. Lee, Cole J. Hunter, and Nataniel Ruiz. 2023. Platypus: Quick, cheap, and powerful refinement of llms. _arXiv Preprint_.\n' +
+      '* [16] Junlong Li, Shichao Sun, Weizhe Yuan, Run-Ze Fan, hai zhao, and Pengfei Liu. 2024. Generative judge for evaluating alignment. In _The Twelfth International Conference on Learning Representations_.\n' +
+      '* [17] Ming Li, Yong Zhang, Zhitao Li, Jiuhai Chen, Lichang Chen, Ning Cheng, Jianzong Wang, Tianyi Zhou, and Jing Xiao. 2023a. From quantity to quality: Boosting llm performance with self-guided data selection for instruction tuning. _arXiv Preprint_.\n' +
+      '* [18] Xian Li, Ping Yu, Chunting Zhou, Timo Schick, Luke Zettlemoyer, Omer Levy, Jason Weston, and Mike Lewis. 2023b. Self-alignment with instruction backtranslation. _arXiv Preprint_.\n' +
+      '* [19] Xuechen Li, Tianyi Zhang, Yann Dubois, Rohan Taori, Ishaan Gulrajani, Carlos Guestrin, Percy Liang, and Tatsunori B. Hashimoto. 2023c. Alpaceaval: An automatic evaluator of instruction-following models. [https://github.com/tatsu-lab/alpaca_eval](https://github.com/tatsu-lab/alpaca_eval).\n' +
+      '* [20] Wei Liu, Weihao Zeng, Keqing He, Yong Jiang, and Junxian He. 2023. What makes good data for alignment? a comprehensive study of automatic data selection in instruction tuning. _arXiv preprint arXiv:2312.15685_.\n' +
+      '* [21] Keming Lu, Hongyi Yuan, Zheng Yuan, Runji Lin, Junyang Lin, Chuanqi Tan, Chang Zhou, and Jingren Zhou. 2023. lfinstag: Instruction tagging for analyzing supervised fine-tuning of large language models. _arXiv Preprint_.\n' +
+      '* [22] Swaroop Mishra, Daniel Khashabi, Chitta Baral, and Hannaneh Hajishirzi. 2022. Cross-task generalization via natural language crowdsourcing instructions. In _ACL_, pages 3470-3487, Dublin, Ireland. Association for Computational Linguistics.\n' +
+      '* [23] Arindam Mitra, Luciano Del Corro, Shweti Mahajan, Andres Codas, Clarisse Simoes, Sahaj Agarwal, Xuxi Chen, Anastasia Razdabiedina, Erik Jones, Kriti Aggarwal, Hamid Palangi, Guoqing Zheng, Corby Rosset, Hamed Khanpour, and Ahmed Awadallah. 2023. Orca 2: Teaching small language models how to reason. _arXiv preprint arXiv:2311.11045_.\n' +
+      '* [24] OpenAI. 2023. Gpt-4 technical report. _arXiv Preprint_.\n' +
+      '* [25] Long Ouyang, Jeffrey Wu, Xu Jiang, Diogo Almeida, Carroll L. Wainwright, Pamela Mishkin, Chong Zhang, Sandhini Agarwal, Katarina Slama, Alex Ray, John Schulman, Jacob Hilton, Fraser Kelton, Luke Miller, Maddie Simens, Amanda Askell, Peter Welinder, Paul F. Christiano, Jan Leike, and Ryan Lowe. 2022. Training language models to follow instructions with human feedback. In _NeurIPS_.\n' +
+      '* [26] Baolin Peng, Chunyuan Li, Pengcheng He, Michel Galley, and Jianfeng Gao. 2023. Instruction tuning with gpt-4. _arXiv Preprint_.\n' +
+      '* [27] Fabio Petroni, Aleksandra Piktus, Angela Fan, Patrick Lewis, Majid Yazdani, Nicola De Cao, James Thorne, Yacine Jernite, Vladimir Karpukhin, Jean Maillard, Vassilis Plachouras, Tim Rocktaschel, and Sebastian Riedel. 2021. KILT: a benchmark for knowledge intensive language tasks. In _Proceedings of the 2021 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies_, pages 2523-2544, Online. Association for Computational Linguistics.\n' +
+      '* [28] Nazneen Rajani, Lewis Tunstall, Edward Beeching, Nathan Lambert, Alexander M. Rush, and Thomas Wolf. 2023. No robots. [https://huggingface.co/datasets/HuggingFaceH4/no_robots](https://huggingface.co/datasets/HuggingFaceH4/no_robots).\n' +
+      '\n' +
+      '* [29] Victor Sanh, Albert Webson, Colin Raffel, Stephen H. Bach, Lintang Sutawika, Zaid Alyafeai, Antoine Chaffin, Arnaud Stiegler, Teven Le Scao, Arun Raja, Manan Dey, M Saiful Bari, Canwen Xu, Urmish Thakker, Shanya Sharma Sharma Sharma, Eliza Szczechla, Taewoon Kim, Gunjan Chhabulani, Nihal Nayak, Debayoti Datta, Jonathan Chang, Mike Tian-Jian Jiang, Han Wang, Matteo Manica, Sheng Shen, Zheng Xin Yong, Harshit Pandey, Rachel Bawden, Thomas Wang, Trishala Neeraj, Jos Rozen, Abheesth Sharma, Andrea Santilli, Thibault Fevry, Jason Alan Fries, Ryan Teehan, Tali Bers, Stella Biderman, Leo Gao, Thomas Wolf, and Alexander M. Rush. 2022. Multitask prompted training enables zero-shot task generalization. _arXiv Preprint_.\n' +
+      '* [30] Shichao Sun, Junlong Li, Weizhe Yuan, Ruifeng Yuan, Wenjie Li, and Pengfei Liu. 2024. The critique of critique. _arXiv preprint arXiv:2401.04518_.\n' +
+      '* [31] Mirac Suzgun, Nathan Scales, Nathanael Scharli, Sebastian Gehrmann, Yi Tay, Hyung Won Chung, Aakanksha Chowdhery, Quoc V Le, Ed H Chi, Denny Zhou,, and Jason Wei. 2022. Challenging big-bench tasks and whether chain-of-thought can solve them. _arXiv preprint arXiv:2210.09261_.\n' +
+      '* [32] Rohan Taori, Ishaan Gulrajani, Tianyi Zhang, Yann Dubois, Xuechen Li, Carlos Guestrin, Percy Liang, and Tatsunori B. Hashimoto. 2023. Stanford alpaca: An instruction-following llama model. [https://github.com/tatsu-lab/stanford_alpaca](https://github.com/tatsu-lab/stanford_alpaca).\n' +
+      '* [33] Hugo Touvron, Louis Martin, Kevin Stone, Peter Albert, Amjad Almahairi, Yasmine Babaei, Nikolay Bashlykov, Soumya Batra, Prajwal Bhargava, Shruti Bhosale, Dan Bikel, Lukas Blecher, Cristian Canton Ferrer, Moya Chen, Guilleu Cucurull, David Esiobu, Jude Fernandes, Jeremy Fu, Wenjin Fu, Brian Fuller, Cynthia Gao, Vedanu Goswami, Naman Goyal, Anthony Hartshorn, Saghar Hosseini, Rui Hou, Hakan Inan, Marcin Kardas, Viktor Kerkez, Madan Khabsa, Isabel Kloumann, Artem Korenev, Punit Singh Koura, Marie-Anne Lachaux, Thibaut Lavril, Jens Lee, Diana Liskovich, Yinghai Lu, Yuning Mao, Xavier Martinet, Todor Mihaylov, Pushkar Mishra, Igor Molybog, Yixin Nie, Andrew Poulton, Jeremy Reizenstein, Rashi Rungta, Kalyan Saladi, Alan Schelten, Ruan Silva, Eric Michael Smith, Ranjan Subramanian, Xiaqiong Ellen Tan, Binh Tang, Ross Taylor, Adina Williams, Jian Xiang Kuan, Puxin Xu, Zheng Yan, Iliyan Zaroro, Yuchen Zhang, Angela Fan, Melanie Kambadur, Sharan Narang, Aurelien Rodriguez, Robert Stojnic, Sergey Edunov, and Thomas Scialom. 2023. Llama 2: Open foundation and fine-tuned chat models. _arXiv Preprint_.\n' +
+      '* [34] Guan Wang, Sijie Cheng, Xianyuan Zhan, Xiangang Li, Sen Song, and Yang Liu. 2023a. Openchat: Advancing open-source language models with mixed-quality data. _arXiv preprint arXiv:2309.11235_.\n' +
+      '* [35] Yizhong Wang, Yeganeh Kordi, Swaroop Mishra, Alisa Liu, Noah A. Smith, Daniel Khashabi, and Hannaneh Hajishirzi. 2023b. Self-instruct: Aligning language models with self-generated instructions. In _ACL_, pages 13484-13508, Toronto, Canada. Association for Computational Linguistics.\n' +
+      '* [36] Yizhong Wang, Swaroop Mishra, Pegah Alipoormolabashi, Yeganeh Kordi, Amirreza Mirzaei, Anjana Arunkumar, Arjun Ashok, Arut Selvan Dhanasekaran, Atharva Naik, David Stap, Eshaan Pathak, Giannis Karamanolakis, Haizhi Gary Lai, Ishan Purohit, Ishani Mondal, Jacob Anderson, Kirby Kuznia, Krima Doshi, Maitreya Patel, Kuntal Kumar Pal, Mehrdor Madshahii, Mihir Parmar, Mirali Purohit, Neeraj Varshney, Phani Rohitha Kaza, Pulkit Verma, Raveshaj Singh Puri, Rushang Karia, Shailaja Kewur Sampat, Savan Doshi, Siddhartha Mishra, Sujan Reddy, Sumanta Patro, Tanay Dixit, Xudong Shen, Chitta Baral, Yejin Choi, Noah A. Smith, Hannaneh Hajishirzi, and Daniel Khashabi. 2022. Super-naturalinstructions: Generalization via declarative instructions on 1600+ nlp tasks. _arXiv Preprint_.\n' +
+      '* [37] Jason Wei, Maarten Bosma, Vincent Y. Zhao, Kelvin Guu, Adams Wei Yu, Brian Lester, Nan Du, Andrew M. Dai, and Quoc V. Le. 2022a. Finetuned language models are zero-shot learners. _arXiv Preprint_.\n' +
+      '* [38] Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Brian Ichter, Fei Xia, Ed H. Chi, Quoc V. Le, and Denny Zhou. 2022b. Chain-of-thought prompting elicits reasoning in large language models. In _NeurIPS_.\n' +
+      '* [39] Can Xu, Qingfeng Sun, Kai Zheng, Xiubo Geng, Pu Zhao, Jiazhan Feng, Chongyang Tao, and Daxin Jiang. 2023. Wizardlm: Empowering large language models to follow complex instructions. _arXiv Preprint_.\n' +
+      '* [40] Weizhe Yuan, Richard Yuanzhe Pang, Kyunghyun Cho, Sainbayar Sukhbaatar, Jing Xu, and Jason Weston. 2024. Self-rewarding language models. _arXiv preprint arXiv:2401.10020_.\n' +
+      '* [41] Liaminin Zheng, Wei-Lin Chiang, Ying Sheng, Siyuan Zhuang, Zhanghao Wu, Yonghao Zhuang, Zi Lin, Zhuohan Li, Dacheng Li, Eric. P Xing, Hao Zhang, Joseph E. Gonzalez, and Ion Stoica. 2023. Judging llm-as-a-judge with mt-bench and chatbot arena. _arXiv Preprint_.\n' +
+      '* [42] Wanjun Zhong, Ruixiang Cui, Yiduo Guo, Yaobo Liang, Shuai Lu, Yanlin Wang, Amin Saied, Weizhu Chen, and Nan Duan. 2023. Agieval: A human-centric benchmark for evaluating foundation models. _arXiv preprint arXiv:2304.06364_.\n' +
+      '* [43] Chunting Zhou, Pengfei Liu, Puxin Xu, Srini Iyer, Jiao Sun, Yuning Mao, Xuezhe Ma, Avia Efrat, Ping Yu, Lili Yu, Susan Zhang, Gargi Ghosh, Mike Lewis, Luke Zettlemoyer, and Omer Levy. 2023. Lima: Less is more for alignment. _arXiv Preprint_.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:14]\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:15]\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c|c|c|c|c} \\hline \\hline\n' +
+      '**Task name** & \\multicolumn{2}{c}{**Description**} & **Retricul** & **Reverting** \\\\ \\hline \\hline \\multicolumn{5}{c}{_Generation_} \\\\ \\hline question generation & Write some questions based on the given description. & ✗ & ✓ \\\\ story generation & Write a story based on the given description. & ✗ & ✗ \\\\ poem generation & Write a poem based on the given description. & ✗ & ✗ \\\\ email generation & Write an email based on the given description. & ✗ & ✓ \\\\ data generation & Generate data based on the given description. & ✗ & ✓ \\\\ text-to-text translation & Translate the given text into another language. & ✗ & ✗ \\\\ \\hline \\hline \\multicolumn{5}{c}{_Bointnessing_} \\\\ \\hline \\hline \\multicolumn{5}{c}{_Givementation_} \\\\ \\hline \\hline \\multicolumn{5}{c}{_Givementation_} \\\\ \\hline question generation & Write some questions based on the given description. & ✗ & ✓ \\\\ story generation & Write a story based on the given description. & ✗ & ✗ \\\\ poem generation & Write a poem based on the given description. & ✗ & ✓ \\\\ email generation & Write an email based on the given description. & ✗ & ✓ \\\\ data generation & Generate data based on the given description. & ✗ & ✓ \\\\ text-to-text translation & Translate the given text into another language. & ✗ & ✗ \\\\ \\hline \\hline \\multicolumn{5}{c}{_Bointnessing_} \\\\ \\hline \\hline \\multicolumn{5}{c}{_Abilice giving_} \\\\ recommendations & Green recommendations to users. & & ✓ \\\\ how to-generation & Grey relevant and complete answer when users ask: how to do? something. & ✓ \\\\ planning & Write a plan for an event or activity. & ✗ & ✓ \\\\ \\hline \\multicolumn{5}{c}{_Code_} \\\\ \\hline code correction & Correct the potential errors in a piece of code. & ✗ & ✓ \\\\ code simplification & Rewrite a piece of code to make it more concise and easy to understand. & ✗ & ✓ \\\\ explain code & Write an explanation for a piece of code. & ✗ & ✓ \\\\ text-to-text translation & Write a piece of code based on the given description. & ✗ & ✓ \\\\ code-to-text translation & Convert the given code into another programming language. & ✗ & ✓ \\\\ language learning questions & Write an answer for the given question about programming language learning. & ✗ & ✓ \\\\ code language classification & Clearly the programming language for the given code. & ✗ & ✓ \\\\ code-to-text translation & Write a document for the given code. & ✗ & ✓ \\\\ \\hline \\hline \\multicolumn{5}{c}{_Reverting_} \\\\ \\hline \\hline \\multicolumn{5}{c}{_Instrucational rewriting_} \\\\ \\hline language polishing & Postulating a piece text with a specific interaction. & ✗ & ✓ \\\\ language polishing & Postulating a piece of text to make it more honest, natural, and readable. & ✗ & ✓ \\\\ paraphasing & Postulating a piece of text. & ✗ & ✗ \\\\ text correction & Correct the potential errors in a piece of text. & ✗ & ✓ \\\\ \\hline \\hline \\multicolumn{5}{c}{_Enumication_} \\\\ \\hline \\hline \\multicolumn{5}{c}{_Information extraction_} \\\\ keywords extraction & Extract one or multiple user-specified categories of information from a piece of text attached in the user’s query. & ✗ & ✓ \\\\ keywords extraction & Extract the keywords from a piece of text. & ✗ & ✓ \\\\ table extraction & Generate a table included the key information from a piece of text attached in the user’s query. & ✗ & ✗ \\\\ \\hline \\hline \\multicolumn{5}{c}{_Semanization_} \\\\ \\hline title generation & Generate a title for the given text or based on a description of the work. & ✗ & ✗ \\\\ text summarization & Write a summary for a piece of text. & ✗ & ✗ \\\\ note summarization & Write a note to summarize a piece of text. & ✗ & ✗ \\\\ \\hline \\hline \\multicolumn{5}{c}{_Conversation_} \\\\ \\hline open qn & The user’s query is an open domain question with no attached language or article. & ✓ & ✓ \\\\ closed qn & Answer the questions that can be directly answered by the attached passage. & ✗ & ✓ \\\\ fact verification & Verify the given text is true or false. & ✓ & ✓ \\\\ value judgment & Provable a subject to an engine topic or statement. & ✗ & ✓ \\\\ replay & Pretard to be a specific person, character, profession or identity, and complete the required task on this basis. & ✗ & ✗ \\\\ explain answer & Explain something the user wants to know. & ✓ & ✓ \\\\ \\hline \\hline \\multicolumn{5}{c}{_Semanization_} \\\\ \\hline natural language nator & Write an answer for the given question about manual language learning & ✗ & ✓ \\\\ exam problem tutor & Solve an even question (like all-in-the-batch, multiple choice, problem solving, etc) with no math involved. & ✗ & ✓ \\\\ is at work & Write an answer for the given question about machine learning, artificial intelligence or language model. & ✗ & ✓ \\\\ map puzzles & Write an answer with the step-by-step reasoning process for a math equation. & ✗ & ✓ \\\\ fill in the blank & Complete the missing parts with the most appropriate works to make the text coherent and meaningful. & ✗ & ✓ \\\\ \\hline \\hline \\multicolumn{5}{c}{_Classification_} \\\\ \\hline \\hline \\multicolumn{5}{c}{_Causality_ one of multiple objects given by the user into the specified categories. & ✗ & ✓ \\\\ ordering & Sort some thing, according to some criteria. & ✗ & ✓ \\\\ sentiment analysis & Identify and categorize the subjective opinions, attitudes, and feelings of the writer towards a particular subject. & ✗ & ✓ \\\\ language classification & Classify the language for the given text. & ✗ & ✓ \\\\ topic classification & Evaluate the high-level topics or chines from a given text, i.e., what kind of topics are discussed in the text. & ✗ & ✓ \\\\ \\hline \\hline \\multicolumn{5}{c}{_Others_} \\\\ \\hline \\hline \\multicolumn{5}{c}{_rejecting_} & Reject to respond when the query is beyond capacity or it violates general ethical and legal rules. & ✗ & ✓ \\\\ others & You must choose this if none of the other scenarios match the user’s query well. & ✗ & ✓ \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 8: Detailed description for each task.\n' +
+      '\n' +
+      '\\begin{tabular}{l|c|c|l|l|l|l|l|l} \\hline task & train & test & task & train & test & task & train & test \\\\ \\hline question\\_generation & 30 & 2 & code\\_language\\_classification & 30 & 2 & roleplay & 30 & 3 \\\\ story\\_generation & 30 & 4 & code\\_a\\_b\\_text,translation & 30 & 3 & explain\\_answer & 30 & 4 \\\\ poem\\_generation & 30 & 3 & instruction\\_experiment\\_with & 30 & 4 & natural\\_language\\_learning\\_intaver & 30 & 2 \\\\ email\\_generation & 30 & 3 & language\\_polishing & 30 & 2 & exam\\_problem\\_solving\\_intaver & 31 & 2 \\\\ data\\_generation & 30 & 3 & paraphing & 30 & 2 & malt\\_language\\_model\\_intaver & 30 & 3 \\\\ text\\_a\\_b\\_text,next\\_translation & 30 & 3 & text\\_a\\_correction & 30 & 2 & man\\_uzz\\_bez & 30 & 6 \\\\ adv\\_e\\_giving & 30 & 4 & information\\_extraction & 30 & 3 & fill\\_in\\_in\\_the\\_blank & 30 & 3 \\\\ recommendations & 30 & 2 & keyword\\_extraction & 30 & 2 & general\\_classification & 30 & 4 \\\\ how\\_to\\_a\\_generation & 30 & 3 & table\\_extraction & 30 & 3 & ordering & 30 & 3 \\\\ planning & 30 & 2 & title\\_generation & 30 & 2 & sentiment\\_analysis & 30 & 3 \\\\ code\\_correction & 30 & 5 & text\\_summarization & 30 & 5 & language\\_classification & 30 & 3 \\\\ code\\_simplification & 30 & 2 & note\\_summarization & 30 & 2 & topic\\_classification & 30 & 2 \\\\ explain\\_code & 30 & 2 & open\\_a & 30 & 6 & rejecting & 30 & 3 \\\\ text\\_a\\_code\\_translation & 30 & 4 & closed\\_a & 30 & 2 & others & 43 & 8 \\\\ code\\_a\\_code\\_translation & 30 & 3 & fact\\_verification & 30 & 2 & overall & 1395 & 143 \\\\ language\\_learning\\_questions & 31 & 5 & value\\_ judgement & 30 & 2 & & \\\\ \\hline \\end{tabular}\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c|c|l|l|l|l|l} \\hline task & train & test & task & train & test & task & train & test \\\\ \\hline question\\_generation & 30 & 2 & code\\_language\\_classification & 30 & 2 & roleplay & 30 & 3 \\\\ story\\_generation & 30 & 4 & code\\_a\\_b\\_text,translation & 30 & 3 & explain\\_answer & 30 & 4 \\\\ poem\\_generation & 30 & 3 & instruction\\_experiment\\_with & 30 & 4 & natural\\_language\\_learning\\_intaver & 30 & 2 \\\\ email\\_generation & 30 & 3 & language\\_polishing & 30 & 2 & exam\\_problem\\_solving\\_intaver & 31 & 2 \\\\ data\\_generation & 30 & 3 & paraphing & 30 & 2 & malt\\_language\\_model\\_intaver & 30 & 3 \\\\ text\\_a\\_b\\_text,next\\_translation & 30 & 3 & text\\_a\\_correction & 30 & 2 & man\\_uzz\\_bez & 30 & 6 \\\\ adv\\_e\\_giving & 30 & 4 & information\\_extraction & 30 & 3 & fill\\_in\\_the\\_blank & 30 & 3 \\\\ recommendations & 30 & 2 & keyword\\_extraction & 30 & 2 & general\\_classification & 30 & 4 \\\\ how\\_to\\_a\\_generation & 30 & 3 & table\\_extraction & 30 & 3 & ordering & 30 & 3 \\\\ planning & 30 & 2 & title\\_generation & 30 & 2 & sentiment\\_analysis & 30 & 3 \\\\ code\\_correction & 30 & 5 & text\\_summarization & 30 & 5 & language\\_classification & 30 & 3 \\\\ code\\_simplification & 30 & 2 & note\\_summarization & 30 & 2 & topic\\_classification & 30 & 2 \\\\ explain\\_code & 30 & 2 & open\\_a & 30 & 6 & rejecting & 30 & 3 \\\\ text\\_a\\_code\\_translation & 30 & 4 & closed\\_a & 30 & 2 & others & 43 & 8 \\\\ code\\_a\\_to\\_code\\_translation & 30 & 3 & fact\\_verification & 30 & 2 & overall & 1395 & 143 \\\\ language\\_learning\\_questions & 31 & 5 & value\\_ judgement & 30 & 2 & & \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 9: The task distribution in the training and test set for task classifier.\n' +
+      '\n' +
+      '**Classification Prompt**\n' +
+      '\n' +
+      'You will receive a user\'s query. Additionally, you are given some pre-defined tasks below:\n' +
+      '\n' +
+      '[Existing tasks start]\n' +
+      '\n' +
+      'question_generation story_generation poem_generation email_generation data_generation alive_give_giving recommendations how_to_generation planning instructional_executing language_polishing text_correction code_correction code_simplification information_extraction keywords_extraction table_extraction title_generation text_summarization note_summarization explain_code_summarization explain_code_simserver text_to_to_next_translation text_to_code_translation code_to_code_to_code_translation open_qa closed_qa fil_in_the_blank fick_verification math_puzzles language_learning_questions natural_language_learning_tumor exam_open_solving_store ml_1.lang_muege model_motor general_classification ordering sentiment_analysis code_language_classification language_classification topic_classification value_judgement policyplay default [Existing tasks end]\n' +
+      '\n' +
+      'Your objective is to choose the most appropriate task that can reflect the high-level intention of this query. You should first clearly give out your choice. Your choice should exactly match one of the task names provided above, without any modification. Do not include the task description in your choice.\n' +
+      '\n' +
+      'Your output should be just the task name.\n' +
+      '\n' +
+      'User\'s query is below:\n' +
+      '\n' +
+      'User\'s query start]\n' +
+      '\n' +
+      'input]\n' +
+      '\n' +
+      'User\'s query end]\n' +
+      '\n' +
+      'Task name:\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{p{284.5pt}} \\hline\n' +
+      '**Classification Prompt** \\\\ You will receive a user’s query. Additionally, you are given some pre-defined tasks below:\n' +
+      '\n' +
+      '[Existing tasks start] question_generation story_generation poem_generation email_generation data_generation alive_give recommendations how_to_generation planning instructional_executing language_polishing text_correction code_correction code_simplification information_extraction keywords_extraction table_extraction title_generation text_summarization note_summarization explain_code_summarized text_to_code_translation text_to_code_translation code_to_code_translation code_to_code_translation code_to_next_translation open_qa closed_qa fil_in_the_blank fick_verification math_puzzles language_learning_questions natural_language_learning_tumor exam_open_solving_store ml_1.lang_muege model_motor general_classification ordering sentiment_analysis code_language_classification language_classification topic_classification value_judgement policyplay default [Existing tasks end] \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 10: The classification prompt for the task classifier in the training and inference phase.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:19]\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l} \\hline\n' +
+      '**Query** \\\\ How many positive three-digit integers less than 500 have at least two digits that are the same? \\\\ \\hline\n' +
+      '**Criteria** \\\\ Task Name: math puzzles \\\\ Format: This is a ninth question. First, analyze the question and give a brief analysis in the first paragraph. Then, use a list to present the step-by-step solution. Next, give another list to output a detailed explanation. Last, give the correct result and a conclusion. \\\\ \\hline\n' +
+      '**Original Response** \\\\ To solve this problem, I will count how many three-digit numbers less than 500 have at least two digits that are the same, and subtract that from the total number of three-digit numbers less than 500. The total number of three-digit numbers less than 500 is \\(4\\times 10\\times 10=400\\), since the first digit can be 1, 2, 3, or 4, and the second and third digits can be anything from 0 to 9. Now I will count how many of these 400 numbers have no digits that are the same. To have no digits that are the same, the first digit can be any of the choices, but the second digit has to be different from the first, so it has 9 choices. The third digit has to be different from both the first and the second, so it has 8 choices. \\\\ \\hline \\end{tabular} \\(\\dagger\\) on another note1 I am assuming that the second digit can be 0, since the problem does not say otherwise. Therefore, the number of three-digit numbers less than 500 that have no digits that are the same is \\(4\\times 9\\times 8=288\\). This means that the number of three-digit numbers less than 500 that have at least two digits that are the same is \\(400-288=112\\). \\\\ \\hline\n' +
+      '**Realign Response (Ours)** \\\\ Analysis: \\\\ To solve the problem, we need to count how many three-digit numbers less than 500 have at least two digits that are the same. \\\\ Solution: \\\\\n' +
+      '1. Calculate the total number of three-digit numbers less than 500: \\(4\\times 10\\times 10=400\\). \\\\\n' +
+      '2. Count the number of three-digit numbers less than 500 that have no digits that are the same: \\(4\\times 9\\times 8=288\\). \\\\\n' +
+      '3. Subtract count of numbers with no same digits from the total to find the number of three-digit numbers less than 500 that have at least two digits that are the same: \\(400-288=112\\). \\\\ Explanation: \\\\ \\hline The first digit can be 1, 2, 3, or 4, and the second and third digits can be anything from 0 to 9. \\\\ \\(\\dagger\\). The have no digits that are the same, the first digit can be any of the 4 choices, but the second digit has to be different from the first, so it has 9 choices. The third digit has to be different from both the first and the second, so it has 8 choices. \\\\ Result: \\\\ There are 112 three-digit numbers less than 500 that have at least two digits that are the same. \\\\ Conclusion: \\\\ There are 112 positive three-digit integers less than 500 that have at least two digits that are the same. \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 13: A complete example of a query, including the original response and the ReAlign response.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l} \\hline\n' +
+      '**Query** \\\\ How many positive three-digit integers less than 500 have at least two digits that are the same? \\\\ \\hline\n' +
+      '**Criteria** \\\\ Task Name: math puzzles \\\\ Format: This is a ninth question. First, analyze the question and give a brief analysis in the first paragraph. Then, use a list to present the step-by-step solution. Next, give another list to output a detailed explanation. Last, give the correct result and a conclusion. \\\\ \\hline\n' +
+      '**Original Response** \\\\ To solve this problem, I will count how many three-digit numbers less than 500 have at least two digits that are the same, and subtract that from the total number of three-digit numbers less than 500. The total number of three-digit numbers less than 500 is \\(4\\times 10\\times 10=400\\), since the first digit can be 1, 2, 3, or 4, and the second and third digits can be anything from 0 to 9. Now I will count how many of these 400 numbers have no digits that are the same. To have no digits that are the same, the first digit can be any of the choices, but the second digit has to be different from the first, so it has 9 choices. The third digit has to be different from the first and the second, so it has 8 choices. \\\\ \\hline\n' +
+      '**Realign Response (Ours)** \\\\ To solve the problem, we need to count how many three-digit numbers less than 500 have at least two digits that are the same. \\\\ Solution: \\\\\n' +
+      '1. Calculate the total number of three-digit numbers less than 500: \\(4\\times 10\\times 10=400\\). \\\\\n' +
+      '2. Count the number of three-digit numbers less than 500 that have no digits that are the same: \\(4\\times 9\\times 8=288\\). \\\\\n' +
+      '3. Subtract count of numbers with no same digits from the total to find the number of three-digit numbers less than 500 that have at least two digits that are the same: \\(400-288=112\\). \\\\ Explanation: \\\\ \\hline The first digit can be 1, 2, 3, or 4, and the second and third digits can be anything from 0 to 9. \\\\ \\(\\dagger\\). The have no digits that are the same, the first digit can be any of the 4 choices, but the second digit has to be different from the first, so it has 9 choices. The third digit has to be different from both the first and the second, so it has 8 choices. \\\\ Result: \\\\ There are 112 three-digit numbers less than 500 that have at least two digits that are the same. \\\\ Conclusion: \\\\ There are 112 positive three-digit integers less than 500 that have at least two digits that are the same. \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 14: A complete format for “email generation” task.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{p{284.5pt}} \\hline\n' +
+      '**System Prompt** \\\\ Please at as an impartial judge and evaluate the quality of the responses provided by two AI assistants to the user question displayed below. You should choose the assistant that [follows the user’s instructions and answers the user’s question better. Your evaluation should consider the reachability including clarity, format, and ease of understanding. Well-organized, grammically correct response is better. Begin your evaluation by comparing the two responses and provide a short explanation. Avoid any position biases and ensure that the order in which the responses were presented does not influence your decision. Do not allow the length of the responses to influence your evaluation. Do not favor certain names of the assistants. Be as objective as possible. After providing your explanation, output your final verdict by strictly following this format: “[I/AI]” if assistant A is better, “[I/BI]” if assistant B is better, and “[IC]” for a tie. \\\\ \\hline\n' +
+      '**User Prompt** \\\\ [User Question] \\\\ \\{question\\} \\\\ \\{The Start of Assistant A’s Answer\\} \\\\ \\{answer\\_a\\} \\\\ \\{The End of Assistant B’s Answer\\} \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 16: Evaluation prompt for readability.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{p{284.5pt}} \\hline\n' +
+      '**Query** \\\\ It is the given statement true or false? \\\\ A robotic vacuum can clean both carpets and hard floors. \\\\ \\hline\n' +
+      '**Criteria** \\\\ Task Name: fact verification \\\\ Format: This is a fact-verification task. First, give the answer. Then, give an explanation. \\\\ \\hline\n' +
+      '**Retrievel Evidence** \\\\ \\hline\n' +
+      '1. Robot vacuums run fully autonomously and automatically. They self-awaigate on any flooring type, from handwoods to carpets, and some models can even be programmed to have a cleaning schedule and to sync to smartphones and smart home devices. \\\\\n' +
+      '2. Robot norm vacuum works on laminate flooring. In fact they work better on hard floor as compared to carpet since their suction and beater bar is not... \\\\\n' +
+      '3. Our top pick among the best vacuums for hardwood floors is the iRobot Roomha 694, iRobot is known as a top choice when it comes to robotic... \\\\\n' +
+      '4. Because they lack the power to deep clean, though, robot vacuums are best for flooring other than carpet, such as tile, laminate or hardwood,... \\\\ \\hline\n' +
+      '**Original Response** \\\\ True. \\\\ True. \\\\ \\hline\n' +
+      '**ReLalign Response (Ours)** \\\\ True. \\\\ Robot vacuums can clean both carpets and hard floors. They are designed to self-awaigate on any flooring type, from handwoods to carpets, and some models can even be programmed to have a cleaning schedule and to sync to smartphones and smart home devices. Additionally, some specific models like the iRobot Roomha 694 are known as top choices for cleaning hardwood floors. However, it is important to note that robot vacuums may lack the power to deep clean carpets compared to hard floors. \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 15: An example of a knowledge-intensive task, including the query, the criteria, the retrieved evidence, the original response, and the ReLalign response. We highlight the content that is more factual and knowledge in green.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{p{284.5pt}} \\hline\n' +
+      '**System Prompt** \\\\ Please at as an impartial judge and evaluate the quality of the responses provided by two AI assistants to the user question displayed below. You should choose the assistant that [follows the user’s instructions and answers the user’s question better. Your evaluation should consider the reachability including clarity, format, and ease of understanding. Well-organized, grammically correct response is better. Begin your evaluation by comparing the two responses and provide a short explanation. Avoid any position biases and ensure that the order in which the responses were presented does not influence your decision. Do not allow the length of the responses to influence your evaluation. Do not favor certain names of the assistants. Be as objective as possible. After providing your explanation, output your final verdict by strictly following this format: “[I/AI]” if assistant A is better, “[I/BI]” if assistant B is better, and “[IC]” for a tie. \\\\ \\hline\n' +
+      '**User Prompt** \\\\ [User Question] \\\\ \\{question\\} \\\\ \\{The Start of Assistant A’s Answer\\} \\\\ \\{answer\\_a\\} \\\\ \\{The End of Assistant A’s Answer\\} \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 16: Evaluation prompt for readability.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
