@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '[MISSING_PAGE_FAIL:1]\n' +
+      '\n' +
+      'Fig. 1). i) Both neural network training and the reverse process of diffusion models can be regarded as transitions from random noise/initialization to specific distributions. ii) High-quality images and high-performing parameters can also be degraded into simple distributions, such as Gaussian distribution, through multiple noise additions.\n' +
+      '\n' +
+      'Based on the observations above, we introduce a novel approach for parameter generation, named neural network diffusion (**p-diff**, p stands for parameter), which employs a standard latent diffusion model to synthesize a new set of parameters. That is motivated by the fact that the diffusion model has the capability to transform a given random distribution to a specific one. Our method is simple, comprising an autoencoder and a standard latent diffusion model to learn the distribution of high-performing parameters. First, for a subset of parameters of models trained by the SGD optimizer, the autoencoder is trained to extract the latent representations for these parameters. Then, we leverage a standard latent diffusion model to synthesize latent representations from random noise. Finally, the synthesized latent representations are passed through the trained autoencoder\'s decoder to yield new high-performing model parameters.\n' +
+      '\n' +
+      'Our approach has the following characteristics: i) It consistently achieves similar, even enhanced performance than its training data, _i.e.,_ models trained by SGD optimizer, across multiple datasets and architectures within seconds. ii) Our generated models have great differences from the trained models, which illustrates our approach can synthesize new parameters instead of memorizing the training samples. We hope our research can provide fresh insights into expanding the applications of diffusion models to other domains.\n' +
+      '\n' +
+      '## 2 Nerual Network Diffusion\n' +
+      '\n' +
+      '### Preliminaries of diffusion models\n' +
+      '\n' +
+      'Diffusion models typically consist of forward and reverse processes in a multi-step chain indexed by timesteps. We introduce these two processes in the following.\n' +
+      '\n' +
+      '**Forward process.** Given a sample \\(x_{0}\\sim q(x)\\), the forward process progressively adds Gaussian noise for \\(T\\) steps and obtain \\(x_{1},x_{2},\\cdots,x_{T}\\). The formulation of this process can be written as follows,\n' +
+      '\n' +
+      '\\[\\begin{split} q(x_{t}|x_{t-1})&=\\mathcal{N}(x_{t}; \\sqrt{1-\\beta_{t}}x_{t-1},\\beta_{t}\\textbf{I}),\\\\ q(x_{1:T}|x_{0})&=\\prod_{t=1}^{T}q(x_{t}|x_{t-1} ),\\end{split} \\tag{1}\\]\n' +
+      '\n' +
+      'where \\(q\\) and \\(\\mathcal{N}\\) represent forward process and adding Gaussian noise parameterized by \\(\\beta_{t}\\), and **I** is the identity matrix.\n' +
+      '\n' +
+      '**Reverse process.** Different from the forward process, the reverse process aims to train a denoising network to recursively remove the noise from \\(x_{t}\\). It moves backward on the multi-step chain as t decreases from \\(T\\) to 0. Mathematically, the reverse process can be formulated as follows,\n' +
+      '\n' +
+      '\\[\\begin{split} p_{\\theta}(x_{t-1}|x_{t})&=\\mathcal{N }(x_{t-1};\\mu_{\\theta}(x_{t},t),\\Sigma_{\\theta}(x_{t},t)),\\\\ p_{\\theta}(x_{0:T})&=p(x_{T})\\prod_{t=1}^{T}p_{ \\theta}(x_{t-1}|x_{t}),\\end{split} \\tag{2}\\]\n' +
+      '\n' +
+      'where \\(p\\) represents the reverse process, \\(\\mu_{\\theta}(x_{t},t)\\) and \\(\\Sigma_{\\theta}(x_{t},t))\\) are the Gaussian mean and variance that estimated by the denoising network parameter \\(\\theta\\). The denoising network in the reverse process is optimized by the standard negative log-likelihood:\n' +
+      '\n' +
+      '\\[L_{\\mathrm{dm}}=\\mathcal{D}_{KL}(q(x_{t-1}|x_{t},x_{0})||p_{\\theta}(x_{t-1}|x_ {t})), \\tag{3}\\]\n' +
+      '\n' +
+      'where the \\(\\mathcal{D}_{KL}(\\cdot||\\cdot)\\) denotes the Kullback-Leibler (KL) divergence that is normally used to compute the difference between two distributions.\n' +
+      '\n' +
+      '**Training and inference procedures.** The goal of the training diffusion model is to find the reverse transitions that maximize the likelihood of the forward transitions in each time step \\(t\\). In practice, training equivalently consists of minimizing the variational upper bound. The inference procedure aims to generate novel samples from random noise via the optimized denoising parameters \\(\\theta^{*}\\) and the multi-step chains in the reverse process.\n' +
+      '\n' +
+      '### Overview\n' +
+      '\n' +
+      'We propose neural network diffusion (p-diff), which aims to generate high-performing parameters from random noise. As illustrated in Fig. 2, our method consists of two processes, named parameter autoencoder and generation. Given a set of trained high-performing models, we first select a subset of these parameters and flatten them into 1-dimensional vectors. Subsequently, we introduce an encoder to extract latent representations from these vectors, accompanied by a decoder responsible for reconstructing the parameters from latent representations. Then, a standard latent diffusion model is trained to synthesize latent representations from random noise. After training, we utilize p-diff to generate new parameters via the following chain: random noise \\(\\rightarrow\\) reverse process \\(\\rightarrow\\) trained decoder \\(\\rightarrow\\) generated parameters.\n' +
+      '\n' +
+      '### Parameter autoencoder\n' +
+      '\n' +
+      '**Preparing the data for training the autoencoder.** In our paper, we default to synthesizing a subset of model parameters. Therefore, to collect the training data for the autoencoder, we train a model from scratch and densely save checkpoints in the last epoch. It is worth noting that we only update the selected subset of parameters via SGD optimizer and fix the remained parameters of the model. The saved subsets of parameters \\(S=[s_{1},\\dots,s_{k},\\dots,s_{K}]\\) is utilized to train the autoencoder, where \\(K\\) is the number of the training samples. For some large architectures that have been trained on large-scale datasets, considering the cost of training them from scratch, we fine-tune a subset of the parameters of the pre-trained model and densely save the fine-tuned parameters as training samples.\n' +
+      '\n' +
+      '**Training parameter autoencoder.** We then flatten these parameters \\(S\\) into 1-dimensional vectors \\(V=[v_{1},\\dots,v_{k},\\dots,v_{K}]\\), where \\(V\\in\\mathbb{R}^{K\\times D}\\) and \\(D\\) is the size of the subset parameters. After that, an autoencoder is trained to reconstruct these parameters \\(V\\). To enhance the robustness and generalization of the autoencoder, we introduce random noise augmentation in input parameters and latent representations simultaneously. The encoding and decoding processes can be formulated as,\n' +
+      '\n' +
+      '\\[\\begin{split} Z&=[z_{1}^{0},\\dots,z_{k}^{0},\\dots,z_{K}^{0}]=\\underbrace{f_{\\text{encoder}}(V+\\xi_{V},\\sigma)}_{\\text{encoding}};\\\\ V^{\\prime}&=[v_{1}^{\\prime},\\cdots,v_{k}^{\\prime}, \\cdots,v_{K}^{\\prime}]=\\underbrace{f_{\\text{decoder}}(Z+\\xi_{Z},\\rho)}_{ \\text{decoding}},\\end{split} \\tag{4}\\]\n' +
+      '\n' +
+      'where \\(f_{\\text{encoder}}(\\cdot,\\sigma)\\) and \\(f_{\\text{decoder}}(\\cdot,\\rho)\\) denote the encoder and decoder parameterized by \\(\\sigma\\) and \\(\\rho\\), respectively. \\(Z\\) represents the latent representations, \\(\\xi_{V}\\) and \\(\\xi_{Z}\\) denote random noise that are added into input parameters \\(V\\) and latent representations \\(Z\\), and \\(V^{\\prime}\\) is the reconstructed parameters. We default to using an autoencoder with a 4-layer encoder and decoder. Same as the normal autoencoder training, we minimize the mean square error (MSE) loss between \\(V^{\\prime}\\) and \\(V\\) as follows,\n' +
+      '\n' +
+      '\\[L_{\\text{MSE}}=\\frac{1}{K}\\sum\\limits_{1}^{K}\\lVert v_{k}-v_{k}^{\\prime} \\rVert^{2}, \\tag{5}\\]\n' +
+      '\n' +
+      'where \\(v_{k}^{\\prime}\\) is the reconstructed parameters of \\(k\\)-th model.\n' +
+      '\n' +
+      '### Parameter generation\n' +
+      '\n' +
+      'One of the most direct strategies is to synthesize the novel parameters via a diffusion model. However, the memory cost of this operation is too heavy, especially when the dimension of \\(V\\) is ultra-large. Based on this consideration, we apply the diffusion process to the latent representations by default. For \\(Z=[z_{1}^{0},\\cdots,z_{k}^{0},\\cdots,z_{K}^{0}]\\) extracted from parameter autoencoder, we use the optimization of DDPM (Ho et al., 2020) as follows,\n' +
+      '\n' +
+      '\\[\\theta\\leftarrow\\theta-\\nabla_{\\theta}||\\epsilon-\\epsilon_{\\theta}(\\sqrt{ \\widetilde{\\alpha}_{t}}z_{k}^{0}+\\sqrt{1-\\widetilde{\\alpha}_{t}}\\epsilon,t) ||^{2}, \\tag{6}\\]\n' +
+      '\n' +
+      'where \\(t\\) is uniform between \\(1\\) and \\(T\\), the sequence of hyperparameters \\(\\widetilde{\\alpha}_{t}\\) indicates the noise strength at each step, \\(\\epsilon\\) is the added Gaussian noise, \\(\\epsilon_{\\theta}(\\cdot)\\) denotes the denoising network that parameterized by \\(\\theta\\). After finishing the training of the parameter generation, we directly fed random noise\n' +
+      '\n' +
+      'Figure 2: Our approach consists of two processes, named parameter autoencoder and generation. Parameter autoencoder aims to extract the latent representations and reconstruct model parameters via the decoder. The extracted representations are used to train a standard latent diffusion model (LDM). In the inference, the random noise is fed into LDM and trained decoder to obtain the generated parameters.\n' +
+      '\n' +
+      'into the reverse process and the trained decoder to generate a new set of high-performing parameters. These generated parameters are concatenated with the remained model parameters to form new models for evaluation. Neural network parameters and image pixels exhibit significant disparities in several key aspects, including data type, dimensions, range, and physical interpretation. Different from images, neural network parameters mostly have no spatial relevance, so we replace 2D convolutions with 1D convolutions in our parameter autoencoder and parameter generation processes.\n' +
+      '\n' +
+      '## 3 Experiments\n' +
+      '\n' +
+      'In this section, We first introduce the setup for reproducing. Then, we report the result comparisons and ablation studies.\n' +
+      '\n' +
+      '### Setup\n' +
+      '\n' +
+      '**Datasets and architectures.** We evaluate our approach across a wide range of datasets, including MNIST (LeCun et al., 1998), CIFAR-10/100 (Krizhevsky et al., 2009), ImageNet-1K (Deng et al., 2009), STL-10 (Coates et al., 2011), Flowers (Nilsback and Zisserman, 2008), Pets (Parkhi et al., 2012), and F-101 (Bossard et al., 2014) to study the effectiveness of our method. We mainly conduct experiments on ResNet-18/50 (He et al., 2016), ViT-Tiny/Base (Dosovskiy et al., 2020), and ConvNeXt-T/B (Liu et al., 2022).\n' +
+      '\n' +
+      '**Training details.** The autoencoder and latent diffusion model both include a 4-layer 1D CNNs-based encoder and decoder. We default to collecting 200 training data for all architectures. For ResNet-18/50, we train the models from scratch. In the last epoch, we continue to train the last two normalization layers and fix the other parameters. We save 200 checkpoints in the last epoch, _i.e.,_ original models. For ViT-Tiny/Base and ConvNeXt-T/B, we fine-tune the last two normalization parameters of the released model in the timm library (Wightman, 2019). The \\(\\xi_{V}\\) and \\(\\xi_{Z}\\) are Gaussian noise with amplitude of 0.001 and 0.1. In most cases, the autoencoder and latent diffusion training can be completed within 1 to 3 hours on a single Nvidia A100 40G GPU.\n' +
+      '\n' +
+      '**Inference details.** We synthesize 100 novel parameters by feeding random noise into the latent diffusion model and the trained decoder. These synthesized parameters are then concatenated with the aforementioned fixed parameters to form our generated models. From these generated models, we select the one with the best performance _on the training set_. Subsequently, we evaluate its accuracy on the validation set and report the results. That is a consideration of making fair comparisons with the models trained using SGD optimization. We empirically find the performance on the training set is good for selecting models for testing.\n' +
+      '\n' +
+      '**Baselines.** 1) The best validation accuracy among the original models is denoted as \'original\'. 2) Average weight ensemble (Krogh and Vedelsby, 1994; Wortsman et al., 2022) of original models is denoted as \'ensemble\'.\n' +
+      '\n' +
+      '### Results\n' +
+      '\n' +
+      'Tab. 1 shows the result comparisons with two baselines across 8 datasets and 6 architectures. Based on the results, we have several observations as follows: i) In most cases, our method achieves similar or better results than two baselines. This demonstrates that our method can efficiently learn the distribution of high-performing parameters and generate superior models from random noise. ii) Our method consistently performs well on various datasets, which indicates the good generality of our method.\n' +
+      '\n' +
+      '### Ablation studies and analysis\n' +
+      '\n' +
+      'Extensive ablation studies are conducted in this section to illustrate the characteristics of our method. We default to training ResNet-18 on CIFAR-100 and report the best, average, and medium accuracy (if not otherwise stated).\n' +
+      '\n' +
+      '**The number of training models.** Tab. 2(a) varies the size of training data, _i.e._ the number of original models. We find the performance gap of best results among different numbers of the original models is minor. To comprehensively explore the influences of different numbers of training data on the performance stability, we also report the average (avg.) and median (med.) accuracy as metrics of stability of our generated models. Notably, the stability of models generated with a small number of training instances is much worse than that observed in larger settings. This can be explained by the learning principle of the diffusion model: the diffusion process may be hard to model the target distribution well if\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c|c c c c c c c c c} \\hline \\hline Network\\(\\backslash\\)Dataset & MNIST & CIFAR-10 & CIFAR-100 & STL-10 & Flowers & Pets & F-101 & ImageNet-1K \\\\ \\hline ResNet-18 & 99.2 / 99.2 / **99.3** & 92.5 / 92.5 / **92.7** & 76.7 / 76.7 / **76.9** & 75.5 / 75.5 / 75.4 & 49.1 / **49.7** & **40.9 / 60.8 / 61.1** & 71.2 / 71.3 / 71.3 & 78.7 / 78.5 / 78.7 \\\\ ResNet-50 & 99.4 / 93.9 / 94.1 & 93.1 / 91.4 / 91.3 & 71.6 / 71.5 / **71.7** & 69.2 / 61.0 / 69.2 & 37.3 / 33.7 / 33.8 & 58.0 / 58.0 / 58.0 / 58.6 & 68.6 / 65.5 / 66.6 & 79.2 / 79.2 / **79.3** \\\\ ViT-Tiny & 99.5 / 99.5 / 99.5 & 96.8 / 96.8 / 96.8 & 86.7 / 86.8 / 86.7 / 86.7 & 93.7 / 93.7 / 93.7 / 85.7 / 85.7 / 85.7 & 93.9 / 89.3 / 89.3 & 75.8 / 74.7 / 85.5 & 73.7 / 73.7 / 74.1 \\\\ ViT-Base & 99.5 / 99.4 / 99.5 & 98.7 / 98.7 / 98.7 / 98.1 & 91.5 / 91.4 / **91.7** & 99.1 / 99.0 / **99.2** & 98.3 / 98.3 & 91.6 / 91.5 / **91.7** & 83.4 / 83.4 / 83.4 / 84.5 / **84.7** \\\\ ConvNeXt-T & 99.3 / **99.4** & 97.6 / 97.6 / 97.7 & 87.0 / 87.0 / **87.1** & 98.2 / 98.0 / 98.2 & 70.0 / 70.0 / 70.0 / **70.5** & 92.9 / **78.9** & 76.1 / 76.1 / 76.2 & 82.1 / 82.1 / **82.3** \\\\ ConvNeXt-B & 99.3 / 99.3 / **99.4** & 98.1 / 98.1 / 98.8 & 83.8 / 88.4 / 88.4 & 98.8 / 98.8 / **98.9** & 88.4 / 88.4 / 88.5 & 94.1 / 94.0 / 94.1 & 81.4 / 81.4 / **81.6** & 83.8 / 83.7 / **83.9** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 1: We present results in the format of ‘original / ensemble / p-diff”. Our method obtains similar or even higher performance than baselines. The results of p-diff is average in three runs. **Bold entries** are best results.\n' +
+      '\n' +
+      'only a few input samples are used for training.\n' +
+      '\n' +
+      '**Where to apply p-diff.** We default to synthesizing the parameters of the last two normalization layers. To investigate the effectiveness of p-diff on other depths of normalization layers, we also explore the performance of synthesizing the other shallow-layer parameters. To keep an equal number of BN parameters, we implement our approach to three sets of BN layers, which are between layers with different depths. As shown in Tab. 2(b), we empirically find that our approach achieves better performances (best accuracy) than the original models on all depths of BN layers settings. Another finding is that synthesizing the deep layers can achieve better accuracy than generating the shallow ones. This is because generating shallow-layer parameters is more likely to accumulate errors during the forward propagation than generating deep-layer parameters.\n' +
+      '\n' +
+      '**Noise augmentation.** Noise augmentation is designed to enhance the robustness and generalization of training the autoencoder. We ablate the effectiveness of applying this augmentation in the input parameters and latent representations, respectively. The ablation results are presented in Tab. 2(c). Several observations can be summarized as follows: i) Noise augmentation plays a crucial role in generating stable and high-performing models. ii) The performance gains of applying noise augmentation in the latent representations are larger than in the input parameters. iii) Our default setting, jointly using noise augmentation in parameters and representations obtains the best performances (includes best, average, and medium accuracy).\n' +
+      '\n' +
+      '**Generalization on entire model parameters.** Until now, we have evaluated the effectiveness of our approach in synthesizing a subset of model parameters, _i.e.,_ batch normalization parameters. _What about synthesizing entire model parameters?_ To evaluate this, we extend our approach to two small architectures, namely MLP-3 (includes three linear layers and ReLU activation function) and ConvNet-3 (includes three convolutional layers and one linear layer). Different from the aforementioned training data collection strategy, we individually train these architectures from scratch with 200 different random seeds. We take CIFAR-10 as an example and show the details of these two architectures (convolutional layer: kernel size \\(\\times\\) kernel size, the number of channels; linear layer: input dimension, output dimension) as follows:\n' +
+      '\n' +
+      '\\(\\bullet\\) ConvNet-3: conv1. 3\\(\\times\\)3, 32, conv2. 3\\(\\times\\)3, 32, conv3. 3\\(\\times\\)3, 32, linear layer. 2048, 10.\n' +
+      '\n' +
+      '\\(\\bullet\\) MLP-3: linear layer1. 3072, 50, linear layer2. 50, 25, linear layer3. 25, 10.\n' +
+      '\n' +
+      'We present result comparisons between our approach and two baselines (_i.e.,_ original and ensemble) at Tab. 3. We report the comparisons and parameter numbers of ConvNet-3 on CIFAR-10/100 and MLP-3 on CIFAR-10 and MNIST datasets. These experiments demonstrate the effectiveness and generalization of our approach in synthesizing entire model parameters, _i.e.,_ achieving similar or even improved\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\n' +
+      '\\end{table}\n' +
+      'Table 2: **p-diff main ablation experiments.** We ablate the number of original models \\(K\\), the location of applying our approach, and the effect of noise augmentation. The default settings are \\(K=200\\), applying p-diff on the deep BN parameters (between layer16 to 18), and using noise augmentation in the input parameters and latent representations. Defaults are marked in gray. **Bold entries** are best results.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\n' +
+      '\\end{table}\n' +
+      'Table 3: We present result comparisons of original, ensemble, and p-diff under synthesizing entire model parameters setting. Our method demonstrates good generalization on ConvNet-3 and MLP-3. **Bold entries** are best results.\n' +
+      '\n' +
+      'performances over baselines. These results suggest the practical applicability of our method. However, we can not synthesize the entire parameters of large architectures, such as ResNet, ViT, and ConvNeXt series. It is mainly constrained by the limitation of the GPU memory.\n' +
+      '\n' +
+      '**Parameter patterns of original models.** Experimental results and ablation studies demonstrate the effectiveness of our method in generating neural network parameters. To explore the intrinsic reason behind this, we use 3 random seeds to train ResNet-18 model from scratch and visualize the parameters in Fig. 3. We visualize the heat map of parameter distribution via min-max normalization in different layers individually. Based on the visualizations of the parameters of convolutional (Conv.-layer2) and fully connected (FC-layer18) layers, there indeed exist specific parameter patterns among these layers. Based on the learning of these patterns, our approach can generate high-performing neural network parameters.\n' +
+      '\n' +
+      '## 4 Is P-diff Only Memorizing?\n' +
+      '\n' +
+      'In this section, we mainly investigate the difference between original and generated models. We first propose a similarity metric. Then several comparisons and visualizations are conducted to illustrate the characteristics of our approach.\n' +
+      '\n' +
+      '**Questions and experiment designs.** Here, we first ask the following questions: 1) Does p-diff just memorize the samples from the original models in the training set? 2) Is there any difference among adding noise or fine-tuning the original models, and the models generated by our approach? In our paper, we hope that our p-diff can generate some new parameters that perform differently than the original models. To verify this, we design experiments to study the differences between original, noise-added, fine-tuned, and p-diff models by comparing their predictions and visualizations.\n' +
+      '\n' +
+      '**Similarity metric.** We conduct experiments on CIFAR-100 (Krizhevsky et al., 2009) with ResNet-18 (He et al., 2016) under the default setting, _i.e._ only generating the parameters of the last two batch normalization layers. We measure the similarity between the two models by calculating the Intersection over Union (IoU) on their wrong predictions. The IoU can be formulated as follows,\n' +
+      '\n' +
+      '\\[\\mathrm{IoU}=|P_{1}^{\\mathrm{wrong}}\\cap P_{2}^{\\mathrm{wrong}}|/|P_{1}^{ \\mathrm{wrong}}\\cup P_{2}^{\\mathrm{wrong}}|, \\tag{7}\\]\n' +
+      '\n' +
+      'where \\(P^{\\mathrm{wrong}}\\) denotes the indexes of wrong predictions on the validation set, \\(\\cap\\) and \\(\\cup\\) represent union and intersection operations. A higher IoU indicates a greater similarity between the predictions of the two models. From now on, we use IoU as the similarity metric in our paper. To mitigate the influence of the performance contrasts in experiments, we select models that perform better than 76.5% by default.\n' +
+      '\n' +
+      '**Similarity of predictions.** We evaluate the similarity between the original and p-diff models. For each model, we obtain its similarity by averaging the IoUs with other models. We introduce four comparisons: 1) similarity among original models; 2) similarity among p-diff models; 3) similarity between original and p-diff models; and 4) max similarity (nearest neighbor) between original and p-diff models. We calculate the IoUs for all models in the above four comparisons and report their averaged values in Fig. 4(a).\n' +
+      '\n' +
+      'One can find that the differences among generated models are much larger than the differences among the original models. Another finding is that even the maximum similarity between the original and generated models is also lower than the similarity among the original models. It shows our p-diff can generate new parameters that perform differently with their training data (_i.e._ original models).\n' +
+      '\n' +
+      'We also compare our approach with the fine-tuned and noise-added models. Specifically, we randomly choose one generated model, and search its nearest neighbor (_i.e._ max similarity) from the original models. Then, we fine-tune and add random noise from the nearest neighbor to obtain corresponding models. After that, we calculate the similarity of the original with fine-tuned and noise-added models, respectively. Finally, we repeat this operation fifty times and report their average IoUs for analysis. In this experiment, we also constraint the performances of all models, _i.e.,_ only good models are used here for reducing the bias of visualization. We empirically set the amplitude of random noise with the range from 0.01 to 0.1 to prevent substantial performance drops.\n' +
+      '\n' +
+      'Based on the results in Fig. 4(b), we find that the performances of fine-tuned and noise-added models are hard to\n' +
+      '\n' +
+      'Figure 3: Visualizing the parameter distributions of convolutional (Conv.-layer2) and fully connected (FC-layer18) layers. Parameters from different layers show variant patterns while these parameters from the same layer show similar patterns. The index of layer is aligned with the standard ResNet-18.\n' +
+      '\n' +
+      'outperform the original models. Besides, the similarities between fine-tuned or noise-added and original models are very high, which indicates these two operations can not obtain novel but high-performing models. However, our generated models achieve diverse similarities and superior performances compared to the original models.\n' +
+      '\n' +
+      '**Comparison of latent representations.** In addition to predictions, we assess the distributions of latent representations for the original and generated models using t-SNE (Van der Maaten et al., 2008). To identify the differences between our approach and the operation of adding noise to the latent representations of original models, we also include the adding noise operation as a comparison in Fig. 4(c). The added noise is random Gaussian noise with an amplitude of 0.1. One can find that p-diff can generate novel latent representations while adding noise just makes interpolation around the latent representations of original models.\n' +
+      '\n' +
+      '**The trajectories of p-diff process.** We plot the generated parameters of different time steps in the inference stage to form trajectories to explore its generation process. Five trajectories (initialized by 5 random noise) are shown in Fig. 5(a). We also plot the average parameters of the original models and their standard deviation (std). As the time step increases, the generated parameters are overall close to the original models. Although we keep a narrow performance range constraint for visualization, there is still a certain distance between the end points (orange triangles) of trajectories and average parameters (five-pointed star). Another finding is that the five trajectories are diverse.\n' +
+      '\n' +
+      '**From memorizing to generate new parameters.** To investigate the impact of the number of original models (\\(K\\)) on the diversity of generated models, we visualize the max similarities between original and generated models with different \\(K\\) in Fig. 5(b). Specifically, we continually generate parameters until 50 models perform better than 76.5% in all cases. The generated models almost memorize the original model when \\(K=1\\), as indicated by the narrow similarity range and high value. The similarity range of these generated models becomes larger as \\(K\\) increases, demonstrating our approach can generate parameters that perform differently from the original models.\n' +
+      '\n' +
+      '## 5 Related Work\n' +
+      '\n' +
+      '**Diffusion models.** Diffusion models have achieved remarkable results in visual generation. These methods (Ho et al., 2020; Dhariwal and Nichol, 2021; Ho et al., 2022; Peebles and Xie, 2022; Hertz et al., 2023; Li et al., 2023) are based on non-equilibrium thermodynamics (Jarzynski, 1997; Sohl-Dickstein et al., 2015), and the its pathway is similar to GAN (Zhu et al., 2017; Isola et al., 2017; Brock et al., 2018), VAE (Kingma and Welling, 2013; Razavi et al., 2019), and flow-based model (Dinh et al., 2014; Rezende and Mohamed, 2015). Diffusion models can be categorized into three main branches. The first branch focuses on enhancing the synthesis quality of diffusion models, exemplified by models like DALL-E 2 (Ramesh et al., 2022), Imagen (Saharia et al., 2022), and Stable Diffusion (Rombach et al., 2022). The second branch aims to improve the sampling speed, including DDIM (Song et al., 2021), Analytic-DPM (Bao et al., 2022), and DPM-Solver (Lu et al., 2022). The final branch involves reevaluating diffu\n' +
+      '\n' +
+      'Figure 4: The similarity represents the Intersection of Union (IoU) over wrong predictions between/among two models (a) shows the comparisons in four cases: similarity among original models and p-diff models, similarity between original and p-diff models, and the maximum similarity (nearest neighbor) between original and p-diff models. (b) displays the accuracy and max similarity of fine-tuned, noise-added, and p-diff models. All the maximum similarities are calculated with the original models. (c) presents the t-SNE (Van der Maaten et al., 2008) of latent representations of the original models, p-diff models, and adding noise operation.\n' +
+      '\n' +
+      'sion models from a continuous perspective, like score-based models (Song & Ermon, 2019; Feng et al., 2023).\n' +
+      '\n' +
+      '**Parameter generation.** HyperNet (Ha et al., 2017) dynamically generates the weights of a model with variable architecture. Smash (Brock et al., 2018) introduces a flexible scheme based on memory read-writes that can define a diverse range of architectures. (Peebles et al., 2023) collect 23 million checkpoints and train a conditional generator via a transformer-based diffusion model. MetaDiff (Zhang & Yu, 2023) introduces a diffusion-based meta-learning method for few-shot learning, where a layer is replaced by a diffusion U-Net (Ronneberger et al., 2015). HyperDiffusion (Erkoc et al., 2023) directly utilizes a diffusion model on MLPs to generate new neural implicit fields. Different from them, we analyze the intrinsic differences between images and parameters and design corresponding modules to learn the distributions of the high-performing parameters.\n' +
+      '\n' +
+      '**Stochastic and Bayesian neural networks.** Our approach could be viewed as learning a prior over network parameters, represented by the trained diffusion model. Learning parameter priors for neural networks has been studied in classical literature. Stochastic neural networks (SNNs) (Sompolinsky et al., 1988; Bottou et al., 1991; Wong, 1991; Schmidt et al., 1992; Murata et al., 1994) also learn such priors by introducing randomness to improve the robustness and generalization of neural networks. The Bayesian neural networks (Neal, 2012; Kingma & Welling, 2013; Rezende et al., 2014; Kingma et al., 2015; Gal & Ghahramani, 2016) aims to model a probability distribution over neural networks to mitigate overfitting, learn from small datasets, and asses the uncertainty of model predictions. (Graves, 2011) propose an easily implementable stochastic variational method as a practical approximation to Bayesian inference for neural networks. They introduce a heuristic pruner to reduce the number of network weights, resulting in improved generalization. (Welling & Teh, 2011) combine Langevin dynamics with SGD to incorporate a Gaussian prior into the gradient. This transforms SGD optimization into a sampling process. _Bayes by Backprop_(Blundell et al., 2015) learns a probability distribution prior over the weights of a neural network. These methods mostly operate in small-scale settings, while p-diff shows its effectiveness in real-world architectures.\n' +
+      '\n' +
+      '## 6 Discussion and Conclusion\n' +
+      '\n' +
+      'Neural networks have several popular learning paradigms, such as supervised learning (Krizhevsky et al., 2012; Simonyan & Zisserman, 2014; He et al., 2016; Dosovitskiy et al., 2020), self-supervised learning (Devlin et al., 2018; Brown et al., 2020; He et al., 2020, 2022), and more. In this study, we observe that diffusion models can be employed to generate high-performing and novel neural network parameters, demonstrating their superiority. Using diffusion steps for neural network parameter updates shows a potentially novel paradigm in deep learning.\n' +
+      '\n' +
+      'However, we acknowledge that images/videos and parameters are signals of different natures, and this distinction must be handled with care. Additionally, even though diffusion models have achieved considerable success in image/video generation, their application to parameters remains relatively underexplored. These pose a series of challenges for neural network diffusion. We propose an initial approach to address some of these challenges. Nevertheless, there are still unresolved challenges, including memory constraints for generating the entire parameters of large architectures, the efficiency of structure designs, and performance stability.\n' +
+      '\n' +
+      'Figure 5: (a) shows the parameter trajectories of our approach and original models distribution via t-SNE. (b) illustrates max IoUs between generated and original models in different \\(K\\) settings. Sim. denotes similarity.\n' +
+      '\n' +
+      '**Acknowledgments.** We thank Kaiming He, Dianbo Liu, Mingjia Shi, Zheng Zhu, Bo Zhao, Jiawei Liu, Yong Liu, Ziheng Qin, Zangwei Zheng, Yifan Zhang, Xiangyu Peng, Hongyan Chang, David Yin, Dave Zhenyu Chen, Ahmad Sajedi, and George Cazenavette for valuable discussions and feedbacks.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* Bao et al. (2022) Bao, F., Li, C., Zhu, J., and Zhang, B. Analytic-DPM: an analytic estimate of the optimal reverse variance in diffusion probabilistic models. In _ICLR_, 2022. URL [https://openreview.net/forum?id=0xiJLKH-ufZ](https://openreview.net/forum?id=0xiJLKH-ufZ).\n' +
+      '* Blundell et al. (2015) Blundell, C., Cornebise, J., Kavukcuoglu, K., and Wierstra, D. Weight uncertainty in neural network. In _ICML_. PMLR, 2015.\n' +
+      '* Bossard et al. (2014) Bossard, L., Guillaumin, M., and Van Gool, L. Food-101-mining discriminative components with random forests. In _ECCV_. Springer, 2014.\n' +
+      '* Bottou et al. (1991) Bottou, L. et al. Stochastic gradient learning in neural networks. _Proceedings of Neuro-Nimes_, 91(8), 1991.\n' +
+      '* Brock et al. (2018a) Brock, A., Donahue, J., and Simonyan, K. Large scale gan training for high fidelity natural image synthesis. _arXiv preprint arXiv:1809.11096_, 2018a.\n' +
+      '* Brock et al. (2018b) Brock, A., Lim, T., Ritchie, J., and Weston, N. SMASH: One-shot model architecture search through hypernetworks. In _ICLR_, 2018b. URL [https://openreview.net/forum?id=rydeCEhs-](https://openreview.net/forum?id=rydeCEhs-).\n' +
+      '* Brown et al. (2020) Brown, T., Mann, B., Ryder, N., Subbiah, M., Kaplan, J. D., Dhariwal, P., Neelakantan, A., Shyam, P., Sastry, G., Askell, A., et al. Language models are few-shot learners. _NeurIPS_, 33, 2020.\n' +
+      '* Coates et al. (2011) Coates, A., Ng, A., and Lee, H. An analysis of single-layer networks in unsupervised feature learning. In _Proceedings of the fourteenth international conference on artificial intelligence and statistics_. JMLR Workshop and Conference Proceedings, 2011.\n' +
+      '* Cristianini et al. (2000) Cristianini, N., Shawe-Taylor, J., et al. _An introduction to support vector machines and other kernel-based learning methods_. Cambridge university press, 2000.\n' +
+      '* Deng et al. (2009) Deng, J., Dong, W., Socher, R., Li, L.-J., Li, K., and Fei-Fei, L. Imagenet: A large-scale hierarchical image database. In _CVPR_. Ieee, 2009.\n' +
+      '* Devlin et al. (2018) Devlin, J., Chang, M.-W., Lee, K., and Toutanova, K. Bert: Pre-training of deep bidirectional transformers for language understanding. _arXiv preprint arXiv:1810.04805_, 2018.\n' +
+      '* Dhariwal & Nichol (2021) Dhariwal, P. and Nichol, A. Diffusion models beat gans on image synthesis. _NeurIPS_, 34, 2021.\n' +
+      '* Dinh et al. (2014) Dinh, L., Krueger, D., and Bengio, Y. Nice: Non-linear independent components estimation. _arXiv preprint arXiv:1410.8516_, 2014.\n' +
+      '* Dosovitskiy et al. (2020) Dosovitskiy, A., Beyer, L., Kolesnikov, A., Weissenborn, D., Zhai, X., Unterthiner, T., Dehghani, M., Minderer, M., Heigold, G., Gelly, S., et al. An image is worth 16x16 words: Transformers for image recognition at scale. _arXiv preprint arXiv:2010.11929_, 2020.\n' +
+      '* Erkoc et al. (2023) Erkoc, Z., Ma, F., Shan, Q., Niessner, M., and Dai, A. Hyper-diffusion: Generating implicit neural fields with weight-space diffusion. _arXiv preprint arXiv:2303.17015_, 2023.\n' +
+      '* Feng et al. (2023) Feng, B. T., Smith, J., Rubinstein, M., Chang, H., Bouman, K. L., and Freeman, W. T. Score-based diffusion models as principled priors for inverse imaging. _arXiv preprint arXiv:2304.11751_, 2023.\n' +
+      '* Gal & Ghahramani (2016) Gal, Y. and Ghahramani, Z. Dropout as a bayesian approximation: Representing model uncertainty in deep learning. In _ICML_. PMLR, 2016.\n' +
+      '* Graves (2011) Graves, A. Practical variational inference for neural networks. _NeurIPS_, 24, 2011.\n' +
+      '* Ha et al. (2017) Ha, D., Dai, A. M., and Le, Q. V. Hypernetworks. In _ICLR_, 2017. URL [https://openreview.net/forum?id=rkpACellx](https://openreview.net/forum?id=rkpACellx).\n' +
+      '* He et al. (2016) He, K., Zhang, X., Ren, S., and Sun, J. Deep residual learning for image recognition. In _CVPR_, 2016.\n' +
+      '* He et al. (2020) He, K., Fan, H., Wu, Y., Xie, S., and Girshick, R. Momentum contrast for unsupervised visual representation learning. In _CVPR_, 2020.\n' +
+      '* He et al. (2022) He, K., Chen, X., Xie, S., Li, Y., Dollar, P., and Girshick, R. Masked autoencoders are scalable vision learners. In _CVPR_, 2022.\n' +
+      '* Hertz et al. (2023) Hertz, A., Mokady, R., Tenenbaum, J., Aberman, K., Pritch, Y., and Cohen-or, D. Prompt-to-prompt image editing with cross-attention control. In _ICLR_, 2023. URL [https://openreview.net/forum?id=_CDixzkzeyb](https://openreview.net/forum?id=_CDixzkzeyb).\n' +
+      '* Ho et al. (2020) Ho, J., Jain, A., and Abbeel, P. Denoising diffusion probabilistic models. _NeurIPS_, 33, 2020.\n' +
+      '* Ho et al. (2022) Ho, J., Chan, W., Saharia, C., Whang, J., Gao, R., Gritsenko, A., Kingma, D. P., Poole, B., Norouzi, M., Fleet, D. J., et al. Imagen video: High definition video generation with diffusion models. _arXiv preprint arXiv:2210.02303_, 2022.\n' +
+      '\n' +
+      '* Isola et al. (2017) Isola, P., Zhu, J.-Y., Zhou, T., and Efros, A. A. Image-to-image translation with conditional adversarial networks. In _CVPR_, 2017.\n' +
+      '* Jarzynski (1997) Jarzynski, C. Equilibrium free-energy differences from nonequilibrium measurements: A master-equation approach. _Physical Review E_, 56(5), 1997.\n' +
+      '* Kingma & Welling (2013) Kingma, D. P. and Welling, M. Auto-encoding variational bayes. _arXiv preprint arXiv:1312.6114_, 2013.\n' +
+      '* Kingma et al. (2015) Kingma, D. P., Salimans, T., and Welling, M. Variational dropout and the local reparameterization trick. _NeurIPS_, 28, 2015.\n' +
+      '* Krizhevsky et al. (2009) Krizhevsky, A., Hinton, G., et al. Learning multiple layers of features from tiny images. 2009.\n' +
+      '* Krizhevsky et al. (2012) Krizhevsky, A., Sutskever, I., and Hinton, G. E. Imagenet classification with deep convolutional neural networks. _NeurIPS_, 25, 2012.\n' +
+      '* Krogh & Vedelsby (1994) Krogh, A. and Vedelsby, J. Neural network ensembles, cross validation, and active learning. _NeurIPS_, 7, 1994.\n' +
+      '* LeCun et al. (1998) LeCun, Y., Bottou, L., Bengio, Y., and Haffner, P. Gradient-based learning applied to document recognition. _Proceedings of the IEEE_, 86(11), 1998.\n' +
+      '* Li et al. (2023) Li, A. C., Prabhudesai, M., Duggal, S., Brown, E., and Pathak, D. Your diffusion model is secretly a zero-shot classifier. _arXiv preprint arXiv:2303.16203_, 2023.\n' +
+      '* Lin et al. (2014) Lin, T.-Y., Maire, M., Belongie, S., Hays, J., Perona, P., Ramanan, D., Dollar, P., and Zitnick, C. L. Microsoft coco: Common objects in context. In _Computer Vision-ECCV 2014: 13th European Conference, Zurich, Switzerland, September 6-12, 2014, Proceedings, Part V 13_, pp. 740-755. Springer, 2014.\n' +
+      '* Liu et al. (2022) Liu, Z., Mao, H., Wu, C.-Y., Feichtenhofer, C., Darrell, T., and Xie, S. A convnet for the 2020s. In _CVPR_, 2022.\n' +
+      '* Long et al. (2015) Long, J., Shelhamer, E., and Darrell, T. Fully convolutional networks for semantic segmentation. In _Proceedings of the IEEE conference on computer vision and pattern recognition_, pp. 3431-3440, 2015.\n' +
+      '* Lu et al. (2022) Lu, C., Zhou, Y., Bao, F., Chen, J., Li, C., and Zhu, J. DPM-solver: A fast ODE solver for diffusion probabilistic model sampling in around 10 steps. In Oh, A. H., Agarwal, A., Belgrave, D., and Cho, K. (eds.), _NeurIPS_, 2022. URL [https://openreview.net/forum?id=2uAaGW1P_V](https://openreview.net/forum?id=2uAaGW1P_V).\n' +
+      '* Murata et al. (1994) Murata, N., Yoshizawa, S., and Amari, S.-i. Network information criterion-determining the number of hidden units for an artificial neural network model. _IEEE transactions on neural networks_, 5(6), 1994.\n' +
+      '* Neal (2012) Neal, R. M. _Bayesian learning for neural networks_, volume 118. Springer Science & Business Media, 2012.\n' +
+      '* Nichol et al. (2021) Nichol, A., Dhariwal, P., Ramesh, A., Shyam, P., Mishkin, P., McGrew, B., Sutskever, I., and Chen, M. Glide: Towards photorealistic image generation and editing with text-guided diffusion models. _arXiv preprint arXiv:2112.10741_, 2021.\n' +
+      '* Nilsback & Zisserman (2008) Nilsback, M.-E. and Zisserman, A. Automated flower classification over a large number of classes. In _2008 Sixth Indian conference on computer vision, graphics & image processing_. IEEE, 2008.\n' +
+      '* Parkhi et al. (2012) Parkhi, O. M., Vedaldi, A., Zisserman, A., and Jawahar, C. Cats and dogs. In _CVPR_. IEEE, 2012.\n' +
+      '* Peebles & Xie (2022) Peebles, W. and Xie, S. Scalable diffusion models with transformers. _arXiv preprint arXiv:2212.09748_, 2022.\n' +
+      '* Peebles et al. (2023) Peebles, W., Radosavovic, I., Brooks, T., Efros, A. A., and Malik, J. Learning to learn with generative models of neural network checkpoints, 2023. URL [https://openreview.net/forum?id=JXkz3zm8gJ](https://openreview.net/forum?id=JXkz3zm8gJ).\n' +
+      '* Ramesh et al. (2022) Ramesh, A., Dhariwal, P., Nichol, A., Chu, C., and Chen, M. Hierarchical text-conditional image generation with clip latents. _arXiv preprint arXiv:2204.06125_, 1(2), 2022.\n' +
+      '* Razavi et al. (2019) Razavi, A., Van den Oord, A., and Vinyals, O. Generating diverse high-fidelity images with vq-vae-2. _NeurIPS_, 32, 2019.\n' +
+      '* Ren et al. (2015) Ren, S., He, K., Girshick, R., and Sun, J. Faster r-cnn: Towards real-time object detection with region proposal networks. _Advances in neural information processing systems_, 28, 2015.\n' +
+      '* Rezende & Mohamed (2015) Rezende, D. and Mohamed, S. Variational inference with normalizing flows. In _ICML_. PMLR, 2015.\n' +
+      '* Rezende et al. (2014) Rezende, D. J., Mohamed, S., and Wierstra, D. Stochastic backpropagation and approximate inference in deep generative models. In _ICML_. PMLR, 2014.\n' +
+      '* Rombach et al. (2022) Rombach, R., Blattmann, A., Lorenz, D., Esser, P., and Ommer, B. High-resolution image synthesis with latent diffusion models. In _CVPR_, 2022.\n' +
+      '* Ronneberger et al. (2015) Ronneberger, O., Fischer, P., and Brox, T. U-net: Convolutional networks for biomedical image segmentation. In _Medical Image Computing and Computer-Assisted Intervention-MICCAI 2015: 18th International Conference, Munich, Germany, October 5-9, 2015, Proceedings, Part III 18_, pp. 234-241. Springer, 2015.\n' +
+      '* Saharia et al. (2015) Saharia, C., Chan, W., Saxena, S., Li, L., Whang, J., Denton, E. L., Ghasemipour, K., Gontijo Lopes, R., Karagol Ayan,B., Salimans, T., et al. Photorealistic text-to-image diffusion models with deep language understanding. _NeurIPS_, 35, 2022.\n' +
+      '* Schmidt et al. (1992) Schmidt, W. F., Kraaijveld, M. A., Duin, R. P., et al. Feed forward neural networks with random weights. In _ICPR_. IEEE Computer Society Press, 1992.\n' +
+      '* Simonyan & Zisserman (2014) Simonyan, K. and Zisserman, A. Very deep convolutional networks for large-scale image recognition. _arXiv preprint arXiv:1409.1556_, 2014.\n' +
+      '* Sohl-Dickstein et al. (2015) Sohl-Dickstein, J., Weiss, E., Maheswaranathan, N., and Ganguli, S. Deep unsupervised learning using nonequilibrium thermodynamics. In _ICML_. PMLR, 2015.\n' +
+      '* Sompolinsky et al. (1988) Sompolinsky, H., Crisanti, A., and Sommers, H.-J. Chaos in random neural networks. _Physical review letters_, 61 (3), 1988.\n' +
+      '* Song et al. (2021) Song, J., Meng, C., and Ermon, S. Denoising diffusion implicit models. In _ICLR_, 2021. URL [https://openreview.net/forum?id=St1girCHLP](https://openreview.net/forum?id=St1girCHLP).\n' +
+      '* Song & Ermon (2019) Song, Y. and Ermon, S. Generative modeling by estimating gradients of the data distribution. _NeurIPS_, 32, 2019.\n' +
+      '* Tian et al. (2020) Tian, Z., Shen, C., Chen, H., and He, T. Fcos: A simple and strong anchor-free object detector. _IEEE T-PAMI_, 44(4):1922-1933, 2020.\n' +
+      '* Van der Maaten et al. (2008) Van der Maaten, L., Hinton, G., and Van der Maaten, L. Visualizing data using t-sne. _JMLR_, 9(11), 2008.\n' +
+      '* Welling & Teh (2011) Welling, M. and Teh, Y. W. Bayesian learning via stochastic gradient langevin dynamics. In _ICML_, 2011.\n' +
+      '* Wightman (2019) Wightman, R. Pytorch image models. [https://github.com/rwightman/pytorch-image-models](https://github.com/rwightman/pytorch-image-models), 2019.\n' +
+      '* Wong (1991) Wong, E. Stochastic neural networks. _Algorithmica_, 6(1-6), 1991.\n' +
+      '* Wortsman et al. (2022) Wortsman, M., Ilharco, G., Gadre, S. Y., Roelofs, R., Gontijo-Lopes, R., Morcos, A. S., Namkoong, H., Farhadi, A., Carmon, Y., Kornblith, S., et al. Model soups: averaging weights of multiple fine-tuned models improves accuracy without increasing inference time. In _ICML_, pp. 23965-23998. PMLR, 2022.\n' +
+      '* Zhang & Yu (2023) Zhang, B. and Yu, D. Metadiff: Meta-learning with conditional diffusion for few-shot learning. _arXiv preprint arXiv:2307.16424_, 2023.\n' +
+      '* Zhu et al. (2017) Zhu, J.-Y., Park, T., Isola, P., and Efros, A. A. Unpaired image-to-image translation using cycle-consistent adversarial networks. In _ICCV_, 2017.\n' +
+      '\n' +
+      '## Appendix A Experimental Settings\n' +
+      '\n' +
+      'In this section, we introduce detailed experiment settings, datasets, and instructions of code for reproducing.\n' +
+      '\n' +
+      '### Training recipe\n' +
+      '\n' +
+      'We provide our basic training recipe with specific details in Tab. 4. This recipe is based on the setting of ResNet-18 with CIFAR-100 dataset. We introduce these details of general training hyperparameters, autoencoder, and latent diffusion model, respectively. It may be necessary to make adjustments to the learning rate and the training iterations for other datasets.\n' +
+      '\n' +
+      '### Datasets\n' +
+      '\n' +
+      'We evaluate the effectiveness of p-diff on 8 datasets. To be specific, **CIFAR-10/100**(Krizhevsky et al., 2009). The CIFAR datasets comprise colored natural images of dimensions \\(32\\times 32\\), categorized into 10 and 100 classes, respectively. Each dataset consists of 50,000 images for training and 10,000 images for testing. **ImageNet-1K**(Deng et al., 2009) derived from the larger ImageNet-21K dataset, ImageNet-1K is a curated subset featuring 1,000 categories. It encompasses 1,281,167 training images and 50,000 validation images. **STL-10**(Coates et al., 2011) comprises \\(96\\times 96\\) color images, spanning 10 different object categories. It serves as a versatile resource for various computer vision tasks, including image classification and object recognition. **Flowers**(Nilsback & Zisserman, 2008) is a dataset comprising 102 distinct flower categories, with each category representing a commonly occurring flower species found in the United Kingdom. **Pets**(Parkhi et al., 2012) includes around 7000 images with 37 categories. The images have large variations in scale, pose, and lighting. **F-101**(Bossard et al., 2014) consists of 365K images that are crawled from Google, Bing, Yelp, and TripAdvisor using the Food-101 taxonomy.\n' +
+      '\n' +
+      'In the appendix, we extend our p-diff in object detection, semantic segmentation, and image generation tasks. Therefore, we also introduce the extra-used datasets in the following. **COCO**(Lin et al., 2014) consists of over 200,000 images featuring complex scenes with 80 object categories. It is widely used for object detection and segmentation tasks. We implement image generation task on CIFAR-10.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c} Training Setting & Configuration \\\\ \\hline \\(K\\), _i.e._, the number of original models & 200 \\\\ batch size & 200 \\\\ \\hline \\hline Autoencoder & \\\\ \\hline optimizer & AdamW \\\\ learning rate & 1e-3 \\\\ training iterations & 30, 000 \\\\ optimizer momentum & betas=(0.9, 0.999) \\\\ weight decay & 2e-6 \\\\ \\(\\xi_{V}\\), _i.e._, noise added on the input parameters & 0.001 \\\\ \\(\\xi_{Z}\\), _i.e._, noise added on the latent representations & 0.1 \\\\ \\hline \\hline Diffusion & \\\\ \\hline optimizer & AdamW \\\\ learning rate & 1e-3 \\\\ training iterations & 30, 000 \\\\ optimizer momentum & betas=(0.9, 0.999) \\\\ weight decay & 2e-6 \\\\ ema \\(\\beta\\) & 0.9999 \\\\ betas start & 1e-4 \\\\ betas end & 2e-2 \\\\ betas schedule & linear \\\\ \\(T\\), _i.e._, maximum time steps in the training stage & 1000 \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 4: Our basic training recipe based on CIFAR100 dataset and ResNet-18 backbone.\n' +
+      '\n' +
+      '### Instructions for code\n' +
+      '\n' +
+      'We have submitted the source code as the supplementary materials in a zipped file named as \'p-diff.zip\' for reproduction. A README is also included for the instructions for running the code.\n' +
+      '\n' +
+      '## Appendix B Explorations of Designs and Strategies\n' +
+      '\n' +
+      'In this section, we introduce the reasons for the designs and strategies of our approach.\n' +
+      '\n' +
+      '### Why 1D CNNs?\n' +
+      '\n' +
+      'Considering the great differences between visual data and neural network parameters, we default to using 1D CNNs in parameter autoencoder and generation. The detailed designs of 1D CNNs can be found in the following. Each layer in 1D CNNs includes two 1D convolutional layers with a normalization layer and an activation layer. More details of the 1D CNNs can be found at _core/module/modules_ in our code zip file.\n' +
+      '\n' +
+      'Here naturally raises a question: are there alternatives to 1D CNNs? We can use pure fully connected (FC) layers as an alternative. To answer this question, we compare the performance of FC layers and 1D CNNs. The experiments are conducted on MNIST with ConvNet-3 as the backbone. Based on our experimental results in Tab. 5, 1D CNNs consistently outperform FC in all architectures. Meanwhile, the memory occupancy of 1D CNNs is smaller than FC.\n' +
+      '\n' +
+      '### Is variational autoencoder an alternative to our approach?\n' +
+      '\n' +
+      'Variational autoencoder (VAE) (Cristianini et al., 2000) can be regarded as a probabilistic generative model and achieve many remarkable results in the generation area. We also implement VAE to generate neural network parameters. We first introduce the details of VAE in our experiment. We implement vanilla VAE using the same backbone of the autoencoder in p-diff for a fair comparison. We evaluate the VAE generator in the case of different \\(K\\) and compare its best, average, and medium performances with p-diff generated models. Based on the results in Tab. 7, our approach outperforms VAE by a large margin in all cases. Another interesting finding is that the average performance of VAE generated models goes down as the number of original models increases.\n' +
+      '\n' +
+      '### Which normalization strategy is suitable?\n' +
+      '\n' +
+      'Considering the intrinsic difference between images and neural network parameters, we explore the influence of different normalization strategies. We ablate batch normalization (BN), group normalization (GN), and instance normalization (IN) on CIFAR-10, MNIST, and CIFAR-100, respectively. We also implement our method without normalization for additional\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\n' +
+      '\\end{table}\n' +
+      'Table 6: Comparison of using batch normalization, group normalization, and instance normalization in our approach. We also report the results without normalization. ‘norm.’ denotes normalization. Default settings are marked in gray. **Bold entries** are best results.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\n' +
+      '\\end{table}\n' +
+      'Table 5: Comparison of using 1D CNNs and fully connected (FC) layers. 1D CNNs perform better than FC layers, especially in memory and time.\n' +
+      '\n' +
+      'comparison. Their best, average, and medium performances of 100 generated models are reported in Tab. 6. Based on the results, we have the following observations: 1) BN obtains the worst overall performance on all three metrics. Since BN operates in the batch dimension and introduces undesired correlations among model parameters 2) GN and IN perform better than without normalization, _i.e._ \'no norm.\' in the Tab. 6. That could be explained by some outlier parameters affecting the performance a lot. 3) From the metrics, we find our method has good generalization among channel-wise normalization operations, such as GN and IN.\n' +
+      '\n' +
+      '## Appendix C More Ablations\n' +
+      '\n' +
+      'In this section, we introduce more ablation studies of our method. Same as the main paper, if not otherwise stated, we default to training ResNet-18 on CIFAR-100 and report the best, average, and medium accuracy.\n' +
+      '\n' +
+      '### The intensity of noise added into input parameters\n' +
+      '\n' +
+      'In the main paper, we ablate the effectiveness of the added noise into input parameters. Here, we study the impact of the intensity of this noise. Specifically, we explore four levels of noise intensity and report their best, average, and medium results in Tab. 8(a). One can find that, our default intensity achieves the best overall performance. Both too-large and too-small noise intensities fail to obtain good results. That can be explained by that the too-large noise may destroy the original distribution of parameters while too-small noise can not provide enough effectiveness of augmentation.\n' +
+      '\n' +
+      '### The intensity of noise added into latent representations\n' +
+      '\n' +
+      'Similar to Sec. C.1, we also ablate the noise intensity added into latent representations. As shown in Tab. 8(b), the performance stability of generated models becomes better as the noise intensity increases. However, too-large noise also breaks the distribution of the original latent representations.\n' +
+      '\n' +
+      '### The generalization on other types of parameters\n' +
+      '\n' +
+      'In the main paper, we investigate the effectiveness of our approach in generating normalization parameters. We also evaluate our approach on other types of parameters, such as linear, convolutional, and shortcut layers. Here, we show the details\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\n' +
+      '\\end{table}\n' +
+      'Table 7: Comparisons between VAE and our proposed p-diff. VAE performs worse than our approach, especially on the metric of average and medium accuracy.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\n' +
+      '\\end{table}\n' +
+      'Table 8: We design ablations about the intensity of input noise \\(\\xi_{V}\\) and latent noise \\(\\xi_{Z}\\), generating variant types of parameters. ‘para.’ denotes parameter. Default settings are marked in gray. **Bold entries** are best results.\n' +
+      '\n' +
+      'of the above three type layers as follows: 1) linear layer: the last linear layer of ResNet-18. 2) convolutional layer: first convolutional layer of ResNet-18. 3) shortcut layer: the shortcut layer between 7th and 8th layer of ResNet-18. The training data preparation is the same as we mentioned in the main paper. As illustrated in Tab. 8, we find our approach consistently achieves similar or improved performance compared to the original models.\n' +
+      '\n' +
+      '## Appendix D Open Explorations\n' +
+      '\n' +
+      '### Do we need to train 1000-step diffusion model?\n' +
+      '\n' +
+      'We default to training the latent diffusion model via random sampling from 1000 time steps. Can we reduce the number of time steps in the training stage? To study the impact of the time steps, we conduct an ablation and report the results in Tab. 9. Several findings can be summarized as follows: 1) Too small time steps might not be strong enough to generate high-performing models with good stability. 2) The best stability performances are obtained by setting the maximum time steps as 100. 3). Increasing the maximum time steps from 1000 to 2000 can not improve the performance. We will further upgrade our design based on this exploration.\n' +
+      '\n' +
+      '### Potential applications\n' +
+      '\n' +
+      'Neural network diffusion can be utilized or help the following potential research areas. 1) **Parameters initialization**: our approach can generate high-performing initialized parameters. Therefore, that would speed up the optimization and reduce the overall cost of training. 2) **Domain adaptation**: our approach may have three benefits in the domain adaptation area. First, we can directly use the diffusion process to learn the well-performed models trained by different domain data. Second, some hard adaptations can be achieved by our approach. Third, the adaptation efficiency might be improved largely.\n' +
+      '\n' +
+      '## Appendix E Other Finding and Comparison Results\n' +
+      '\n' +
+      '### How to select generated parameters?\n' +
+      '\n' +
+      'P-diff can rapidly generate numerous high-performance models. How do we evaluate these models? There are two primary strategies. The first one is to directly test them on the _validation set_ and select the best-performing model. The second one is to compute the loss of model outputs compared to the ground truth on the _training set_ to choose a model. We generated hundred model parameters with performance distributions in different intervals and displayed their accuracy curves on both the training and validation sets in Fig. 6(a). The experimental results indicate that p-diff exhibits a high level of consistency between the training and validation sets. To provide a fair comparison with baseline methods, we default to choose the model that performs the best results on the training set and compare it with the baseline.\n' +
+      '\n' +
+      '### Parameter visualization\n' +
+      '\n' +
+      'To provide a more intuitive understanding, we compare the parameters generated by our approach, SGD optimization (original), and randomly initialized. Taking ResNet-18 as an example, we report the mean, std, accuracy (acc.), and IoU of the normalization layer parameters of training on CIFAR-100 in Fig. 6(b). There is a significant difference between the parameters generated by our approach and the randomly initialized parameters, mean: 0.37 vs 0.36, std: 0.22 vs 0.21 The IoU between ours and SGD is 0.87. This visualization and results confirm that the diffusion process can learn the patterns of\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\n' +
+      '\\end{table}\n' +
+      'Table 9: Exploring the influence of maximum time steps in the training stage. We conduct experiments on CIFAR-10, MNIST, and CIFAR-100 datasets, respectively. **Bold entries** are best results.\n' +
+      '\n' +
+      'high-performance parameters and generate new good models from random noise. More importantly, our generated model has a great behavior contrast compared to the original model, which is reflected in the low IoU value.\n' +
+      '\n' +
+      '### Efficiency of parameter generation\n' +
+      '\n' +
+      'To evaluate the generation efficiency of our method, we compare the validation accuracy curves of our method and SGD training among the following cases: 1) parameter diffusion with ResNet-18 on CIFAR-100; 2) parameter diffusion with ViT-Base on ImageNet-1K. We utilize the random initialized parameters for our method and SGD to make a fair comparison. As illustrated in Fig. 7, our method can speed up at least 15 \\(\\times\\) compared to the SGD without performance drops. On ImageNet-1K, we can speed up by 44 \\(\\times\\) when compared to the vanilla SGD optimization, which illustrates the more significant potential when applying our approach to large training datasets.\n' +
+      '\n' +
+      '## Appendix F Generalization on Other Tasks\n' +
+      '\n' +
+      'We implement our method for other visual tasks, _i.e.,_ object detection, semantic segmentation, image generation. Experimental results illustrate the ability of our method to generalize to various tasks.\n' +
+      '\n' +
+      '### Object detection\n' +
+      '\n' +
+      'Faster R-CNN (Ren et al., 2015) utilizes a region proposal network (RPN) which shares full-image convolutional features with the detection network to improve Fast R-CNN on object detection task. The FCOS (Fully Convolutional One\n' +
+      '\n' +
+      'Figure 6: P-diff can generate models with great consistency on both training and validation sets contrast compared to the original model. (a) shows the accuracy distribution of training and validation sets in hundred p-diff models. (b) displays a heat map of initial, SGD-trained, p-diff generated parameters of the normalization layer in ResNet-18.\n' +
+      '\n' +
+      'Figure 7: We compare the accuracy curves of our method and SGD under three cases. (a): ResNet-18 on CIFAR-100. (b): ViT-Base on ImageNet-1K. Our approach speeds up at least 15 \\(\\times\\) than standard SGD process.\n' +
+      '\n' +
+      'Stage) (Tian et al., 2020) model is a single-stage object detection model that simplifies the detection process by eliminating the need for anchor boxes. In the object detection task, We implement Faster R-CNN (Ren et al., 2015) and FCOS (Tian et al., 2020) with ResNet-50 backbone on the COCO (Lin et al., 2014) dataset based on torch/torchvision. Considering the time cost of data for p-diff, we directly use the pre-trained parameters as our first training data, then fine-tune it to obtain other training data. The parameters of the boxing predictor layer are generated by p-diff. We report the results in Tab. 10. Our method can get models with similar or even better performance than the original model in seconds.\n' +
+      '\n' +
+      '### Semantic segmentation\n' +
+      '\n' +
+      'Fully Convolutional Network (FCN) (Long et al., 2015) was designed to efficiently process and analyze images at the pixel level, allowing for the semantic segmentation of objects within an image. Following the approach in object detection, we implement semantic segmentation task using FCN (Long et al., 2015) with ResNet-50 backbone to evaluate a subset of COCO val2017, on the 20 categories that are present in the Pascal VOC dataset. We generate a subset of the parameters of backbone and report the results in Tab. 11. Our approach can generate high-performing neural network parameters in semantic segmentation task.\n' +
+      '\n' +
+      '### Image generation\n' +
+      '\n' +
+      'DDPM (Ho et al., 2020) is a diffusion-based method in image generation, where UNet (Ronneberger et al., 2015) is used to model the noise. In the image generation task, we use p-diff to generate a subset of model parameters of UNet. For comparison, we evaluate the p-diff model\'s FID score on the CIFAR-10 dataset and report the results in Tab. 12. The best p-diff generated UNet get similar performance to the original model.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c|c c} \\hline \\hline model/performance & best original mAP & best p-diff mAP \\\\ \\hline Faster R-CNN & 36.9 & 37.0 \\\\ FCOS & 39.1 & 39.1 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 10: P-diff in object detection task. We report the mAP of best original model and best p-diff generated model.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c|c c|c c} \\hline \\hline model/performance & \\multicolumn{2}{c}{original} & \\multicolumn{2}{c}{p-diff} \\\\  & mean IoU & pixelwise acc. & mean IoU & pixelwise acc. \\\\ \\hline FCN & 60.5 & 91.4 & 60.7 & 91.5 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 11: P-diff in semantic segmentation task. We report mean IoU and pixelwise accuracy of best original model and best p-diff model.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c|c c} \\hline \\hline model/performance & original FID & p-diff FID \\\\ \\hline DDPM UNet & 3.17 & 3.19 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 12: P-diff in image generation task. We report the FID score on the CIFAR-10 dataset.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
