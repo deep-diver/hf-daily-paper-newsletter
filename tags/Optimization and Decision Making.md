@@ -3,3 +3,5 @@
 - [BiTA: Bi-Directional Tuning for Lossless Acceleration in Large Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/9/2024-01-24+BiTA%3A+Bi-Directional+Tuning+for+Lossless+Acceleration+in+Large+Language+Models.yaml) / 2024-01-24
 - [CroissantLLM: A Truly Bilingual French-English Language Model](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/16/2024-02-02+CroissantLLM%3A+A+Truly+Bilingual+French-English+Language+Model.yaml) / 2024-02-02
 - [Driving Everywhere with Large Language Model Policy Adaptation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/21/2024-02-09+Driving+Everywhere+with+Large+Language+Model+Policy+Adaptation.yaml) / 2024-02-09
+- [Neural Network Diffusion](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/29/2024-02-21+Neural+Network+Diffusion.yaml) / 2024-02-21
+- [The FinBen: An Holistic Financial Benchmark for Large Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/29/2024-02-21+The+FinBen%3A+An+Holistic+Financial+Benchmark+for+Large+Language+Models.yaml) / 2024-02-21
