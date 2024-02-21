@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# FlashTex : LightControlNet을 이용한 빠른 Relightable Mesh Texturing\n' +
+      '\n' +
+      'Kangle Deng\\({}^{2}\\) Timothy Omernick\\({}^{1}\\) Alexander Weiss\\({}^{1}\\) Deva Ramanan\\({}^{2}\\)\n' +
+      '\n' +
+      'Jun-Yan Zhu\\({}^{2}\\) Tinghui Zhou\\({}^{1}\\) Maneesh Agrawala\\({}^{1,3}\\)\n' +
+      '\n' +
+      '로록스에서 인턴할 때 하던 일\n' +
+      '\n' +
+      '({}^{1}\\)Roblox\\({}^{2}\\)Carnegie Mellon University\\({}^{3}\\)Stanford University\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      '3D 메쉬를 위한 텍스처를 수동으로 만드는 것은 전문적인 시각적 콘텐츠 제작자에게도 시간이 많이 걸린다. 본 논문에서는 사용자가 제공하는 텍스트 프롬프트를 기반으로 입력된 3차원 메쉬를 자동으로 텍스쳐링하기 위한 빠른 방법을 제안한다. 중요하게도, 우리의 접근법은 메쉬가 임의의 조명 환경에서 적절하게 재조명되고 렌더링될 수 있도록 결과 텍스쳐에서 표면 재료/반사로부터 조명을 디엔탱글링한다. 본 논문에서는 제어넷 아키텍처를 기반으로 한 새로운 텍스트 대 이미지 모델인 LightControlNet을 소개하고, 이를 통해 원하는 조명의 사양을 모델에 컨디셔닝 이미지로 표현할 수 있다. 그런 다음 텍스트 대 텍스처 파이프라인은 텍스처를 두 단계로 구성한다. 첫 번째 단계는 LightControlNet을 사용하여 메시의 시각적으로 일관된 참조 뷰들의 희소 세트를 생성한다. 두 번째 단계는 LightControlNet과 함께 작동하는 Score Distillation Sampling(SDS) 기반의 텍스쳐 최적화를 적용하여 텍스쳐 품질을 높이는 동시에 조명으로부터 표면 재료를 디엔탱글링한다. 당사의 파이프라인은 기존 텍스트 투 텍스처 방법보다 훨씬 빠르면서도 고품질 및 재조명 가능한 텍스처를 생산합니다. 프로젝트 페이지: [https://flashtex.github.io/](https://flashtex.github.io/)\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      '게임, 영화, 애니메이션, AR/VR 및 산업 디자인과 같은 산업 전반에 걸쳐 3D 메쉬를 위한 고품질 텍스처를 만드는 것이 중요합니다. 전통적인 메쉬 텍스처링 도구는 노동 집약적이며 시각적 디자인에 대한 광범위한 교육이 필요하다. 몰입형 3D 콘텐츠에 대한 요구가 계속 급증함에 따라, 메쉬 텍스처링 프로세스를 간소화하고 자동화할 필요성이 절실하다.\n' +
+      '\n' +
+      '지난 1년 동안 텍스트 대 이미지 확산 모델[37, 39, 40]의 상당한 진전은 예술가들이 이미지를 만드는 방식에 패러다임의 변화를 가져왔다. 이러한 모델을 사용하면 텍스트 프롬프트에서 이미지를 설명할 수 있는 모든 사람이 해당 그림을 생성할 수 있습니다. 보다 최근에, 연구자들은 사용자 지정 텍스트 프롬프트[7, 8, 25, 38]에 기초하여 입력 3D 메시에 대한 텍스처를 자동으로 생성하기 위해 이러한 2D 확산 모델을 활용하는 기술을 제안했다. 그러나 이러한 방법은 (1) 느린 생성 속도(질감당 수십 분 소요), (2) 잠재적인 시각적 인공물(예: 솔기, 흐림, 세부 사항 부족), (3) 새로운 조명 환경에서 시각적 불일치를 유발하는 구운 조명(그림 2)의 세 가지 중요한 한계를 겪는다. 최근 몇 가지 방법은 이러한 문제 중 하나 또는 두 가지를 다루지만 세 가지 문제를 모두 적절하게 다루지는 않는다.\n' +
+      '\n' +
+      '본 연구에서는 사용자가 제공하는 텍스트 프롬프트에 기반하여 입력된 3차원 메쉬를 재조명이 가능하도록 표면 재료/반사로부터 조명을 분리하는 효율적인 텍스쳐링 방법을 제안한다(그림 1). 제안된 방법은 제어넷[57] 아키텍처를 기반으로 조명 인식 텍스트-이미지 확산 모델인 _LightControlNet_을 도입하여, 확산 모델을 위한 조정 이미지로서 원하는 조명의 사양을 허용한다. 텍스트 대 텍스처 파이프라인은 라이트컨트롤넷을 사용하여 두 단계로 재조명 가능한 텍스처를 생성합니다. 단계 1에서, 우리는 작은 뷰포인트 세트에 대해 3D 메시의 시각적으로 일관된 참조 뷰를 생성하기 위해 LightControlNet과 조합된 _multi-view 시각적 프롬핑_을 사용한다. 2단계에서는 1단계의 참조 뷰를 안내로 사용하는 새로운 _texture optimization_ 절차를 수행하고, LightControlNet과 함께 작업하기 위해 SDS(Score Distillation Sampling) [35]를 확장한다. 이를 통해 표면 재료/반사에서 조명을 분리하면서 질감 품질을 높일 수 있습니다. 참조 뷰의 안내를 통해 Fantasia3D[8]와 같은 기존의 SDS 기반 재조명 텍스처 생성 방법보다 10배 이상의 속도로 텍스처를 생성할 수 있음을 보여준다. 또한, 실험을 통해 FID, KID 및 사용자 평가 측면에서 텍스처의 품질이 일반적으로 이전 기준 방법보다 우수함을 보여준다.\n' +
+      '\n' +
+      '##2 관련 업무\n' +
+      '\n' +
+      '**텍스트-이미지 생성.** 최근 몇 년 동안 확산 모델에 의해 강화된 텍스트-이미지 생성에서 상당한 발전이 있었다[37, 39, 40]. 예를 들어, 안정적인 확산[39]은 픽셀 공간이 아닌 잠재 공간에서 잠재 확산 모델(LDM)을 훈련시켜 비교적 저렴한 계산 비용으로 매우 인상적인 결과를 제공한다. 텍스트 기반 확산 모델들의 범위를 추가로 확장하는 것, GLIGEN[19], PTITI[50], T2I 어댑터[27], 및 ControlNet[57]과 같은 작업들은 결과의 구성에 대한 국부적인 제어를 가능하게 하기 위해 공간 컨디셔닝 입력들(예를 들어, 깊이 맵들, 정규 맵들, 에지 맵들 등)을 통합한다. 이미지 생성의 힘을 넘어, 대규모 텍스트-이미지 쌍 데이터 세트에 대해 훈련된 이러한 2D 확산 모델은 또한 이미지 편집[13, 24], 인식[54], 3D 생성[35]과 같은 다양한 다른 작업에 귀중한 전적을 기여한다.\n' +
+      '\n' +
+      '**Text-to-3D Generation.**Text-to-image generation의 성공은 그것의 3D 대응물에 상당한 관심을 불러일으켰다. 일부 접근법[17, 30, 43, 59]은 텍스트-조건 3D 생성 모델을 2D 모델과 유사하게 훈련시키는 반면, 다른 접근법들은 최적화[8, 18, 21, 25, 35, 45, 49, 52] 및 멀티뷰 합성[23, 42]을 위해 사전 훈련된 확산 모델로부터의 2D 사전들을 사용한다. 예를 들어, 드림퓨전[35] 및 스코어 자코비안 체인[49]은 2D 확산 모델 구배를 사용하여 3D 표현을 최적화하기 위해 스코어 증류 샘플링을 처음으로 제안했다. Zero-1-to-3 [23]은 포즈 조건 2D 확산 모델을 사용하여 새로운 뷰를 합성한다. 그러나 이러한 방법은 종종 조명을 표면 반사율로 굽는 흐릿하고 저주파 텍스처를 생성한다. 판타지아3D[8]은 물리학 기반 재료를 통합함으로써 보다 사실적인 질감을 생성할 수 있다. 그러나, 결과적인 재료들은 조명과 얽힌 채로 남아 있어서, 새로운 조명 환경에서 텍스처된 물체를 재조명하는 것을 어렵게 한다. 이와는 대조적으로, 본 방법은 조명 및 표면 반사 텍스처를 효과적으로 디엔탱글링할 수 있다. 우리의 작업과 동시에 MATLABER[55]는 재료 오토인코더를 사용하여 텍스트에서 3D 생성으로 재료 정보를 복구하는 것을 목표로 한다. 그러나 우리의 방법은 접근 방식이 다르고 효율성을 향상시킨다.\n' +
+      '\n' +
+      '**3D Texture Generation.**3D Texture Generation의 영역은 시간이 지남에 따라 진화해 왔다. 이전 모델은 신경망에 대한 입력으로 3D 표현을 직접 사용하거나 [4, 44, 56] 템플릿으로 사용했다[32, 34]. 일부 방법들은 또한 2D 이미지들[4, 12, 34, 56]로부터 학습하기 위해 미분가능한 렌더링을 사용하는 반면, 학습된 모델들은 종종 제한된 트레이닝 카테고리들을 넘어서 일반화하는 데 실패한다.\n' +
+      '\n' +
+      '기존의 2D 확산 모델을 이용하여 텍스쳐 생성을 텍스트-투-3D 생성의 부산물로 취급한 최근 연구가 가장 근접하다. 잠재공간에서 Score Distillation Sampling을 사용하는 Latent-Paint[25], depth 기반 2D ControlNet을 활용하는 Text2tex[7], 이전의 두 방법을 모두 활용하는 TEXTure[38] 등이 그 예이다. 그럼에도 불구하고, 최근의 텍스트-3D 모델과 유사하게, 이러한 방법은 얽힌 조명 효과를 갖는 텍스처를 생성하고 느린 생성으로 고통받는다. 한편, TANGO[9]는 Spherical-Gaussian 기반의 미분 렌더러를 이용하여 재질 텍스쳐를 생성하지만, 복잡한 텍스쳐 생성에 어려움을 겪는다.\n' +
+      '\n' +
+      '**Material Generation.** BRDF(Bidirectional Reflection Distribution Function) [31]은 컴퓨터 비전 및 그래픽에서 표면 재료의 모델링에 널리 사용된다. 이미지에서 재료 정보를 복구하는 기술은 제한된 범위의 시야각 또는 알려지지 않은 일루에 적용될 때 고유한 모호성을 해결하기 위해 신경망을 활용하는 경우가 많다.\n' +
+      '\n' +
+      '그림 2: 헬멧(a)의 3D 메쉬와 조명 환경\\(L\\)이 주어졌을 때, 기준 렌더링(b)은 표면 반사율을 회색 확산 색상으로 반금속 및 반평활한 것으로 처리하여 \\(L\\)으로 인한 메쉬의 "올바른" 하이라이트를 묘사한다. (c) 판타지아3D[8]에 의해 생성된 텍스처는 조명\\(L\\)에 대해 적절하게 재조명되지 않는데, 이는 판타지아3D가 대부분의 조명을 메쉬에 대한 확산 텍스처로 굽고, 경면 텍스처에서 밝은 하이라이트를 캡처하지 않기 때문이다. (d) 대조적으로, 우리의 텍스트 투 텍스쳐 파이프라인은 재료로부터의 조명을 디엔탱글링하여, 이 환경에서 금속 헬멧의 확산 및 경면 구성요소를 더 잘 포착한다.\n' +
+      '\n' +
+      '미네이션스 그러나 이러한 방법은 종종 제어된 설정[20] 또는 큐레이션된 데이터 세트[2, 11, 51]를 필요로 하며, 와일드 이미지와의 어려움을 겪는다. 한편, ControlMat[46], Matfuse[47], Matfusion[41]과 같은 물질 생성 모델은 Spatially-Varying BRDF(SVBRDF) 지도를 생성하기 위해 확산 모델을 사용하지만 2D 생성으로 제한된다. 대조적으로, 본 방법은 3D 메쉬에 대한 재조명 가능한 재료를 생성한다.\n' +
+      '\n' +
+      '## 3 Preliminaries\n' +
+      '\n' +
+      '텍스트 투 텍스처 파이프라인은 텍스트 투 이미지 확산 모델을 위해 최근에 도입된 여러 기술을 기반으로 한다. 여기서는 이러한 이전 방법을 간략하게 설명한 다음 섹션 4에서 파이프라인을 제시한다.\n' +
+      '\n' +
+      '**ControlNet.** ControlNet[57]은 Conditioning Imageery(예: Canny edge[5], OpenPose keypoints[6], depth image 등)의 형태로 Stable Diffusion[39]과 같은 텍스트-대-이미지 확산 모델에 공간적으로 국부화된 합성 컨트롤을 추가하도록 설계된 아키텍처이다. 3D 메쉬를 입력으로 하는 본 연구에서 Conditioning Image\\(I_{\\text{cond}}(C)\\)는 주어진 카메라 시점으로부터 메쉬를 렌더링하는 것이다. 그런 다음 텍스트 프롬프트가 주어지면 \\(y\\),\n' +
+      '\n' +
+      '\\[I_{\\text{out}}=\\text{ControlNet}(I_{\\text{cond}}(C),y),\\]\n' +
+      '\n' +
+      '여기서 출력 이미지\\(I_{\\text{out}}\\)는 \\(y\\) 및 \\(I_{\\text{cond}\\)에 컨디셔닝된다. ControlNet은 컨디셔닝 이미지의 강도를 설정하는 매개변수 \\(s\\)를 도입한다. ControlNet은 \\(s=0\\)일 때 단순히 기본 안정 확산 모델을 사용하여 이미지를 생성하고 \\(s=1\\)일 때 컨디셔닝을 강력하게 적용한다.\n' +
+      '\n' +
+      '**점수 증류 샘플링(SDS).** 드림퓨전[35]은 미리 훈련된 2D 텍스트-이미지 확산 모델을 사용하여 텍스트 프롬프트에 컨디셔닝된 3D 장면 표현을 최적화한다. 이 장면은 NeRF [1, 26] parametrization \\(\\theta\\)으로 표현된다. 랜덤 샘플링된 카메라 뷰 \\(C\\)으로 \\(\\theta\\)에 적용된 미분 렌더러 \\(\\mathcal{R}\\)을 2D 이미지 \\(x=\\mathcal{R}(\\theta,C)\\)를 생성한다. 그런 다음 작은 양의 잡음\\(\\epsilon\\sim\\mathbb{N}(0,1)\\)을 \\(x\\)에 추가하여 잡음 영상\\(x_{t}\\)을 얻는다. DreamFusion은 확산 모델 \\(\\phi\\)(Imagen[40])을 이용하여 잡음 영상 \\(x_{t}\\), 텍스트 프롬프트 \\(y\\), 잡음 레벨 \\(t\\)이 주어졌을 때 샘플링된 잡음 \\(\\epsilon\\)을 예측하는 점수 함수 \\(\\hat{\\epsilon}_{\\phi}(x_{t};y,t)\\을 제공한다. 이 스코어 함수는 장면 파라미터 \\(\\theta\\)를 업데이트하기 위한 그래디언트의 방향을 안내하고, 그래디언트는 스코어 증류 샘플링(SDS)에 의해 계산된다:\n' +
+      '\n' +
+      '[\\nabla_{\\theta}\\mathcal{L}_{\\text{SDS}(\\phi,x)=\\mathbbb{E}_{t,\\epsilon}\\left[w(t)(\\hat{\\epsilon}_{\\phi}(x_{t};y,t)-\\epsilon)\\frac{\\partial x}{\\partial\\theta}\\right],\\\n' +
+      '\n' +
+      '여기서 \\(w(t)\\)는 가중 함수이다. 각 반복 동안 SDS 손실을 계산하기 위해 카메라 뷰\\(C\\)를 무작위로 선택하고 NeRF\\(\\theta\\)을 렌더링하여 이미지를 형성하고 노이즈\\(\\epsilon\\)을 추가하고,\n' +
+      '\n' +
+      '그림 3: **우리의 Text-to-Texture 파이프라인. 제안된 방법은 입력 3차원 메쉬와 문자 프롬프트가 주어졌을 때 재조명 가능한 텍스쳐를 효율적으로 합성한다. 1단계(왼쪽 상단)에서는 LightControlNet 모델과 함께 _multi-view visual prompting_을 사용하여 고정된 조명 아래에서 메쉬의 4개의 시각적으로 일관된 표준 뷰를 생성하고 참조 이미지\\(I_{\\text{ref}}\\)에 연결한다. 2단계에서는 텍스쳐의 다해상도 해쉬-그리드 표현과 함께 \\(I_{\\text{ref}}\\)을 가이던스로 사용하는 새로운 _texture optimization_ 절차를 적용한다. 각 최적화 반복에 대해, 재구성 손실(\\mathcal{L}_{\\text{recon}\\)을 계산하기 위해 표준 뷰와 조명(I_{\\text{ref}\\)을 사용하는 \\(\\gamma(\\beta(\\cdot))\\)을 사용하여 두 배치의 이미지를 렌더링하고, LightControlNet.**를 기반으로 SDS 손실(\\(\\mathcal{L}_{\\text{SDS}\\)을 계산하기 위해 무작위로 샘플링된 뷰와 조명을 사용하여 두 배치의 이미지를 렌더링한다.\n' +
+      '\n' +
+      '그리고 확산 모델 \\(\\phi\\)을 사용하여 잡음을 예측한다. 우리는 5,000에서 10,000회 반복에 대한 최적화를 실행한다.\n' +
+      '\n' +
+      '본 연구에서는 3차원 메쉬에서 표면 텍스처를 최적화하기 위해 조명 인식 SDS 손실을 도입하여 불일치 아티팩트를 억제하고 동시에 조명과 표면 반사율을 분리한다.\n' +
+      '\n' +
+      '## 4 Method\n' +
+      '\n' +
+      '우리의 텍스트-투-텍스처 파이프라인은 대응하는 텍스트 프롬프트를 갖는 입력 3D 메시에 대한 재조명 가능한 텍스처를 생성하기 위해 두 개의 주요 단계로 동작한다(도 3). 단계 1에서는 2D ControlNet을 사용하여 작은 시점 집합에서 객체의 시각적으로 일관된 뷰를 얻기 위해 _multi-view visual prompting_ approach를 사용한다. 이러한 희소 뷰들을 3D 메시 상에 단순히 역투영하는 것은 고품질 텍스처의 패치들을 생성할 수 있지만, 뷰들이 완전히 매칭되지 않는 가시적인 솔기들 및 다른 시각적 아티팩트들을 생성할 수도 있다. 결과적인 질감은 또한 조명이 베이크인되어 새로운 조명 환경에서 질감 있는 메쉬를 재조명하는 것을 어렵게 할 것이다. 따라서 2단계에서는 이러한 아티팩트를 완화하고 표면 물질 특성/반사율로부터 조명을 분리하기 위해 스코어 증류 샘플링(SDS)[35]과 함께 ControlNet을 사용하는 _texture optimization_를 적용한다. 두 단계 모두에서, 우리는 기본 텍스트-이미지 확산 모델에 대한 컨디셔닝 이미지로 원하는 조명을 지정할 수 있는 새로운 조명 인식 제어넷을 소개한다. 우리는 이 모델을 _LightControlNet_이라고 부르고 섹션 4.1에서 어떻게 작동하는지 설명한다. 그리고 섹션 4.2와 섹션 4.3에서 각 단계를 각각 자세히 설명한다.\n' +
+      '\n' +
+      '### LightControlNet\n' +
+      '\n' +
+      'LightControlNet은 ControlNet 아키텍처를 적용하여 생성된 이미지 내의 조명에 대한 제어를 가능하게 한다. 보다 구체적으로, 우리는 미리 정의된 세 가지 재료를 사용하고 알려진 조명 조건 하에서 렌더링함으로써 3D 메시에 대한 컨디셔닝 이미지를 생성한다(도 4). 이러한 렌더링은 객체에 대해 원하는 모양과 조명에 대한 정보를 캡슐화하여 3채널 컨디셔닝 이미지로 쌓는다. 우리는 미리 정의된 재료를 (1) 비금속, 비매끄러운 재료, (2) 비금속, 반은 매끄러운 재료, (3) 각각 매우 매끄러운 순수 금속으로 설정하는 것이 실제로 잘 작동한다는 것을 발견했다.\n' +
+      '\n' +
+      'LightControlNet을 훈련하기 위해 Objarevera 데이터셋에서 40K개의 객체를 사용한다[10]. 각 객체들은 무작위로 샘플링된 카메라\\(C\\)와 인터넷에서 가져온 6개의 환경 맵에서 샘플링된 조명\\(L\\)을 사용하여 12개의 뷰에서 렌더링된다. 각각의 \\((L,C)\\) 쌍에 대해, 미리 정의된 재료를 사용하여 컨디셔닝 이미지를 렌더링하고, 원래의 재료와 텍스처를 사용하여 객체의 풀 컬러 렌더링을 수행한다. 우리는 Zhang et al. [57]의 접근법을 사용하여 LightControlNet을 훈련시키기 위해 결과 480K 쌍의 (컨디셔닝 이미지, 풀-컬러 렌더링)을 사용한다.\n' +
+      '\n' +
+      '라이트컨트롤넷이 훈련되면, 우리는 임의의 입력 3D 메시에 대해 원하는 뷰 및 조명을 지정할 수 있다. 먼저 원하는 뷰와 조명으로 컨디셔닝 이미지를 렌더링한 다음 라이트콘트롤넷에 텍스트 프롬프트와 함께 전달하여 고품질 이미지를 얻습니다. 이들 이미지는 원하는 뷰에 공간적으로 정렬되고, 원하는 조명으로 점등되며, 상세한 표면 텍스처를 포함한다(도 1).\n' +
+      '\n' +
+      '** 인코더를 증류한다.** 컨트롤넷 아키텍처의 베이스 확산 모델인 Stable Diffusion [39]에서 이미지 인코더를 증류함으로써 LightControlNet의 효율을 향상시킨다. 원래의 안정 확산 영상 인코더는 입력 영상을 다운 샘플링하는 데 주로 잠재 확산 모델을 사용하여 SDS 계산의 순방향 및 역방향 시간의 거의 50%를 소비한다. Metzer et al. [25]는 잠재 공간으로부터 이미지 공간으로의 이미지 디코더가 픽셀당 매트릭스 곱셈에 의해 밀접하게 근사화될 수 있다는 것을 발견했다. 이를 통해 인코더의 어텐션 모듈을 제거하고 원본 출력과 일치하도록 COCO 데이터셋[22]에서 학습하여 인코더를 증류한다. 이 증류 인코더는 원래 인코더보다 5배 더 빠르게 실행되어 출력 품질을 손상시키지 않으면서 텍스트 대 텍스처 파이프라인을 약 2배 가속화한다. 증류 인코더에 대한 절제 연구는 부록의 섹션 A에 추가 구현 세부 사항과 함께 표 2에 자세히 설명되어 있다.\n' +
+      '\n' +
+      '### Stage 1 : 다시점 시각 프롬프트\n' +
+      '\n' +
+      '1단계에서는 LightControlNet을 활용하여 3D 메쉬의 희소 뷰 집합에 대해 고품질 2D 이미지를 합성한다. 구체적으로, 고정 조명 환경 맵(L^{*}\\)을 이용하여 3차원 메쉬의 적도 주변의 4개의 표준 뷰(C^{*}\\)에 대한 컨디셔닝 이미지를 생성한다. 메쉬에 대한 완전한 텍스처를 생성하기 위한 한 가지 접근법은 라이트콘트롤넷을 각각의 그러한 컨디셔닝 이미지와 독립적으로 적용하되, 동일한 텍스트 프롬프트를 사용한 다음, 4개의 출력 이미지를 3D 메쉬의 표면에 역투영하는 것이다. 그러나 실제로 라이트콘트롤넷을 각 뷰에 적용하는 것은 텍스트 프롬프트 및 랜덤 시드가 고정된 채로 있는 경우에도 다양한 외관 및 스타일의 일관되지 않은 이미지를 독립적으로 생성한다(도 5).\n' +
+      '\n' +
+      '이 다중 뷰 불일치 문제를 완화하기 위해 다중 뷰 시각적 프롬프트 접근 방식을 사용합니다. 4개의 표준 뷰에 대한 컨디셔닝 이미지를 단일 2\\(\\times\\)2 그리드로 연결하여 단일 컨디셔닝 이미지로 처리한다. 이 결합된 멀티뷰 컨디셔닝 이미지를 사용하여 4개의 뷰 모두에 라이트컨트롤넷을 동시에 적용하면 독립적인 프롬프트(그림 5)에 비해 뷰 전반에 걸쳐 훨씬 일관된 모양과 스타일이 생성된다는 것을 관찰한다. 이 속성은 동일한 객체를 묘사하는 그리드 조직 집합인 유사한 훈련 데이터 샘플이 Stable Diffusion의 훈련 세트에 존재하는 것으로 의심되며, 이는 동시 작업에서도 관찰된다[53, 58]. 형식적으로 4개의 정준시점(C^{*}\\)을 이용하여 고정된 정준조명조건(L^{*}\\(L^{*},C^{*})하에서 컨디셔닝 영상(I^{text{cond}}(L^{*},C^{*})을 생성한다. 그런 다음 텍스트 프롬프트가 있는 LightControlNet을 적용하여 해당 참조 출력 이미지\\(I_{\\text{ref}}\\)를 생성한다.\n' +
+      '\n' +
+      '\\[I_{\\text{ref}}=\\text{ControlNet}(I_{\\text{cond}}(L^{*},C^{*}),y).\\]\n' +
+      '\n' +
+      '### Stage 2 : 텍스쳐 최적화\n' +
+      '\n' +
+      '2단계에서는 각 뷰와 연관된 카메라 행렬 \\(C\\)을 이용하여 1단계에서 출력된 4개의 참조 뷰를 3차원 메쉬에 직접 역 투영할 수 있다. 결과 텍스처는 일부 고품질 영역을 포함하지만, 또한 두 가지 문제를 겪는다 (1) 겹쳐진 뷰들 사이의 불일치, 메쉬의 부분들을 텍스처링되지 않게 남겨두는 뷰들에서의 폐색, 및 뷰들을 역투영 변환 및 리샘플링할 때 디테일의 손실로 인한 이음매 및 시각적 아티팩트를 포함할 것이다. (2) 또한 LightControlNet의 RGB 이미지에 조명이 구워짐에 따라 역투영된 질감에도 구워지게 되어 메쉬의 재점등이 어렵게 된다.\n' +
+      '\n' +
+      '이 두 가지 문제를 모두 해결하기 위해 SDS 손실을 사용하는 질감 최적화를 사용한다. 구체적으로, 우리는 원래 드림퓨전 공식 [35]에서와 같이 NeRF 대신 다중 해상도 해시 그리드 [28]을 3D 장면 표현으로 사용한다. 메시지에 3차원 점(p\\in\\mathbb{R}^{3}\\)이 주어지면, 해시 그리드는 32차원 다해상도 특징을 생성한다. 그런 다음 이 피쳐를 2층 MLP\\(\\Gamma\\)에 공급하여 이 점에 대한 텍스처 재료 매개변수를 얻는다. Fantasia3D [8]과 유사하게, 이들 재료 파라미터들은 금속성\\(k_{m}\\in\\mathbb{R}\\), 거칠기\\(k_{r}\\in\\mathbb{R}\\), 범프 벡터\\(k_{n}\\in\\mathbb{R}^{3}\\) 및 기본 색상\\(k_{c}\\in\\mathbb{R}^{3}\\)으로 구성된다. 형식적으로,\n' +
+      '\n' +
+      '\\[(k_{c},k_{m},k_{r},k_{n})=\\Gamma(\\beta(p)),\\]\n' +
+      '\n' +
+      '여기서 \\(\\beta\\)는 다중 해상도 해시 인코딩 함수이다. 특히, 이 3D 해시-그리드 표현은 다운스트림 애플리케이션들에 더 친화적인 2D uv 텍스처 맵들로 쉽게 변환될 수 있다. 메쉬\\(M\\)이 주어지면, 텍스쳐는\n' +
+      '\n' +
+      '도 4: (a) LightControlNet은 3D 메쉬의 뷰\\(C\\)에 대해 원하는 조명\\(L\\)을 지정하는 컨디셔닝 이미지를 필요로 한다. 컨디셔닝 이미지를 형성하기 위해 먼저 (1) 매끄럽지 않은 비금속, (2) 반금속, 반평활한, (3) 순수한 금속, 매끄러운 세 가지 재료를 사용하여 원하는 \\(L\\)과 \\(C\\)으로 메쉬를 렌더링한 다음 렌더링들을 하나의 3채널 이미지로 결합한다. (b) LightControlNet은 텍스트 프롬프트 뿐만 아니라 입력뿐만 아니라 이러한 조명 컨디셔닝 이미지를 취하고 그에 따라 이미지를 생성하는 확산 모델이다.\n' +
+      '\n' +
+      '그림 5: **Multi-View Visual Prompting.**(a) LightControlNet에 4개의 표준 컨디셔닝 이미지를 독립적으로 입력하면 고정된 랜덤 시드로도 4개의 매우 다른 모습과 스타일을 생성한다. (b) 4개의 이미지를 2\\(\\times\\)2 격자로 연결하여 하나의 이미지로 LightControlNet에 전달하면 훨씬 더 일관된 모습과 스타일을 연출한다. 문자 프롬프트: "하이킹 부팅"입니다.\n' +
+      '\n' +
+      '\\(\\beta(\\cdot))\\), 카메라 뷰\\(C\\) 및 조명\\(L\\)은 nvd-iffrast[16], 미분 가능한 렌더러\\(\\mathcal{R}\\)를 사용하여 2D 렌더링을 생성할 수 있다.\n' +
+      '\n' +
+      '\\[x=\\mathcal{R}(M,\\Gamma(\\beta(\\cdot)),L,C).\\]\n' +
+      '\n' +
+      '렌더링 방정식에 대한 자세한 내용은 부록에 나와 있습니다. 메쉬 형상은 고정되어 있으므로 나머지 논문에서는 \\(M\\)을 생략하였다.\n' +
+      '\n' +
+      'DreamFusion[35]의 최적화 접근법은 카메라 뷰 \\(C\\)를 무작위로 샘플링하고 확산 모델 \\(\\phi\\)을 사용하여 \\(C\\)에 대한 이미지를 생성하고 SDS 손실을 사용하여 최적화를 감독한다는 것을 기억하라. 이 최적화를 두 가지 방법으로 확장합니다. 먼저, 정준 카메라 뷰(C^{*}\\)와 조명(L^{*}\\)을 갖는 4개의 고정 기준 이미지(I_{\\text{ref}}\\)를 사용하여 정준 뷰를 샘플링할 때마다 적용하는 재구성 손실을 통해 텍스처 최적화를 유도한다.\n' +
+      '\n' +
+      '\\lambda_{\\text{recon}}\\mathcal{L}_{\\text{MSE}}[I_{\\text{ref}}, \\mathcal{R}(\\Gamma(\\beta(\\cdot)),L^{*},C^{*})]\\]\\[+\\lambda_{\\text{VGG}}\\mathcal{L}_{\\text{VGG}}[I_{\\text{ref}, \\mathcal{R}(\\Gamma(\\beta(\\cdot)),L^{*},C^{*}}]]\n' +
+      '\n' +
+      '비정규 뷰(C\\)를 샘플링할 때 랜덤 조명(L\\)을 샘플링하고 SDS 손실을 사용하여 최적화를 감독하지만 LightControlNet을 확산 모델(\\phi_{\\text{LCN}}\\)로 사용하여\n' +
+      '\n' +
+      '\\phi_{\\gamma,\\beta}\\mathcal{L}_{\\text{SDS}(\\phi_{\\text{LCN},x)\\] \\[=\\mathbb{E}_{t,\\epsilon}\\left[w(t)(\\hat{\\epsilon}_{\\phi_{\\text{LCN}}(x_{t};y,t,I_{\\text{cond}(L,C)-\\epsilon)\\frac{\\partial x}{\\partial\\Gamma(\\beta(\\cdot))}\\right],\\]\n' +
+      '\n' +
+      '여기서 \\(x=\\mathcal{R}(\\Gamma(\\beta(\\cdot)),L,C)\\) 및 \\(w(t)\\)는 가중치이다.\n' +
+      '\n' +
+      '마지막으로, nvdffrec[29]의 접근법을 사용하여 매끄러운 기본 색상을 구현하기 위해 모든 반복에 재료 평활도 규칙기를 사용한다. 베이스 컬러\\(k_{c}(p)\\을 갖는 표면 포인트\\(p\\)에 대해, 평활도 규칙화기는 다음과 같이 정의된다.\n' +
+      '\n' +
+      '\\[\\mathcal{L}_{\\text{reg}}=\\sum_{p\\in S}|k_{c}(p)-k_{c}(p+\\epsilon)|,\\]\n' +
+      '\n' +
+      '여기서 \\(S\\)은 물체 표면을 나타내고 \\(\\epsilon\\)은 작은 랜덤 3D 섭동이다.\n' +
+      '\n' +
+      '최적화를 스케줄링한다. 4개의 표준 뷰를 렌더링하고 50번의 반복에 대해 \\(\\mathcal{L}_{\\text{recon}}\\)을 적용하여 최적화를 준비한다. 그런 다음 환경 조명 맵의 미리 정의된 집합에서 임의로 선택한 카메라 뷰와 임의로 선택한 조명에 대해 \\(\\mathcal{L}_{\\text{SDS}}\\) 손실을 사용하여 반복을 추가하고 최적화한다. 구체적으로 우리는 \\(\\mathcal{L}_{\\text{SDS}\\)과 \\(\\mathcal{L}_{\\text{recon}\\)을 번갈아 사용한다. 또한, SDS 반복의 4분의 1에 대해, 우리는 무작위로 뷰를 선택하는 것이 아니라 표준 뷰를 사용한다. 이는 결과 텍스쳐가 표준 뷰들에 대응하는 참조 이미지들에 오버핏되지 않도록 보장한다. 웜업 반복은 질감의 대규모 구조를 포착하고 SDS 최적화에서 비교적 작은 잡음 수준(\\(t\\leq 0.1\\))을 사용할 수 있다. 우리는 \\(t_{\\text{max}}=0.1\\) 및 \\(t_{\\text{min}}=0.02\\)의 선형적으로 감소하는 스케줄 [15]에 따라 잡음을 샘플링한다. 또한 이러한 반복에 걸쳐 SDS 손실에서 LightControlNet의 컨디셔닝 강도\\(s\\)를 \\(1\\)에서 \\(0\\)으로 선형적으로 조정하여 LightControlNet이 최적화 종료 시에만 가볍게 적용될 수 있도록 한다. 우리는 이 최적화의 총 400번의 반복 후에 고품질 질감을 얻는다는 것을 실험적으로 발견했으며 이는 5000번의 반복이 필요한 판타지아3D [8]과 같은 다른 SDS 기반 질감 생성 기술보다 훨씬 적다. 더 자세한 구현 내용은 부록의 A절에 나와 있다.\n' +
+      '\n' +
+      '**베이크인 조명이 있는 더 빠른 파이프라인.** 텍스트 투 텍스쳐 파이프라인은 텍스처 최적화 프로세스에서 라이트컨트롤넷의 조명 제어 기능을 주로 사용하여 조명과 표면 반사율을 분리한다. 본 논문에서는 파이프라인 1단계에서 LightControlNet을 메쉬의 깊이 렌더링을 컨디셔닝 이미지로 사용하는 depth ControlNet으로 교체하고, 2단계에서 Stable Diffusion[39] 기반의 SDS로 교체하는 실험을 하였다. 이러한 방식은 조명을 결과적인 질감으로 남겨두는 반면, SDS 최적화에서 LightControlNet의 순방향 통과를 제거하므로 파이프라인의 속도를 증가시킨다. 표 1과 같이 이 버전으로 2\\(\\times\\)의 속도를 얻는다.\n' +
+      '\n' +
+      '## 5 Experiments\n' +
+      '\n' +
+      '이 섹션에서는 재조명 가능한 텍스트 기반 메쉬 텍스처링에 대한 제안된 방법의 유효성을 평가하기 위한 포괄적인 실험을 제시한다. 우리는 주요 구성 요소 각각의 중요성에 대한 절제 연구와 함께 기존 기준선과 정성적 및 정량적 비교를 모두 수행한다.\n' +
+      '\n' +
+      '**Dataset.** 도 3에 예시된 바와 같이, 우리는 라이트콘트롤넷을 훈련시키기 위해 쌍을 이루는 데이터를 렌더링하기 위해 Obiayverse [10]을 사용한다. 오비야버스는 약 800k개의 객체로 구성되며, 이 중 이름과 태그를 텍스트 설명으로 사용한다. 우리는 CLIP 유사도가 낮은 객체[36]를 텍스트 설명에 필터링하고 약 40k를 훈련 세트로 선택한다. 각각의 객체는 무작위로 샘플링된 카메라 및 특정 세트의 환경 조명 맵으로부터의 조명을 사용하여 12개의 뷰로부터 렌더링된다. 베이스라인 및 방법을 평가하기 위해 오비야버스[10]에서 70개의 랜덤 메쉬를 테스트 세트로 보유하고, 또한 3D 게임 자산에서 테스트 메쉬 컬렉션을 수집하여 광범위한 적용 가능성을 보여준다. 자세한 내용은 부록에서 확인할 수 있다.\n' +
+      '\n' +
+      '**기준.** 기존 메쉬 텍스처링 방법과 우리의 접근법을 비교한다. 구체적으로, Latent-Paint[25]는 텍스처 생성을 위해 잠재 공간에서 SDS 손실을 사용한다. Text2tex[7]는 선택된 시점으로부터 점진적으로 2D 뷰를 생성하고, 이어서 역 투영을 수행하여 3D로 들어올린다. TEXTure[38]은 유사한 리프팅 접근법을 사용하지만, 리프팅 후 신속한 SDS 최적화로 보완한다. 이러한 텍스쳐 생성 방법 외에도 텍스쳐가 3D 생성의 구성요소라는 점에서 텍스트 대 3D 접근법은 추가적인 베이스라인 역할을 한다. 특히, 우리는 기준선으로서 판타지아3D[8]를 선택하는데, 첫 번째로 텍스트 대 3D 처리에서 질감에 재료 기반 표현을 사용한다.\n' +
+      '\n' +
+      '**정량적 평가.** 표 1에서 방법을 Objavverse [10] 테스트 세트의 기준선과 비교한다. 각 방법에 대해 16개의 뷰를 생성하고, FID(Frechet Inception Distance) [14, 33] 및 KID(Kernel Inception Distance) [3]을 지상-진실 렌더링 뷰와 비교하여 평가한다. 우리의 방법의 두 가지 변형이 평가된다. 두 변형 모두 제안된 2단계 파이프라인을 사용하며 첫 번째는 표준 깊이 유도 제어넷을 사용하는 반면 두 번째는 제안된 LightControlNet을 사용한다. 우리의 방법은 품질과 런타임 모두에서 기준선을 훨씬 능가합니다.\n' +
+      '\n' +
+      '**정성적 분석 및 사용자 연구.** 그림 6과 같이, 우리의 방법은 매우 다양한 메쉬에 걸쳐 환경 조명으로 적절하게 렌더링될 수 있는 매우 상세한 텍스처를 생성할 수 있다. 우리는 또한 그림 7의 방법과 기준선을 시각적으로 비교하며, 본 방법은 재조명 및 비조명 변형 모두에 대해 기준선보다 더 높은 시각적 충실도로 텍스처를 생성한다. 특히, 최근 소재 기반 질감 생성을 목표로 하는 연구인 Fantasia3D [8]과 비교했을 때, 우리의 결과는 우수한 시각적 품질을 가질 뿐만 아니라 조명을 더 성공적으로 디엔탱글링한다. 재조명된 질감의 품질을 정량적으로 더 평가하기 위해 참가자들에게 우리의 결과를 판타지아3D와 비교하도록 요청하는 사용자 연구를 수행한다. 두 결과 모두 동일한 조명 환경에서 렌더링됩니다.\n' +
+      '\n' +
+      '그림 6: Objavverse 테스트 메쉬(상위 절반) 및 3D 게임 자산(하위 절반)에 적용된 우리의 방법의 샘플 결과. 재조명 가능한 질감의 효능을 설명하기 위해 각 질감 메쉬에 대해 환경 조명을 고정하고 메쉬를 다른 회전으로 렌더링한다. 위에서 보여진 바와 같이, 우리의 방법은 매우 상세할 뿐만 아니라 사실적인 조명 효과로 조명할 수 있는 텍스처를 생성할 수 있다.\n' +
+      '\n' +
+      '표시에서 음영 처리된 메쉬 이미지가 조명 방향을 나타내는 공정한 평가를 보장하기 위한 표시(자세한 내용은 부록을 참조)입니다. 참가자의 86.7%가 우리의 결과를 선호하여 우리의 접근법이 재조명 품질에서 판타지아3D를 지속적으로 능가함을 나타낸다.\n' +
+      '\n' +
+      '**절제 연구** 멀티뷰 시각적 프롬프트(m.v.v.p.) 및 증류 인코더(dist. enc.)에 대한 절제 분석을 수행한다. 표 2에서 볼 수 있듯이. 원래 VQ-VAE 인코더로 증류 인코더를 대체할 때 성능은 두 배 느리지만 결과의 품질이 눈에 띄게 우수하지는 않다. 반면에, 초기 생성을 위한 멀티뷰 시각적 프롬프트 없이, 시스템은 합리적인 결과를 생성하기 위해 2000번의 반복(400번의 반복에 비해 5배 속도 저하)을 필요로 하는 반면, 여전히 약간 더 나쁜 텍스처 품질을 초래한다.\n' +
+      '\n' +
+      '## 6 Discussion\n' +
+      '\n' +
+      '우리는 사용자가 제공한 텍스트 설명에 기반한 자동화된 텍스처링 기술을 제안했다. 제안된 방법은 조명 인식 2D 확산 모델(LightControlNet)과 SDS 손실에 기반한 개선된 최적화 프로세스를 사용한다. 우리의 접근법은 표면 반사율/알베도로부터 혼탁된 조명으로 고 충실도 텍스처를 생성하면서 이전 방법보다 상당히 빠르다. 우리는 Objaverse 데이터 세트에 대한 정량적 및 정성적 평가를 통해 우리의 방법의 효능을 입증했다.\n' +
+      '\n' +
+      '**Limitations.** 우리의 접근법은 여전히 몇 가지 한계를 제기한다: (1) 베이크-인 조명은 특정 경우에, 특히 Objaverse의 트레이닝 데이터 분포 외부에 있는 메쉬에 대해 여전히 발견될 수 있다; (2) 생성된 재료 맵은 때때로 완전히 얽히지 않고 금속-리니스, 거칠기 등으로서 해석가능하지 않다; (3) 2D 확산 모델 백본의 고유한 제한으로 인해, 생성된 텍스처는 경우에 따라 텍스트 프롬프트를 따르지 않을 수 있다.\n' +
+      '\n' +
+      '베냐민 아크리쉬, 빅터 조던, 드미트리 트리포노프, 데릭 류, 왕성유, 가우라프 파머, 루이한 가오, 누푸르 쿠마리, 션 류의 토론과 도움에 감사드린다. 그 프로젝트는 부분적으로 로록스에 의해 지원된다. JYZ는 부분적으로 패커드 펠로우십의 지지를 받고 있다. KD는 마이크로소프트 리서치 박사 펠로우십의 지원을 받는다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c} \\hline \\hline Objaverse & FID \\(\\downarrow\\) & KID \\(\\downarrow\\) & Runtime \\(\\downarrow\\) \\\\ subset & & (\\(\\times 10^{-3}\\)) & (mins) \\\\ \\hline Latent-Paint [25] & 73.65 & 7.26 & 10 \\\\ Fantasia3D [8] & 120.32 & 8.34 & 30 \\\\ TEXTure [38] & 71.64 & 5.43 & 6 \\\\ Text2tex [7] & 95.59 & 4.71 & 15 \\\\ \\hline Ours (w/ depth) & **60.49** & 3.96 & **2** \\\\ Ours & 62.67 & **2.69** & 4 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 1: **Quantitative Evaluation.** Objaverse [10]의 70개 객체에 대한 방법과 기준선을 테스트한다. 깊이 제어넷을 사용하면 2분의 빠른 실행 시간에서 모든 기준선보다 우수한 결과를 얻을 수 있다. 모델 내에서 LightControlNet(Ours)을 사용하면 텍스처 생성의 조명 엉킴을 개선하고 유사한 이미지 품질을 유지한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c} \\hline \\hline Objaverse & FID \\(\\downarrow\\) & KID \\(\\downarrow\\) & Runtime \\(\\downarrow\\) \\\\ subset & & (\\(\\times 10^{-3}\\)) & (mins) \\\\ \\hline Ours (w/o dist. enc.) & **60.34** & 2.84 & 8 \\\\ Ours (w/o m.v.v.p) & 74.23 & 3.54 & 19 \\\\ \\hline Ours & 62.67 & **2.69** & **4** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 2: **절제 연구.** 증류 인코더(1행) 및 멀티뷰 시각적 프롬프트(2행)에 대해 절제 분석을 수행한다. 증류형 인코더를 원래의 VQ-VAE 인코더로 교체하면 눈에 띄는 품질 개선 없이 성능 시간이 두 배로 증가했다. 초기 생성을 위한 멀티뷰 시각적 프롬프트를 제거할 때, 시스템은 합리적인 결과를 생성하기 위해 2000회 반복(400회 반복에 비해 5배 속도 저하)을 필요로 하며, 이는 텍스처 품질을 약간 악화시킨다.\n' +
+      '\n' +
+      '그림 7: **Qualitative Analysis.** 기존 기준선과 우리의 방법을 시각적으로 비교한다. 판타지아3D[8]도 재조명 가능한 질감을 생성하려고 시도하지만 우리와 달리 결과는 여전히 구운 조명인 경향이 있다. 리라이트가 불가능한 텍스처 생성을 위해 LightControlNet을 depth ControlNet으로 대체하고, 기준선 대비 화질 및 런타임 측면에서 우수한 결과를 얻을 수 있다. 더 자세한 내용은 표 1에 나와 있습니다.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* [1] Jonathan T. Barron, Ben Mildenhall, Matthew Tancik, Peter Hedman, Ricardo Martin-Brualla, and Pratul P. Srinivasan. Mip-nerf: A multiscale representation for anti-aliasing neural radiance fields. In _IEEE International Conference on Computer Vision (ICCV)_, 2021.\n' +
+      '* [2] Sai Bi, Zexiang Xu, Pratul Srinivasan, Ben Mildenhall, Kalyan Sunkavalli, Milos Hasan, Yannick Hold-Geoffroy, David Kriegman, and Ravi Ramamoorthi. Neural reflectance fields for appearance acquisition. _arXiv preprint arXiv:2008.03824_, 2020.\n' +
+      '* [3] Mikolaj Biikowski, Danica J Sutherland, Michael Arbel, and Arthur Gretton. Demystifying mmd gans. In _International Conference on Learning Representations (ICLR)_, 2018.\n' +
+      '* [4] Alexey Bokhovkin, Shubham Tulsiani, and Angela Dai. Mesh2tex: Generating mesh textures from image queries. In _IEEE International Conference on Computer Vision (ICCV)_, 2023.\n' +
+      '* [5] John Canny. A computational approach to edge detection. _IEEE Transactions on pattern analysis and machine intelligence_, (6):679-698, 1986.\n' +
+      '* [6] Zhe Cao, Tomas Simon, Shih-En Wei, and Yaser Sheikh. Realtime multi-person 2d pose estimation using part affinity fields. In _Proceedings of the IEEE conference on computer vision and pattern recognition_, pages 7291-7299, 2017.\n' +
+      '* [7] Dave Zhenyu Chen, Yawar Siddiqui, Hsin-Ying Lee, Sergey Tulyakov, and Matthias Niessner. Text2tex: Text-driven texture synthesis via diffusion models. In _IEEE International Conference on Computer Vision (ICCV)_, 2023.\n' +
+      '* [8] Rui Chen, Yongwei Chen, Ningxin Jiao, and Kui Jia. Fantasia3d: Disentangling geometry and appearance for high-quality text-to-3d content creation. In _IEEE International Conference on Computer Vision (ICCV)_, 2023.\n' +
+      '* [9] Yongwei Chen, Rui Chen, Jiabao Lei, Yabin Zhang, and Kui Jia. Tango: Text-driven photorealistic and robust 3d stylization via lighting decomposition. In _Advances in Neural Information Processing Systems (NeurIPS)_, 2022.\n' +
+      '* [10] Matt Deitke, Dustin Schwenk, Jordi Salvador, Luca Weihs, Oscar Michel, Eli VanderBilt, Ludwig Schmidt, Kiana Ehsani, Aniruddha Kembhavi, and Ali Farhadi. Objavarese: A universe of annotated 3d objects. In _IEEE Conference on Computer Vision and Pattern Recognition (CVPR)_, 2023.\n' +
+      '* [11] Duan Gao, Xiao Li, Yue Dong, Pieter Peers, Kun Xu, and Xin Tong. Deep inverse rendering for high-resolution svbrdf estimation from an arbitrary number of images. In _ACM SIGGRAPH_, 2019.\n' +
+      '* [12] Paul Henderson, Vagia Tsiminaki, and Christoph Lampert. Leveraging 2D data to learn textured 3D mesh generation. In _IEEE Conference on Computer Vision and Pattern Recognition (CVPR)_, 2020.\n' +
+      '* [13] Amir Hertz, Ron Mokady, Jay Tenenbaum, Kfir Aberman, Yael Pritch, and Daniel Cohen-Or. Prompt-to-prompt image editing with cross attention control. _arXiv preprint arXiv:2208.01626_, 2022.\n' +
+      '* [14] Martin Heusel, Hubert Ramsauer, Thomas Unterthiner, Bernhard Nessler, and Sepp Hochreiter. Gans trained by a two time-scale update rule converge to a local nash equilibrium. In _Advances in Neural Information Processing Systems (NeurIPS)_, 2017.\n' +
+      '* [15] Yukun Huang, Jianan Wang, Yukai Shi, Xianbiao Qi, Zheng-Jun Zha, and Lei Zhang. Dreamtime: An improved optimization strategy for text-to-3d content creation. _arXiv preprint arXiv:2306.12422_, 2023.\n' +
+      '* [16] Samuli Laine, Janne Hellsten, Tero Karras, Yeongho Seol, Jaakko Lehtinen, and Timo Aila. Modular primitives for high-performance differentiable rendering. 2020.\n' +
+      '* [17] Muheng Li, Yueqi Duan, Jie Zhou, and Jiwen Lu. Diffusion-sdf: Text-to-shape via voxelized diffusion. In _IEEE Conference on Computer Vision and Pattern Recognition (CVPR)_, 2023.\n' +
+      '* [18] Weiyu Li, Rui Chen, Xuelin Chen, and Ping Tan. Sweetdreamer: Aligning geometric priors in 2d diffusion for consistent text-to-3d. _arxiv:2310.02596_, 2023.\n' +
+      '* [19] Yuheng Li, Haotian Liu, Qingyang Wu, Fangzhou Mu, Jianwei Yang, Jianfeng Gao, Chunyuan Li, and Yong Jae Lee. Gligen: Open-set grounded text-to-image generation. In _IEEE Conference on Computer Vision and Pattern Recognition (CVPR)_, 2023.\n' +
+      '* [20] Zhengqin Li, Kalyan Sunkavalli, and Manmohan Chandraker. Materials for masses: Svbrdf acquisition with a single mobile phone image. In _European Conference on Computer Vision (ECCV)_, 2018.\n' +
+      '* [21] Chen-Hsuan Lin, Jun Gao, Luming Tang, Towaki Takikawa, Xiaohui Zeng, Xun Huang, Karsten Kreis, Sanja Fidler, Ming-Yu Liu, and Tsung-Yi Lin. Magic3d: High-resolution text-to-3d content creation. In _IEEE Conference on Computer Vision and Pattern Recognition (CVPR)_, 2023.\n' +
+      '* [22] Tsung-Yi Lin, Michael Maire, Serge Belongie, Lubomir Bourdev, Ross Girshick, James Hays, Pietro Perona, Deva Ramanan, C. Lawrence Zitnick, and Piotr Dollar. Microsoft coco: Common objects in context, 2015.\n' +
+      '* [23] Ruoshi Liu, Rundi Wu, Basile Van Hoorick, Pavel Tokmakov, Sergey Zakharov, and Carl Vondrick. Zero-1-to-3: Zero-shot one image to 3d object. In _IEEE International Conference on Computer Vision (ICCV)_, 2023.\n' +
+      '* [24] Chenlin Meng, Yutong He, Yang Song, Jiaming Song, Jiajun Wu, Jun-Yan Zhu, and Stefano Ermon. SDEdit: Guided image synthesis and editing with stochastic differential equations. In _International Conference on Learning Representations (ICLR)_, 2022.\n' +
+      '* [25] Gal Metzer, Elad Richardson, Or Patashnik, Raja Giryes, and Daniel Cohen-Or. Latent-nerf for shape-guided generation of 3d shapes and textures. In _IEEE Conference on Computer Vision and Pattern Recognition (CVPR)_, 2023.\n' +
+      '* [26] Ben Mildenhall, Pratul P. Srinivasan, Matthew Tancik, Jonathan T. Barron, Ravi Ramamoorthi, and Ren Ng. Nerf: Representing scenes as neural radiance fields for view synthesis. In _European Conference on Computer Vision (ECCV)_, 2020.\n' +
+      '* [27] Chong Mou, Xintao Wang, Liangbin Xie, Jian Zhang, Zhongang Qi, Ying Shan, and Xiaohu Qie. T2i-adapter: Learning adapters to dig out more controllable ability for text-to-image diffusion models. _arXiv preprint arXiv:2302.08453_, 2023.\n' +
+      '\n' +
+      '* [28] Thomas Muller, Alex Evans, Christoph Schied, and Alexander Keller. Instant neural graphics primitives with a multiresolution hash encoding. In _ACM SIGGRAPH_, 2022.\n' +
+      '* [29] Jacob Munkberg, Jon Hasselgren, Tianchang Shen, Jun Gao, Wenzheng Chen, Alex Evans, Thomas Muller, and Sanja Fidler. Extracting Triangular 3D Models, Materials, and Lighting From Images. In _IEEE Conference on Computer Vision and Pattern Recognition (CVPR)_, 2022.\n' +
+      '* [30] Gimin Nam, Mariem Khlifi, Andrew Rodriguez, Alberto Tono, Linqi Zhou, and Paul Guerrero. 3d-ldm: Neural implicit 3d shape generation with latent diffusion models. _arXiv preprint arXiv:2212.00842_, 2022.\n' +
+      '* [31] Fred E Nicodemus. Directional reflectance and emissivity of an opaque surface. _Applied optics_, 4(7):767-775, 1965.\n' +
+      '* [32] Keunhong Park, Konstantinos Rematas, Ali Farhadi, and Steven M. Seitz. Photoshape: Photorealistic materials for large-scale shape collections. 2018.\n' +
+      '* [33] Gaurav Parmar, Richard Zhang, and Jun-Yan Zhu. On aliased resizing and surprising subtleties in gan evaluation. In _IEEE Conference on Computer Vision and Pattern Recognition (CVPR)_, 2022.\n' +
+      '* [34] Dario Pavllo, Jonas Kohler, Thomas Hofmann, and Aurelien Lucchi. Learning generative models of textured 3d meshes from real-world images. In _IEEE International Conference on Computer Vision (ICCV)_, 2021.\n' +
+      '* [35] Ben Poole, Ajay Jain, Jonathan T. Barron, and Ben Mildenhall. Dreamfusion: Text-to-3d using 2d diffusion. In _International Conference on Learning Representations (ICLR)_, 2023.\n' +
+      '* [36] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, et al. Learning transferable visual models from natural language supervision. In _International Conference on Machine Learning (ICML)_, 2021.\n' +
+      '* [37] Aditya Ramesh, Prafulla Dhariwal, Alex Nichol, Casey Chu, and Mark Chen. Hierarchical text-conditional image generation with clip latents. _arXiv preprint arXiv:2204.06125_, 2022.\n' +
+      '* [38] Elad Richardson, Gal Metzer, Yuval Alaluf, Raja Giryes, and Daniel Cohen-Or. Texture: Text-guided texturing of 3d shapes. In _ACM SIGGRAPH_, 2023.\n' +
+      '* [39] Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Bjorn Ommer. High-resolution image synthesis with latent diffusion models. In _IEEE Conference on Computer Vision and Pattern Recognition (CVPR)_, 2022.\n' +
+      '* [40] Chitwan Saharia, William Chan, Saurabh Saxena, Lala Li, Jay Whang, Emily L Denton, Kamyar Ghasemipour, Raphael Gontijo Lopes, Burcu Karagol Ayan, Tim Salimans, et al. Photorealistic text-to-image diffusion models with deep language understanding. In _Advances in Neural Information Processing Systems (NeurIPS)_, 2022.\n' +
+      '* [41] Sam Sartor and Pieter Peers. Matfusion: a generative diffusion model for svbrdf capture. In _ACM SIGGRAPH Asia_, 2023.\n' +
+      '* [42] Yichun Shi, Peng Wang, Jianglong Ye, Long Mai, Kejie Li, and Xiao Yang. Mvdream: Multi-view diffusion for 3d generation. _arXiv:2308.16512_, 2023.\n' +
+      '* [43] J Ryan Shue, Eric Ryan Chan, Ryan Po, Zachary Ankner, Jiajun Wu, and Gordon Wetzstein. 3d neural field generation using triplane diffusion. In _IEEE Conference on Computer Vision and Pattern Recognition (CVPR)_, 2023.\n' +
+      '* [44] Yawar Siddiqui, Justus Thies, Fangchang Ma, Qi Shan, Matthias Niessner, and Angela Dai. Texturify: Generating textures on 3d shape surfaces. In _European Conference on Computer Vision (ECCV)_, 2022.\n' +
+      '* [45] Jingxiang Sun, Bo Zhang, Ruizhi Shao, Lizhen Wang, Wen Liu, Zhenda Xie, and Yebin Liu. Dreamcraft3d: Hierarchical 3d generation with bootstrapped diffusion prior, 2023.\n' +
+      '* [46] Giuseppe Vecchio, Rosalie Martin, Arthur Roullier, Adrien Kaiser, Romain Rouffet, Valentin Deschaintre, and Tamy Boubekeur. Controlmat: Controlled generative approach to material capture. _arXiv preprint arXiv:2309.01700_, 2023.\n' +
+      '* [47] Giuseppe Vecchio, Renato Sortino, Simone Palazzo, and Concetto Spampinato. Matfuse: Controllable material generation with diffusion models. _arXiv preprint arXiv:2308.11408_, 2023.\n' +
+      '* [48] Bruce Walter, Stephen R Marschner, Hongsong Li, and Kenneth E Torrance. Microfacet models for refraction through rough surfaces. In _Proceedings of the 18th Eurographics conference on Rendering Techniques_, 2007.\n' +
+      '* [49] Haochen Wang, Xiaodan Du, Jiahao Li, Raymond A. Yeh, and Greg Shakhnarovich. Score jacobian chaining: Lifting pre-trained 2d diffusion models for 3d generation. In _IEEE Conference on Computer Vision and Pattern Recognition (CVPR)_, 2023.\n' +
+      '* [50] Tengfei Wang, Ting Zhang, Bo Zhang, Hao Ouyang, Dong Chen, Qifeng Chen, and Fang Wen. Pretraining is all you need for image-to-image translation. _arXiv preprint arXiv:2205.12952_, 2022.\n' +
+      '* [51] Zian Wang, Jonah Philion, Sanja Fidler, and Jan Kautz. Learning indoor inverse rendering with 3d spatially-varying lighting. In _IEEE International Conference on Computer Vision (ICCV)_, 2021.\n' +
+      '* [52] Zhengyi Wang, Cheng Lu, Yikai Wang, Fan Bao, Chongxuan Li, Hang Su, and Jun Zhu. Prolificdreamer: High-fidelity and diverse text-to-3d generation with variational score distillation. In _Advances in Neural Information Processing Systems (NeurIPS)_, 2023.\n' +
+      '* [53] Ethan Weber, Aleksander Holynski, Varun Jampani, Saurabh Saxena, Noah Snavely, Abhishek Kar, and Angjoo Kanazawa. Nerfiller: Completing scenes via generative 3d inpainting. In _arXiv_, 2023.\n' +
+      '* [54] Jiarui Xu, Sifei Liu, Arash Vahdat, Wonmin Byeon, Xiaolong Wang, and Shalini De Mello. Open-vocabulary panoptic segmentation with text-to-image diffusion models. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 2955-2966, 2023.\n' +
+      '* [55] Xudong Xu, Zhaoyang Lyu, Xingang Pan, and Bo Dai. Matlaber: Material-aware text-to-3d via latent brdf auto-encoder. _arXiv preprint arXiv:2308.09278_, 2023.\n' +
+      '* [56] Rui Yu, Yue Dong, Pieter Peers, and Xin Tong. Learning texture generators for 3d shape collections from internet photo sets. 2021.\n' +
+      '* [57] Lvmin Zhang, Anyi Rao, and Maneesh Agrawala. Adding conditional control to text-to-image diffusion models. In* [58] Minda Zhao, Chaoyi Zhao, Xinyue Liang, Lincheng Li, Zeng Zhao, Zhipeng Hu, Changjie Fan, and Xin Yu. Efficient-dreamer: High-fidelity and robust 3d creation via orthogonal-view diffusion prior. 2023.\n' +
+      '* [59] Linqi Zhou, Yilun Du, and Jiajun Wu. 3d shape generation and completion through point-voxel diffusion. In _IEEE International Conference on Computer Vision (ICCV)_, 2021.\n' +
+      '\n' +
+      '## 부록 구현 세부사항\n' +
+      '\n' +
+      '**Distilled Encoder.** 섹션 4.1(본 논문)에서, 우리는 안정한 확산에서 이미지 인코더를 증류함으로써 LightControlNet의 효율을 향상시킨다[39]. 아래 표에서 증류 및 원본 인코더의 실행 시간을 프로파일링합니다.\n' +
+      '\n' +
+      '**Hyper-parameters.** 섹션 4.3(본문)의 파이프라인에 의해 사용되는 하이퍼-parameters를 제공한다. \\ (\\lambda_{\\text{MSE}}=1000,\\lambda_{\\text{VGG}}=1000,\\lambda_{\\text{Reg}}=10\\). 우리는 점수 증류 샘플링 손실에서 4의 배치, 최적화를 위한 0.01의 학습률 및 50의 CFG 척도를 사용한다. 섹션 4.1과 그림 4(본문)에서 우리는 컨디셔닝 이미지를 생성하기 위해 미리 정의된 세 가지 재료를 설정했다. 특정 재료 매개변수는 (1) 비금속, 비매끄러움: \\(k_{m}=0,k_{r}=1\\); (2) 반금속, 반매끄러움: \\(k_{m}=0.5,k_{r}=0.5\\); (3) 순수 금속, 극히 매끄러움: \\(k_{m}=1,k_{r}=0\\). 색상\\(k_{c}\\)은 항상 \\((1,1,1)\\)으로 설정된다.\n' +
+      '\n' +
+      '**Base Models.** 표 1, 표 2 및 그림 7(본 논문)의 실험에 대해 안정적인 확산 v1.5(_SD1.5_)를 기본 모델로 사용한다. 당사의 파이프라인은 _SD1.5_에서 미세 조정된 다른 기본 모델과도 호환됩니다. 예를 들어, SD1.5의 커뮤니티 미세 조정 체크포인트인 \\(\\texttt{Dreamshaper}\\)을 사용하여 다양한 매혹적인 질감을 생성했다. 우리는 그림 6(본문)과 그림 11의 결과 중 일부를 포함한다. 구체적으로 재킷, 고블린, 어민, 늑대의 결과는 _Dreamshaper_를 이용하여 구한다.\n' +
+      '\n' +
+      '**환경 맵.** 섹션 4에서 우리는 다양한 조명 조건을 나타내기 위해 무작위로 회전된 환경 맵을 사용한다. 특히, 폴리-헤븐에서 6개의 HDRI 라이트 맵을 다운로드합니다. 이러한 HDRI 맵은 스튜디오 환경에서 캡처됩니다. 우리는 그림 8에서 이러한 광도 지도를 보여준다. 우리는 4.2절에서 왼쪽 중 하나를 고정 조명으로 사용한다.\n' +
+      '\n' +
+      '**평가 및 사용자 연구.** 표 1 및 표 2(본 논문)의 정량적 평가를 위해, 각각의 결과 텍스처된 오브젝트는 16개의 주변 뷰포인트들의 고정된 세트로부터 렌더링된다. FID와 KID는 Objavere의 [10] 원 텍스쳐를 사용하여 동일한 시점의 Ground-truth 렌더링에 대해 계산된다. 섹션 5(본 논문)에서 언급된 사용자 연구를 위해, 우리는 우리의 방법을 판타지아3D의 재조명 가능한 텍스처[8]와 비교한다. 두 가지 방법을 사용하여 10개의 테스트 대상에 대한 텍스처를 생성하고 동일한 조명 조건에 배치한다. 또한 그림 12와 같이 참조 조명 방향을 설명하기 위해 이 조명 아래에서 텍스처되지 않은 메쉬를 렌더링하고 15명의 참가자에게 참조 조명 조건을 준수하는 데 더 큰 충실도로 텍스처를 식별하도록 요청한다.\n' +
+      '\n' +
+      '**BRDF 모델 및 렌더링 방정식.** 4.3절에 기술된 바와 같이, 우리의 재료 모델 [48]은 금속성 \\(k_{m}\\in\\mathbb{R}\\), 거칠기 \\(k_{r}\\in\\mathbb{R}\\), 범프 벡터 \\(k_{n}\\in\\mathbb{R}^{3}\\) 및 접선 공간에서 표면 법선의 섭동인 기본 색상 \\(k_{c}\\in\\mathbb{R}^{3}\\)으로 구성된다. 상기 일반 렌더링 수식은:\n' +
+      '\n' +
+      '\\[L(p,\\omega)=\\int_{\\Omega}L_{i}\\left(p,\\omega_{i}\\right)f\\left(p,\\omega_{i},\\omega\\right)\\left(\\omega_{i}\\cdot n_{p}\\right)\\mathrm{d}\\omega_{i},\\\\omega_{i},\\\n' +
+      '\n' +
+      '여기서 \\(L\\)은 \\(\\omega\\) 방향으로부터 표면점 \\(p\\)에서 렌더링된 픽셀 색상이고, \\(\\Omega\\)은 \\(p\\)에서 표면 법선 \\(n_{p}\\)을 갖는 반구를 나타낸다. \\(L\\) (L_{i}\\)는 환경 맵으로 표현되는 입사광이고, \\(f\\)는 재료 파라미터 \\((k_{m},k_{r},k_{n},k_{c})\\)에 의해 결정되는 BRDF 함수이다. \\(f\\) (L\\)은 다음과 같이 확산 강도\\(L_{d}\\) 및 경면 강도\\(L_{s}\\)의 합으로 계산될 수 있다:\n' +
+      '\n' +
+      '[L(p,\\omega)=L_{d}(p)+L_{s}(p,\\omega_{i}\\right)\\int_{\\Omega}L_{i}\\left(p,\\omega_{i}\\right)\\mathrm{d}\\omega_{i}(p,\\omega,n_{p}\\right)\\mathrm{d}\\omega_{i}\\left(\\omega_{i}\\omega,n_{p}\\right)\\left(\\omega_{i}\\omega_{i}\\omega,n_{p}}}L_{i}\\left(\\omega_{i}\\omega,n_{p}\\right)\\mathrm{d}\\omega_{i}\\mega}\\frac{D(n,\\omega,n_{p})}L_{i}\\left(\\omega_{i}\\omega,n_{p}\\right)}L_{i}\\left(\\omega\n' +
+      '\n' +
+      '여기서 \\(F\\), \\(G\\) 및 \\(D\\)은 각각 프레넬 항, 기하학적 감쇠 및 GGX 정규 분포[48]를 나타내는 함수이다. Nvdifrrec[29] 및 Fantasia3D[8]에 이어, 분할-합 방법을 사용하여 반구 적분을 계산할 수 있다.\n' +
+      '\n' +
+      '그림 8: **환경 지도.** 폴리헤이븐에서 6개의 HDRI 지도를 다운로드하여 서로 다른 조명 조건을 나타냅니다. 랜덤 라이팅 샘플의 경우, 그 중 하나의 맵을 선택하고 랜덤 회전을 적용한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c} \\hline \\hline Time (ms) & Forward & Backward & Total \\\\ \\hline Original & 113 & 569 & 682 \\\\ Distilled & **42** & **81** & **123** (\\(5.5\\times\\)) \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 3: 우리는 A100 GPU에서 Stable Diffusion [39]의 증류 및 원본 인코더의 순방향 및 역방향 패스를 프로파일링한다. 증류형 인코더는 한 번의 전진 및 후진 패스에 대해 기존 인코더보다 5배 이상 빠르게 실행됩니다.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:13]\n' +
+      '\n' +
+      '도 11: **추가 결과.** 조명 상태를 고정하면서 다른 뷰를 보여주기 위해 객체를 회전시킨다.\n' +
+      '\n' +
+      '그림 12: **추가 질적 분석.** 기준선과 추가 비교를 제시한다. 재조명 가능한 질감의 품질을 평가하기 위해 동일한 조명 조건에서 결과와 판타지아3D의 결과를 배치한다. 참조 조명 방향을 나타내기 위해 텍스쳐링되지 않은 메시도 이 조건에서 렌더링된다. 우리의 결과는 조명 조건을 준수하며 일반적으로 기존 모든 기준선을 품질에서 능가합니다.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>

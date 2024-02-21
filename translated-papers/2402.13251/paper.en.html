@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# FlashTex: Fast Relightable Mesh Texturing with LightControlNet\n' +
+      '\n' +
+      'Kangle Deng\\({}^{2}\\) Timothy Omernick\\({}^{1}\\) Alexander Weiss\\({}^{1}\\) Deva Ramanan\\({}^{2}\\)\n' +
+      '\n' +
+      'Jun-Yan Zhu\\({}^{2}\\) Tinghui Zhou\\({}^{1}\\) Maneesh Agrawala\\({}^{1,3}\\)\n' +
+      '\n' +
+      'Work done when interning at Roblox.\n' +
+      '\n' +
+      '\\({}^{1}\\)Roblox \\({}^{2}\\)Carnegie Mellon University \\({}^{3}\\)Stanford University\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      'Manually creating textures for 3D meshes is time-consuming, even for expert visual content creators. We propose a fast approach for automatically texturing an input 3D mesh based on a user-provided text prompt. Importantly, our approach disentangles lighting from surface material/reflectance in the resulting texture so that the mesh can be properly relit and rendered in any lighting environment. We introduce LightControlNet, a new text-to-image model based on the ControlNet architecture, which allows the specification of the desired lighting as a conditioning image to the model. Our text-to-texture pipeline then constructs the texture in two stages. The first stage produces a sparse set of visually consistent reference views of the mesh using LightControlNet. The second stage applies a texture optimization based on Score Distillation Sampling (SDS) that works with LightControlNet to increase the texture quality while disentangling surface material from lighting. Our pipeline is significantly faster than previous text-to-texture methods, while producing high-quality and relightable textures. Project page: [https://flashtex.github.io/](https://flashtex.github.io/).\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      'Creating high-quality textures for 3D meshes is crucial across industries such as gaming, film, animation, AR/VR, and industrial design. Traditional mesh texturing tools are labor-intensive, and require extensive training in visual design. As the demand for immersive 3D content continues to surge, there is a pressing need to streamline and automate the mesh texturing process.\n' +
+      '\n' +
+      'In the past year, significant progress in text-to-image diffusion models [37, 39, 40] has created a paradigm shift in how artists create images. These models allow anyone who can describe an image in a text prompt to generate a corresponding picture. More recently, researchers have proposed techniques for leveraging such 2D diffusion models for automatically generating textures for an input 3D mesh based on a user-specified text prompt [7, 8, 25, 38]. But these methods suffer from three significant limitations that restrict their wide-spread adoption in commercial applications: (1) slow generation speed (taking tens of minutes per texture), (2) potential visual artifacts (e.g., seams, blurriness, lack of details), and (3) baked-in lighting causing visual inconsistency in new lighting environments (Figure 2). While some recent methods address one or two of these issues, none adequately address all three.\n' +
+      '\n' +
+      'In this work, we propose an efficient approach for texturing an input 3D mesh based on a user-provided text prompt that disentangles the lighting from surface material/reflectance to enable relighting (Figure 1). Our method introduces _LightControlNet_, an illumination-aware text-to-image diffusion model based on the ControlNet [57] architecture, which allows specification of the desired lighting asa conditioning image for the diffusion model. Our text-to-texture pipeline uses LightControlNet to generate relightable textures in two stages. In stage 1, we use _multi-view visual prompting_ in combination with the LightControlNet to produce visually consistent reference views of the 3D mesh for a small set of viewpoints. In stage 2, we perform a new _texture optimization_ procedure that uses the reference views from stage 1 as guidance, and extends Score Distillation Sampling (SDS) [35] to work with LightControlNet. This allows us to increase the texture quality while disentangling the lighting from surface material/reflectance. We show that the guidance from the reference views allows our optimization to generate textures with over 10x speed-up than previous SDS-based relightable texture generation methods such as Fantasia3D [8]. Furthermore, our experiments show that the quality of our textures is generally better than those of previous baseline methods in terms of FID, KID, and user evaluations.\n' +
+      '\n' +
+      '## 2 Related Work\n' +
+      '\n' +
+      '**Text-to-Image Generation.** Recent years have seen significant advancements in text-to-image generation empowered by diffusion models [37, 39, 40]. Stable Diffusion [39], for example, trains a latent diffusion model (LDM) on the latent space rather than pixel space, delivering highly impressive results with relatively affordable computational costs. Further extending the scope of text-based diffusion models, works such as GLIGEN [19], PTITI [50], T2IAdapter [27], and ControlNet [57] incorporate spatial conditioning inputs (e.g., depth maps, normal maps, edge maps, etc.) to enable localized control over the composition of the result. Beyond their power in image generation, these 2D diffusion models, trained on large-scale text-image paired datasets, also contribute valuable priors to various other tasks such as image editing [13, 24], recognition [54], and 3D generation [35].\n' +
+      '\n' +
+      '**Text-to-3D Generation.** The success of text-to-image generation has sparked considerable interest in its 3D counterpart. Some approaches [17, 30, 43, 59] train a text-conditioned 3D generative model akin to 2D models, while others employ 2D priors from pre-trained diffusion models for optimization [8, 18, 21, 25, 35, 45, 49, 52] and multi-view synthesis [23, 42]. For instance, DreamFusion [35] and Score Jacobian Chaining [49] were the first to propose Score Distillation Sampling to optimize a 3D representation using 2D diffusion model gradients. Zero-1-to-3 [23] synthesizes novel views using a pose-conditioned 2D diffusion model. Yet, these methods often produce blurry, low-frequency textures that bake lighting into surface reflectance. Fantasia3D [8] can generate more realistic textures by incorporating physics-based materials. However, the resulting materials remain entangled with lighting, making it difficult to relight the textured object in a new lighting environment. In contrast, our method can effectively disentangle the lighting and surface reflectance texture. Concurrent to our work, MATLABER [55] aims to recover material information in text-to-3D generation using a material autoencoder. Our method, however, differs in approach and improves efficiency.\n' +
+      '\n' +
+      '**3D Texture Generation.** The area of 3D texture generation has evolved over time. Earlier models either directly took 3D representations as input to neural networks [4, 44, 56] or used them as templates [32, 34]. While some methods also use differentiable rendering to learn from 2D images [4, 12, 34, 56], the learned models often fail to generalize beyond the limited training categories.\n' +
+      '\n' +
+      'Closest to our work are the recent works that use pre-trained 2D diffusion models and treat texture generation as a byproduct of text-to-3D generation. Examples include Latent-Paint [25], which uses Score Distillation Sampling in latent space, Text2tex [7], which leverages depth-based 2D ControlNet, and TEXTure [38], which exploits both previous methods. Nonetheless, similar to recent text-to-3D models, such methods produce textures with entangled lighting effects and suffer from slow generation. On the other hand, TANGO [9], generates material textures using a Spherical-Gaussian-based differentiable renderer, but struggles with complex texture generation.\n' +
+      '\n' +
+      '**Material Generation.** Bidirectional Reflection Distribution Function (BRDF) [31] is widely used for modeling surface materials in computer vision and graphics. Techniques for recovering material information from images often leverage neural networks to resolve the inherent ambiguities when applied to a limited range of view angles or unknown illu\n' +
+      '\n' +
+      'Figure 2: Given a 3D mesh of a helmet (a) and a lighting environment \\(L\\), the reference rendering (b) depicts the “correct” highlights on the mesh due to \\(L\\), by treating its surface reflectance as half-metal and half-smooth with a gray diffuse color. (c) The texture generated by Fantasia3D [8] is not properly relit for the lighting \\(L\\) because Fantasia3D bakes most of the lighting into the diffuse texture for the mesh and does not capture the bright highlights in the specular texture. (d) In contrast, our text-to-texture pipeline disentangles lighting from material, better capturing the diffuse and specular components of the metal helmet in this environment.\n' +
+      '\n' +
+      'minations. However, these methods often require controlled setups [20] or curated datasets [2, 11, 51], and struggle with in-the-wild images. Meanwhile, material generation models like ControlMat [46], Matfuse [47], and Matfusion [41] use diffusion models for generating Spatially-Varying BRDF (SVBRDF) maps but limit themselves to 2D generation. In contrast, our method creates relightable materials for 3D meshes.\n' +
+      '\n' +
+      '## 3 Preliminaries\n' +
+      '\n' +
+      'Our text-to-texture pipeline builds on several techniques that have been recently introduced for text-to-image diffusion models. Here, we briefly describe these prior methods and then present our pipeline in Section 4.\n' +
+      '\n' +
+      '**ControlNet.** ControlNet [57] is an architecture designed to add spatially localized compositional controls to a text-to-image diffusion model, such as Stable Diffusion [39], in the form of conditioning imagery (e.g., Canny edges [5], OpenPose keypoints [6], depth images, etc.). In our work, where we take a 3D mesh as input, the conditioning image \\(I_{\\text{cond}}(C)\\) is a rendering of the mesh from a given camera viewpoint \\(C\\). Then, given text prompt \\(y\\),\n' +
+      '\n' +
+      '\\[I_{\\text{out}}=\\text{ControlNet}(I_{\\text{cond}}(C),y),\\]\n' +
+      '\n' +
+      'where the output image \\(I_{\\text{out}}\\) is conditioned on \\(y\\) and \\(I_{\\text{cond}}\\). ControlNet introduces a parameter \\(s\\) that sets the strength of the conditioning image. When \\(s=0\\), the ControlNet simply produces an image using the underlying Stable Diffusion model, and when \\(s=1\\), the conditioning is strongly applied.\n' +
+      '\n' +
+      '**Score Distillation Sampling (SDS).** DreamFusion [35] optimizes a 3D scene representation conditioned on text prompts using a pre-trained 2D text-to-image diffusion model. The scene is represented as a NeRF [1, 26] parametrization \\(\\theta\\). A differentiable renderer \\(\\mathcal{R}\\) applied to \\(\\theta\\) with a randomly sampled camera view \\(C\\) then generates a 2D image \\(x=\\mathcal{R}(\\theta,C)\\). A small amount of noise \\(\\epsilon\\sim\\mathbb{N}(0,1)\\) is then added to \\(x\\) to obtain a noisy image \\(x_{t}\\). DreamFusion leverages a diffusion model \\(\\phi\\) (Imagen [40]) to provide a score function \\(\\hat{\\epsilon}_{\\phi}(x_{t};y,t)\\), which predicts the sampled noise \\(\\epsilon\\) given the noisy image \\(x_{t}\\), text prompt \\(y\\), and noise level \\(t\\). This score function guides the direction of the gradient for updating the scene parameters \\(\\theta\\), and the gradient is calculated by Score Distillation Sampling (SDS):\n' +
+      '\n' +
+      '\\[\\nabla_{\\theta}\\mathcal{L}_{\\text{SDS}}(\\phi,x)=\\mathbb{E}_{t,\\epsilon}\\left[ w(t)(\\hat{\\epsilon}_{\\phi}(x_{t};y,t)-\\epsilon)\\frac{\\partial x}{ \\partial\\theta}\\right],\\]\n' +
+      '\n' +
+      'where \\(w(t)\\) is a weighting function. During each iteration, to calculate the SDS loss, we randomly choose a camera view \\(C\\), render the NeRF \\(\\theta\\) to form an image \\(x\\), add noise \\(\\epsilon\\) to it,\n' +
+      '\n' +
+      'Figure 3: **Our Text-to-Texture Pipeline. Our method efficiently synthesizes relightable textures given an input 3D mesh and text prompt. In stage 1 (top left), we use _multi-view visual prompting_ with our LightControlNet model to generate four visually consistent canonical views of the mesh under fixed lighting, concatenated into a reference image \\(I_{\\text{ref}}\\). In stage 2 we apply a new _texture optimization_ procedure using \\(I_{\\text{ref}}\\) as guidance along with a multi-resolution hash-grid representation of the texture \\(\\Gamma(\\beta(\\cdot))\\). For each optimization iteration, we render two batches of images using \\(\\Gamma(\\beta(\\cdot))\\) – one using the canonical views and lighting of \\(I_{\\text{ref}}\\) to compute a reconstruction loss \\(\\mathcal{L}_{\\text{recon}}\\) and the other using randomly sampled views and lighting to compute an SDS loss \\(\\mathcal{L}_{\\text{SDS}}\\) based on LightControlNet.**\n' +
+      '\n' +
+      'and predict the noise using the diffusion model \\(\\phi\\). We run the optimization for 5,000 to 10,000 iterations.\n' +
+      '\n' +
+      'In our work, we introduce an illumination-aware SDS loss to optimize surface texture on a 3D mesh to suppress inconsistency artifacts and simultaneously separate lighting from the surface reflectance.\n' +
+      '\n' +
+      '## 4 Method\n' +
+      '\n' +
+      'Our text-to-texture pipeline operates in two main stages to generate a relightable texture for an input 3D mesh with a corresponding text prompt (Figure 3). In stage 1, we use a _multi-view visual prompting_ approach to obtain visually consistent views of the object from a small set of viewpoints, using a 2D ControlNet. Simply backprojecting these sparse views onto the 3D mesh could produce patches of high-quality texture, but would also generate visible seams and other visual artifacts where the views do not fully match. The resulting texture would also have lighting baked-in, making it difficult to relight the textured mesh in a new lighting environment. Therefore, in stage 2, we apply a _texture optimization_ that uses a ControlNet in combination with Score Distillation Sampling (SDS) [35] to mitigate such artifacts and separate lighting from the surface material properties/reflectance. In both stages, we introduce a new illumination-aware ControlNet that allows us to specify the desired lighting as a conditioning image for an underlying text-to-image diffusion model. We call this model _LightControlNet_ and describe how it works in Section Section 4.1. We then detail each stage in Sections Section 4.2 and Section 4.3, respectively.\n' +
+      '\n' +
+      '### LightControlNet\n' +
+      '\n' +
+      'LightControlNet adapts the ControlNet architecture to enable control over the lighting in the generated image. More specifically, we create a conditioning image for a 3D mesh by rendering it using three pre-defined materials and under known lighting conditions (Figure 4). These renderings encapsulate information about the desired shape and lighting for the object, and we stack them into a three-channel conditioning image. We have found that setting the pre-defined materials to (1) non-metal, non-smooth; (2) non-metal, half smooth; and (3) pure metal, extremely smooth, respectively, works well in practice.\n' +
+      '\n' +
+      'To train our LightControlNet, we use 40K objects from the Objarevera dataset [10]. Each object is rendered from 12 views using a randomly sampled camera \\(C\\) and lighting \\(L\\) sampled from 6 environment maps sourced from the Internet. For each resulting \\((L,C)\\) pair, we render the conditioning image using the pre-defined materials, as well as the full-color rendering of the object using its original materials and textures. We use the resulting 480K pairs of (conditioning images, full-color rendering) to train LightControlNet using the approach of Zhang et al. [57].\n' +
+      '\n' +
+      'Once LightControlNet is trained, we can specify the desired view and lighting for any input 3D mesh. We first render the conditioning image with the desired view and lighting and then pass it along with a text prompt into LightControlNet, to obtain high-quality images. These images are spatially aligned to the desired view, lit with the desired lighting, and contain detailed surface textures (Figure 1).\n' +
+      '\n' +
+      '**Distilling the encoder.** We improve the efficiency of LightControlNet by distilling the image encoder in Stable Diffusion [39], the base diffusion model in the ControlNet architecture. The original Stable Diffusion image encoder consumes almost 50% of the forward and backward time of SDS calculation using the latent diffusion model, primarily in downsampling the input image. Metzer et al. [25] have found the image decoder from latent space to image space can be closely approximated by per-pixel matrix multiplication. Inspired by this, we distill the encoder by removing its attention modules and training it on the COCO dataset [22] to match the original output. This distilled encoder runs 5x faster than the original one, resulting in an approximately 2x acceleration of our text-to-texture pipeline without compromising output quality. An ablation study of our distilled encoder is detailed in Table 2, with additional implementation specifics in Section A of the appendix.\n' +
+      '\n' +
+      '### Stage 1: Multi-view Visual Prompting\n' +
+      '\n' +
+      'In stage 1, we leverage LightControlNet to synthesize high-quality 2D images for a sparse set of views of the 3D mesh. Specifically, we create conditioning images for four canonical views \\(C^{*}\\) around the equator of the 3D mesh using a fixed lighting environment map \\(L^{*}\\). One approach to generating the complete texture for the mesh would be to apply the LightControlNet independently with each such conditioning image, but using the same text prompt, and then backprojecting the four output images to the surface of the 3D mesh. In practice, however, applying the LightControlNet to each view independently produces inconsistent images of varying appearance and style, even when the text prompt and random seed remain fixed (Figure 5).\n' +
+      '\n' +
+      'To mitigate this multi-view inconsistency issue, we take a multi-view visual prompting approach. We concatenate the conditioning images for the four canonical views into a single 2 \\(\\times\\) 2 grid and treat it as a single conditioning image. We observe that applying LightControlNet to all four views simultaneously, using this combined multi-view conditioning image, results in a far more consistent appearance and style across the views, compared to independent prompting (Figure 5). We suspect this property arises from the presence of similar training data samples - grid-organized sets depicting the same object - in Stable Diffusion\'s training set, which is also observed in concurrent works [53, 58]. Formally, we generate the conditioning image \\(I_{\\text{cond}}(L^{*},C^{*})\\) under a fixed canonical lighting condition \\(L^{*}\\) using the four canonical viewpoints \\(C^{*}\\). We then apply our LightControlNet with text prompt \\(y\\), to generate the corresponding reference output image \\(I_{\\text{ref}}\\) as\n' +
+      '\n' +
+      '\\[I_{\\text{ref}}=\\text{ControlNet}(I_{\\text{cond}}(L^{*},C^{*}),y).\\]\n' +
+      '\n' +
+      '### Stage 2: Texture Optimization\n' +
+      '\n' +
+      'In stage 2, we could directly backproject the four reference views output in stage 1 onto the 3D mesh using the camera matrix \\(C\\) associated with each view. While the resulting texture would contain some high-quality regions, it would also suffer from two problems (1) It would contain seams and visual artifacts due to remaining inconsistencies between overlapping views, occlusions in the views that leave parts of the mesh untextured, and loss of detail when applying the backprojection transformation and resampling the views. (2) In addition, as lighting is baked into the LightControlNet\'s RGB images, it would also be baked into the backprojected texture, making it difficult to relight the mesh.\n' +
+      '\n' +
+      'To address both of these issues, we employ a texture optimization using SDS loss. Specifically, we use a multi-resolution hash-grid [28] as our 3D scene representation, instead of NeRF as in the original DreamFusion formulation [35]. Given a 3D point \\(p\\in\\mathbb{R}^{3}\\) on the mesh, our hash-grid produces a 32-dimensional multi-resolution feature. This feature is then fed to a 2-layer MLP \\(\\Gamma\\) to obtain the texture material parameters for this point. Similar to Fantasia3D [8], these material parameters consist of metallicness \\(k_{m}\\in\\mathbb{R}\\), roughness \\(k_{r}\\in\\mathbb{R}\\), a bump vector \\(k_{n}\\in\\mathbb{R}^{3}\\) and the base color \\(k_{c}\\in\\mathbb{R}^{3}\\). Formally,\n' +
+      '\n' +
+      '\\[(k_{c},k_{m},k_{r},k_{n})=\\Gamma(\\beta(p)),\\]\n' +
+      '\n' +
+      'where \\(\\beta\\) is the multi-resolution hash encoding function. Notably, this 3D hash-grid representation can be easily converted to 2D uv texture maps, which are more friendly to downstream applications. Given the mesh \\(M\\), the texture\n' +
+      '\n' +
+      'Figure 4: (a) LightControlNet requires a conditioning image that specifies desired lighting \\(L\\) for a view \\(C\\) of a 3D mesh. To form the conditioning image, we first render the mesh with the desired \\(L\\) and \\(C\\) using three different materials: (1) non-metal, not smooth, (2) half-metal, half-smooth, and (3) pure metal, smooth, and then combine the renderings into a single three-channel image. (b) LightControlNet is a diffusion model that takes such light conditioning images as input as well as a text prompt and generates images accordingly.\n' +
+      '\n' +
+      'Figure 5: **Multi-View Visual Prompting.** (a) When we independently input four canonical conditioning images to LightControlNet, it generates four very different appearances and styles even with a fixed random seed. (b) When we concatenate the four images into a 2\\(\\times\\)2 grid and pass them as a single image into LightControlNet, it produces a far more consistent appearance and style. Text prompt: “Hiking Boot”.\n' +
+      '\n' +
+      '\\(\\Gamma(\\beta(\\cdot))\\), a camera view \\(C\\) and lighting \\(L\\) we can use nvd-iffrast [16], a differentiable renderer \\(\\mathcal{R}\\) to produce a 2D rendering of it \\(x\\), as\n' +
+      '\n' +
+      '\\[x=\\mathcal{R}(M,\\Gamma(\\beta(\\cdot)),L,C).\\]\n' +
+      '\n' +
+      'More details about the rendering equation are in the appendix. Since the mesh geometry is fixed, we omit \\(M\\) in the remainder of the paper.\n' +
+      '\n' +
+      'Recall that the optimization approach of DreamFusion [35] randomly samples camera views \\(C\\), generates an image for \\(C\\) using diffusion model \\(\\phi\\), and supervises the optimization using the SDS loss. We extend this optimization in two ways. First, we use four fixed reference images \\(I_{\\text{ref}}\\) with its canonical camera views \\(C^{*}\\) and lighting \\(L^{*}\\) to guide the texture optimization, through a reconstruction loss that we apply whenever we sample a canonical view.\n' +
+      '\n' +
+      '\\[\\mathcal{L}_{\\text{recon}} =\\lambda_{\\text{MSE}}\\mathcal{L}_{\\text{MSE}}[I_{\\text{ref}}, \\mathcal{R}(\\Gamma(\\beta(\\cdot)),L^{*},C^{*})]\\] \\[+\\lambda_{\\text{VGG}}\\mathcal{L}_{\\text{VGG}}[I_{\\text{ref}}, \\mathcal{R}(\\Gamma(\\beta(\\cdot)),L^{*},C^{*})].\\]\n' +
+      '\n' +
+      'When we sample a non-canonical view \\(C\\), we sample a random lighting \\(L\\) and use the SDS loss to supervise the optimization, but with our LightControlNet as the diffusion model \\(\\phi_{\\text{LCN}}\\), so\n' +
+      '\n' +
+      '\\[\\nabla_{\\Gamma,\\beta}\\mathcal{L}_{\\text{SDS}}(\\phi_{\\text{LCN}},x)\\] \\[= \\mathbb{E}_{t,\\epsilon}\\left[w(t)(\\hat{\\epsilon}_{\\phi_{\\text{LCN }}}(x_{t};y,t,I_{\\text{cond}}(L,C))-\\epsilon)\\frac{\\partial x}{\\partial\\Gamma( \\beta(\\cdot))}\\right],\\]\n' +
+      '\n' +
+      'where \\(x=\\mathcal{R}(\\Gamma(\\beta(\\cdot)),L,C)\\) and \\(w(t)\\) is the weight.\n' +
+      '\n' +
+      'Finally, we employ a material smoothness regularizer on every iteration to enforce smooth base colors, using the approach of nvdffrec [29]. For a surface point \\(p\\) with base color \\(k_{c}(p)\\), the smoothness regularizer is defined as\n' +
+      '\n' +
+      '\\[\\mathcal{L}_{\\text{reg}}=\\sum_{p\\in S}|k_{c}(p)-k_{c}(p+\\epsilon)|,\\]\n' +
+      '\n' +
+      'where \\(S\\) denotes the object surface and \\(\\epsilon\\) is a small random 3D perturbation.\n' +
+      '\n' +
+      '**Scheduling the optimization.** We warm up the optimization by rendering the 4 canonical views and applying \\(\\mathcal{L}_{\\text{recon}}\\) for 50 iterations. We then add in iterations using the \\(\\mathcal{L}_{\\text{SDS}}\\) loss and optimize over randomly chosen camera views and randomly selected lighting from a pre-defined set of environmental lighting maps. Specifically we alternate iterations between using \\(\\mathcal{L}_{\\text{SDS}}\\) and \\(\\mathcal{L}_{\\text{recon}}\\). In addition, for a quarter of the SDS iterations, we use the canonical views rather than randomly selecting the views. This ensures that the resulting texture does not overfit to the reference images corresponding to the canonical views. The warm-up iterations capture the large-scale structure of our texture and allow us to use relatively small noise levels (\\(t\\leq 0.1\\)) in the SDS optimization. We sample the noise following a linearly decreasing schedule [15] with \\(t_{\\text{max}}=0.1\\) and \\(t_{\\text{min}}=0.02\\). We also adjust the conditioning strength \\(s\\) of our LightControlNet in the SDS loss linearly from \\(1\\) to \\(0\\) over these iterations so that LightControlNet is only lightly applied by the end of the optimization. We have experimentally found that we obtain high-quality textures after 400 total iterations of this optimization and this is far fewer iterations than other SDS-based texture generation techniques such as Fantasia3D [8] which requires 5000 iterations. More implementation details are in Section A of the appendix.\n' +
+      '\n' +
+      '**Faster pipeline with baked-in lighting.** Our text-to-texture pipeline primarily uses the lighting control capabilities of LightControlNet in the texture optimization process to separate lighting from surface reflectance. We have experimented with replacing the LightControlNet in stage 1 of our pipeline with a depth ControlNet that uses a depth rendering of the mesh as the conditioning image and replacing it with Stable Diffusion [39] based SDS in stage 2. While this approach leaves lighting baked into the resulting texture, it does increase the speed of our pipeline, because it eliminates the forward pass of LightControlNet in the SDS optimization. As shown in Table 1, we gain 2\\(\\times\\) speedup with this version.\n' +
+      '\n' +
+      '## 5 Experiments\n' +
+      '\n' +
+      'In this section, we present comprehensive experiments to evaluate the efficacy of our proposed method for relightable, text-based mesh texturing. We perform both qualitative and quantitative comparisons with existing baselines, along with an ablation study on the significance of each of our major components.\n' +
+      '\n' +
+      '**Dataset.** As illustrated in Figure 3, we employ Obiayverse [10] to render paired data to train our LightControlNet. Obiayverse consists of approximately 800k objects, of which we use the names and tags as their text descriptions. We filter out objects with low CLIP similarity [36] to their text descriptions and select around 40k as our training set. Each object is rendered from 12 views using randomly sampled cameras and lighting from a specific set of environmental lighting maps. To evaluate baselines and our method, we hold out 70 random meshes from Obiayverse [10] as the test set.We additionally gather a collection of test meshes from 3D game assets to assess our method, showing its broad applicability. Further details can be found in the appendix.\n' +
+      '\n' +
+      '**Baselines.** We compare our approach with existing mesh texturing methods. Specifically, Latent-Paint [25] employs SDS loss in latent space for texture generation. Text2tex [7] progressively produces 2D views from chosen viewpoints, followed by an inverse projection to lift them to 3D. TEXTure [38] utilizes a similar lifting approach but supplements it with a swift SDS optimization post-lifting. Beyond these texture generation methods, text-to-3D approaches serve as additional baselines, given that texture is a component of 3D generation. Notably, we choose fantasia3D [8] as a baseline, the first to use a material-based representation for textures in text-to-3D processing.\n' +
+      '\n' +
+      '**Quantitative Evaluation.** In Table 1, we compare our method with the baselines on the Objavverse [10] test set. For each method, we generate 16 views and evaluate Frechet Inception Distance (FID) [14, 33] and Kernel Inception Distance (KID) [3] compared with ground-truth rendered views. Two variations of our method are assessed. Both variants use our proposed two-stage pipeline, and the first employs a standard depth-guided ControlNet, while the second uses our proposed LightControlNet. Our method significantly outperforms the baselines in both quality and runtime.\n' +
+      '\n' +
+      '**Qualitative Analysis and User Study.** As shown in Figure 6, our method can generate highly-detailed textures that can be rendered properly with the environment lighting across a wide variety of meshes. We also visually compare our method and the baselines in Figure 7. Our method produces textures with higher visual fidelity than the baselines for both the relightable and non-relightable variants. In particular, When compared with Fantasia3D [8], a recent work that also aims to generate material-based texture, our results not only have superior visual quality, but also disentangle the lighting more successfully. To further evaluate the quality of the relighted texture quantitatively, we conduct a user study asking participants to compare our results with Fantasia3D. Both results are rendered under identical lighting environ\n' +
+      '\n' +
+      'Figure 6: Sample results from our method applied to Objavverse test meshes (top half) and 3D game assets (bottom half). To illustrate the efficacy of our relightable textures, for each textured mesh, we fix the environment lighting and render the mesh under different rotations. As shown above, our method is able to generate textures that are not only highly detailed, but also relightable with realistic lighting effects.\n' +
+      '\n' +
+      'ments to ensure a fair evaluation, with a shaded mesh image in display signifying the lighting direction (please refer to the appendix for more details). 86.7% of the participants prefer our results, indicating that our approach consistently surpasses Fantasia3D in relighting quality.\n' +
+      '\n' +
+      '**Ablation Study.** We perform an ablation analysis on our multi-view visual prompting (m.v.v.p.) and distilled encoder (dist. enc.) as seen in Table 2. When substituting our distilled encoder with the original VQ-VAE encoder, the performance is twice as slow, but the quality of results is not noticeably superior. On the other hand, without the multi-view visual prompting for the initial generation, the system requires 2000 iterations (5x slowdown compared to our 400 iterations) to produce reasonable results, while still leading to slightly worse texture quality.\n' +
+      '\n' +
+      '## 6 Discussion\n' +
+      '\n' +
+      'We proposed an automated texturing technique based on user-provided textual descriptions. Our method employs an illumination-aware 2D diffusion model (LightControlNet) and an improved optimization process based on the SDS loss. Our approach is substantially faster than previous methods while yielding high-fidelity textures with illumination disentangled from surface reflectance/albedo. We demonstrated the efficacy of our method through quantitative and qualitative evaluation on the Objaverse dataset.\n' +
+      '\n' +
+      '**Limitations.** Our approach still poses a few limitations: (1) Baked-in lighting can still be found in certain cases, especially for meshes that are outside of the training data distribution of Objaverse; (2) The generated material maps are sometimes not fully disentangled and interpretable as metal-licness, roughness, etc.; (3) Due to the inherent limitation of the 2D diffusion model backbones, the generated textures can fail to follow the text prompt in some cases.\n' +
+      '\n' +
+      '**Acknowledgments.** We thank Benjamin Akrish, Victor Zordan, Dmitry Trifonov, Derek Liu, Sheng-Yu Wang, Gaurav Parmer, Ruihan Gao, Nupur Kumari, and Sean Liu for their discussion and help. The project is partly supported by Roblox. JYZ is partly supported by the Packard Fellowship. KD is supported by the Microsoft Research PhD Fellowship.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c} \\hline \\hline Objaverse & FID \\(\\downarrow\\) & KID \\(\\downarrow\\) & Runtime \\(\\downarrow\\) \\\\ subset & & (\\(\\times 10^{-3}\\)) & (mins) \\\\ \\hline Latent-Paint [25] & 73.65 & 7.26 & 10 \\\\ Fantasia3D [8] & 120.32 & 8.34 & 30 \\\\ TEXTure [38] & 71.64 & 5.43 & 6 \\\\ Text2tex [7] & 95.59 & 4.71 & 15 \\\\ \\hline Ours (w/ depth) & **60.49** & 3.96 & **2** \\\\ Ours & 62.67 & **2.69** & 4 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 1: **Quantitative Evaluation.** We test our methods and baselines on 70 objects from Objaverse [10]. With depth ControlNet, our method yields superior results to all baselines in a rapid runtime of 2 minutes. Using LightControlNet (Ours) within our model improves the lighting disentanglement of our texture generation and maintains comparable image quality.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c} \\hline \\hline Objaverse & FID \\(\\downarrow\\) & KID \\(\\downarrow\\) & Runtime \\(\\downarrow\\) \\\\ subset & & (\\(\\times 10^{-3}\\)) & (mins) \\\\ \\hline Ours (w/o dist. enc.) & **60.34** & 2.84 & 8 \\\\ Ours (w/o m.v.v.p) & 74.23 & 3.54 & 19 \\\\ \\hline Ours & 62.67 & **2.69** & **4** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 2: **Ablation Study.** We perform an ablation analysis on our distilled encoder (1st row) and multi-view visual prompting (2nd row). Replacing the distilled encoder with the original VQ-VAE encoder doubled the time of performance without a noticeable quality improvement. When removing the multi-view visual prompting for initial generation, the system requires 2000 iterations (5x slowdown compared to our 400 iterations) to produce reasonable results, which leads to slightly worse texture quality.\n' +
+      '\n' +
+      'Figure 7: **Qualitative Analysis.** We visually compare our method with existing baselines. Although Fantasia3D [8] also attempts to generate relightable texture, unlike ours, their result still tends to have baked-in lighting. For non-relightable texture generation, we replace our LightControlNet with depth ControlNet and achieve superior results in terms of both image quality and runtime compared to the baselines. More details are in Table 1.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* [1] Jonathan T. Barron, Ben Mildenhall, Matthew Tancik, Peter Hedman, Ricardo Martin-Brualla, and Pratul P. Srinivasan. Mip-nerf: A multiscale representation for anti-aliasing neural radiance fields. In _IEEE International Conference on Computer Vision (ICCV)_, 2021.\n' +
+      '* [2] Sai Bi, Zexiang Xu, Pratul Srinivasan, Ben Mildenhall, Kalyan Sunkavalli, Milos Hasan, Yannick Hold-Geoffroy, David Kriegman, and Ravi Ramamoorthi. Neural reflectance fields for appearance acquisition. _arXiv preprint arXiv:2008.03824_, 2020.\n' +
+      '* [3] Mikolaj Biikowski, Danica J Sutherland, Michael Arbel, and Arthur Gretton. Demystifying mmd gans. In _International Conference on Learning Representations (ICLR)_, 2018.\n' +
+      '* [4] Alexey Bokhovkin, Shubham Tulsiani, and Angela Dai. Mesh2tex: Generating mesh textures from image queries. In _IEEE International Conference on Computer Vision (ICCV)_, 2023.\n' +
+      '* [5] John Canny. A computational approach to edge detection. _IEEE Transactions on pattern analysis and machine intelligence_, (6):679-698, 1986.\n' +
+      '* [6] Zhe Cao, Tomas Simon, Shih-En Wei, and Yaser Sheikh. Realtime multi-person 2d pose estimation using part affinity fields. In _Proceedings of the IEEE conference on computer vision and pattern recognition_, pages 7291-7299, 2017.\n' +
+      '* [7] Dave Zhenyu Chen, Yawar Siddiqui, Hsin-Ying Lee, Sergey Tulyakov, and Matthias Niessner. Text2tex: Text-driven texture synthesis via diffusion models. In _IEEE International Conference on Computer Vision (ICCV)_, 2023.\n' +
+      '* [8] Rui Chen, Yongwei Chen, Ningxin Jiao, and Kui Jia. Fantasia3d: Disentangling geometry and appearance for high-quality text-to-3d content creation. In _IEEE International Conference on Computer Vision (ICCV)_, 2023.\n' +
+      '* [9] Yongwei Chen, Rui Chen, Jiabao Lei, Yabin Zhang, and Kui Jia. Tango: Text-driven photorealistic and robust 3d stylization via lighting decomposition. In _Advances in Neural Information Processing Systems (NeurIPS)_, 2022.\n' +
+      '* [10] Matt Deitke, Dustin Schwenk, Jordi Salvador, Luca Weihs, Oscar Michel, Eli VanderBilt, Ludwig Schmidt, Kiana Ehsani, Aniruddha Kembhavi, and Ali Farhadi. Objavarese: A universe of annotated 3d objects. In _IEEE Conference on Computer Vision and Pattern Recognition (CVPR)_, 2023.\n' +
+      '* [11] Duan Gao, Xiao Li, Yue Dong, Pieter Peers, Kun Xu, and Xin Tong. Deep inverse rendering for high-resolution svbrdf estimation from an arbitrary number of images. In _ACM SIGGRAPH_, 2019.\n' +
+      '* [12] Paul Henderson, Vagia Tsiminaki, and Christoph Lampert. Leveraging 2D data to learn textured 3D mesh generation. In _IEEE Conference on Computer Vision and Pattern Recognition (CVPR)_, 2020.\n' +
+      '* [13] Amir Hertz, Ron Mokady, Jay Tenenbaum, Kfir Aberman, Yael Pritch, and Daniel Cohen-Or. Prompt-to-prompt image editing with cross attention control. _arXiv preprint arXiv:2208.01626_, 2022.\n' +
+      '* [14] Martin Heusel, Hubert Ramsauer, Thomas Unterthiner, Bernhard Nessler, and Sepp Hochreiter. Gans trained by a two time-scale update rule converge to a local nash equilibrium. In _Advances in Neural Information Processing Systems (NeurIPS)_, 2017.\n' +
+      '* [15] Yukun Huang, Jianan Wang, Yukai Shi, Xianbiao Qi, Zheng-Jun Zha, and Lei Zhang. Dreamtime: An improved optimization strategy for text-to-3d content creation. _arXiv preprint arXiv:2306.12422_, 2023.\n' +
+      '* [16] Samuli Laine, Janne Hellsten, Tero Karras, Yeongho Seol, Jaakko Lehtinen, and Timo Aila. Modular primitives for high-performance differentiable rendering. 2020.\n' +
+      '* [17] Muheng Li, Yueqi Duan, Jie Zhou, and Jiwen Lu. Diffusion-sdf: Text-to-shape via voxelized diffusion. In _IEEE Conference on Computer Vision and Pattern Recognition (CVPR)_, 2023.\n' +
+      '* [18] Weiyu Li, Rui Chen, Xuelin Chen, and Ping Tan. Sweetdreamer: Aligning geometric priors in 2d diffusion for consistent text-to-3d. _arxiv:2310.02596_, 2023.\n' +
+      '* [19] Yuheng Li, Haotian Liu, Qingyang Wu, Fangzhou Mu, Jianwei Yang, Jianfeng Gao, Chunyuan Li, and Yong Jae Lee. Gligen: Open-set grounded text-to-image generation. In _IEEE Conference on Computer Vision and Pattern Recognition (CVPR)_, 2023.\n' +
+      '* [20] Zhengqin Li, Kalyan Sunkavalli, and Manmohan Chandraker. Materials for masses: Svbrdf acquisition with a single mobile phone image. In _European Conference on Computer Vision (ECCV)_, 2018.\n' +
+      '* [21] Chen-Hsuan Lin, Jun Gao, Luming Tang, Towaki Takikawa, Xiaohui Zeng, Xun Huang, Karsten Kreis, Sanja Fidler, Ming-Yu Liu, and Tsung-Yi Lin. Magic3d: High-resolution text-to-3d content creation. In _IEEE Conference on Computer Vision and Pattern Recognition (CVPR)_, 2023.\n' +
+      '* [22] Tsung-Yi Lin, Michael Maire, Serge Belongie, Lubomir Bourdev, Ross Girshick, James Hays, Pietro Perona, Deva Ramanan, C. Lawrence Zitnick, and Piotr Dollar. Microsoft coco: Common objects in context, 2015.\n' +
+      '* [23] Ruoshi Liu, Rundi Wu, Basile Van Hoorick, Pavel Tokmakov, Sergey Zakharov, and Carl Vondrick. Zero-1-to-3: Zero-shot one image to 3d object. In _IEEE International Conference on Computer Vision (ICCV)_, 2023.\n' +
+      '* [24] Chenlin Meng, Yutong He, Yang Song, Jiaming Song, Jiajun Wu, Jun-Yan Zhu, and Stefano Ermon. SDEdit: Guided image synthesis and editing with stochastic differential equations. In _International Conference on Learning Representations (ICLR)_, 2022.\n' +
+      '* [25] Gal Metzer, Elad Richardson, Or Patashnik, Raja Giryes, and Daniel Cohen-Or. Latent-nerf for shape-guided generation of 3d shapes and textures. In _IEEE Conference on Computer Vision and Pattern Recognition (CVPR)_, 2023.\n' +
+      '* [26] Ben Mildenhall, Pratul P. Srinivasan, Matthew Tancik, Jonathan T. Barron, Ravi Ramamoorthi, and Ren Ng. Nerf: Representing scenes as neural radiance fields for view synthesis. In _European Conference on Computer Vision (ECCV)_, 2020.\n' +
+      '* [27] Chong Mou, Xintao Wang, Liangbin Xie, Jian Zhang, Zhongang Qi, Ying Shan, and Xiaohu Qie. T2i-adapter: Learning adapters to dig out more controllable ability for text-to-image diffusion models. _arXiv preprint arXiv:2302.08453_, 2023.\n' +
+      '\n' +
+      '* [28] Thomas Muller, Alex Evans, Christoph Schied, and Alexander Keller. Instant neural graphics primitives with a multiresolution hash encoding. In _ACM SIGGRAPH_, 2022.\n' +
+      '* [29] Jacob Munkberg, Jon Hasselgren, Tianchang Shen, Jun Gao, Wenzheng Chen, Alex Evans, Thomas Muller, and Sanja Fidler. Extracting Triangular 3D Models, Materials, and Lighting From Images. In _IEEE Conference on Computer Vision and Pattern Recognition (CVPR)_, 2022.\n' +
+      '* [30] Gimin Nam, Mariem Khlifi, Andrew Rodriguez, Alberto Tono, Linqi Zhou, and Paul Guerrero. 3d-ldm: Neural implicit 3d shape generation with latent diffusion models. _arXiv preprint arXiv:2212.00842_, 2022.\n' +
+      '* [31] Fred E Nicodemus. Directional reflectance and emissivity of an opaque surface. _Applied optics_, 4(7):767-775, 1965.\n' +
+      '* [32] Keunhong Park, Konstantinos Rematas, Ali Farhadi, and Steven M. Seitz. Photoshape: Photorealistic materials for large-scale shape collections. 2018.\n' +
+      '* [33] Gaurav Parmar, Richard Zhang, and Jun-Yan Zhu. On aliased resizing and surprising subtleties in gan evaluation. In _IEEE Conference on Computer Vision and Pattern Recognition (CVPR)_, 2022.\n' +
+      '* [34] Dario Pavllo, Jonas Kohler, Thomas Hofmann, and Aurelien Lucchi. Learning generative models of textured 3d meshes from real-world images. In _IEEE International Conference on Computer Vision (ICCV)_, 2021.\n' +
+      '* [35] Ben Poole, Ajay Jain, Jonathan T. Barron, and Ben Mildenhall. Dreamfusion: Text-to-3d using 2d diffusion. In _International Conference on Learning Representations (ICLR)_, 2023.\n' +
+      '* [36] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, et al. Learning transferable visual models from natural language supervision. In _International Conference on Machine Learning (ICML)_, 2021.\n' +
+      '* [37] Aditya Ramesh, Prafulla Dhariwal, Alex Nichol, Casey Chu, and Mark Chen. Hierarchical text-conditional image generation with clip latents. _arXiv preprint arXiv:2204.06125_, 2022.\n' +
+      '* [38] Elad Richardson, Gal Metzer, Yuval Alaluf, Raja Giryes, and Daniel Cohen-Or. Texture: Text-guided texturing of 3d shapes. In _ACM SIGGRAPH_, 2023.\n' +
+      '* [39] Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Bjorn Ommer. High-resolution image synthesis with latent diffusion models. In _IEEE Conference on Computer Vision and Pattern Recognition (CVPR)_, 2022.\n' +
+      '* [40] Chitwan Saharia, William Chan, Saurabh Saxena, Lala Li, Jay Whang, Emily L Denton, Kamyar Ghasemipour, Raphael Gontijo Lopes, Burcu Karagol Ayan, Tim Salimans, et al. Photorealistic text-to-image diffusion models with deep language understanding. In _Advances in Neural Information Processing Systems (NeurIPS)_, 2022.\n' +
+      '* [41] Sam Sartor and Pieter Peers. Matfusion: a generative diffusion model for svbrdf capture. In _ACM SIGGRAPH Asia_, 2023.\n' +
+      '* [42] Yichun Shi, Peng Wang, Jianglong Ye, Long Mai, Kejie Li, and Xiao Yang. Mvdream: Multi-view diffusion for 3d generation. _arXiv:2308.16512_, 2023.\n' +
+      '* [43] J Ryan Shue, Eric Ryan Chan, Ryan Po, Zachary Ankner, Jiajun Wu, and Gordon Wetzstein. 3d neural field generation using triplane diffusion. In _IEEE Conference on Computer Vision and Pattern Recognition (CVPR)_, 2023.\n' +
+      '* [44] Yawar Siddiqui, Justus Thies, Fangchang Ma, Qi Shan, Matthias Niessner, and Angela Dai. Texturify: Generating textures on 3d shape surfaces. In _European Conference on Computer Vision (ECCV)_, 2022.\n' +
+      '* [45] Jingxiang Sun, Bo Zhang, Ruizhi Shao, Lizhen Wang, Wen Liu, Zhenda Xie, and Yebin Liu. Dreamcraft3d: Hierarchical 3d generation with bootstrapped diffusion prior, 2023.\n' +
+      '* [46] Giuseppe Vecchio, Rosalie Martin, Arthur Roullier, Adrien Kaiser, Romain Rouffet, Valentin Deschaintre, and Tamy Boubekeur. Controlmat: Controlled generative approach to material capture. _arXiv preprint arXiv:2309.01700_, 2023.\n' +
+      '* [47] Giuseppe Vecchio, Renato Sortino, Simone Palazzo, and Concetto Spampinato. Matfuse: Controllable material generation with diffusion models. _arXiv preprint arXiv:2308.11408_, 2023.\n' +
+      '* [48] Bruce Walter, Stephen R Marschner, Hongsong Li, and Kenneth E Torrance. Microfacet models for refraction through rough surfaces. In _Proceedings of the 18th Eurographics conference on Rendering Techniques_, 2007.\n' +
+      '* [49] Haochen Wang, Xiaodan Du, Jiahao Li, Raymond A. Yeh, and Greg Shakhnarovich. Score jacobian chaining: Lifting pre-trained 2d diffusion models for 3d generation. In _IEEE Conference on Computer Vision and Pattern Recognition (CVPR)_, 2023.\n' +
+      '* [50] Tengfei Wang, Ting Zhang, Bo Zhang, Hao Ouyang, Dong Chen, Qifeng Chen, and Fang Wen. Pretraining is all you need for image-to-image translation. _arXiv preprint arXiv:2205.12952_, 2022.\n' +
+      '* [51] Zian Wang, Jonah Philion, Sanja Fidler, and Jan Kautz. Learning indoor inverse rendering with 3d spatially-varying lighting. In _IEEE International Conference on Computer Vision (ICCV)_, 2021.\n' +
+      '* [52] Zhengyi Wang, Cheng Lu, Yikai Wang, Fan Bao, Chongxuan Li, Hang Su, and Jun Zhu. Prolificdreamer: High-fidelity and diverse text-to-3d generation with variational score distillation. In _Advances in Neural Information Processing Systems (NeurIPS)_, 2023.\n' +
+      '* [53] Ethan Weber, Aleksander Holynski, Varun Jampani, Saurabh Saxena, Noah Snavely, Abhishek Kar, and Angjoo Kanazawa. Nerfiller: Completing scenes via generative 3d inpainting. In _arXiv_, 2023.\n' +
+      '* [54] Jiarui Xu, Sifei Liu, Arash Vahdat, Wonmin Byeon, Xiaolong Wang, and Shalini De Mello. Open-vocabulary panoptic segmentation with text-to-image diffusion models. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 2955-2966, 2023.\n' +
+      '* [55] Xudong Xu, Zhaoyang Lyu, Xingang Pan, and Bo Dai. Matlaber: Material-aware text-to-3d via latent brdf auto-encoder. _arXiv preprint arXiv:2308.09278_, 2023.\n' +
+      '* [56] Rui Yu, Yue Dong, Pieter Peers, and Xin Tong. Learning texture generators for 3d shape collections from internet photo sets. 2021.\n' +
+      '* [57] Lvmin Zhang, Anyi Rao, and Maneesh Agrawala. Adding conditional control to text-to-image diffusion models. In* [58] Minda Zhao, Chaoyi Zhao, Xinyue Liang, Lincheng Li, Zeng Zhao, Zhipeng Hu, Changjie Fan, and Xin Yu. Efficient-dreamer: High-fidelity and robust 3d creation via orthogonal-view diffusion prior. 2023.\n' +
+      '* [59] Linqi Zhou, Yilun Du, and Jiajun Wu. 3d shape generation and completion through point-voxel diffusion. In _IEEE International Conference on Computer Vision (ICCV)_, 2021.\n' +
+      '\n' +
+      '## Appendix A Implementation Details\n' +
+      '\n' +
+      '**Distilled Encoder.** In Section 4.1 (main paper), we improve the efficiency of LightControlNet by distilling the image encoder in Stable Diffusion [39]. We profile the running time of our distilled and original encoder in the table below.\n' +
+      '\n' +
+      '**Hyper-parameters.** We provide the hyper-parameters used by our pipeline in Section 4.3 (main paper). \\(\\lambda_{\\text{MSE}}=1000,\\lambda_{\\text{VGG}}=1000,\\lambda_{\\text{Reg}}=10\\). We use a batch of 4, a learning rate of 0.01 for optimization, and a CFG scale of 50 in Score Distillation Sampling loss. In Section 4.1 and Figure 4 (main paper), we set three pre-defined materials to generate a conditioning image. The specific material parameters are (1) non-metal, non-smooth: \\(k_{m}=0,k_{r}=1\\); (2) half metal, half smooth: \\(k_{m}=0.5,k_{r}=0.5\\); (3) pure metal, extremely smooth: \\(k_{m}=1,k_{r}=0\\). The color \\(k_{c}\\) is always set to \\((1,1,1)\\).\n' +
+      '\n' +
+      '**Base Models.** We use stable diffusion v1.5 (_SD1.5_) as our base model for the experiments in Table 1, Table 2 and Figure 7 (main paper). Our pipeline is also compatible with other base models fine-tuned from _SD1.5_. For example, we have also used \\(\\texttt{Dreamshaper}\\), a community fine-tuned checkpoint of SD1.5, to generate a variety of captivating textures. We include some of the results in Figure 6 (main paper) and Figure 11. Specifically, the results of the jackets, gobblins, fishmen, and wolves are obtained using _Dreamshaper_.\n' +
+      '\n' +
+      '**Environment Maps.** In Section 4, we use randomly rotated environment maps to represent different lighting conditions. Specifically, we download 6 HDRI light maps from poly-haven. These HDRI maps are captured in a studio environment. We show these light maps in Figure 8. We use the middle left one as the fixed lighting \\(L^{*}\\) in Section 4.2.\n' +
+      '\n' +
+      '**Evaluation and User Study.** For quantitative evaluation in Table 1 and Table 2 (main paper), each resulting textured object is rendered from a fixed set of 16 surrounding viewpoints. FID and KID are computed against the ground-truth renderings of the same viewpoints using Objavere\'s [10] original texture. For the user study mentioned in Section 5 (main paper), we compare our method with Fantasia3D\'s relightable texture [8]. Using both methods, we generate the texture for 10 test objects and place them in identical lighting conditions. We also render an untextured mesh under this light to illustrate the reference lighting direction, as depicted in Figure 12. We then ask 15 participants to identify the texture with greater fidelity in adhering to the reference lighting condition.\n' +
+      '\n' +
+      '**BRDF Model and Rendering Equation.** As described in Section 4.3, our material model [48] consists of metallicness \\(k_{m}\\in\\mathbb{R}\\), roughness \\(k_{r}\\in\\mathbb{R}\\), a bump vector \\(k_{n}\\in\\mathbb{R}^{3}\\) which is a perturbation of surface normal in tangent space, and the base color \\(k_{c}\\in\\mathbb{R}^{3}\\). The general rendering equation is:\n' +
+      '\n' +
+      '\\[L(p,\\omega)=\\int_{\\Omega}L_{i}\\left(p,\\omega_{i}\\right)f\\left(p,\\omega_{i}, \\omega\\right)\\left(\\omega_{i}\\cdot n_{p}\\right)\\mathrm{d}\\omega_{i},\\]\n' +
+      '\n' +
+      'where \\(L\\) is the rendered pixel color at the surface point \\(p\\) from the direction \\(\\omega\\), \\(\\Omega\\) denotes a hemisphere with the surface normal \\(n_{p}\\) at \\(p\\). \\(L_{i}\\) is the incident light represented by an environment map, and \\(f\\) is the BRDF function determined by the material parameters \\((k_{m},k_{r},k_{n},k_{c})\\). \\(L\\) can be calculated as the summation of diffuse intensity \\(L_{d}\\) and specular intensity \\(L_{s}\\) as follows:\n' +
+      '\n' +
+      '\\[L(p,\\omega)=L_{d}(p)+L_{s}(p,\\omega),\\] \\[L_{d}(p)=k_{c}(1-k_{m})\\int_{\\Omega}L_{i}\\left(p,\\omega_{i} \\right)\\left(\\omega_{i}\\cdot n_{p}\\right)\\mathrm{d}\\omega_{i},\\] \\[L_{s}(p,\\omega)=\\] \\[\\int_{\\Omega}\\frac{D(n_{p})F(\\omega_{i},\\omega,n_{p})G(\\omega_{i},\\omega,n_{p})}{4\\left(\\omega\\cdot n_{p}\\right)\\left(\\omega_{i}\\cdot n_{p} \\right)}L_{i}\\left(p,\\omega_{i}\\right)\\left(\\omega_{i}\\cdot n_{p}\\right) \\mathrm{d}\\omega_{i},\\]\n' +
+      '\n' +
+      'where \\(F\\), \\(G\\), and \\(D\\) are functions representing the Fresnel term, the geometric attenuation, and the GGX normal distribution [48], respectively. Following Nvdifrrec [29] and Fantasia3D [8], the hemisphere integration can be calculated using the split-sum method.\n' +
+      '\n' +
+      'Figure 8: **Environment Maps.** We download 6 HDRI maps from polyhaven to represent different different lighting conditions. For random lighting samples, we select one map from them and apply a random rotation.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c} \\hline \\hline Time (ms) & Forward & Backward & Total \\\\ \\hline Original & 113 & 569 & 682 \\\\ Distilled & **42** & **81** & **123** (\\(5.5\\times\\)) \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 3: We profile the forward and backward pass of our distilled and original encoder in Stable Diffusion [39] on an A100 GPU. Our distilled encoder runs more than \\(5\\times\\) faster than the original one for a single forward and backward pass.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:13]\n' +
+      '\n' +
+      'Figure 11: **Additional Results.** We rotate the objects to show different views while fixing the lighting condition.\n' +
+      '\n' +
+      'Figure 12: **Additional Qualitative Analysis.** We present additional comparisons with the baselines. To evaluate the quality of relightable textures, we place our results and those from Fantasia3D under identical lighting conditions. An untextured mesh is also rendered under this condition to denote the reference lighting direction. Our results adhere to the lighting conditions and generally outperform all existing baselines in quality.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
