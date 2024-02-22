@@ -1,1 +1,2 @@
 - [EVA-GAN: Enhanced Various Audio Generation via Scalable Generative Adversarial Networks](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/17/2024-02-05+EVA-GAN%3A+Enhanced+Various+Audio+Generation+via+Scalable+Generative+Adversarial+Networks.yaml) / 2024-02-05
+- [SDXL-Lightning: Progressive Adversarial Diffusion Distillation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/30/2024-02-22+SDXL-Lightning%3A+Progressive+Adversarial+Diffusion+Distillation.yaml) / 2024-02-22

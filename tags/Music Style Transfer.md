@@ -1,0 +1,1 @@
+- [Music Style Transfer with Time-Varying Inversion of Diffusion Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/30/2024-02-22+Music+Style+Transfer+with+Time-Varying+Inversion+of+Diffusion+Models.yaml) / 2024-02-22
