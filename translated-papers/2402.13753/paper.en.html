@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# LongRoPE: Extending LLM Context Window Beyond 2 Million Tokens\n' +
+      '\n' +
+      'Yiran Ding\n' +
+      '\n' +
+      'Li Lyna Zhang\n' +
+      '\n' +
+      'Chengruidong Zhang\n' +
+      '\n' +
+      'Yuanyuan Xu\n' +
+      '\n' +
+      'Ning Shang\n' +
+      '\n' +
+      'Jiahang Xu\n' +
+      '\n' +
+      'Fan Yang Mao Yang\n' +
+      '\n' +
+      'Microsoft Research\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      'Large context window is a desirable feature in large language models (LLMs). However, due to high fine-tuning costs, scarcity of long texts, and catastrophic values introduced by new token positions, current extended context windows are limited to around 128k tokens.\n' +
+      '\n' +
+      'This paper introduces LongRoPE that, for the first time, extends the context window of pre-trained LLMs to an impressive **2048k** tokens, with up to only 1k fine-tuning steps at within 256k training lengths, while maintaining performance at the original short context window. This is achieved by three key innovations: (i) we identify and exploit two forms of non-uniformities in positional interpolation through an efficient search, providing a better initialization for fine-tuning and enabling an 8\\(\\times\\) extension in non-fine-tuning scenarios; (ii) we introduce a progressive extension strategy that first fine-tunes a 256k length LLM and then conducts a second positional interpolation on the fine-tuned extended LLM to achieve a 2048k context window; (iii) we readjust LongRoPE on 8k length to recover the short context window performance. Extensive experiments on LLaMA2 and Mistral across various tasks demonstrate the effectiveness of our method. Models extended via LongRoPE retain the original architecture with minor modifications to the positional embedding, and can reuse most pre-existing optimizations. Code will be available at [https://github.com/microsoft/LongRoPE](https://github.com/microsoft/LongRoPE)\n' +
+      '\n' +
+      'Machine Learning, ICML, ICML\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      'Large Language Models (LLMs), despite remarkable success on various tasks (OpenAI et al., 2023; Touvron et al., 2023), often suffer from limited context window size, e.g., LLaMA2\'s 4096 token limit (Touvron et al., 2023). Beyond the context window, LLM\'s performance declines due to the additional positions that the model has not been trained on. This poses challenges in important scenarios like in-context learning with numerous examples (Huang et al., 2023) and LLM agents (Park et al., 2023; Madaan et al., 2023).\n' +
+      '\n' +
+      'Recent works show that a pre-trained LLM context window can be extended to around 128k by fine-tuning on longer texts (Chen et al., 2023b;a; Peng et al., 2023; Zhang et al., 2024; Liu et al., 2023). There are three major obstacles to further extend the context window. First, untrained new position indices introduce many catastrophic values, leading to out-of-distribution issues and making fine-tuning difficult to converge (Chen et al., 2023a). This is particularly challenging when an extension from 4k to \\(>\\)1000k introduces more than 90% new positions. Second, fine-tuning usually requires texts of corresponding lengths. However, long texts in current datasets, especially those exceeding 1000k, are limited. Moreover, training on extra-long texts is computationally expensive, requiring prohibitively extensive training hours and GPU resources. Third, when extending to extremely long context windows, the attention becomes dispersed as it\'s spread thinly across numerous token positions, degrading performance on the original short context (Chen et al., 2023a).\n' +
+      '\n' +
+      'One approach to mitigate the first challenge is to interpolate RoPE positional embedding (Su et al., 2021; Chen et al., 2023a), which downscales new position indices to the pre\n' +
+      '\n' +
+      'Figure 1: Books3 perplexity comparison between LongRoPE and state-of-the-art long-context LLMs using other extension methods.\n' +
+      '\n' +
+      'trained range, as shown in Fig.2. Position Interpolation (PI) (Chen et al., 2023) linearly interpolates RoPE\'s rotary angles by the extension ratio. NTK (LocalLLaMA, 2023;a) advocates unequal interpolation and extrapolation across RoPE dimensions. YaRN (Peng et al., 2023) categorizes RoPE dimensions into three frequency-based groups and applies extrapolation, NTK, and linear interpolations, respectively. However, positional embedding exhibits _complex non-uniform information entropy_ in the Transformer architecture. Such subtle non-uniformity is not effectively leveraged by existing approaches, leading to information loss and hence limiting the context window size.\n' +
+      '\n' +
+      'Section 2 reveals two key findings empirically: **(1)** Effective positional interpolation should consider two forms of non-uniformities: varying RoPE dimensions and token positions. Lower RoPE dimensions and initial starting token positions benefit from less interpolation, but the optimal solutions depend on the target extended length. **(2)** By considering these non-uniformities into positional interpolation, we can effectively retain information in the original RoPE, particularly key dimensions and token positions. This minimizes the loss caused by positional interpolation, and thus provides better initialization for fine-tuning. Moreover, it allows an \\(8\\times\\) extension in non-fine-tuning scenarios.\n' +
+      '\n' +
+      'Motivated by the findings, we introduce **LongRoPE**, an effective method that extends the LLM context window beyond \\(2\\)_million_ tokens. LongRoPE is based on three key innovations. First, LongRoPE fully exploits multidimensional non-uniformities in positional interpolation. It identifies effective rescale factors for RoPE\'s rotation angles for each RoPE dimension, based on token positions. As the search space that identifies rescale factors expands exponentially with the target extension ratio, LongRoPE introduces an evolutionary search algorithm with two optimization techniques to boost search efficiency. Fig. 2 shows an example of the searched rescaled RoPE.\n' +
+      '\n' +
+      'Then, LongRoPE leverages an efficient, progressive extension strategy to achieve a 2048k context window without the need of direct fine-tuning on texts with extremely long lengths, which are scarce and hardly available. The strategy begins by searching for a 256k length on the pre-trained LLM and fine-tuning it under this length. Then, as our non-uniform positional interpolation allows for an \\(8\\times\\) extension in non-fine-tuning settings, we conduct a second search for new RoPE rescale factors on the fine-tuned extended LLM. This ultimately achieves the 2048k context window for LLaMA2 and Mistral (Jiang et al., 2023).\n' +
+      '\n' +
+      'Finally, to mitigate performance degradation on the original (shorter) context window, LongRoPE continues to adjust the RoPE rescale factors on the extended LLM. Similar to scaling up from 256k to 2048k, we scale down to 4k and 8k context windows on the 256k fine-tuned LLM using our search algorithm to encourage less positional interpolation. During inference, if the sequence length is less than 8k, we update RoPE with the searched rescale factors.\n' +
+      '\n' +
+      'Extensive experiments across different LLMs and various long-context tasks demonstrate the effectiveness of our method. We show that LongRoPE is highly effective in maintaining low perplexity from 4k to 2048k evaluation length, achieving over 90% passkey retrieval accuracy, and delivering comparable accuracy on standard benchmarks designed within the 4096 context window. LongRoPE can be applied to any LLMs based on RoPE embedding. We will release our code and LongRoPE-2048k models.\n' +
+      '\n' +
+      '## 2 Non-uniformity in Positional Interpolation\n' +
+      '\n' +
+      '### Preliminary\n' +
+      '\n' +
+      'Transformer models require explicit positional information, often in the form of position embedding, to represent the order of input tokens. Our work focuses on the RoPE (Su et al., 2021) position embedding, which is widely used in recent LLMs. For a token at position index \\(n\\), its corresponding RoPE encoding can be simplified as follows:\n' +
+      '\n' +
+      '\\[[cos(n\\theta_{0}),sin(n\\theta_{0}),cos(n\\theta_{1}),\\cdots,cos(n\\theta_{d/2-1}), sin(n\\theta_{d/2-1})] \\tag{1}\\]\n' +
+      '\n' +
+      'where \\(d\\) is the embedding dimension, \\(n\\theta_{i}\\) is the rotary angle of token at position \\(n\\), \\(\\theta_{i}=\\theta^{-2i/d}\\) represents the rotation frequencies. In RoPE, the default base value of \\(\\theta\\) is 10000.\n' +
+      '\n' +
+      '_Context window extension ratio \\(s\\)_ and positional interpolation_. We define \\(s\\) as the ratio of extended context length \\(L^{\\prime}\\) to the original length \\(L\\): \\(s=\\frac{L^{\\prime}}{L}\\).\n' +
+      '\n' +
+      'To extend the context window from \\(L\\) to \\(L^{\\prime}\\), current positional interpolation methods suggest downscaling rotation frequencies \\(\\theta_{i}\\) based on extension ratio \\(s\\). Let \\(\\beta=\\theta^{2/d}\\), and \\(\\lambda\\) denote the actual rescale factor related to \\(s\\), we unify these positional interpolation methods as follows:\n' +
+      '\n' +
+      '\\[\\left[cos\\left(\\frac{n}{\\lambda(\\beta)^{0}}\\right),sin\\left(\\frac{n}{\\lambda( \\beta)^{0}}\\right),cos\\left(\\frac{n}{\\lambda(\\beta)^{1}}\\right),\\cdots,sin \\left(\\frac{n}{\\lambda(\\beta)^{d/2-1}}\\right)\\right] \\tag{2}\\]\n' +
+      '\n' +
+      '**Linear positional interpolation (PI)**. PI (Chen et al., 2023) suggests linear interpolation of position indices within the pre-trained length limit. For a target extension ratio \\(s\\), the rotation angles of all positions are linearly reduced by \\(\\lambda=s\\) across all RoPE dimensions. However, this makes the position information very "crowded", hindering the model\'s ability distinguish closely positioned tokens. Therefore, PI tends to underperform at high extension ratios.\n' +
+      '\n' +
+      '**NTK-based interpolation and extrapolation**. (LocalLLaMA, 2023;a) look at RoPE from an information encoding perspective and apply the Neural Tangent Kernel (NTK) theory (Jacot et al., 2018; Tancik et al., 2020). To mitigate the crowded-positions issue in PI, they suggest to distribute interpolation pressure across RoPE dimensions. It scales lower (high frequency) dimensions less and higher (low frequency) dimensions more, resulting in both positional interpolation and extrapolation, where \\(\\lambda=s^{i}\\). The improved dynamic NTK (LocalLLaMA, 2023a) adjusts the extension ratio at each position based on the current sequence length. Unlike PI, which necessitates fine-tuning, NTK-aware methods can extend context windows in non-fine-tuning scenarios, but usually with a maximum extension ratio of 4\\(\\times\\).\n' +
+      '\n' +
+      '**YaRN**(Peng et al., 2023) introduces a significant improvement to positional interpolation performance. It divides RoPE dimensions into three frequency-based groups, each with a different interpolation strategy. High frequency dimensions undergo extrapolation (\\(\\lambda\\)=1), while low frequency dimensions use linear interpolation (PI). The RoPE dimensions that fall in-between employs the NTK. The key of YaRN lies in its grouping of RoPE dimensions, which currently depends on human-led empirical experiments. This may result in sub-optimal performance for new LLMs.\n' +
+      '\n' +
+      '### Study on Non-uniform Positional Interpolation\n' +
+      '\n' +
+      'Inspired by NTK and YaRN, we notice their gains from non-linearity, specifically in considering different frequencies across RoPE dimensions for specialized interpolation and extrapolation. However, current non-linearities heavily rely on human-designed rules. This naturally raises two questions: (1) Is the current positional interpolation optimal? (2) Are there unexplored non-linearities?\n' +
+      '\n' +
+      'To answer these questions, we use evolution search (see Sec. 3) to discover better non-uniform positional interpolations for LLaMA2-7B. The search is guided by perplexity, using 5 random samples from PG19 (Rae et al., 2019) validation set. Through our empirical analysis, we reveal the following key findings.\n' +
+      '\n' +
+      '**Finding 1**: _RoPE dimensions exhibit substantial non-uniformities, which are not effectively handled by current positional interpolation methods._\n' +
+      '\n' +
+      'We search the optimal \\(\\lambda\\) for each RoPE dimension in Eq. 2. Table 1 compares the perplexity of LLaMA2-7B under different methods on PG19 and Proof-pile (Azerbayev et al., 2022) test sets, without fine-tuning. Our searched solution\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c|c c|c c} \\hline \\multirow{2}{*}{(LLaMA2-7B) Extension method} & \\multicolumn{4}{c}{Context Window Size} \\\\ \\cline{2-5}  & PG19 (5 samples) & \\multicolumn{4}{c}{Proof-pile (10 samples)} \\\\ \\cline{2-5}  & 8192 & 16,384 & 8192 & 16,384 \\\\ \\hline PI & 10.65 & 20.49 & 3.65 & 4.93 \\\\ Dy-NTK & 10.21 & 23.29 & 3.50 & 3.87 \\\\ YaRN & 32.64 & 87.89 & 3.49 & 3.25 \\\\ \\hline\n' +
+      '**Search for RoPE Dim-wise \\(\\lambda\\)** & **9.37** & **11.34** & **3.45** & **3.13** \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 1: Perplexity of LLaMA2-7B extended via different methods. By a simple search for the rescale factors of each RoPE dimension, we can greatly reduce the perplexity.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c|c c} \\hline Method & non-fine-tuned & fine-tuned \\\\ \\hline PI & 72.54 & 2.44 \\\\ \\hline YaRN & 4.15 & 2.42 \\\\ \\hline\n' +
+      '**Search (Dim-wise \\(\\lambda\\) and \\(\\hat{n}\\))** & **3.22** & **2.36** \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 3: Proof-pile perplexity of the extended LLaMA2-7B with a 64k context window in non-fine-tuned and fine-tuned settings.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c|c c|c c} \\hline \\multirow{2}{*}{(LLaMA2-7B) Extension method} & \\multirow{2}{*}{\\(L^{\\prime}\\)} & \\multicolumn{4}{c}{No interpolation for first \\(i\\) tokens} \\\\ \\cline{2-5}  & & PG19 (5 samples) & \\multicolumn{4}{c}{Proof-pile (10 samples)} \\\\ \\cline{2-5}  & 8192 & 16,384 & 8192 & 16,384 \\\\ \\hline PI & 10.65 & 20.49 & 3.65 & 4.93 \\\\ Dy-NTK & 10.21 & 23.29 & 3.50 & 3.87 \\\\ YaRN & 32.64 & 87.89 & 3.49 & 3.25 \\\\ \\hline\n' +
+      '**Search for RoPE Dim-wise \\(\\lambda\\)** & **9.37** & **11.34** & **3.45** & **3.13** \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 2: Perplexity of LLaMA2-7B extended on PG19 (5 samples). When retaining the first \\(\\hat{n}\\) tokens without positional interpolation, the performance of both PI and Dynamic-NTK are improved.\n' +
+      '\n' +
+      'Figure 2: An illustrative example to show RoPE embedding under different interpolation methods. _Upper_: RoPE under direct extrapolation. _Middle_: Rescaled RoPE under linear positional interpolation. _Down_: LongRoPE fully exploits the identified two non-uniformities, leading to varied interpolation and extrapolation across RoPE dimensions at different token positions.\n' +
+      '\n' +
+      'shows significant improvements, suggesting that current linear (PI) and non-uniform (Dynamic-NTK and YaRN) interpolations are sub-optimal. Notably, YaRN underperforms than PI and NTK on PG19, as it doesn\'t reach the target context window length for non-fine-tuned LLM. For example, YaRN\'s perplexity spikes after 7k in an 8k context size.\n' +
+      '\n' +
+      'Through our search, the rescaled factors \\(\\lambda\\) in Eq. 2 become non-uniform, differing from the fixed scale \\(s\\) in PI, NTK\'s formula calculation, and YaRN\'s group-wise calculation. These non-uniform factors significantly improve LLaMA2\'s language modeling performance (i.e., perplexity) for 8k and 16k context windows without fine-tuning. This is because the resulting positional embedding effectively preserves the original RoPE, especially key dimensions, thus reducing LLM\'s difficulty in distinguishing close token positions.\n' +
+      '\n' +
+      '**Finding 2**: _RoPE for the initial tokens in the input sequence should be extrapolated with less interpolation._\n' +
+      '\n' +
+      'For the initial \\(\\hat{n}\\) tokens in input sequences, we hypothesize that their RoPE should do less interpolation. This is because they receive large attention scores, making them crucial to attention layers, as observed in Streaming LLM (Xiao et al., 2023) and LM-Infinite (Han et al., 2023). To verify this, we extend the context window to 8k and 16k using PI and NTK, keeping the first \\(\\hat{n}\\) (0,2,..., 256) tokens without interpolation. When \\(\\hat{n}\\)=0, it reverts to the original PI and NTK. Table 2 highlights two key observations: **(1)** retaining the starting tokens without position interpolation indeed improves the performance. **(2)** The optimal number of starting tokens, \\(\\hat{n}\\), depends on the target extension length.\n' +
+      '\n' +
+      '**Finding 3**: _Non-uniform positional interpolation effectively extends LLM context window in both fine-tuning and non-fine-tuning settings._\n' +
+      '\n' +
+      'While we\'ve shown that our searched non-uniform position interpolation significantly improves the extension performance at 8k and 16k without fine-tuning, longer extensions require fine-tuning. As such, we fine-tune LLaMA2-7B with our searched RoPE for a 64k context window size (see Appendix for settings). As Table 3 shows, our method significantly outperforms PI and YaRN, both before and after fine-tuning LLaMA2-7B. This is due to our effective use of non-uniform positional interpolation, minimizing information loss and providing a better initialization for fine-tuning.\n' +
+      '\n' +
+      '**Summary**. Our study uncovers two non-uniformities: varying RoPE dimensions and token positions. Utilizing these non-uniformities effectively in positional interpolation greatly improves LLM context extension performance.\n' +
+      '\n' +
+      '## 3 LongRoPE\n' +
+      '\n' +
+      'Motivated by the findings, we present LongRoPE, which first introduces an efficient search algorithm to fully exploit the two non-uniformities, and then uses it to extend LLM context window beyond 2 million tokens.\n' +
+      '\n' +
+      '### Problem Formulation\n' +
+      '\n' +
+      'The two non-uniformities can lead to a vast solution space and introduce complexities in optimization. To address it, we frame the multidimensional non-uniform position interpolation optimization problem as a search problem.\n' +
+      '\n' +
+      'For a LLM targeting a context window size of \\(L^{\\prime}\\) and lengthy input documents \\(\\mathbf{X}\\), where each \\(\\mathbf{x}\\in\\mathbf{X}\\) surpasses \\(L^{\\prime}\\) in token length, we denote the original rotary angle of the \\(i^{th}\\) dimension in RoPE embedding at token position \\(n\\) as \\(\\frac{n}{\\beta^{i}}\\). The optimization problem is then formulated as follows:\n' +
+      '\n' +
+      '\\[\\underset{\\begin{subarray}{c}\\mathbf{x}\\in\\mathbf{X};\\,|\\mathbf{x}|\\geq L^{ \\prime}\\end{subarray}}{\\arg\\min}\\mathcal{L}\\,\\left(\\text{LLM}(\\text{RoPE}, \\mathbf{X})\\right),\\text{ where} \\tag{3}\\]\n' +
+      '\n' +
+      'where we introduce a set of rescale factors, \\(\\mathbb{I}(\\hat{\\lambda}_{i},\\hat{n})\\), to cover the two forms of non-uniformities. \\(\\hat{\\lambda}_{i}\\) and \\(\\hat{n}\\) denote the non-uniformity of RoPE dimensions and token positions, respectively. Specifically, we use \\(\\mathbb{I}(\\hat{\\lambda}_{i},\\hat{n})\\) to rescale the rotation angle for the \\(i^{th}\\) RoPE dimension, where \\(\\hat{\\lambda}_{i}\\) is the rescale factor and \\(\\hat{n}\\) is token position threshold. For initial \\(\\hat{n}\\)-1 token positions, the rescale factor \\(\\hat{\\lambda}_{i}\\) will not take effect, and the original RoPE rotary angle \\(\\frac{n}{\\beta^{i}}\\) is used. For tokens at positions \\(n\\geq\\hat{n}\\), the rescale factor is applied.\n' +
+      '\n' +
+      'Given a target context window size of \\(L^{\\prime}\\), our objective is to find the optimal rescale factors (\\(\\mathbb{I}(\\hat{\\lambda}_{0},\\hat{n})\\), \\(\\mathbb{I}(\\hat{\\lambda}_{1},\\hat{n})\\),...\\(\\mathbb{I}(\\hat{\\lambda}_{i},\\hat{n})...\\)) from the \\(1^{st}\\) to \\(d^{th}\\) RoPE dimension. As a result, the target LLM, with the rescaled RoPE, can achieve a minimum next token prediction loss, \\(\\mathcal{L}\\) (i.e., the perplexity), for input samples \\(\\mathbf{X}\\) with a token length of \\(L^{\\prime}\\).\n' +
+      '\n' +
+      '### Searching the Non-uniform Position Interpolation\n' +
+      '\n' +
+      'To solve the problem in Eq. 3, we now introduce our simple yet highly effective method, which searches for the optimal RoPE rescale factors to fully exploit the multidimensional non-uniformities in position embedding.\n' +
+      '\n' +
+      '**Search space**. We design a large search space to include the two non-uniformies. Table 4 illustrates the search space. Specifically, we allow the search of a specialized rescale factor for each dimension in RoPE embedding. To simply search space design, we search \\(\\lambda_{i}\\) and \\(\\hat{n}\\) instead of searching for \\(\\mathbb{I}(\\hat{\\lambda}_{i},\\hat{n})\\), where \\(\\hat{\\lambda}_{i}=1/\\lambda_{i}\\). As shown in Table 4, \\(\\lambda_{i}\\) is\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|l|l} \\hline Non-uniformity & Notation, & Search Space \\\\ \\hline RoPE dimension & \\(\\lambda_{i}\\) & (1.0, extension ratio \\(s\\times\\)1.25, 0.01) \\\\ \\hline Starting tokens & \\(\\hat{n}\\) & [0, 1, 2, 4, 8, 12, 16, 20, 24, 28, 32, 64, 128, 256] \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 4: Search space for RoPE rescale factors. Tuples of three values represent the lowest value, highest, and step size.\n' +
+      '\n' +
+      'allowed to search from a minimum value of 1.0 (i.e., direct extrapolation) to a maximum value of \\(s\\times 1.25\\) (i.e., larger interpolation than PI) with a step size of 0.01, where \\(s\\) is the target context window extension ratio.\n' +
+      '\n' +
+      '\\(\\hat{n}\\) controls the number of initial token positions that are retained without position interpolation (i.e., use the original RoPE embedding). Empirically, we allow \\(\\hat{n}\\) to search from {0, 1, 2, 4, 8, 12, 16, 20, 24, 28, 32, 64, 128, 256}. When \\(\\hat{n}=0\\), all token positions use the searched rescale factors.\n' +
+      '\n' +
+      '**Evolution-based search.** Our search space in Table 4 spans numerous positional interpolation solutions, posing a significant challenge for efficient exploration. For example, a \\(s=4\\times\\) extension leads to \\(400^{128/2}\\times 14\\)=\\(4\\times 10^{167}\\) choices. With larger extension ratio, the search space expands exponentially. To address this, we use evolution search (Guo et al., 2020) and introduce two optimization techniques to greatly boost search efficiency. Algorithm 1 illustrates the overall search procedure.\n' +
+      '\n' +
+      '_Optimized initial population generation_. Instead of initializing a population of \\(P\\) rescale factors randomly, we add the three RoPE rescale factors corresponding to PI, NTK, and YaRN as individuals into the initial population. For the remaining \\(P\\)-3 individuals, we randomly mutate the three rescale factors with a probability of \\(p\\).\n' +
+      '\n' +
+      '_Monotonically non-decreasing constraint_. After generating the initial population, we compute LLM perplexity for each individual. Specifically, we apply the corresponding RoPE rescale factors to the target LLM and compute the perplexity of input \\(\\mathbf{X}\\). The top-k individuals become parents for evolution. However, the vast search space can cause naive mutation and crossover to explore poor solutions, leading to unnecessary perplexity computations. This is particularly inefficient when \\(L^{\\prime}\\) is large, given the time-consuming inference of each perplexity calculation.\n' +
+      '\n' +
+      'To address this, we impose a non-decreasing monotonicity constraint on the sampled RoPE rescaled factors: \\(\\lambda_{i}\\leq\\lambda_{i+1}\\). Only RoPE that satisfies this constraint is applied to LLM for perplexity evaluation, significantly reducing the search costs. Specifically, we require that \\(\\lambda_{i}\\) increases monotonically with the RoPE dimension (i.e., \\(i\\)=0,...,63). This dimensional monotonicity is based on the NTK theory (Jacot et al., 2018; Tancik et al., 2020; LocalLLaMA, 2023b), suggesting that lower dimensions with higher frequency requires less interpolation (i.e., a smaller \\(\\lambda_{i}\\)), and higher dimensions with lower frequency can do more interpolation (i.e., a larger \\(\\lambda_{i}\\)).\n' +
+      '\n' +
+      '**8\\(\\times\\) extension without fine-tuning**. Our evolutionary search effectively identifies non-uniform RoPE rescale factors, preserving key dimensions and positions to minimize interpolation-induced information loss. As depicted in Fig.3, our method is able to extend LLaMA2\'s context window from 4k to 32k without fine-tuning. In contrast, existing methods such as PI, and non-uniform NTK and YaRN cause perplexity to spike after 2\\(\\times\\) extension.\n' +
+      '\n' +
+      '### Extending LLM Context Window to 2048K\n' +
+      '\n' +
+      '**Progressive extension to 2048k**. We now introduce our method to extend the context window of pre-trained LLMs from the traditional 4k to over 2048k. As demonstrated, our non-uniform positional interpolation can achieve 8\\(\\times\\) extension without fine-tuning. For larger extensions (i.e., 512\\(\\times\\)) is required, fine-tuning is necessary. One method is to search for RoPE rescaled factors under the target 2048k size and then fine-tune. However, this faces challenges due to the prohibitively expensive training resources. Moreover, based on our experiences, it\'s challenging to well fine-tune the LLMs under a large extension ratio (see Appendix).\n' +
+      '\n' +
+      'Fortunately, LongRoPE is effective for both the original and fine-tuned extended LLM. Therefore, we introduce an efficient, progressive method that achieves the target 2048k with just 1k fine-tuning steps at within 256k training length.\n' +
+      '\n' +
+      '\\(\\lozenge\\)_Extending pre-trained LLM to 256k with LongRoPE search_. Taking LLaMA2 as an example, we conduct search for target context window size of 128k and 256k. The extension ratio at this stage is 32\\(\\times\\) and 64\\(\\times\\), respectively.\n' +
+      '\n' +
+      '\\(\\lozenge\\)_Fine-tuning to 256k_. Then, we fine-tune the pre-trained LLM to achieve the context window size of 256k. Specifically, we first fine-tune LLaMA2 for 400 steps using the RoPE rescaled factors for 128k. Then, we replace the RoPE rescaled factors to 256k on the finished checkpoint and conduct an additional 600 steps of fine-tuning. This method\n' +
+      '\n' +
+      'Figure 3: LLaMA2-7B perplexity on PG19 and Proof-Pile after extension using different methods, measured without fine-tuning. By fully exploiting the non-uniformities, LongRoPE achieves an **8\\(\\times\\) extension without fine-tuning**.\n' +
+      '\n' +
+      'proves more efficient than directly fine-tuning to 256k.\n' +
+      '\n' +
+      '\\(\\lozenge\\)_Extending fine-tuned extended LLM to 2048k with LongRoPE search_. Finally, we perform a secondary search on the fine-tuned 256k-length LLM. This ultimately results in an extremely large context window size of 2048k without further fine-tuning. The final extension ratio is \\(512\\times\\).\n' +
+      '\n' +
+      '**Shorter context window recovery**. After extending to an extremely long 2048k context window, we notice a performance drop within the original context window. This is a known issue of positional interpolation (Chen et al., 2023), as it forces position embedding in higher dimensions within the original context window to reside in a much narrower region, negatively affecting the language model\'s performance. With a 512\\(\\times\\) extension ratio, positions within the original 4k context window become particularly crowded.\n' +
+      '\n' +
+      'To mitigate this, we perform an extra evolution search on the extended LLM to adjust RoPE rescale factors for short context lengths (e.g., 4k and 8k). We reduce the maximum allowed searched \\(\\lambda\\) due to less positional interpolation required for shorter lengths. During inference, the LLM dynamically adjusts the corresponding RoPE rescale factors.\n' +
+      '\n' +
+      '## 4 Experiments\n' +
+      '\n' +
+      '### Setup\n' +
+      '\n' +
+      '**Evaluation Tasks and models**. We apply LongRoPE on LLaMA2-7B and Mistral-7B, and evaluate the performance on three aspects: (1) perplexity of extended-context LLMs on long documents; (2) Passkey retrieval task that measures a model\'s ability to retrieve a simple passkey from a sea of irrelevant text; and (3) Standard LLM benchmarks within a short 4096 context window size.\n' +
+      '\n' +
+      '**Fine-tuning**. For LLaMA2, we use a learning rate of 2e-5 with linear decay and a global batch size of 32. We fine-tune for 400 steps on Redpajama (Computer, 2023) dataset, chunked into 128k segments bookended with the BOS and EOS tokens. Then, based on the finished checkpoint, we train an additional 600 steps to achieve 256k context window. The 128k context size is trained on 8 A100 GPUs with the distributed training system (Lin et al., 2023), while the 256k requires 16 A100 GPUs. In the case of Mistral, a constant learning rate of 1e-6 and a global batch size of 64 are used. For both 128k and 256k models, we follow the setting in YaRN (Peng et al., 2023), with 400 steps on the Together Computer\'s Long-Data Collections (mis, 2024) using 16k sequence length. We use 4 A100 GPUs for training.\n' +
+      '\n' +
+      '**Search**. For target window size within 256k, we use: \\(P\\)=64, \\(N_{1}\\)=\\(N_{2}\\)=16, \\(p\\)=0.3, \\(\\mathcal{T}\\)=40, and select top-32 for mutation/crossover in each iteration. Perplexity is calculated using 5 random PG19 validation set samples, with a minimum length requirement of the target context length. For windows over 512k, we halve the population, mutation, and crossover sizes. Perplexity is measured on 3 random samples from Pile-Books3 (Gao et al., 2020) validation set.\n' +
+      '\n' +
+      '**Baselines**. To reach 2048k, we fine-tuned models with 128k and 256k context windows. This yields LongRoPE-2048k (ft=128k) and LongRoPE-2048k (ft=256k) for LLaMA2 and Mistral, respectively. We compare the four models with state-of-the-art context window extension baselines, specifically open-sourced LLMs fine-tuned after positional interpolation using PI, NTK and YaRN. This includes Together-32k (Together, 2023), Code LLaMA (Roziere et al., 2023), LongLoRA-full-FT-100k (Chen et al., 2023), YaRN-LLaMA and YaRN-Mistral (Peng et al., 2023).\n' +
+      '\n' +
+      '### Main Results\n' +
+      '\n' +
+      '**Long sequence language modeling within 256k.** We begin by comparing with state-of-the-art extended LLMs within a 256k evaluation length. We use two datasets to demonstrate our generalizability: Proof-pile (Rae et al., 2019) and PG19 (Gao et al., 2020) test splits. We evaluate perplexity at various context lengths using sliding window of 256. For PG19, we use the whole test split of 100 documents. For Proof-pile, we follow YaRN (Peng et al., 2023) to randomly select 10 samples, each with at least 128k lengths.\n' +
+      '\n' +
+      'Table 5 and Table 7 compare the perplexity of LLaMA2 and Mistral extended via different interpolation methods on Proof-pile and PG19, respectively. We highlight two key observations: **(1)** our extended models show an overall decreasing perplexity trend from 4k to 256k evaluation lengths, proving their abilities to leverage longer context. **(2)** Even with a context window 16\\(\\times\\) longer, a condition typically challenging for maintaining performance at shorter lengths, our LongRoPE-2048k models outperform state-of-the-art baselines within 256k context length.\n' +
+      '\n' +
+      '**Long sequence language modeling beyond 2000k**. To evaluate the effectiveness on extremely long documents, we use the Books3 (Gao et al., 2020) dataset. For evaluation efficiency, we randomly select 20 books, each exceeding 2048k in length, and use a sliding window of 256k.\n' +
+      '\n' +
+      'As shown in Table 6, LongRoPE successfully extends LLaMA2-7B and Mistral-7B\'s context window to 2048k, while also achieving perplexity comparable or superior to baselines within shorter lengths of 8k-128k. We also observe notable performance differences between the 2048k LLaMA2 and Mistral. Mistral outperforms baselines at shorter lengths, but perplexity exceeds 7 beyond 256k. LLaMA2 performance aligns with expectations: the perplexity decreases gratefully with longer contexts, with marginal increases at 1024k and 2048k. Moreover, on LLaMA2, LongRoPE-2048k performs better at a fine-tuning length of 256k over 128k, due to the smaller secondary extension ratio (i.e., 8\\(\\times\\) vs. 16\\(\\times\\)). In contrast, Mistral performs better at fine-tuning window size of 128k. The main reason is that for Mistral\'s 128k and 256k fine-tuning, we follow YaRN\'s setting to use a 16k training length, which affects Mistral\'s ability to further extend context window after fine-tuning.\n' +
+      '\n' +
+      '**Passkey retrieval**. We now study the effective context window size in generation tasks. We follow a synthetic evaluation task of passkey retrieval proposed by (Mohtashami and Jaggi, 2023). In this task, the model is asked to retrieve a random passkey (i.e., a five-digit number) hidden in long document. The prompt template is detailed in appendix. We perform 10 iterations of the passkey retrieval task with the passkey placed at a random location uniformly distributed across the evaluation context length.\n' +
+      '\n' +
+      'Fig. 4 shows the retrieval accuracy comparison with baselines. Existing models\' accuracy rapidly drops to 0 beyond 128k. In contrast, despite the very challenging task of retrieving a passkey from million-level tokens, our LongRoPE-LLaMA2-2048k (ft=256k) manage to maintain a high retrieval accuracy (\\(\\geq\\)90%) from 4k to 2048k. LongRoPE-Mistral-2048k (ft=128k) keeps 100% accuracy up to 1800k, dropping to 60% at 2048k, aligning with expectations from Table 6, where the perplexity slightly increases at 2048k.\n' +
+      '\n' +
+      '**Standard benchmarks within original context window.** We evaluate LongRoPE-2048k models on the original context window using Hugging Face Open LLM Leader-board (Face, 2024) in zero-shot and few-shot settings. We use 25-shot ARC-Challenge (Clark et al., 2018). 10-shot HellaSwag (Zellers et al., 2019), 5-shot MMLU (Hendrycks et al., 2020), and 0-shot TruthfulQA (Lin et al., 2021).\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c c c c c c c c} \\hline \\hline Base & Model & Context & Extension & \\multicolumn{6}{c}{Evaluation Context Length} \\\\ \\cline{2-13} LLM & Name & Window & Method & 8k & 16k & 32k & 64k & 128k & 256k & 512k & 1024k & 2048k \\\\ \\hline \\multirow{5}{*}{LIaMA2-7B} & LongRoPE-2048k & 100k & PI & 6.99 & 6.80 & 6.66 & 6.59 & 20.57 & 26.45 & \\(>\\)10\\({}^{3}\\) & \\(>\\)10\\({}^{4}\\) & \\(>\\)10\\({}^{4}\\) \\\\  & Together & 32k & PI & 3.69 & 3.50 & 2.64 & \\(>\\)10\\({}^{2}\\) & \\(>\\)10\\({}^{3}\\) & \\(>\\)10\\({}^{4}\\) & \\(>\\)10\\({}^{4}\\) \\\\  & LongLoRa & 100k & PI & 3.83 & 3.62 & 2.68 & 2.44 & 2.33 & 9.89 & \\(>\\)10\\({}^{3}\\) \\\\  & Code LLaMA & 100k & NTK & 3.95 & 3.71 & 2.74 & 2.55 & 2.54 & 2.71 & 49.33 \\\\  & YaRN (\\(s\\)=16) & 64k & YaRN & 3.69 & 3.51 & 2.65 & 2.42 & \\(>\\)10\\({}^{1}\\) & \\(>\\)10\\({}^{4}\\) & \\(>\\)10\\({}^{4}\\) \\\\  & YaRN (\\(s\\)=32) & 128k & YaRN & 3.75 & 3.56 & 2.70 & 2.45 & 2.36 & 2.37 & 99.64 \\\\  & **LongRoPE-2048k** (ft=128k) & **2048k** & LongRoPE & 3.71 & **3.50** & **2.60** & **2.36** & **2.27** & **2.26** & **1.88** \\\\  & **LongRoPE-2048k** (ft=256k) & **2048k** & LongRoPE & 3.85 & 3.65 & **2.63** & **2.38** & **2.28** & **2.26** & **1.87** \\\\ \\hline \\multirow{5}{*}{Mistral-7B} & Mistral v0.1 & 8k & - & **3.09** & 2.96 & \\(>\\)10\\({}^{2}\\) & \\(>\\)10\\({}^{3}\\) & \\(>\\)10\\({}^{3}\\) & \\(>\\)10\\({}^{4}\\) & \\(>\\)10\\({}^{4}\\) \\\\  & YaRN (\\(s\\)=8) & 64k & YaRN & 3.18 & 3.04 & 2.37 & 2.20 & 10.39 & 57.4 & \\(>\\)10\\({}^{4}\\) \\\\  & YaRN (\\(s\\)=16) & 128k & YaRN & 3.21 & 3.08 & 2.41 & 2.24 & 2.18 & 2.19 & 4.91 \\\\  & **LongRoPE-2048k** (ft=128k) & **2048k** & LongRoPE & 3.20 & **3.04** & **2.36** & **2.18** & **2.13** & **2.13** & **1.85** \\\\  & **LongRoPE-2048k** (ft=256k) & **2048k** & LongRoPE & 3.20 & **3.04** & **2.36** & **2.18** & **2.13** & **2.14** & **1.84** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 6: Perplexity evaluation on Books3 dataset. Without additional fine-tuning, our LongRoPE-2048k models, with a training context window size of 128k and 256k, effectively scale to an extremely long context size of 2048k. 1k=1024 tokens.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c c c c c c c c} \\hline \\hline Base & Model & Context & Extension & \\multicolumn{6}{c}{Evaluation Context Length} \\\\ \\cline{2-13} LLM & Name & Window & Method & 8k & 64k & 128k & 64k & 128k & 1680 & \\multicolumn{1}{c}{} & & \\\\ \\hline \\multirow{5}{*}{LIaMA2-7B} & LongRoPE-2048k & 100k & PI & 7.16 & 8.61 & \\(>\\)10\\({}^{4}\\) & \\(>\\)10\\({}^{4}\\) & \\(>\\)10\\({}^{4}\\) & \\(>\\)10\\({}^{4}\\) & \\(>\\)10\\({}^{4}\\) \\\\  & Together & 32k & PI & 3.69 & 3.50 & 2.64 & \\(>\\)10\\({}^{2}\\) & \\(>\\)10\\({}^{3}\\) & \\(>\\)10\\({}^{4}\\) & \\(>\\)10\\({}^{4}\\) \\\\  & LongLoRa & 100k & PI & 3.83 & 3.62 & 2.68 & 2.44 & 2.33 & 9.89 & \\(>\\)10\\({}^{3}\\) \\\\  & Code LLaMA & 100k & NTK & 3.95 & 3.71 & 2.74 & 2.55 & 2.54 & 2.71 & 49.33 \\\\  & YaRN (\\(s\\)=16) & 64k & YaRN & 3.69 & 3.51 & 2.65 & 2.42 & \\(>\\)10\\({}^{1}\\) & \\(>\\)10\\({}^{4}\\) & \\(>\\)10\\({}^{4}\\) \\\\  & YaRN (\\(s\\)=32) & 128k & YaRN & 3.75 & 3.56 & 2.70 & 2.45 & 2.36 & 2.37 & 99.64 \\\\  & **LongRoPE-2048k** (ft=128k) & **2048k** & LongRoPE & 3.71 & **3.50** & **2.60** & **2.36** & **2.27** & **2.26** & **1.88** \\\\  & **LongRoPE-2048k** (ft=256k) & **2048k** & LongRoPE & 3.85 & 3.65 & **2.63** & **2.38** & **2.28** & **2.26** & **1.87** \\\\ \\hline \\multirow{5}{*}{Mistral-7B} & Mistral v0.1 & 8k & - & **3.09** & 2.96 & \\(>\\)10\\({}^{2}\\) & \\(>\\)10\\({}^{3}\\) & \\(>\\)10\\({}^{3}\\) & \\(>\\)10\\({}^{4}\\) & \\(>\\)10\\({}^{4}\\) \\\\  & YaRN (\\(s\\)=8) & 64k & YaRN & 3.18 & 3.04 & 2.37 & 2.20 & 10.39 & 57.4 & \\(>\\)10\\({}^{4}\\) \\\\  & YaRN (\\(s\\)=16) & 128k & YaRN & 3.21 & 3.08 & 2.41 & 2.24 & 2.18 & 2.19 & 4.91 \\\\  & **LongRoPE-2048k** (ft=128k) & **2048k** & LongRoPE & 3.20 & **3.04** & **2.36** & **2.18** & **2.13** & **2.13** & **1.85** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 5: Proof-file perplexity of models with various positional interpolation methods. ft: the context window size used in fine-tuning. Even with a context window 16\\(\\times\\) longer than current long-context models, our models also outperform them within 256k context length.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\n' +
+      'As Table 8 shows, our models achieve comparable results on the original benchmark designed for a smaller context window, and even outperform the original Mistral on TruthfulQA by +0.5%. LongRoPE-LLaMA2-2048k, fine-tuned at 256k, shows slightly more performance degradation, but remains within reasonable ranges for most tasks.\n' +
+      '\n' +
+      '### Ablation Results\n' +
+      '\n' +
+      '**Effectiveness of the second positional interpolation**. In our progressive extension strategy, we use our search algorithm to conduct a second non-uniform positional interpolation on the fine-tuned extended LLMs. We validate its effectiveness by running experiments on our fine-tuned LLaMA2-256k model. We extend it to 512k, 1024k, and 2048k using PI and YaRN. As Table 9 shows, our non-uniform positional interpolation sustains a consistent level of perplexity. In contrast, the perplexity under PI and YaRN quickly increases with the extension ratio.\n' +
+      '\n' +
+      '**Effectiveness of recovery at shorter context lengths.** To mitigate performance loss at shorter context lengths, we readjust the RoPE factors for LongRoPE-2048k via our search algorithm. Specifically, we decrease the maximum allowable scale factors for the search to encourage less interpolation at short 4k and 8k lengths. Table 10 shows the perplexity comparison of LongRoPE-LLaMA2-2048k on Proof-pile at 4k and 8k lengths, along with the average LLM benchmark accuracy. The results clearly demonstrate a significant performance improvement at short context lengths.\n' +
+      '\n' +
+      '**Analysis on the two forms of non-uniformities**. Finally, we ablate on the two non-uniformities to see how each part contributes to the performance. We setup two experiments: (i) extending LLaMA2-7B to short 16k and 32k using different methods--PI, searching for RoPE dimension only, and searching for both non-uniformities; (ii) extending our fine-tuned 256k-length LLaMA2 to 2048k following the same procedure. The perplexity is evaluated without fine-tuning. As Table 11 shows, non-uniformity in RoPE dimension significantly reduces perplexity compared to PI\'s linear interpolation. Non-uniformity in token position clearly improves performance at 16k and 32k lengths but does not show the same impact at 2048k, possibly due to the extremely long length. Preserving only the initial tokens without interpolation becomes non-useful, and we leave this as future work.\n' +
+      '\n' +
+      '## 5 Related Works\n' +
+      '\n' +
+      'In addition to methods based on position interpolation, this section discusses related works of other approaches.\n' +
+      '\n' +
+      '**Retrieval-based** approaches use an external memory module to memorize long past context and retrieval modules for related documents fetching at inference (Tworkowski et al., 2023; Wang et al., 2023; Borgeaud et al., 2022). These designs typically need explicit modifications on the LLM architectures. Our work, in contrast, is more lightweight, with minor positional embedding modifications. We can also handle more long context tasks beyond retrieval, such as long document summarization and few-shot learning.\n' +
+      '\n' +
+      '**Attention-based context window extensions**. Beyond positional embedding interpolation, some research achieves input context extension using the original LLM context window length by manipulating attention mechanisms (Han et al., 2023; Xiao et al., 2023; Ratner et al., 2022). The key idea is to mitigate the attention explosion issue caused by new positions using novel attention masks. These efforts and positional interpolation methods are complementary.\n' +
+      '\n' +
+      '**Fine-tuning based approaches** focus on how to effectively fine-tune pre-trained LLMs with modified position embeddings for longer context. Works like Code LLaMA (Roziere et al., 2023), LLaMA2 Long (Xiong et al., 2023) and Scale\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c|c|c|c} \\hline \\multirow{2}{*}{FT Model} & With & Proof-Pile Perplexity & LLM Benchmark \\\\  & Recovery & 4k & 8k & Avg. Accuracy \\\\ \\hline LLaMA2-78-2048k (ft=128k) & \\(\\times\\) & 4.16 & 3.72 & 49.3 \\\\  & ✓ & **3.71** & **3.50** & **52.9** \\\\ \\hline LLaMA2-78-2048k (ft=256k) & \\(\\times\\) & 4.51 & 3.82 & 47.9 \\\\  & ✓ & **3.85** & **3.65** & **50.8** \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 10: Ablation study on LongRoPE readjustment for performance recovery at shorter context lengths.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c|c c c c} \\hline \\multicolumn{4}{c}{**(a) LLaMA2-7B with extended context window**} \\\\ \\hline Model & \\begin{tabular}{c} Context \\\\ Window \\\\ \\end{tabular} & ARC- \\(\\epsilon\\) & \\begin{tabular}{c} HellaN98 \\\\ \\end{tabular} & \n' +
+      '\\begin{tabular}{c} MMLU \\\\ \\end{tabular} & TruthfulQA \\\\ \\hline Original LLaMA2-7B & 4k & 53.1 & 78.6 & 46.6 & 39.0 \\\\ Together & 32k & 47.6 & 76.1 & 43.3 & **39.2** \\\\ Code LLaMA & 100k & 42.4 & 64.8 & 40.1 & 37.1 \\\\ YaRN (s=16) & 64k & 52.4 & **78.7** & 42.4 & 38.2 \\\\ YaRN (s=32) & 128k & 52.2 & 78.5 & 41.8 & 37.4 \\\\ LongRoPE-2048k (ft=128k) & 2048k & **52.9** & 76.5 & **43.4** & 38.8 \\\\ LongRoPE-2048k (ft=256k) & 2048k & 51.0 & 75.3 & 39.6 & 37.3 \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 8: Comparison of long-context LLMs with original LLaMA2 and Mistral on the Hugging Face Open LLM benchmark.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c|c c c c} \\hline \\multicolumn{4}{c}{**(a) LLaMA2-7B with extended context window**} \\\\ \\hline Model & \\begin{tabular}{c} Context \\\\ Window \\\\ \\end{tabular} & ARC- \\(\\epsilon\\) & \\begin{tabular}{c} HellaN98 \\\\ \\end{tabular} & \n' +
+      '\\begin{tabular}{c} MMLU \\\\ \\end{tabular} & TruthfulQA \\\\ \\hline Original LLaMA2-7B & 4k & 53.1 & 78.6 & 46.6 & 39.0 \\\\ Together & 32k & 47.6 & 76.1 & 43.3 & **39.2** \\\\ Code LLaMA & 100k & 42.4 & 64.8 & 40.1 & 37.1 \\\\ YaRN (s=16) & 64k & 52.4 & **78.7** & 42.4 & 38.2 \\\\ YaRN (s=32) & 128k & 52.2 & 78.5 & 41.8 & 37.4 \\\\ LongRoPE-2048k (ft=128k) & 2048k & **52.9** & 76.5 & **43.4** & 38.8 \\\\ LongRoPE-2048k (ft=256k) & 2048k & 51.0 & 75.3 & 39.6 & 37.3 \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 9: Books3 perplexity comparison of extending LLaMA2-256k via different secondary positional interpolation methods.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:9]\n' +
+      '\n' +
+      'Jiang, A. Q., Sablayrolles, A., Mensch, A., Bamford, C., Chaplot, D. S., de las Casas, D., Bressand, F., Lengyel, G., Lample, G., Saulnier, L., Lavaud, L. R., Lachaux, M.-A., Stock, P., Scao, T. L., Lavril, T., Wang, T., Lacroix, T., and Sayed, W. E. Mistral 7b, 2023.\n' +
+      '* Lin et al. (2021) Lin, S., Hilton, J., and Evans, O. Truthfulqa: Measuring how models mimic human falsehoods. _arXiv preprint arXiv:2109.07958_, 2021.\n' +
+      '* Lin et al. (2023) Lin, Z., Miao, Y., Liu, G., Shi, X., Zhang, Q., Yang, F., Maleki, S., Zhu, Y., Cao, X., Li, C., et al. Superscaler: Supporting flexible dnn parallelization via a unified abstraction. _arXiv preprint arXiv:2301.08984_, 2023.\n' +
+      '* Liu et al. (2023) Liu, X., Yan, H., Zhang, S., An, C., Qiu, X., and Lin, D. Scaling laws of rope-based extrapolation. _arXiv preprint arXiv:2310.05209_, 2023.\n' +
+      '* LocalLAMA (2023a) LocalLAMA. Dynamically scaled rope further increases performance of long context llama with zero fine-tuning, 2023a. URL [https://www.reddit.com/r/LocalLLAMA/comments/14mrgpr/dynamically_scaled_rope_further_increases/](https://www.reddit.com/r/LocalLLAMA/comments/14mrgpr/dynamically_scaled_rope_further_increases/).\n' +
+      '* LocalLAMA (2023b) LocalLAMA. Ntk-aware scaled rope allows llama models to have extended (8k+) context size without any fine-tuning and minimal perplexity degration, 2023b. URL [https://www.reddit.com/r/LocalLLAMA/comments/14127j5/ntkaware_scaled_rope_allows_llama_models_to_have/](https://www.reddit.com/r/LocalLLAMA/comments/14127j5/ntkaware_scaled_rope_allows_llama_models_to_have/).\n' +
+      '* Madaan et al. (2023) Madaan, A., Tandon, N., Gupta, P., Hallinan, S., Gao, L., Wiegreffe, S., Alon, U., Dziri, N., Prabhumoye, S., Yang, Y., Gupta, S., Majumder, B. P., Hermann, K., Welleck, S., Yazdanbakhsh, A., and Clark, P. Self-refine: Iterative refinement with self-feedback, 2023.\n' +
+      '* Mohtashami & Jaggi (2023) Mohtashami, A. and Jaggi, M. Landmark attention: Random-access infinite context length for transformers. _arXiv preprint arXiv:2305.16300_, 2023.\n' +
+      '* OpenAI et al. (2021) OpenAI, :, Achiam, J., Adler, S., Agarwal, S., Ahmad, L., Akkaya, I., Aleman, F. L., Almeida, D., Altenschmidt, J., Altman, S., Anadkat, S., Avila, R., Babuschkin, I., Balaji, S., Balcom, V., Baltescu, P., Bao, H., Bavarian, M., Belgum, J., Bello, I., Berdine, J., Berndet-Shapiro, G., Berner, C., Bogdonoff, L., Boiko, O., Boyd, M., Brakman, A.-L., Brockman, G., Brooks, T., Brundage, M., Button, K., Cai, T., Campbell, R., Cann, A., Carey, B., Carlson, C., Carmichael, R., Chan, B., Chang, C., Chantzis, F., Chen, D., Chen, S., Chen, R., Chen, J., Chen, M., Chess, B., Cho, C., Chu, C., Chung, H. W., Cummings, D., Currier, J., Dai, Y., Decareaux, C., Degry, T., Deutsch, N., Deville, D., Dhar, A., Dohan, D., Dowling, S., Dunning, S., Ecoffet, A., Eleti, A., Eleundou, T., Farhi, D., Fedus, L., Felix, N., Fishman, S. P., Forte, J., Fulford, I., Gao, L., Georges, E., Gibson, C., Goel, V., Gogineni, T., Goh, G., Gentijo-Lopes, R., Gordon, J., Grafstein, M., Gray, S., Greene, R., Gross, J., Gu, S. S., Guo, Y., Hallacy, C., Han, J., Harris, J., He, Y., Heaton, M., Heidecke, J., Hesse, C., Hickey, A., Hickey, W., Hoeschele, P., Houghton, B., Hsu, K., Hu, S., Hu, X., Huizinga, J., Jain, S., Jain, S., Jang, J., Jiang, A., Jiang, R., Jin, H., Jin, D., Jomoto, S., Jonn, B., Jun, H., Kaftan, T., Lukasz Kaiser, Kamali, A., Kanitscheider, I., Keskar, N. S., Khan, T., Kilpatrick, L., Kim, J. W., Kim, C., Kim, Y., Kirchner, H., Kiros, J., Knight, M., Kokotajlo, D., Lukasz Kondraciuk, Kondrich, A., Konstantinidis, A., Kostic, K., Krueger, G., Kuo, V., Lampe, M., Lan, I., Lee, T., Leike, J., Leung, J., Levy, D., Li, C. M., Lim, R., Lin, M., Lin, S., Litwin, M., Lopez, T., Lowe, R., Lue, P., Makanju, A., Malfacini, K., Manning, S., Markov, T., Markovski, Y., Martin, B., Mayer, K., Mayne, A., McGrew, B., McKinney, S. M., McLeavey, C., McMillan, P., McNeil, J., Medina, D., Mehta, A., Menick, J., Metz, L., Mishchenko, A., Mishkin, P., Monaco, V., Morikawa, E., Mossing, D., Mu, T., Murati, M., Murk, O., Mely, D., Nair, A., Nakano, R., Nayak, R., Neelakantan, A., Ngo, R., Noh, H., Ouyang, L., O\'Keefe, C., Pachocki, J., Paino, A., Palermo, J., Pantuliano, A., Parasandolo, G., Parish, J., Parparita, E., Passos, A., Pavlov, M., Peng, A., Perelman, A., de Avila Belbute Peres, F., Petrov, M., de Oliveira Pinto, H. P., Michael, Pokorny, Pokrass, M., Pong, V., Powell, T., Power, A., Power, B., Proehl, E., Puri, R., Radford, A., Rae, J., Ramesh, A., Raymond, C., Real, F., Rimbach, K., Ross, C., Rotsted, B., Roussez, H., Ryder, N., Saltarelli, M., Sanders, T., Santurkar, S., Sastry, G., Schmidt, H., Schnurr, D., Schulman, J., Selsam, D., Sheppard, K., Sherbakov, T., Shieh, J., Shoker, S., Shyam, P., Sidor, S., Sigler, E., Simmes, M., Sitkin, J., Slama, K., Sohl, I., Sokolowsky, B., Song, Y., Staudacher, N., Such, F. P., Summers, N., Sutskever, I., Tang, J., Tezak, N., Thompson, M., Tillet, P., Tootoonchian, A., Tseng, E., Tuggle, P., Turley, N., Tworek, J., Uribe, J. F. C., Vallone, A., Vijayvergiya, A., Voss, C., Wainwright, C., Wang, J. J., Wang, A., Wang, B., Ward, J., Wei, J., Weinmann, C., Welihinda, A., Welinder, P., Weng, J., Weng, L., Wiethoff, M., Willner, D., Winter, C., Wolrich, S., Wong, H., Workman, L., Wu, S., Wu, J., Wu, M., Xiao, K., Xu, T., Yoo, S., Yu, K., Yuan, Q., Zaremba, W., Zellers, R., Zhang, C., Zhang, M., Zhao, S., Zheng, T., Zhuang, J., Zhuk, W., and Zoph, B. Gpt-4 technical report, 2023.\n' +
+      '* Park et al. (2023) Park, J. S., O\'Brien, J., Cai, C. J., Morris, M. R., Liang, P., and Bernstein, M. S. Generative agents: Interactive simulacra of human behavior. In _Proceedings of the 36th Annual ACM Symposium on User Interface Software and Technology_, pp. 1-22, 2023.\n' +
+      '\n' +
+      'Peng, B., Quesnelle, J., Fan, H., and Shippole, E. Yarn: Efficient context window extension of large language models. _arXiv preprint arXiv:2309.00071_, 2023.\n' +
+      '* Rae et al. (2019) Rae, J. W., Potapenko, A., Jayakumar, S. M., Hillier, C., and Lillicrap, T. P. Compressive transformers for long-range sequence modelling. _arXiv preprint_, 2019. URL [https://arxiv.org/abs/1911.05507](https://arxiv.org/abs/1911.05507).\n' +
+      '* Ratner et al. (2022) Ratner, N., Levine, Y., Belinkov, Y., Ram, O., Abend, O., Karpas, E., Shashua, A., Leyton-Brown, K., and Shoham, Y. Parallel context windows improve in-context learning of large language models. _arXiv preprint arXiv:2212.10947_, 2022.\n' +
+      '* Roziere et al. (2023) Roziere, B., Gehring, J., Gloeckle, F., Sootla, S., Gat, I., Tan, X. E., Adi, Y., Liu, J., Remez, T., Rapin, J., Kozhevnikov, A., Evtimov, I., Bitton, J., Bhatt, M., Ferrer, C. C., Grattafiori, A., Xiong, W., Defossez, A., Copet, J., Azhar, F., Touvron, H., Martin, L., Usunier, N., Scialom, T., and Synnaeve, G. Code llama: Open foundation models for code, 2023.\n' +
+      '* Su et al. (2021) Su, J., Lu, Y., Pan, S., Murtadha, A., Wen, B., and Liu, Y. Roformer: Enhanced transformer with rotary position embedding. _arXiv preprint arXiv:2104.09864_, 2021.\n' +
+      '* Tancik et al. (2020) Tancik, M., Srinivasan, P., Mildenhall, B., Fridovich-Keil, S., Raghavan, N., Singhal, U., Ramamoorthi, R., Barron, J., and Ng, R. Fourier features let networks learn high frequency functions in low dimensional domains. _Advances in Neural Information Processing Systems_, 33:7537-7547, 2020.\n' +
+      '* Together (2023) Together, 2023. URL [https://huggingface.co/togethercomputer/LLaMA-2-7B-32K](https://huggingface.co/togethercomputer/LLaMA-2-7B-32K).\n' +
+      '* Touvron et al. (2023) Touvron, H., Martin, L., Stone, K., Albert, P., Almahairi, A., Babaei, Y., Bashlykov, N., Batra, S., Bhargava, P., Bhosale, S., Bikel, D., Blecher, L., Ferrer, C. C., Chen, M., Cucurull, G., Esiobu, D., Fernandes, J., Fu, J., Fu, W., Fuller, B., Gao, C., Goswami, V., Goyal, N., Hartshorn, A., Hosseini, S., Hou, R., Inan, H., Kardas, M., Kerkez, V., Khabsa, M., Kloumann, I., Korenev, A., Koura, P. S., Lachaux, M.-A., Lavril, T., Lee, J., Liskovich, D., Lu, Y., Mao, Y., Martinet, X., Mihaylov, T., Mishra, P., Molybog, I., Nie, Y., Poulton, A., Reizenstein, J., Rungta, R., Saladi, K., Schelten, A., Silva, R., Smith, E. M., Subramanian, R., Tan, X. E., Tang, B., Taylor, R., Williams, A., Kuan, J. X., Xu, P., Yan, Z., Zarov, I., Zhang, Y., Fan, A., Kambadur, M., Narang, S., Rodriguez, A., Stojnic, R., Edunov, S., and Scialom, T. Llama 2: Open foundation and fine-tuned chat models, 2023.\n' +
+      '* Tworkowski et al. (2023) Tworkowski, S., Staniszewski, K., Pacek, M., Wu, Y., Michalewski, H., and Milos, P. Focused transformer: Contrastive training for context scaling. 2023.\n' +
+      '* Wang et al. (2023) Wang, W., Dong, L., Cheng, H., Liu, X., Yan, X., Gao, J., and Wei, F. Augmenting language models with long-term memory. _arXiv preprint arXiv:2306.07174_, 2023.\n' +
+      '* Xiao et al. (2023) Xiao, G., Tian, Y., Chen, B., Han, S., and Lewis, M. Efficient streaming language models with attention sinks. _arXiv_, 2023.\n' +
+      '* Xiong et al. (2023) Xiong, W., Liu, J., Molybog, I., Zhang, H., Bhargava, P., Hou, R., Martin, L., Rungta, R., Sankararaman, K. A., Oguz, B., Khabsa, M., Fang, H., Mehdad, Y., Narang, S., Malik, K., Fan, A., Bhosale, S., Edunov, S., Lewis, M., Wang, S., and Ma, H. Effective long-context scaling of foundation models, 2023.\n' +
+      '* Zellers et al. (2019) Zellers, R., Holtzman, A., Bisk, Y., Farhadi, A., and Choi, Y. Hellaswag: Can a machine really finish your sentence? In _Proceedings of the 57th Annual Meeting of the Association for Computational Linguistics_, 2019.\n' +
+      '* Zhang et al. (2024) Zhang, P., Liu, Z., Xiao, S., Shao, N., Ye, Q., and Dou, Z. Soaring from 4k to 400k: Extending llm\'s context with activation beacon. _arXiv preprint arXiv:2401.03462_, 2024.\n' +
+      '* Zhu et al. (2023) Zhu, D., Yang, N., Wang, L., Song, Y., Wu, W., Wei, F., and Li, S. Pose: Efficient context window extension of llms via positional skip-wise training, 2023.\n' +
+      '\n' +
+      '## Appendix A Appendix\n' +
+      '\n' +
+      '### Settings\n' +
+      '\n' +
+      '**Environments**. All our experiments are conduct on 16 A100 GPUs. We employ Flash Attention-2 (Dao, 2023) to accelerate both training and inference. As the GPU memory and computation time increase exponentially with the sequence length, it\'s challenging to serve the fine-tuning and inference with context length beyond 512k. As a result, we utilize an internal platform, CUBE - an internal version of (Lin et al., 2023), to reduce both the training and inference costs.\n' +
+      '\n' +
+      '**Passkey prompt**. We follow existing literature (Mohtashami and Jaggi, 2023; Chen et al., 2023; Peng et al., 2023; Chen et al., 2023; Zhu et al., 2023) for the document format of passkey retrieval. We show the prompt template as follows:\n' +
+      '\n' +
+      'There is an important info hidden inside a lot of irrelevant text. Find it and memorize them. I will quiz you about the important information there.\n' +
+      '\n' +
+      'The grass is green. The sky is blue. The sun is yellow. Here we go. There and back again. (repeat x times)\n' +
+      '\n' +
+      'The pass key is **17865**. Remember it. **17865** is the pass key.\n' +
+      '\n' +
+      'The grass is green. The sky is blue. The sun is yellow. Here we go. There and back again. (repeat y times)\n' +
+      '\n' +
+      'What is the pass key? The pass key is\n' +
+      '\n' +
+      'The document length varies with the value of x and y. 17865 is the passkey number to retrieve. It is randomly sampled and varies at each testing time.\n' +
+      '\n' +
+      '### Additional details on fine-tuning\n' +
+      '\n' +
+      'As introduced in Section 4.2, we fine-tune two context window lengths, namely 128k and 256k, for both LLaMA2 and Mistral. Specifically, the model with a 256k context window begins its fine-tuning from the 128k-length checkpoint. Fig. 5(ab) illustrates the training loss for LLaMA2 and Mistral during this fine-tuning process. We highlight three key observations: **(1)** The model with a 128k context window experiences a large initial loss due to a 32\\(\\times\\) extension. However, the loss rapidly decreases after a few steps. **(2)** LLaMA2 and Mistral employ different fine-tuning settings. Mistral achieves the desired long context window by fine-tuning on 16k-length data, while LLaMA2 necessitates text lengths that match the context window size. Furthermore, we adopt YaRN\'s strategy of using a constant learning rate. As a result, it can be observed that Mistral\'s loss begins to fluctuate after dropping to around 2.2. **(3)** For both Mistral and LLaMA2, the model with a 256k context window, which starts fine-tuning from the 128k checkpoint, exhibits a low initial training loss. This suggests that fine-tuning from 128k-length checkpoints is effective and significantly facilitates convergence.\n' +
+      '\n' +
+      'We also explore different settings to fine-tune LLaMA2 with 256k context window. As shown in Fig. 5(c), we experiment with two additional settings: (i) using the RoPE rescale factors corresponding to 256k, we directly fine-tune on LLaMA2-7B, and (ii) using RoPE rescale factors for 256k, we fine-tune on LLaMA2-7B, but truncate the text lengths to 128k. The loss\n' +
+      '\n' +
+      'Figure 5: (ab): Loss curve in fine-tuning LLaMA2-7B and Mistral-7B with extended context window size. (c) The training loss of fine-tuning LLaMA2-7B with a 256k context window under different fine-tuning settings.\n' +
+      '\n' +
+      'curves are displayed in Fig. 5(c). We observe that using 128k text lengths to fine-tune a model with a 256k context window results in a sharp increase in the initial loss. Directly fine-tuning from LLaMA2-7B to achieve 256k results in a relatively slow decrease in loss. Table 12 shows the test perplexity on Proof-Pile for checkpoints from three different settings. This indicates that our current approach of fine-tuning from a 128k-checkpoint is the most effective.\n' +
+      '\n' +
+      '**Fine-tuning cost.** LLaMA2-128k uses 8 A100 GPUs for a week to fine-tune 400 steps. LLaMA2-256k doubles the resources to 16 A100 GPUs for two weeks to fine-tune 600 steps. For Mistral-128k and 256k, with a training length of 16k, we employ 4 A100 GPUs for a 2-day fine-tuning period.\n' +
+      '\n' +
+      '### Additional details on the search\n' +
+      '\n' +
+      '**Search efficiency**. Fig. 6 illustrates the perplexity on the validation samples at each evolution search iteration. We can see that our search algorithm can efficiently find high-quality non-uniform RoPE rescale factors. Specifically, on the 256k context window search (Fig. 6(a)), after the first iteration, we can find solutions significantly better than PI and YaRN. As searching more iterations, we can significantly reduce the validation perplexity from 273.27 from 118.47. Furthermore, we can observe that YaRN, as the previous state-of-the-art non-uniform interpolation method, performs even worse than PI (linear interpolation) at the 64\\(\\times\\) extension. This also indicates that human-heuristic-based non-uniform interpolation is challenging to perform well in all scenarios.\n' +
+      '\n' +
+      'For the extremely long context window at 2048k, we use the fine-tuned 128k and 256k context window\'s LLaMA2-7B for 16\\(\\times\\) and 8\\(\\times\\) extension, respectively. As shown in Fig. 6(bc), as expected, the perplexity of the 16\\(\\times\\) extension is larger than that of the 8\\(\\times\\) extension. Additionally, due to the time required for a single perplexity evaluation at 2048k is about 50 minutes, the search iterations are constrained. If more search time is allowed, it\'s highly possible to search better results.\n' +
+      '\n' +
+      '**Search cost**. The search cost is primarily depending on the time required to evaluate the perplexity of input context at a given context window size. For context window lengths up to 256k, the total search time is relatively quick, achievable within 3 days using a single A100 GPU. For a 512k context window, we employ 2 A100 GPUs. For larger context windows of 1024k and 2048k, we utilize 4 and 8 A100 GPUs respectively, managing to keep the total search time within a 5-day limit.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c c c} \\hline \\hline Method & \\multicolumn{5}{c}{Evaluation Context Length} \\\\ (fine-tune \\(L^{\\prime}\\), \\(L^{\\prime}\\), base LLM) & 32768 & 65536 & 98304 & 131072 & 262144 \\\\ \\hline (128k, 256k, LLaMA2-7B) & 9.75 & 6.56 & 5.15 & 5.19 & 2.21 \\\\ (256k, 256k, LLaMA2-7B) & 4.51 & 2.87 & 2.53 & 2.39 & 1.95 \\\\ (128k, 256k, LLaMA2-7B (ft=128k) & **2.66** & **2.38** & **2.28** & **2.26** & **1.87** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 12: Proof-pile perplexity of extended LLaMA2-7B via different fine-tuning settings. Tuples of three values represent the fine-tuning text length, context window size and initial checkpoint.\n' +
+      '\n' +
+      'Figure 6: Perplexity on the validation samples at each evolution search iteration. (a) The 64\\(\\times\\) extension for LLaMA2-7B to reach 256k context window size. (b) The 8\\(\\times\\) extension for LLaMA2-7B-256k to reach 2048k context window size. (c) The 16\\(\\times\\) extension for LLaMA2-7B-128k to reach 2048k context window size.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
