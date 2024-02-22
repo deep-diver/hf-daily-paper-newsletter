@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# User-LLM: Efficient LLM Contextualization with User Embeddings\n' +
+      '\n' +
+      'Lin Ning\n' +
+      '\n' +
+      'Luyang Liu\n' +
+      '\n' +
+      'Jiaxing Wu\n' +
+      '\n' +
+      'Neo Wu\n' +
+      '\n' +
+      'Devora Berlowitz\n' +
+      '\n' +
+      'Sushant Prakash\n' +
+      '\n' +
+      'Bradley Green\n' +
+      '\n' +
+      'Shawn O\'Banion\n' +
+      '\n' +
+      'Jun Xie\n' +
+      '\n' +
+      'Google Research\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      'Large language models (LLMs) have revolutionized natural language processing. However, effectively incorporating complex and potentially noisy user interaction data remains a challenge. To address this, we propose User-LLM, a novel framework that leverages user embeddings to contextualize LLMs. These embeddings, distilled from diverse user interactions using self-supervised pre-training, capture latent user preferences and their evolution over time. We integrate these user embeddings with LLMs through cross-attention and soft-prompting, enabling LLMs to dynamically adapt to user context. Our comprehensive experiments on MovieLens, Amazon Review, and Google Local Review datasets demonstrate significant performance gains across various tasks. Notably, our approach outperforms text-prompt-based contextualization on long sequence tasks and tasks that require deep user understanding while being computationally efficient. We further incorporate Perceiver layers to streamline the integration between user encoders and LLMs, reducing computational demands.\n' +
+      '\n' +
+      'Machine Learning, ICML, ICML\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      'Large language models (LLMs) have revolutionized the field of natural language processing (NLP) (Brown et al., 2020; Chowdhery et al., 2023; OpenAI, 2023; Touvron et al., 2023; Anil et al., 2023; Google, 2023). With their ability to learn and adapt from massive amounts of textual data, LLMs offer significant opportunities for user modeling and personalization. By analyzing user interactions and understanding user preferences, LLMs can be leveraged to power recommendations (Liu et al., 2023; Lyu et al., 2023; Ji et al., 2023), language generation, summarization (Liu et al., 2023; Basyal and Sanghvi, 2023), and question answering (Kojima et al., 2022; Wei et al., 2023) in ways that are highly relevant and engaging to users. This paves the way for creating more personalized and context-aware language-based applications and services.\n' +
+      '\n' +
+      'User interactions represent a rich source of behavioral data generated from a user\'s engagement with digital systems. Spanning a wide range from textual input, search queries, media consumption (e.g., videos watched or rated), to social media activities, navigation patterns, location visits, and more, these interactions hold valuable insights for user modeling. One straightforward approach to leveraging this data with LLMs is to directly finetune LLMs on textual components, using a user\'s interaction history as the text prompt. However, user interaction data is often complex, spanning multiple journeys with sparse data points, various interaction types (multimodal), and potential noise or inconsistencies. This complexity can hinder an LLM\'s ability to identify and focus on the most relevant patterns. Moreover, effective personalization often requires a deep understanding of the context and latent intent behind user actions, which can pose difficulties for LLMs trained predominantly on vast, surface-level language corpora. Additionally, user interaction data, such as extended histories, can be very lengthy. Processing and modeling such long sequences (e.g., a year\'s worth of history) with LLMs can strain computational re\n' +
+      '\n' +
+      'Figure 1: Illustration of two different mechanisms to incorporate user interaction history data to LLMs. (1) User history data are expressed in natural language and fed to LLMs via text prompt; (2) User embeddings, distilled from user history data, are used to contextualize LLMs.\n' +
+      '\n' +
+      'sources, making it practically infeasible. Addressing these challenges is key to unlocking the full potential of LLMs in user modeling and personalization.\n' +
+      '\n' +
+      'To address the inherent complexities and limitations of leveraging raw user interaction data with LLMs, we propose a novel approach centered around user embeddings, as illustrated in Fig. 1. These compressed representations, distilled from diverse and noisy user interactions, effectively capture the essence of a user\'s behavioral patterns and preferences across various interaction modalities. By contextualizing the LLM with user embeddings during finetuning or inference, we aim to\n' +
+      '\n' +
+      '* Enhance its ability to identify relevant patterns navigating complexity and noise,\n' +
+      '* Facilitate understanding and adaptation to the latent intent, dynamic context, and temporal evolution behind user actions,\n' +
+      '* Mitigate the computational demands of processing extensive interaction histories by working with condensed representations.\n' +
+      '\n' +
+      'This approach empowers LLMs with a deeper understanding of users\' historical patterns and latent intent, enabling LLMs to tailor responses and generate personalized outcomes.\n' +
+      '\n' +
+      'Our approach consists of two key phases: generating high-quality user embeddings and contextualizing LLMs with these user embeddings. In phase one, we pretrain a Transformer-based encoder on user interaction data, utilizing self-supervised learning to capture behavioral patterns across multiple interaction modalities. We use a multi-feature autoregressive Transformer to generate embeddings that capture long-range dependencies and contextual relationships within sequential data while handling multimodal user data effectively. In phase two, we integrate user embeddings with an LLM during finetuning using _cross-attention_, where the LLM\'s intermediate text representations attend to the output embeddings from the pretrained user encoder, enabling dynamic context injection (similar to Flamingo (Alayrac et al., 2022)).\n' +
+      '\n' +
+      'We present a comprehensive study across three public datasets and various tasks. Our findings conclusively demonstrate that the embedding-based approach successfully mitigates the limitations associated with directly finetuning LLMs on raw textual user interaction data. The approach shows great potential to enhance performance in several application domains, including user understanding, personalized recommendations, and text generation.\n' +
+      '\n' +
+      'Our **contributions** are four-fold:\n' +
+      '\n' +
+      '* We introduce User-LLM, a versatile framework that leverages user embeddings distilled from diverse modalities (e.g., video watch history, ratings, location visits) to contextualize LLMs. It dynamically incorporates user preferences and behaviors from various interaction modalities, enhancing LLM understanding and personalization capabilities while supporting various encoder architectures and multimodal fusion mechanisms.\n' +
+      '* We rigorously assess User-LLM against state-of-the-art baselines, demonstrating significant performance improvements, particularly in tasks requiring deep user understanding and long context inputs. Our approach excels in personalization while maintaining computational efficiency, outperforming traditional text-prompt-based contextualization.\n' +
+      '* User-LLM offers flexible training strategies. Notably, finetuning only the user encoder while keeping the LLM frozen effectively contextualizes the LLM and outperforms LoRA-based text-prompt LLM tuning (which also preserves original LLM weights). This highlights User-LLM\'s adaptability, effectively contextualizing the LLM without altering its core, maintaining language modeling and generalization abilities.\n' +
+      '* We provide in-depth analyses of _cross-attention_ and _soft-prompt_ approaches for integrating user embeddings, exploring the potential of _Perceiver_ layers for further efficiency gain. Extensive ablation studies offer practical guidance on the impact of different User-LLM components and design choices.\n' +
+      '\n' +
+      '## 2 Related Work\n' +
+      '\n' +
+      '### User Modeling\n' +
+      '\n' +
+      'Dual encoders and self-supervised learning are widely employed for user models and recommendation systems, providing transferable representations as user understanding and personalization signals (Covington et al., 2016; 20; Sountsov and Sarawagi, 2016; Volkovs et al., 2017; Chidambaram et al., 2018; Gillick et al., 2018; Yang et al., 2018; Ma et al., 2018; Yi et al., 2019; Gillick et al., 2019; Yang et al., 2020; Jiang et al., 2020; Ning et al., 2021). Other self-supervised learning approaches such as contrastive learning (Yao et al., 2021; Xie et al., 2022; Chen et al., 2022; Xia et al., 2023) and graph representation learning (Cai et al., 2023; Yang et al., 2023) have proven to learn high-quality representations from massive but noisy user interaction data. Recently, pre-trained BERT model (Devlin et al., 2018) has been applied to sequential recommendation systems. For instance, Bert4Rec (Sun et al., 2019) and U-Bert (Qiu et al., 2021) leverage pre-training and fine-tuning approaches to model users\' behavior in a self-supervised way. Our work explores the potential of integrating user representations with the emerging capabilities of LLMs to further improve user modeling and personalization.\n' +
+      '\n' +
+      '### Language Model based Personalization\n' +
+      '\n' +
+      'The emergence of LLMs has propelled generative models to demonstrate superior natural language generation capabilities compared to discriminative models. There has been extensive work on different ways to format user historical interactions as prompts and to leverage LLMs to generate recommendations across various tasks (Petrov and Macdonald, 2023; Kang et al., 2023; Xu et al., 2023; Liu et al., 2023; Lyu et al., 2023; Ji et al., 2023; Li et al., 2023; Wu et al., 2023a). However, directly incorporating a user\'s entire history into an LLM\'s context window is often impractical or overly expensive. In contrast to the aforementioned approaches, we propose to leverage user embeddings to contextualize LLMs.\n' +
+      '\n' +
+      'A recent study (Doddapaneni et al., 2024) explored LLM personalization using user embeddings derived from user activity text. In contrast, we utilize user activity tokens for a more efficient approach. In addition, we employ sophisticated fusion techniques and conduct a comprehensive empirical evaluation across multiple datasets and tasks to provide a thorough assessment of our method\'s capabilities.\n' +
+      '\n' +
+      '### Long Context in LLMs\n' +
+      '\n' +
+      'Long context is crucial for models to incorporate long-term user data and behavior patterns. There has been extensive work to enable long context for LLMs. One line of work is to extend context window by remapping the positional encodings of the long context to the original window size (Chen et al., 2023; Jin et al., 2024), or by exposing relevant additional contexts available to a subset of attention layers (Tworkowski et al., 2023). Another direction is to distill the information in the long context to fit in the existing window by using a separate retrieval model (Xu et al., 2023a) or a memory bank (Wang et al., 2023) etc., or to compress the information by training special tokens (Ge et al., 2023; Mu et al., 2023; Chevalier et al., 2023). Other approaches include modified attention computation (Ding et al., 2023; Liu et al., 2023; Chen et al., 2023) and linear attention frameworks such as structured state space models (Gu et al., 2023; Gu and Dao, 2023; Tay et al., 2022). Our method tackles long context by using a single token to represent each user event. The extracted representations align with the LLM text embedding space. Therefore, our model is compatible with existing LLM-based techniques and applications.\n' +
+      '\n' +
+      '### Multimodal LLM\n' +
+      '\n' +
+      'Early multimodal LLMs such as CLIP (Radford et al., 2021) and ImageBind (Girdhar et al., 2023) relied on aligning image and text representations. Subsequently, fusion techniques leveraging cross-attention (e.g., Flamingo (Alayrac et al., 2022), Coca (Yu et al., 2022)) and soft prompts (e.g., PaLI (Chen et al., 2022), Palm-E (Driess et al., 2023)) emerged. Recent works, such as NextGPT (Wu et al., 2023b), OneLLM (Han et al., 2023), and Anymal (Moon et al., 2023), explored unified frameworks for diverse input modalities. Additionally, end-to-end training of multimodal models has gained attention, as seen in Gato (Reed et al., 2022) and Gemini (Gemini Team Google, 2023). Inspired by these advances, User-LLM focuses on efficient LLM contextualization with user understanding capabilities.\n' +
+      '\n' +
+      '## 3 User-LLM\n' +
+      '\n' +
+      'This section introduces the User-LLM framework, a two-stage approach for contextualizing LLM with user embeddings, as illustrated in Fig.2. First, a pretrained user encoder generates user embeddings. Second, these embeddings are integrated into the LLM through _cross-attention_ or _soft-prompt_ techniques, providing the LLM additional context and guidance to generate personalized responses.\n' +
+      '\n' +
+      '### Embedding Generation\n' +
+      '\n' +
+      'User-LLM leverages a Transformer-based encoder to generate user embeddings from ID-based feature sequences. Consider a scenario where user data contains two modalities, \\(a\\) and \\(b\\). Each modality has its own vocabulary. Items from each modality are mapped to integer IDs and have distinct embedding representations. To create a combined representation, aligned items \\(a_{i}\\) and \\(b_{i}\\) are fused into a single embedding \\(f_{i}\\). The sequence of fused embeddings serves as input to the user encoder for generating user embeddings.\n' +
+      '\n' +
+      '**Autoregressive Encoder** In this work, we employ an Autoregressive Transformer as the user encoder. As illustrated in Fig. 2 (left), this model takes a sequence of user activities, where each activity is described by multiple modalities (e.g., item name, rating, category). Individual features are embedded separately, then concatenated and processed by a Transformer decoder. The output is projected back to the original feature spaces, where modality-specific softmax layers calculate logits. Note that input embeddings and output softmax layers share weights.\n' +
+      '\n' +
+      'The autoregressive design enables the model to predict upcoming tokens based on previous ones, using cross-entropy loss for optimization. Given a sequence of \\(N\\) input tokens, the Autoregressive Transformer generates \\(N\\) corresponding embeddings. These embeddings serve as user context for LLMs, enabling personalized response generation.\n' +
+      '\n' +
+      'Our framework is adaptable, supporting various user encoders. We\'ve experimented with alternatives like Dual Encoders and achieved competitive results.\n' +
+      '\n' +
+      '### LLM Contextualization with User Embedding\n' +
+      '\n' +
+      '#### 3.2.1 Model Architecture\n' +
+      '\n' +
+      'User-LLM integrates user embeddings with LLMs using _cross-attention_ (see Fig. 2). The output embeddings from the pretrained user encoder are cross-attended with intermediate text representations within the LLM, similar to how Flamingo Alayrac et al. (2022) works. Note that our framework remains adaptable to different integration mechanisms including prepending embeddings as _soft-prompt_Lester et al. (2021).\n' +
+      '\n' +
+      '#### 3.2.2 Efficiency\n' +
+      '\n' +
+      'Compared to text-prompt-based methods, User-LLM offers substantial efficiency gains. First, it leverages pretrained weights of both the user encoder and LLM, improving model convergence speed with less trainable parameters. Additionally, User-LLM condenses user activities into dense representations, requiring only a single token per event. This frees up the LLM\'s context window, leading to improved inference efficiency. Furthermore, User-LLM leverages _cross-attention_, maintaining user embeddings at a smaller dimension than the LLM\'s model dimension and eliminating the need for projection operations. This design choice significantly reduces computational overhead during both training and inference.\n' +
+      '\n' +
+      'To further optimize inference efficiency, User-LLM integrates _Perceiver_Jaegle et al. (2021) units into its projection layers. _Perceiver_ is a Transformer-based architecture that utilizes a trainable latent query to extract relevant information from input representations through cross-attention. In User-LLM, _Perceiver_ effectively compresses the user embeddings into a compact format using a latent query with shorter sequence length. This compression reduces the number of tokens needed to represent the user history, further freeing up the LLM\'s context window. This, along with _Perceiver_\'s ability to distill insights from noisy contexts, makes User-LLM ideal for practical applications with extensive user histories.\n' +
+      '\n' +
+      '#### 3.2.3 Training Strategies\n' +
+      '\n' +
+      'User-LLM offers flexible training strategies to tailor its performance for diverse use cases. To thoroughly explore User-LLM\'s capabilities, we primarily investigated four strategies targeting different model components:\n' +
+      '\n' +
+      '* **Full**: Finetuning the entire model (LLM, user encoder, and projection layers) enables maximum parameter adaptation to user interactions, revealing the upper bounds of User-LLM\'s personalization potential.\n' +
+      '* **Enc**: Finetuning the user encoder and projection layers (LLM frozen) offers an efficient LLM contextualization approach while preventing the LLM from overfitting to specific user data. This maintains the LLM\'s general language capabilities.\n' +
+      '* **LoRA**: Finetuning the LLM with LoRA (Low-Rank Adaptation) Hu et al. (2022), along with the user encoder and projection layers, offers parameter efficiency preventing catastrophic forgetting and maintaining the LLM\'s core knowledge.\n' +
+      '* **Proj**: Finetuning only the projection layers (LLM and user encoder frozen) assesses the minimal parameter tuning required for effective LLM contextualization.\n' +
+      '\n' +
+      'Figure 2: **Overview of User-LLM. Left: Multimodal Autoregressive Transformer encoder pretraining. Right: LLM contextualization with user embeddings. Features from a user’s interaction history are encoded by the Autoregressive User Encoder and then integrated into the language model via _cross-attention_.**\n' +
+      '\n' +
+      '## 4 Experiments\n' +
+      '\n' +
+      '### Datasets and Tasks\n' +
+      '\n' +
+      'We evaluated our approach on three widely recognized datasets. Table 1 summarizes their statistics after processing. Notably, Amazon Review dataset is well known for its high sparsity and variability and contains a significantly smaller number of training and evaluation examples.\n' +
+      '\n' +
+      '* **MovieLens20M1** This is a widely used benchmark dataset (Harper and Konstan, 2015) for evaluating personalization and recommendation algorithms. Interaction features are movie name, genre, and rating. Footnote 1: [https://grouplens.org/datasets/movielens/](https://grouplens.org/datasets/movielens/)\n' +
+      '* **Google Local Review Dataset2**(Li et al., 2022; Yan et al., 2023) This dataset contains review information on Google Maps up to Sep 2021. We used New York\'s data in our experiments. Interaction features are place name, place category, rating, and review. Footnote 2: [https://datarepo.eng.ucsd.edu/mcauley_group/gdrive/googlelocal/](https://datarepo.eng.ucsd.edu/mcauley_group/gdrive/googlelocal/)\n' +
+      '* **Amazon Review Dataset3**(He and McAuley, 2016) This is a series of product review datasets crawled from Amazon.com. We used the "Movie_and_TV" category for evaluation. Interaction features are product title, product category, rating, and review summary, which is a short opinion summary written by the user. Footnote 3: [https://nijianmo.github.io/amazon/index.html](https://nijianmo.github.io/amazon/index.html)\n' +
+      '\n' +
+      'We generated training and test examples by applying a sliding window over each user\'s feature sequences (sorted by timestamps). This creates inputs containing N items, with the subsequent item as the label. To ensure model evaluation consistency, the final example (representing the most recent interaction) is used as the test example for each user and is never included in the training set.\n' +
+      '\n' +
+      'To address the diverse evaluation needs, we accessed model performance on three distinct types of tasks:\n' +
+      '\n' +
+      '* **Next item prediction** Given a historical sequence of items, the model predicts the subsequent item. For example, predicting the next movie a user watches based on a sequence of previously viewed movie IDs.\n' +
+      '* **Favorite genre or category prediction** The model predicts a user\'s favorite genre or category based on a sequence of items (e.g., predicting favorite movie genre given a sequence of movie IDs). The favorite is the one with the highest frequency in the user\'s history. This simple task serves as a proof-of-concept, demonstrating User-LLM\'s ability to extract and understand user preferences from historical interactions.\n' +
+      '* **Multimodal review generation** This task extends beyond simple predictions. Here, the model must generate actual reviews, utilizing multimodal input features (e.g., movie ID, genre, and rating). These features are encoded to create embeddings that guide the generation of a user\'s potential review for a given item.\n' +
+      '\n' +
+      '### Baselines and Experiment Setup\n' +
+      '\n' +
+      'To assess the effectiveness of User-LLM, we compare it against the following baselines:\n' +
+      '\n' +
+      '* **Dual Encoder(DualEnc)** An embeddings-based two-tower model that is widely used for large-scale recommendation systems and natural language tasks.\n' +
+      '* **Bert4Rec** The state-of-the-art language model powered recommendation model BERT4Rec (Sun et al., 2019). To ensure fair comparison, Bert4Rec employs similar transformer parameters as our user encoder.\n' +
+      '* **TextPrompt(TP)** An LLM contextualized with user history via text-prompt-based finetuning on the raw text user history.\n' +
+      '\n' +
+      'Our experiments primarily used an Autoregressive Transformer for embedding generation, with ablation studies comparing performance against a Dual Encoder architecture. For co-training, we explored four different training strategies described in Section 3.2.3 and evaluated the impact of using a pretrained encoder versus a randomly initialized one.\n' +
+      '\n' +
+      'For all text-prompt-based LLM finetuning and User-LLM experiments, we kept the total number of examples being processed by the model the same for comparison. For Dual Encoder and Bert4Rec baselines, we did hyper-parameter tuning and report the best performance results.\n' +
+      '\n' +
+      'Our experiments utilized PaLM-2 XXS (Anil et al., 2023) as the pretrained LLM. The user encoder is a \\(6\\)-layer \\(128\\)-dimensional transformer with \\(8\\) attention heads. For _Perceivers_, we constructed the module with \\(6\\) cross-attention layers and a query dimension of \\(16\\). We used \\(rank=8\\) for all LoRA tuning experiments.\n' +
+      '\n' +
+      '### Overall Performance Comparison\n' +
+      '\n' +
+      'This subsection compares model accuracy across various tasks and baselines. All reported User-LLM experiments utilize pretrained encoders and finetune all three components (encoder, projection layers, and LLM) during cotraining,\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c|c c c|c} \\hline \\hline \\multirow{2}{*}{**Dataset**} & **Train** & **Test** & **Seq** & \\multirow{2}{*}{**Item**} \\\\  & **Examples** & **Example** & & \\\\ \\hline MovieLens20M & 13,821,405 & 81,970 & 50 & Movie \\\\ \\hline Google Review & 3,387,375 & 80,080 & 50 & Place \\\\ \\hline Amazon Review & 357,258 & 5,756 & 50 & Product \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 1: Dataset train / test split sizes, sequence lengths, and item features.\n' +
+      '\n' +
+      'unless stated otherwise.\n' +
+      '\n' +
+      '#### 4.3.1 Next Item Prediction\n' +
+      '\n' +
+      'Table 2 shows that User-LLM outperforms the two non-LLM baselines on MovieLens and Google Local review datasets for next item prediction. However, Bert4Rec excels on the sparse Amazon Review dataset, likely due to its bidirectional architecture, which enables more robust representation learning from limited training examples. In contrast, our autoregressive (unidirectional) approach relies on larger datasets for effective user modeling. This suggests that Amazon Review dataset may not provide sufficient information for the autoregressive approach to learn effectively for next item prediction tasks.\n' +
+      '\n' +
+      'Fig. 3 compares User-LLM and text-prompt-based LLM finetuning on MovieLens20M (more results in Appendix).\n' +
+      '\n' +
+      '**Varying Context Length** When trained on sequences with predefined lengths (e.g., 50, 100, or 200 items) and all parameters tunable (solid lines in Fig. 3), User-LLM shows slightly lower performance than text-prompt-based finetuning with shorter sequences (50 items). However, User-LLM significantly outperforms the text-prompt-based approach when sequences become longer. This is likely because next-item prediction heavily relies on the LLM\'s ability to memorize specific item names (e.g., movie titles). Text prompt excels in this type of task by providing the LLM with numerous names or titles to memorize. As sequences become longer, they introduce diverse and potentially noisy information, making pure memorization less effective. It is a known limitation that LLMs are less effective with long input context (Liu et al., 2023). In contrast, User-LLM\'s ability to effectively distill relevant user information from these complex long sequences enhances LLM\'s understanding and leads to better performance.\n' +
+      '\n' +
+      'With increasing input sequence length, both User-LLM and text-prompt-based approach experience performance degradation. This is likely due to the significantly reduced number of training examples available (13.8M, 10.6M, and 7.0M for lengths 50, 100, and 200, respectively). While the autoregressive encoder impacts model performance due to insufficient training data, User-LLM\'s performance decline is notably less severe compared to the text-prompt-based approach.\n' +
+      '\n' +
+      '**Computation Efficiency** Notably, the computation cost and memory requirements of text-prompt-based approaches become increasingly prohibitive with increasing input sequence length. Table 3 highlights User-LLM\'s computational efficiency. The user encoder distills ID-based user activity sequences into compact user embeddings, enabling the LLM to process a fixed-length \\(32\\)-token input query regardless of input sequence length. Conversely, the text-prompt-based approach requires LLM input token lengths to be scaled proportionally with the input sequence.\n' +
+      '\n' +
+      'Specifically, let the number of LLM parameters be \\(N\\), encoder parameters be \\(N_{e}\\), and _Perceiver_ parameters be \\(N_{p}\\). As \\(N_{e}\\ll N\\) and \\(N_{p}\\ll N\\), we can ignore computational costs associated with the encoder and _Perceiver_. Assuming batch size \\(B\\), training steps \\(S\\), and input length (in tokens) \\(L\\), the total number of training tokens is \\(D=BSL\\). Applying heuristic \\(FLOPs\\approx 6ND\\)(Kaplan et al., 2020), User-LLM shows up to 78.1X FLOPs reduction when the sequence length reaches 200. This demonstrates that User-LLM provides a more computationally efficient and practically feasible solution for long sequence modeling.\n' +
+      '\n' +
+      '**Frozen LLM** User-LLM excels in contextualizing LLMs while preserving their original knowledge. As described in Section 3.2.3, User-LLM allows the LLM to remain frozen (e.g., training strategy _Enc_), preventing catastrophic forgetting issues. Fig. 3 (dotted lines) demonstrates that\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l l l l l} \\hline \\hline \\multirow{2}{*}{**Dataset**} & \\multirow{2}{*}{**Rec**} & \\multicolumn{2}{c}{**Baseline**} & \\multirow{2}{*}{**User-LLM**} \\\\ \\cline{3-4}  & & **DualEnc** & & **Bert4Rec** \\\\ \\hline \\multirow{3}{*}{MovieLens20M} & @1 & 0.044 & 0.038 & **0.054** \\\\  & @5 & 0.135 & 0.135 & **0.164** \\\\  & @10 & 0.206 & 0.158 & **0.243** \\\\ \\hline \\multirow{3}{*}{Google Review} & @1 & 0.005 & 0.005 & **0.015** \\\\  & @5 & 0.012 & 0.019 & **0.052** \\\\  & @10 & 0.023 & 0.033 & **0.071** \\\\ \\hline \\multirow{3}{*}{Amazon Review} & @1 & 0.021 & 0.034 & **0.037** \\\\  & @5 & 0.026 & **0.051** & 0.047 \\\\ \\cline{1-1}  & @10 & 0.031 & **0.062** & 0.051 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 2: User-LLM v.s. DualEnc & Bert4Rec baselines for next item prediction. Note that we use full finetune for User-LLM.\n' +
+      '\n' +
+      'Figure 3: User-LLM v.s. TextPrompt(TP) baseline for next item prediction on MovieLens20M (varying sequence lengths, unfrozen or frozen LLM). **Unfrozen LLM**: full finetune for TP model, training strategy _Full_ for User-LLM. **Frozen LLM**: LoRA parameters tuning for TP model, training strategy _Enc_ for User-LLM.\n' +
+      '\n' +
+      'User-LLM with a frozen LLM surpasses the accuracy of text-prompt-based LoRA tuning. This observation suggests that performance gains in text-prompt-based full finetuning may largely result from overfitting, leading to significant knowledge loss within the LLM.\n' +
+      '\n' +
+      'Furthermore, User-LLM with a frozen LLM also outperforms models with unfrozen LLMs (both User-LLM and text-prompt-based approach). This highlights the value of the foundation knowledge encoded in LLMs for improving downstream task performance. By utilizing user embeddings, User-LLM enables efficient and stable LLM contextualization, effectively mitigating the drawbacks of text-prompt-based methods.\n' +
+      '\n' +
+      '#### 4.3.2 Deep User Understanding\n' +
+      '\n' +
+      'Even though user encoders are pretrained on next item prediction tasks, the extracted user embeddings encapsulate generalized user context. Leveraging these embeddings, User-LLM demonstrates great generalization capability to diverse personalization tasks, as shown in Table 4. These tasks require deep user understanding, demonstrating User-LLM\'s effectiveness in understanding user intent and preferences from interaction data.\n' +
+      '\n' +
+      'User-LLM outperforms the Dual Encoder baseline, which is trained to predict genre/category ID based on a sequence of user history item IDs. Despite its encoder\'s pretraining on next-item prediction, User-LLM surpasses the specialized Dual Encoder across all three datasets. Compared to the TextPrompt baseline, User-LLM excels on Amazon Review and achieves similar performance on MovieLens and Google Local Review, with a significantly smaller context window (16 times smaller), emphasizing its efficiency.\n' +
+      '\n' +
+      'User-LLM also demonstrates its strength in the multi-modal task of review generation based on the item name, category, and user rating. It exceeds the TextPrompt baseline on both Amazon Review and Google Local Review datasets. We attribute this success to User-LLM\'s ability to leverage dense representations of user history, an advantage particularly evident in tasks with long inputs where text-prompt-based LLM finetuning often struggles. Note that Dual Encoder cannot handle such text generation tasks.\n' +
+      '\n' +
+      '### Efficiency\n' +
+      '\n' +
+      '**Parameter efficiency** Embedding-LLM requires fewer tunable parameters to achieve competitive performance. Table 5 shows the model accuracy across multiple training strategies. Notably, the _Enc_ approach (tuning encoder and projection layers and freezing the LLM) achieved comparable task accuracy to full finetuning while requiring significantly fewer tuned parameters. This is because it effectively leverages the pretrained weights of both the user encoder and LLM, minimizing the need for extensive parameter updates during training. Thus, our approach offers a parameter-efficient solution for personalizing LLMs, reducing computational demands and facilitating model tuning on resource-constrained devices.\n' +
+      '\n' +
+      '**Inference efficiency** Furthermore, User-LLM is inference efficient. Compared to text-prompt-based approaches that require multiple tokens to represent each event in the user history, our embedding-based approach effectively condenses event information into dense representations, requiring only a single token per event. The integration of _Perceiver_ further reduces the total number of tokens for long user histories, resulting in even faster inference speeds and making our approach ideal for real-time applications. Table 6 shows that User-LLM and its _Perceiver_ variant maintain competitive performance while requiring a smaller number of tokens and, as a result, significantly reduce the computation complexity in the attention modules in LLM.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c c} \\hline \\hline \\multirow{2}{*}{**Dataset**} & \\multirow{2}{*}{**Task**} & \\multicolumn{2}{c}{**Baseline**} & \\multirow{2}{*}{**User-LLM**} \\\\ \\cline{3-4}  & & **DualEnc** & & & \\\\ \\hline \\multirow{2}{*}{\n' +
+      '\\begin{tabular}{c} MovieLens \\\\ 20M \\\\ \\end{tabular} } & \\multirow{2}{*}{FavGenre} & \\multirow{2}{*}{0.779} & \\multirow{2}{*}{**0.788**} & \\multirow{2}{*}{0.785} \\\\ \\cline{1-1} \\cline{5-5}  & & & & \\\\ \\hline Google & \\multirow{2}{*}{FavCat} & \\multirow{2}{*}{0.812} & \\multirow{2}{*}{**0.887**} & \\multirow{2}{*}{0.862} \\\\  & ReviewG & & & 10.20 & \\\\ \\hline Amazon & \\multirow{2}{*}{FavCat} & \\multirow{2}{*}{0.855} & \\multirow{2}{*}{0.885} & \\multirow{2}{*}{**0.890**} \\\\ Review & & & & 22.82 & \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 4: Favorite genre/category generation and review generation. Metrics: Recall@1 for favorite genre/category prediction tasks and ROUGE-Lsum for review generation.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c c} \\hline \\hline  & & **Len50** & **Len100** & **Len200** \\\\ \\hline \\multirow{2}{*}{\\# Tokens} & User-LLM & 32 & 32 & 32 \\\\ \\cline{2-5}  & TP & 700 & 1350 & 2500 \\\\ \\hline \\multirow{2}{*}{FLOPs Reduction} & \\multirow{2}{*}{21.9X} & \\multirow{2}{*}{42.2X} & \\multirow{2}{*}{78.1X} \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 3: LLM input token counts for User-LLM v.s. TextPrompt(TP) and FLOPs reduction achieved by User-LLM. FLOPs reduction refers to FLOPs(TP) / FLOPs(User-LLM).\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c c c} \\hline \\hline\n' +
+      '**Dataset** & **Task** & **Full** & **LoRA** & **Enc** & **Proj** \\\\ \\hline MovieLens & NextItem & **0.054** & 0.053 & 0.052 & 0.040 \\\\\n' +
+      '20M & FavGenre & **0.785** & 0.784 & 0.783 & 0.750 \\\\ \\hline \\multirow{2}{*}{\\begin{tabular}{c} Google \\\\ Review \\\\ \\end{tabular} } & NextItem & 0.015 & **0.016** & 0.015 & 0.015 \\\\  & FavCat & **0.862** & 0.844 & 0.844 & 0.615 \\\\  & ReviewG & 11.72 & 11.64 & **11.76** & 9.61 \\\\ \\hline \\multirow{2}{*}{\n' +
+      '\\begin{tabular}{c} Amazon \\\\ Review \\\\ \\end{tabular} } & NextItem & **0.037** & 0.028 & 0.028 & 0.014 \\\\  & FavCat & **0.890** & 0.887 & 0.885 & 0.850 \\\\  & ReviewG & **26.38** & 24.56 & 24.30 & 19.04 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 5: Comparison between different training strategies. Metric: Recall@1.\n' +
+      '\n' +
+      '### Ablation Study\n' +
+      '\n' +
+      '**Long-term and short-term user context** The design of User-LLM allows it to integrate both long-term and short-term user context. We can feed long-term user history into the user encoder to generate compact user embeddings while prompting LLM with short-term user interactions. As shown in Table 7, User-LLM generally achieves better results when combining long-term and short-term user context for next item prediction tasks. Using 50 user activities for embedding generation and 10 most recent activities for prompting LLM, User-LLM (_AR50TP10_) outperforms TextPrompt with only short-term context (_TP10_) by providing long-term user information and outperforms TextPrompt with long-term context (_TP50_) by extracting meaningful user representations efficiently. Compared to _AR50_, in which User-LLM only uses long-term user data, short-term context provides the model (_AR50TP10_) with additional natural language information about item names. This leads to improved next item name prediction while preserving computational efficiency.\n' +
+      '\n' +
+      '**Benefit of pretraining** We study the benefits of pretraining user encoders for downstream tasks. Results presented in columns 3 and 4 in Table 8 demonstrate that models utilizing pretrained encoders consistently outperform those with randomly initialized encoders across all evaluated tasks. This finding suggests that pretraining enables the encoder to capture latent user preference effectively, providing valuable context to the LLM during the cotraining process.\n' +
+      '\n' +
+      '**Soft Prompt v.s. Cross Attention** We evaluate the performance of an alternative encoder-LLM integration strategy, _soft-prompt_(Lester et al., 2021), within User-LLM framework, in which we prepend user embeddings as soft prompt tokens to the language model and meanwhile also learn an additional task prompt. We set the task prompt\'s length to \\(10\\) and utilized a pretrained Autoregressive encoder in our experiment. As shown in the last column of Table 8, the cross-attention-based approach generally outperforms the soft-prompt approach. This advantage is particularly significant in the two review generation tasks, suggesting that the _cross-attention_ mechanism enables LLMs to better extract and utilize the rich user information encoded within user embeddings. This highlights the value of cross-attention for tasks demanding a nuanced understanding of human intent.\n' +
+      '\n' +
+      '**Different Encoders** We experiment with an alternative Transformer-based encoder, Dual Encoder (which serves as a baseline in this work), within the User-LLM framework. This architecture features two separate user and label towers to generate embeddings. The similarity between user and label embeddings is used for loss computation via a softmax layer during pretraining. We only the use user tower when integrating with LLMs. User-LLM with Dual Encoder performed worse than with AR encoder (Table 8). One reason is that Dual Encoder only outputs a single embedding for each user, providing less context to LLM compared to the AR encoder. Additionally, while Autoregressive Transformer benefits from loss calculation across all input tokens, Dual Encoder relies on a single label per input sequence. This limitation becomes more pronounced on sparse datasets like\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c c} \\hline \\hline \\multirow{2}{*}{**Task**} & \\multicolumn{2}{c}{**User-LLM**} & \\multicolumn{2}{c}{**User-LLM**} \\\\  & **Full** & **Enc** & **Full** & **Enc** \\\\ \\hline NextItem & 0.054 & 0.052 & 0.054 & 0.054 \\\\ FavGenre & 0.785 & 0.783 & 0.784 & 0.784 \\\\ \\hline Tokens & 50 & & 16 (**-68\\%**) \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 6: User-LLM and its _Perceiver_ variant effectively reduce the number of embedding tokens while maintaining competitive performance. Experiments are done on MovieLens 20M. Metric: Recall@1.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c c c} \\hline \\hline \\multirow{2}{*}{**Dataset**} & \\multirow{2}{*}{**Recall**} & \\multicolumn{3}{c}{**TextPrompt**} & \\multicolumn{3}{c}{**User-LLM**} \\\\ \\cline{3-6}  & & **TP10** & **TP50** & **AR50** & **AR50TP10** \\\\ \\hline \\multirow{3}{*}{MovieLens 20M} & @1 & 0.049 & **0.060** & 0.054 & 0.059 \\\\  & @5 & 0.142 & 0.172 & 0.164 & **0.173** \\\\  & @10 & 0.211 & 0.251 & 0.243 & **0.252** \\\\ \\hline \\multirow{3}{*}{Google Review} & @1 & **0.021** & **0.021** & 0.015 & **0.021** \\\\  & @5 & 0.060 & **0.061** & 0.052 & **0.061** \\\\  & @10 & 0.082 & **0.086** & 0.071 & 0.082 \\\\ \\hline \\multirow{3}{*}{Amazon Review} & @1 & 0.038 & 0.034 & 0.037 & **0.041** \\\\  & @5 & 0.047 & 0.042 & 0.047 & **0.051** \\\\ \\cline{1-1}  & @10 & 0.050 & 0.047 & 0.051 & **0.055** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 7: Experiments on short-term text prompt long-term embedding. **TP10**: TextPrompt baseline with \\(10\\) recent user events. **TP50**: TextPrompt baseline with \\(50\\) recent user events. **AR50**: With \\(50\\) user events as encoder inputs. **AR50TP10**: With \\(50\\) user events as encoder inputs and \\(10\\) most recent events in text format as LLM inputs.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c c c} \\hline \\hline \\multirow{2}{*}{**Dataset**} & \\multirow{2}{*}{**Task**} & \\multicolumn{3}{c}{**User-LLM**} \\\\ \\cline{3-6}  & & \\multicolumn{2}{c}{_cross-attention_} & _soft_ & _DualEnc_ \\\\  & & **PT** & **RD** & _prompt_ & _-Xatten_ \\\\ \\hline MovieLens & NextItem & **0.054** & 0.041 & 0.051 & 0.044 \\\\\n' +
+      '20M & FavGenre & 0.785 & 0.778 & **0.787** & 0.775 \\\\ \\hline \\multirow{3}{*}{Google Review} & NextItem & **0.015** & **0.015** & 0.013 & 0.014 \\\\  & FavCat & **0.862** & 0.853 & 0.822 & 0.797 \\\\  & ReviewG & **11.72** & 11.43 & 9.06 & 11.68 \\\\ \\hline \\multirow{3}{*}{Amazon Review} & NextItem & **0.037** & 0.026 & 0.031 & 0.020 \\\\  & FavCat & 0.890 & 0.882 & **0.894** & 0.854 \\\\ \\cline{1-1}  & ReviewG & **26.38** & 23.12 & 25.80 & 23.83 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 8: Experiments on different model fusing architectures, encoders, and the benefit of pretraining. Report Recall@1 for next item prediction and favorite genre/category prediction, ROUGE-Lsum for review generation. Full finetuning is used throughout the experiments. **PT**: Pretrained encoder. **RD**: Randomly initialized encoder. _soft-prompt_: Connect user embeddings with LLM via soft-prompt. _DualEnc-Xatten_: Use a dual encoder as the user encoder and cross-attend it to LLM.\n' +
+      '\n' +
+      'Amazon Review, leading to a larger performance gap.\n' +
+      '\n' +
+      '## 5 Conclusion and Future Work\n' +
+      '\n' +
+      'In this paper, we introduced User-LLM, a framework for contextualizing LLMs through user embeddings. These embeddings, derived from self-supervised pretraining on diverse user interactions, capture hidden user preferences and their evolution. By integrating these embeddings with LLMs through _cross-attention_ and _soft-prompt_, User-LLM empowers LLMs to adjust dynamically to user contexts.\n' +
+      '\n' +
+      'Our comprehensive evaluation across MovieLens, Amazon Review, and Google Local Review datasets demonstrated significant performance improvements in various tasks. User-LLM showed competitive performance compared with non-LLM baselines and text-prompt-based LLM personalization techniques, particularly in handling long sequences and understanding users deeply. User-LLM\'s computational efficiency and ability to preserve LLM knowledge further make it a highly suitable approach for real-world user understanding applications.\n' +
+      '\n' +
+      'Future research could delve into optimizing user embedding generation through advanced pretraining techniques, investigating the alignment between user embeddings and the language model space for deeper user context understanding, and training User-LLM on a diverse range of tasks to enhance its generalization abilities and adaptability across a broader spectrum of user scenarios. By addressing these aspects, User-LLM has the potential to become an even more robust and versatile framework for user modeling and LLM personalization.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* [1]J. Alayrac, J. Donahue, P. Luc, A. Miech, I. Barr, Y. Hasson, K. Lenc, A. Mensch, K. Millican, M. Reynolds, et al. (2022) Flamingo: a visual language model for few-shot learning. Advances in Neural Information Processing Systems35, pp. 23716-23736. Cited by: SS1.\n' +
+      '* [2]R. Anil, A. M. Dai, O. Firat, M. Johnson, D. Lepikhin, A. Passos, S. Shakeri, E. Taropa, P. Bailey, Z. Chen, et al. (2023) Palm 2 technical report. arXiv preprint arXiv:2305.10403. Cited by: SS1.\n' +
+      '* [3]L. Basyal and M. Sanghvi (2023) Text summarization using large language models: a comparative study of mpt-7b-instruct, falcon-7b-instruct, and openai chat-gpt models. Cited by: SS1.\n' +
+      '* [4]T. Brown, B. Mann, N. Ryder, M. Subbiah, J. D. Kaplan, P. Dhariwal, A. Neelakantan, P. Shyam, G. Sastry, A. Askell, S. Agarwal, S. Herbert-Voss, G. Krueger, T. Henighan, R. Child, A. Ramesh, D. Ziegler, J. Wu, C. Winter, C. Hesse, M. Chen, E. Sigler, M. Litwin, S. Gray, B. Chess, J. Clark, C. Berner, S. McCandlish, A. Radford, I. Sutskever, and D. Amodei (Eds.), pp. 1877-1901. Cited by: SS1.\n' +
+      '* [5]X. Cai, C. Huang, L. Xia, and X. Ren (2023) LightGEL: simple yet effective graph contrastive learning for recommendation. In The Eleventh International Conference on Learning Representations, ICLR 2023, Kigali, Rwanda, May 1-5, 2023, pp.. Cited by: SS1.\n' +
+      '* [6]S. Chen, S. Wong, L. Chen, and Y. Tian (2023) Extending context window of large language models via positional interpolation. arXiv preprint arXiv:2306.15595. Cited by: SS1.\n' +
+      '* [7]X. Chen, X. Wang, S. Changpinyo, A. Piergiovanni, P. Padlewski, D. Salz, S. Goodman, A. Grycner, B. Mustafa, L. Beyer, et al. (2022) PALM: a jointly-scaled multilingual language-image model. arXiv preprint arXiv:2209.06794. Cited by: SS1.\n' +
+      '* 29, 2022, pp. 2172-2182. Cited by: SS1.\n' +
+      '* [9]Y. Chen, S. Qian, H. Tang, X. Lai, Z. Liu, S. Han, and J. Jia (2023) LongLora: efficient fine-tuning of long-context large language models. arXiv preprint arXiv:2309.12307. Cited by: SS1.\n' +
+      '* [10]A. Chevalier, A. Wettig, A. Ajith, and D. Chen (2023) Adapting language models to compress contexts. arXiv preprint arXiv:2305.14788. Cited by: SS1.\n' +
+      '* [11]M. Chidambaram, Y. Yang, D. Cer, S. Yuan, H. Sung, B. Strope, and R. Kurzweil (2018) Learning cross-lingual sentence representations via a multi-task dual-encoder model. arXiv preprint arXiv:1810.12836. Cited by: SS1.\n' +
+      '* [12]A. Chowdhery, S. Narang, J. Devlin, M. Bosma, G. Mishra, A. Roberts, P. Barham, H. W. Chung, C. Sutton, S. Gehrmann, P. Schuh, K. Shi, S. Tsvyshchenko, J. Maynez, A. Rao, P. Barnes, Y. Tay, N. Shazeer, V. Prabhakaran, E. Reif, N. Du, B. Hutchinson, R. Pope, J. Bradbury, J. Austin, M. Isard, G. Gur-Ari, P. Yin, T. Duke, A. Levskaya, S. Ghemawat, S. Dev, H. Michalewski, X. Garcia, V. Misra, K. Robinson, L. Fedus, D. Zhou, D. Ippolito, D. Luan, H. Zoph, A. Spiridonov, R. Sepassi, D. Dohan, S. Agrawal, M. Omernick, A. M. Dai, T. S. Pellat, M.\n' +
+      '\n' +
+      'Lewkowycz, A., Moreira, E., Child, R., Polozov, O., Lee, K., Zhou, Z., Wang, X., Saeta, B., Diaz, M., Firat, O., Catasta, M., Wei, J., Meier-Hellstern, K., Eck, D., Dean, J., Petrov, S., and Fiedel, N. Palm: Scaling language modeling with pathways. _Journal of Machine Learning Research_, 24(240):1-113, 2023.\n' +
+      '* Covington et al. (2016a) Covington, P., Adams, J., and Sargin, E. Deep neural networks for youtube recommendations. In _Proceedings of the 10th ACM Conference on Recommender Systems (RecSys\'16)_, pp. 191---. 198, 2016a.\n' +
+      '* Covington et al. (2016b) Covington, P., Adams, J., and Sargin, E. Deep neural networks for youtube recommendations. In _Proceedings of the 10th ACM Conference on Recommender Systems_, New York, NY, USA, 2016b.\n' +
+      '* Devlin et al. (2018) Devlin, J., Chang, M.-W., Lee, K., and Toutanova, K. N. Bert: Pre-training of deep bidirectional transformers for language understanding. _arXiv preprint arXiv:1810.04805_, 2018.\n' +
+      '* Ding et al. (2023) Ding, J., Ma, S., Dong, L., Zhang, X., Huang, S., Wang, W., Zheng, N., and Wei, F. Longnet: Scaling transformers to 1,000,000,000 tokens. _arXiv preprint arXiv:2307.02486_, 2023.\n' +
+      '* Doddapaneni et al. (2024) Doddapaneni, S., Sayana, K., Jash, A., Sodhi, S., and Kuzmin, D. User embedding model for personalized language prompting. _arXiv preprint arXiv:2401.04858_, 2024.\n' +
+      '* Driess et al. (2023) Driess, D., Xia, F., Sajjadi, M. S., Lynch, C., Chowdhery, A., Ichter, B., Wahid, A., Tompson, J., Vuong, Q., Yu, T., et al. Palm-e: An embodied multimodal language model. _arXiv preprint arXiv:2303.03378_, 2023.\n' +
+      '* Ge et al. (2023) Ge, T., Hu, J., Wang, X., Chen, S.-Q., and Wei, F. In-context autoencoder for context compression in a large language model. _arXiv preprint arXiv:2307.06945_, 2023.\n' +
+      '* Gemini Team Google (2023) Gemini Team Google. Gemini: A family of highly capable multimodal models. _arXiv preprint arXiv:2312.11805_, 2023.\n' +
+      '* Gillick et al. (2018) Gillick, D., Presta, A., and Tomar, G. S. End-to-end retrieval in continuous space. _arXiv preprint arXiv:1811.08008_, 2018.\n' +
+      '* Gillick et al. (2019) Gillick, D., Kulkarni, S., Lansing, L., Presta, A., Baldridge, J., le, E., and Garcia-Olano, D. Learning dense representations for entity retrieval. _arXiv preprint arXiv:1909.10506_, 2019.\n' +
+      '* Girdhar et al. (2023) Girdhar, R., El-Nouby, A., Liu, Z., Singh, M., Alwala, K. V., Joulin, A., and Misra, I. Imagebind: One embedding space to bind them all. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pp. 15180-15190, 2023.\n' +
+      '* Google (2023) Google, G. T. Gemini: A family of highly capable multimodal models, 2023.\n' +
+      '* Gu & Dao (2023) Gu, A. and Dao, T. Mamba: Linear-time sequence modeling with selective state spaces, 2023.\n' +
+      '* Gu et al. (2023) Gu, A., Johnson, I., Timalsina, A., Rudra, A., and Re, C. How to train your HIPPO: state space models with generalized orthogonal basis projections. In _The Eleventh International Conference on Learning Representations, ICLR 2023, Kigali, Rwanda, May 1-5, 2023_. OpenReview.net, 2023.\n' +
+      '* Han et al. (2023) Han, J., Gong, K., Zhang, Y., Wang, J., Zhang, K., Lin, D., Qiao, Y., Gao, P., and Yue, X. Onellm: One framework to align all modalities with language. _arXiv preprint arXiv:2312.03700_, 2023.\n' +
+      '* Harper & Konstan (2015) Harper, F. M. and Konstan, J. A. The movielens datasets: History and context. _ACM Trans. Interact. Intell. Syst._, 5(4), 2015. ISSN 2160-6455. doi: 10.1145/2827872.\n' +
+      '* He & McAuley (2016) He, R. and McAuley, J. Ups and downs: Modeling the visual evolution of fashion trends with one-class collaborative filtering. In _Proceedings of the 25th International Conference on World Wide Web_, 2016.\n' +
+      '* Hu et al. (2022) Hu, E. J., Shen, Y., Wallis, P., Allen-Zhu, Z., Li, Y., Wang, S., Wang, L., and Chen, W. LoRA: Low-rank adaptation of large language models. In _International Conference on Learning Representations_, 2022.\n' +
+      '* Jaegle et al. (2021) Jaegle, A., Gimeno, F., Brock, A., Vinyals, O., Zisserman, A., and Carreira, J. Perceiver: General perception with iterative attention. In _International conference on machine learning_, pp. 4651-4664. PMLR, 2021.\n' +
+      '* Ji et al. (2023) Ji, J., Li, Z., Xu, S., Hua, W., Ge, Y., Tan, J., and Zhang, Y. Genrec: Large language model for generative recommendation, 2023.\n' +
+      '* Jiang et al. (2020) Jiang, J.-Y., Wu, T., Roumpos, G., Cheng, H.-T., Yi, X., Chi, E., Ganapathy, H., Jindal, N., Cao, P., and Wang, W. End-to-end deep attentive personalized item retrieval for online content-sharing platforms. In _Proceedings of The Web Conference 2020_, pp. 2870-2877, 2020.\n' +
+      '* Jin et al. (2024) Jin, H., Han, X., Yang, J., Jiang, Z., Liu, Z., Chang, C.-Y., Chen, H., and Hu, X. Llm maybe longlm: Self-extend llm context window without tuning. _arXiv preprint arXiv:2401.01325_, 2024.\n' +
+      '* Kang et al. (2023) Kang, W.-C., Ni, J., Mehta, N., Sathiamoorthy, M., Hong, L., Chi, E., and Cheng, D. Z. Do llms understand user preferences? evaluating llms on user rating prediction, 2023.\n' +
+      '\n' +
+      '* Kaplan et al. (2020) Kaplan, J., McCandlish, S., Henighan, T., Brown, T. B., Chess, B., Child, R., Gray, S., Radford, A., Wu, J., and Amodei, D. Scaling laws for neural language models, 2020.\n' +
+      '* Kojima et al. (2022) Kojima, T., Gu, S. S., Reid, M., Matsuo, Y., and Iwasawa, Y. Large language models are zero-shot reasoners. In Koyejo, S., Mohamed, S., Agarwal, A., Belgrave, D., Cho, K., and Oh, A. (eds.), _Advances in Neural Information Processing Systems_, volume 35, pp. 22199-22213. Curran Associates, Inc., 2022.\n' +
+      '* Lester et al. (2021) Lester, B., Al-Rfou, R., and Constant, N. The power of scale for parameter-efficient prompt tuning. In _Proceedings of the 2021 Conference on Empirical Methods in Natural Language Processing_, 2021.\n' +
+      '* Li et al. (2022) Li, J., Shang, J., and McAuley, J. Uctopic: Unsupervised contrastive learning for phrase representations and topic mining. In _Proceedings of the 60th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)_, pp. 6159-6169, 2022.\n' +
+      '* Li et al. (2023) Li, R., Deng, W., Cheng, Y., Yuan, Z., Zhang, J., and Yuan, F. Exploring the upper limits of text-based collaborative filtering using large language models: Discoveries and insights, 2023.\n' +
+      '* Liu et al. (2023a) Liu, H., Zaharia, M., and Abbeel, P. Ring attention with blockwise transformers for near-infinite context. _arXiv preprint arXiv:2310.01889_, 2023a.\n' +
+      '* Liu et al. (2023b) Liu, J., Liu, C., Zhou, P., Lv, R., Zhou, K., and Zhang, Y. Is chatgpt a good recommender? a preliminary study, 2023b.\n' +
+      '* Liu et al. (2023c) Liu, N. F., Lin, K., Hewitt, J., Paranjape, A., Bevilacqua, M., Petroni, F., and Liang, P. Lost in the middle: How language models use long contexts. _arXiv preprint arXiv:2307.03172_, 2023c.\n' +
+      '* Liu et al. (2023d) Liu, Y., Shi, K., He, K. S., Ye, L., Fabbri, A. R., Liu, P., Radev, D., and Cohan, A. On learning to summarize with large language models as references, 2023d.\n' +
+      '* Lyu et al. (2023) Lyu, H., Jiang, S., Zeng, H., Wang, Q., Zhang, S., Chen, R., Leung, C., Tang, J., Xia, Y., and Luo, J. Llm-rec: Personalized recommendation via prompting large language models, 2023.\n' +
+      '* Ma et al. (2018) Ma, J., Zhao, Z., Yi, X., Chen, J., Hong, L., and Chi, E. H. Modeling task relationships in multi-task learning with multi-gate mixture-of-experts. In _Proceedings of the 24th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining_, pp. 1930-1939, 2018.\n' +
+      '* Moon et al. (2023) Moon, S., Madotto, A., Lin, Z., Nagarajan, T., Smith, M., Jain, S., Yeh, C.-F., Murugesan, P., Heidari, P., Liu, Y., et al. Anymal: An efficient and scalable any-modality augmented language model. _arXiv preprint arXiv:2309.16058_, 2023.\n' +
+      '* Mu et al. (2023) Mu, J., Li, X. L., and Goodman, N. Learning to compress prompts with gist tokens. _arXiv preprint arXiv:2304.08467_, 2023.\n' +
+      '* Ning et al. (2021) Ning, L., Singhal, K., Zhou, E. X., and Prakash, S. Learning federated representations and recommendations with limited negatives. _ArXiv e-prints_, 2021.\n' +
+      '* OpenAI (2023) OpenAI. Gpt-4 technical report. _ArXiv_, abs/2303.08774, 2023.\n' +
+      '* Petrov & Macdonald (2023) Petrov, A. V. and Macdonald, C. Generative sequential recommendation with gptrec, 2023.\n' +
+      '* Qiu et al. (2021) Qiu, Z., Wu, X., Gao, J., and Fan, W. U-bert: Pre-training user representations for improved recommendation. _Proceedings of the AAAI Conference on Artificial Intelligence_, 35, 2021.\n' +
+      '* Radford et al. (2021) Radford, A., Kim, J. W., Hallacy, C., Ramesh, A., Goh, G., Agarwal, S., Sastry, G., Askell, A., Mishkin, P., Clark, J., et al. Learning transferable visual models from natural language supervision. In _International conference on machine learning_, pp. 8748-8763. PMLR, 2021.\n' +
+      '* Reed et al. (2022) Reed, S., Zolna, K., Parisotto, E., Colmenarejo, S. G., Novikov, A., Barth-Maron, G., Gimenez, M., Sulsky, Y., Kay, J., Springenberg, J. T., et al. A generalist agent. _arXiv preprint arXiv:2205.06175_, 2022.\n' +
+      '* Sountsov & Sarawagi (2016) Sountsov, P. and Sarawagi, S. Length bias in encoder decoder models and a case for global conditioning. _arXiv preprint arXiv:1606.03402_, 2016.\n' +
+      '* Sun et al. (2019) Sun, F., Liu, J., Wu, J., Pei, C., Lin, X., Ou, W., and Jiang, P. Bert4rec: Sequential recommendation with bidirectional encoder representations from transformer. In Zhu, W., Tao, D., Cheng, X., Cui, P., Rundensteiner, E. A., Carmel, D., He, Q., and Yu, J. X. (eds.), _Proceedings of the 28th ACM International Conference on Information and Knowledge Management, CIKM 2019, Beijing, China, November 3-7, 2019_, pp. 1441-1450. ACM, 2019. doi: 10.1145/3357384.3357895.\n' +
+      '* Tay et al. (2022) Tay, Y., Dehghani, M., Bahri, D., and Metzler, D. Efficient transformers: A survey. _ACM Comput. Surv._, 55(6), dec 2022. ISSN 0360-0300. doi: 10.1145/3530811.\n' +
+      '* Touvron et al. (2019) Touvron, H., Martin, L., Stone, K., Albert, P., Almahairi, A., Babaei, Y., Bashlykov, N., Batra, S., Bhargava, P., Bhosale, S., Bikel, D., Blecher, L., Ferrer, C. C., Chen, M., Cucurull, G., Esiobu, D., Fernandes, J., Fu, J., Fu, W., Fuller, B., Gao, C., Goswami, V., Goyal, N., Hartshorn, A., Hosseini, S., Hou, R., Inan, H., Kardas, M., Kerkez,V., Khabsa, M., Kloumann, I., Korenev, A., Koura, P. S., Lachaux, M.-A., Lavril, T., Lee, J., Liskovich, D., Lu, Y., Mao, Y., Martinet, X., Mihaylov, T., Mishra, P., Molybog, I., Nie, Y., Poulton, A., Reizenstein, J., Runeta, R., Saladi, K., Schelten, A., Silva, R., Smith, E. M., Subramanian, R., Tan, X. E., Tang, B., Taylor, R., Williams, A., Kuan, J. X., Xu, P., Yan, Z., Zarov, I., Zhang, Y., Fan, A., Kambadur, M., Narang, S., Rodriguez, A., Stojnic, R., Edunov, S., and Scialom, T. Llama 2: Open foundation and fine-tuned chat models, 2023.\n' +
+      '* [7] Tworkowski, S., Staniszewski, K., Pacek, M., Wu, Y., Michalewski, H., and Milos, P. Focused transformer: Contrastive training for context scaling. _arXiv preprint arXiv:2307.03170_, 2023.\n' +
+      '* [8] Volkovs, M., Yu, G. W., and Poutanen, T. Dropoutnet: Addressing cold start in recommender systems. In _NIPS_, pp. 4957-4966, 2017.\n' +
+      '* [9] Wang, W., Dong, L., Cheng, H., Liu, X., Yan, X., Gao, J., and Wei, F. Augmenting language models with long-term memory. _arXiv preprint arXiv:2306.07174_, 2023.\n' +
+      '* [10] Wei, J., Wang, X., Schuurmans, D., Bosma, M., Ichter, B., Xia, F., Chi, E., Le, Q., and Zhou, D. Chain-of-thought prompting elicits reasoning in large language models, 2023.\n' +
+      '* [11] Wu, L., Zheng, Z., Qiu, Z., Wang, H., Gu, H., Shen, T., Qin, C., Zhu, C., Zhu, H., Liu, Q., Xiong, H., and Chen, E. A survey on large language models for recommendation, 2023a.\n' +
+      '* [12] Wu, S., Fei, H., Qu, L., Ji, W., and Chua, T.-S. Next-gpt: Any-to-any multimodal llm. _arXiv preprint arXiv:2309.05519_, 2023b.\n' +
+      '* 4 May 2023_, pp. 992-1002. ACM, 2023. doi: 10.1145/3543507.3583336.\n' +
+      '* [14] Xie, X., Sun, F., Liu, Z., Wu, S., Gao, J., Zhang, J., Ding, B., and Cui, B. Contrastive learning for sequential recommendation. In _2022 IEEE 38th international conference on data engineering (ICDE)_, pp. 1259-1273. IEEE, 2022.\n' +
+      '* [15] Xu, P., Ping, W., Wu, X., McAfee, L., Zhu, C., Liu, Z., Subramanian, S., Bakhturin, E., Shoeybi, M., and Catanzaro, B. Retrieval meets long context large language models. _arXiv preprint arXiv:2310.03025_, 2023a.\n' +
+      '* [16] Xu, S., Hua, W., and Zhang, Y. Openp5: Benchmarking foundation models for recommendation. _arXiv:2306.11134_, 2023b.\n' +
+      '* [17] Yan, A., He, Z., Li, J., Zhang, T., and McAuley, J. Personalized showcases: Generating multi-modal explanations for recommendations. In _Proceedings of the 46th International ACM SIGIR Conference on Research and Development in Information Retrieval_, pp. 2251-2255, 2023.\n' +
+      '* [18] Yang, J., Yi, X., Zhiyuan Cheng, D., Hong, L., Li, Y., Xiaoming Wang, S., Xu, T., and Chi, E. H. Mixed negative sampling for learning two-tower neural networks in recommendations. In _Companion Proceedings of the Web Conference 2020_, pp. 441-447, 2020.\n' +
+      '* [19] Yang, Y., Huang, C., Xia, L., Huang, C., Luo, D., and Lin, K. Debiased contrastive learning for sequential recommendation. In _Proceedings of the ACM Web Conference 2023_, WWW \'23, pp. 1063-1073, New York, NY, USA, 2023. Association for Computing Machinery. ISBN 9781450394161. doi: 10.1145/3543507.3583361.\n' +
+      '* [20] Yanga, Y., Yuanc, S., Cera, D., Konga, S.-y., Constanta, N., Pilarc, P., Gea, H., Sunga, Y.-H., Stropea, B., and Kurzweila, R. Learning semantic textual similarity from conversations. _ACL 2018_, pp. 164, 2018.\n' +
+      '* [21] Yao, T., Yi, X., Cheng, D. Z., Yu, F., Chen, T., Menon, A., Hong, L., Chi, E. H., Tjoa, S., Kang, J. J., and Ettinger, E. Self-supervised learning for large-scale item recommendations. In _Proceedings of the 30th ACM International Conference on Information & Knowledge Management_, CIKM \'21, pp. 4321-4330, New York, NY, USA, 2021. Association for Computing Machinery. ISBN 9781450384469. doi: 10.1145/3459637.3481952.\n' +
+      '* [22] Yi, X., Yang, J., Hong, L., Cheng, D. Z., Heldt, L., Kumthekar, A. A., Zhao, Z., Wei, L., and Chi, E. (eds.). _Sampling-Bias-Corrected Neural Modeling for Large Corpus Item Recommendations_, 2019.\n' +
+      '* [23] Yu, J., Wang, Z., Vasudevan, V., Yeung, L., Seyedhosseini, M., and Wu, Y. Coca: Contrastive captioners are image-text foundation models. arxiv 2022. _arXiv preprint arXiv:2205.01917_, 2022.\n' +
+      '\n' +
+      'A Encoder Architectures\n' +
+      '\n' +
+      'User-LLM uses a Transformer-based user encoder to generate user embeddings from ID-based feature sequences. To effectively fuse information from multimodal user interaction data, we explore and compare two fusion architectures: _early fusion_ and _late fusion_. Following the example shown in Fig. 4, each item in the user interaction timeline has three modalities: name, rating, and category. Each modality (or feature) has its own vocabulary. Items from each modality are mapped to an integer ID and have their own embedding representations. In an _early fusion_ architecture, the \\(i_{th}\\) item\'s three modalities (name, rating, and category) are combined into a fused embedding \\(f_{i}\\). The sequence of fused embeddings is then fed into the user encoder to generate user embeddings. On the other hand, a _late fusion_ architecture employs three separate feature encoders to process each modality independently. The resulting embeddings are combined to a single user embedding at a later stage using fusion layers.\n' +
+      '\n' +
+      '**Autoregressive Transformer** As described in Section 3.1, User-LLM employs an Autoregressive Transformer as the _early fusion_ encoder. Illustrated in Fig. 2, this model receives a sequence of user activities, where each activity is represented by multiple modalities (name, rating, and category). Individual features are first embedded, then concatenated and processed by a Transformer decoder. The Autoregressive Transformer Encoder generates a user embedding for each input item in the user\'s timeline.\n' +
+      '\n' +
+      '**Dual Encoder** The late-fusion encoder we investigated is a dual encoder architecture with separate \'user\' and \'label\' towers. The \'user tower\' utilizes Transformers and processes a series of input tokens, while the \'label tower\' processes the subsequent token (label) within the sequence. Each encoder generates an embedding representation of its respective input, and the similarity between these embeddings is calculated for loss computation via a softmax layer. When integrating with LLMs, we utilize only the \'user tower\' for user embedding generation. With the default setting, a Dual Encoder generates a single user embedding from an input sequence. The number of generated embeddings can be adjusted through the configuration of the fusion layers.\n' +
+      '\n' +
+      'Autoregressive Transformers and Dual Encoders offer different advantages for user embedding generation. Autoregressive Transformers excel at capturing long-range dependencies and contextual relationships within sequential data. However, they produce a fixed number of output embeddings (equal to the input sequence length), potentially introducing inefficiencies in the later LLM integration stage, especially when the sequence length is long. Furthermore, training these models can be computationally intensive.\n' +
+      '\n' +
+      'Compared to Autoregressive Transformers, Dual Encoders offer several advantages. The separate feature encoders within\n' +
+      '\n' +
+      'Figure 4: Encoder architectures supported in User-LLM: _early fusion_ and _late fusion_ user encoders.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:14]\n' +
+      '\n' +
+      '## Appendix D More Results\n' +
+      '\n' +
+      '### Next Item Prediction\n' +
+      '\n' +
+      'Table 11 and Table 10 show results comparing text-prompt-based approach and User-LLM in next item prediction tasks.\n' +
+      '\n' +
+      '### Autoregressive Encoder v.s. Dual Encoder\n' +
+      '\n' +
+      'Table 12 compares Autoregressive Encoder and Dual Encoder on long-term and short-term user context tasks. Refer to Columns 4 and 12 in Table 13 for the performance of these two encoders when utilizing a pretrained encoder and using **Full** training strategy.\n' +
+      '\n' +
+      '### Training Strategies and Encoder Pretraining\n' +
+      '\n' +
+      'Table 13 shows the performance of Autoregressive encoder based User-LLM under different training strategies. It also compares results between using a pretrained user encoder and a randomly initialized user encoder in the encoder-LLM integration stage.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c} \\hline \\hline\n' +
+      '**Dataset** & **Recall** & **TP** & **User-LLM** \\\\ \\hline \\multirow{3}{*}{Google Review} & @1 & **0.021** & 0.015 \\\\  & @5 & **0.061** & 0.050 \\\\  & @10 & **0.086** & 0.071 \\\\ \\hline \\multirow{3}{*}{Amazon Review} & @1 & 0.034 & **0.037** \\\\  & @5 & 0.042 & **0.047** \\\\  & @10 & 0.047 & **0.051** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 10: User-LLM v.s. TextPrompt(TP) baseline for next item prediction on Google Local Review and Amazon Review datasets. Note that we use full finetune for both User-LLM and TP.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c|c c|c c||c c|c c|c c} \\hline \\hline \\multirow{2}{*}{**Recall**} & \\multicolumn{6}{c||}{**Unfrozen LLM**} & \\multicolumn{6}{c}{**Frozen LLM**} \\\\ \\cline{2-10}  & \\multicolumn{2}{c|}{**Len50**} & \\multicolumn{2}{c|}{**Len100**} & \\multicolumn{2}{c||}{**Len200**} & \\multicolumn{2}{c|}{**Len50**} & \\multicolumn{2}{c|}{**Len100**} & \\multicolumn{2}{c}{**Len200**} \\\\ \\cline{2-10}  & **TP** & **User-LLM** & **TP** & **User-LLM** & **TP** & **User-LLM** & **TP** & **User-LLM** & **TP** & **User-LLM** \\\\ \\hline @1 & **0.060** & 0.054 & 0.034 & **0.037** & 0.018 & **0.020** & 0.023 & **0.053** & 0.017 & **0.040** & 0.011 & **0.031** \\\\ @5 & **0.172** & 0.164 & 0.101 & **0.118** & 0.058 & **0.067** & 0.071 & **0.164** & 0.053 & **0.127** & 0.034 & **0.102** \\\\ @10 & **0.251** & 0.243 & 0.151 & **0.181** & 0.090 & **0.106** & 0.108 & **0.244** & 0.080 & **0.198** & 0.053 & **0.159** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 11: Varying sequence length experiments on MovieLens20M with frozen LLM or unfrozen LLM. **Unfrozen LLM**: full finetune for TextPrompt(TP) model, training strategy _Full_ for User-LLM. **Frozen LLM**: LoRA parameters tuning for TextPrompt(TP) model, training strategy _Enc_ for User-LLM.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c c} \\hline \\hline \\multirow{2}{*}{**Dataset**} & \\multirow{2}{*}{**Recall**} & \\multicolumn{2}{c}{**AREnc-Xatten**} & \\multicolumn{2}{c}{**DualEnc-Xatten**} \\\\ \\cline{3-6}  & & **AR50** & **AR50TP10** & **DE50** & **DE50TP10** \\\\ \\hline \\multirow{3}{*}{MovieLens} & @1 & 0.054 & **0.059** & 0.044 & 0.051 \\\\  & @5 & 0.164 & **0.173** & 0.135 & 0.151 \\\\\n' +
+      '20M & @10 & 0.243 & **0.252** & 0.206 & 0.221 \\\\ \\hline \\multirow{3}{*}{Google Review} & @1 & 0.015 & **0.021** & 0.014 & 0.020 \\\\  & @5 & 0.052 & **0.061** & 0.046 & 0.055 \\\\  & @10 & 0.071 & **0.082** & 0.066 & 0.078 \\\\ \\hline \\multirow{3}{*}{Amazon Review} & @1 & 0.037 & **0.041** & 0.020 & 0.030 \\\\  & @5 & 0.047 & **0.051** & 0.024 & 0.038 \\\\ \\cline{1-1}  & @10 & 0.051 & **0.055** & 0.026 & 0.040 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 12: Experiments on short-term text prompt long-term embedding with two encoder architectures: Autoregressive Encoder and Dual Encoder. **AR50**: With \\(50\\) user events as Autoregressive Encoder inputs. **AR50TP10**: With \\(50\\) user events as Autoregressive Encoder inputs and \\(10\\) most recent events in text format as LLM inputs. **DE50**: With \\(50\\) user events as Dual Encoder inputs. **DE50TP10**: With \\(50\\) user events as Dual Encoder inputs and \\(10\\) most recent events in text format as LLM inputs.\n' +
+      '\n' +
+      '### Cross-attention v.s. Soft-prompt\n' +
+      '\n' +
+      'Table 14 compares the performance of two encoder-LLM integration strategies: _cross-attention_ and _soft-prompt_.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l l l l l l l l l l l l} \\hline \\hline  & & & \\multicolumn{6}{c}{**AREnc-Xatten(User-LLM)**} & \\multicolumn{3}{c}{**DualEnc-Xatten**} \\\\ \\cline{3-11} \\multicolumn{1}{c}{**Dataset**} & \\multirow{2}{*}{**Metric**} & \\multicolumn{2}{c}{**Full**} & \\multicolumn{2}{c}{**LoRA**} & \\multicolumn{2}{c}{**Enc**} & \\multicolumn{2}{c}{**Proj**} & \\multicolumn{2}{c}{**Full + PT**} \\\\ \\cline{3-11} \\multicolumn{1}{c}{} & & & **PT** & **RD** & **PT** & **RD** & **PT** & **RD** & **PT** & **RD** \\\\ \\hline \\multirow{8}{*}{NextItem} & MovieLens20M & R@1 & **0.054** & 0.041 & 0.053 & 0.043 & 0.052 & 0.041 & 0.040 & 0.002 & 0.044 \\\\  & R@5 & **0.164** & 0.133 & 0.164 & 0.136 & **0.164** & 0.133 & 0.134 & 0.008 & 0.142 \\\\  & R@10 & 0.243 & 0.203 & **0.244** & 0.205 & 0.243 & 0.204 & 0.203 & 0.013 & 0.218 \\\\ \\cline{2-11}  & \\multirow{4}{*}{Google Review} & R@1 & 0.015 & 0.015 & **0.016** & 0.015 & 0.015 & 0.015 & 0.015 & 0.015 & 0.015 & 0.014 \\\\  & R@5 & 0.050 & **0.052** & 0.051 & 0.050 & 0.051 & 0.051 & 0.051 & 0.050 & 0.042 & 0.046 \\\\  & R@10 & **0.071** & **0.071** & 0.070 & 0.070 & 0.070 & 0.070 & 0.070 & 0.057 & 0.066 \\\\ \\cline{2-11}  & \\multirow{4}{*}{Amazon Review} & R@1 & **0.037** & 0.023 & 0.028 & 0.018 & 0.028 & 0.022 & 0.014 & 0.000 & 0.020 \\\\  & R@5 & **0.047** & 0.031 & 0.035 & 0.026 & 0.034 & 0.029 & 0.019 & 0.000 & 0.024 \\\\  & R@10 & **0.051** & 0.037 & 0.038 & 0.029 & 0.036 & 0.030 & 0.021 & 0.0003 & 0.026 \\\\ \\hline \\multirow{8}{*}{FavGenre (FavCat)} & MovieLens20M & R@5 & **0.096** & 0.094 & **0.096** & 0.094 & **0.096** & 0.094 & 0.093 & 0.093 & 0.091 & 0.094 \\\\  & R@10 & 0.099 & 0.099 & 0.099 & 0.099 & 0.099 & 0.099 & 0.099 & 0.099 & 0.091 & 0.099 \\\\ \\cline{2-11}  & \\multirow{4}{*}{Google Review} & R@1 & **0.862** & 0.853 & 0.844 & 0.785 & 0.844 & 0.775 & 0.615 & 0.142 & 0.797 \\\\  & R@5 & **0.951** & 0.944 & 0.938 & 0.915 & 0.937 & 0.911 & 0.855 & 0.505 & 0.920 \\\\  & R@10 & **0.964** & 0.956 & 0.948 & 0.941 & 0.949 & 0.936 & 0.909 & 0.660 & 0.944 \\\\ \\cline{2-11}  & \\multirow{4}{*}{Amazon Review} & R@1 & **0.890** & 0.882 & 0.887 & 0.884 & 0.885 & 0.886 & 0.850 & 0.223 & 0.854 \\\\ \\cline{2-11}  & & \\multirow{4}{*}{Amazon Review} & R@5 & 0.934 & **0.948** & 0.917 & 0.931 & 0.917 & 0.930 & 0.918 & 0.663 & 0.912 \\\\ \\cline{1-1}  & & & & & & & & & & & & & \\\\ \\cline{1-1}  & & & & & & & & & & & & & \\\\ \\cline{1-1}  & & & & & & & & & & & & & \\\\ \\cline{1-1}  & & & & & & & & & & & & & \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 13: User-LLM experiments results with different training strategies and different user encoder architectures. **PT**: Pretrained user encoder. **RD**: Randomly initialized user encoder.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l l l l l l l l l l l} \\hline \\hline  & & & \\multicolumn{4}{c}{_cross-attention_ (User-LLM)} & \\multicolumn{4}{c}{_soft-prompt_} \\\\ \\cline{3-11}  & & & \\multicolumn{2}{c}{Full} & \\multicolumn{2}{c}{LoRA} & \\multicolumn{2}{c}{Enc} & \\multicolumn{2}{c}{Proj} & \\multicolumn{2}{c}{Full} & \\multicolumn{2}{c}{LoRA} & \\multicolumn{2}{c}{Enc} & \\multicolumn{2}{c}{Proj} \\\\ \\hline \\multirow{3}{*}{NextItem} & MovieLens20M & R@1 & **0.054** & 0.053 & 0.052 & 0.040 & 0.051 & 0.036 & 0.0047 & 0.0025 \\\\  & Google Review & R@1 & 0.015 & **0.016** & 0.015 & 0.015 & 0.013 & 0.008 & 0.012 & 0.008 \\\\  & Amazon Review & R@1 & **0.037** & 0.028 & 0.028 & 0.014 & 0.031 & 0.01\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:17]\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>

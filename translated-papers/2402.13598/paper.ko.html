@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# User-LLM: User Embeddings를 이용한 효율적인 LLM 컨텍스트화\n' +
+      '\n' +
+      'Lin Ning\n' +
+      '\n' +
+      'Luyang Liu\n' +
+      '\n' +
+      'Jiaxing Wu\n' +
+      '\n' +
+      'Neo Wu\n' +
+      '\n' +
+      'Devora Berlowitz\n' +
+      '\n' +
+      'Sushant Prakash\n' +
+      '\n' +
+      'Bradley Green\n' +
+      '\n' +
+      'Shawn O\'Banion\n' +
+      '\n' +
+      'Jun Xie\n' +
+      '\n' +
+      'Google Research\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      '대규모 언어 모델(LLM)은 자연어 처리에 혁명을 일으켰다. 그러나, 복잡하고 잠재적으로 시끄러운 사용자 상호 작용 데이터를 효과적으로 통합하는 것은 여전히 과제로 남아 있다. 이를 해결하기 위해 LLM을 맥락화하기 위해 사용자 임베딩을 활용하는 새로운 프레임워크인 User-LLM을 제안한다. 자가 감독 사전 훈련을 사용하여 다양한 사용자 상호 작용에서 증류된 이러한 임베딩은 시간이 지남에 따라 잠재된 사용자 선호도와 그 진화를 포착한다. 이러한 사용자 임베딩을 교차 주의 및 소프트 프롬프트를 통해 LLM과 통합하여 LLM이 사용자 컨텍스트에 동적으로 적응할 수 있도록 한다. 무비렌즈, 아마존 리뷰 및 구글 로컬 리뷰 데이터 세트에 대한 포괄적인 실험은 다양한 작업에 걸쳐 상당한 성능 향상을 보여준다. 특히, 우리의 접근 방식은 계산 효율적이면서도 깊은 사용자 이해가 필요한 긴 시퀀스 작업 및 작업에서 텍스트 기반 상황화를 능가한다. 우리는 사용자 인코더와 LLM 간의 통합을 간소화하기 위해 Perceiver 레이어를 추가로 통합하여 계산 요구를 줄입니다.\n' +
+      '\n' +
+      '머신러닝, ICML, ICML\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      '대형 언어 모델(LLM)은 자연어 처리(NLP) 분야에 혁명을 일으켰다(Brown et al., 2020; Chowdhery et al., 2023; OpenAI, 2023; Touvron et al., 2023; Anil et al., 2023; Google, 2023). 대량의 텍스트 데이터로부터 학습하고 적응할 수 있는 능력으로 LLM은 사용자 모델링 및 개인화에 상당한 기회를 제공한다. 사용자 상호 작용을 분석하고 사용자 선호도를 이해함으로써, LLM은 파워 추천(Liu et al., 2023; Lyu et al., 2023; Ji et al., 2023), 언어 생성, 요약(Liu et al., 2023; Basyal and Sanghvi, 2023), 및 질문 응답(Kojima et al., 2022; Wei et al., 2023)에 매우 관련성이 있고 사용자에게 관여할 수 있는 방식으로 활용될 수 있다. 이를 통해 보다 개인화된 상황인지 언어 기반 애플리케이션 및 서비스를 만들 수 있습니다.\n' +
+      '\n' +
+      '사용자 상호작용은 디지털 시스템과의 사용자의 참여로부터 생성된 행동 데이터의 풍부한 소스를 나타낸다. 텍스트 입력, 검색 쿼리, 미디어 소비(예: 시청 또는 평가된 비디오)에서 소셜 미디어 활동, 내비게이션 패턴, 위치 방문 등에 이르기까지 광범위한 범위에서 이러한 상호 작용은 사용자 모델링을 위한 귀중한 통찰력을 보유한다. LLM으로 이 데이터를 활용하는 한 가지 간단한 접근법은 텍스트 프롬프트로 사용자의 상호 작용 이력을 사용하여 텍스트 구성 요소에서 LLM을 직접 미세 조정하는 것이다. 그러나 사용자 상호 작용 데이터는 종종 복잡하여 희소한 데이터 포인트, 다양한 상호 작용 유형(멀티모달) 및 잠재적인 노이즈 또는 불일치가 있는 여러 여정에 걸쳐 있다. 이러한 복잡성은 LLM의 가장 관련성이 높은 패턴을 식별하고 집중하는 능력을 방해할 수 있다. 더욱이, 효과적인 개인화는 종종 방대한 표면 수준의 언어 코퍼스에서 주로 훈련된 LLM에 어려움을 초래할 수 있는 사용자 행동 뒤에 있는 맥락과 잠재 의도에 대한 깊은 이해를 필요로 한다. 추가적으로, 확장된 이력들과 같은 사용자 상호작용 데이터는 매우 길 수 있다. LLM을 사용하여 이러한 긴 시퀀스(예: 1년치 역사)를 처리하고 모델링하면 계산이 제한될 수 있다.\n' +
+      '\n' +
+      '도 1: 사용자 상호 작용 이력 데이터를 LLM에 통합하기 위한 두 가지 상이한 메커니즘의 일러스트레이션. (1) 사용자 이력 데이터는 자연어로 표현되고 텍스트 프롬프트를 통해 LLM에 공급되며; (2) 사용자 이력 데이터로부터 증류된 사용자 임베딩은 LLM을 컨텍스트화하는 데 사용된다.\n' +
+      '\n' +
+      '출처가 있어서 사실상 불가능합니다. 이러한 문제를 해결하는 것은 사용자 모델링 및 개인화에서 LLM의 잠재력을 완전히 해제하는 데 핵심이다.\n' +
+      '\n' +
+      'LLM으로 원시 사용자 상호 작용 데이터를 활용하는 것의 고유한 복잡성과 한계를 해결하기 위해 그림 1과 같이 사용자 임베딩 중심의 새로운 접근법을 제안한다. 이러한 압축 표현은 다양하고 시끄러운 사용자 상호 작용에서 증류되며 다양한 상호 작용 양식에 걸쳐 사용자의 행동 패턴과 선호도의 본질을 효과적으로 포착한다. 최종 조정 또는 추론 중에 LLM을 사용자 임베딩으로 컨텍스트화하여\n' +
+      '\n' +
+      '* 복잡성 및 잡음을 탐색하는 관련 패턴들을 식별하는 능력을 향상시키고,\n' +
+      '* 잠재 의도, 동적 컨텍스트, 및 사용자 액션들 이면의 시간적 진화에 대한 이해 및 적응을 용이하게 하고,\n' +
+      '* 응축된 표현으로 작업함으로써 광범위한 상호 작용 이력을 처리하는 계산 요구를 완화한다.\n' +
+      '\n' +
+      '이 접근 방식은 LLM에게 사용자의 과거 패턴과 잠재 의도에 대한 더 깊은 이해를 가능하게 하여 LLM이 응답을 맞춤화하고 개인화된 결과를 생성할 수 있게 한다.\n' +
+      '\n' +
+      '우리의 접근법은 고품질 사용자 임베딩을 생성하는 것과 이러한 사용자 임베딩을 사용하여 LLM을 컨텍스트화하는 두 가지 주요 단계로 구성된다. 1단계에서는 사용자 상호 작용 데이터에서 트랜스포머 기반 인코더를 사전 훈련하여 여러 상호 작용 양식에 걸친 행동 패턴을 캡처하기 위해 자체 지도 학습을 활용한다. 다중 특징 자동 회귀 변환기를 사용하여 다중 모드 사용자 데이터를 효과적으로 처리하면서 순차적 데이터 내에서 장거리 종속성과 문맥 관계를 캡처하는 임베딩을 생성한다. 2단계에서는, 미리 훈련된 사용자 인코더로부터의 출력 임베딩에 LLM의 중간 텍스트 표현들이 참석하는 _cross-attention_를 사용하여 미세 조정 동안 사용자 임베딩들을 LLM과 통합함으로써, 동적 컨텍스트 주입을 가능하게 한다(Flamingo와 유사함(Alayrac et al., 2022)).\n' +
+      '\n' +
+      '우리는 세 가지 공공 데이터 세트와 다양한 작업에 걸친 포괄적인 연구를 제시한다. 우리의 연구 결과는 임베딩 기반 접근법이 원시 텍스트 사용자 상호 작용 데이터에서 LLM을 직접 미세 조정하는 것과 관련된 한계를 성공적으로 완화한다는 것을 확실하게 보여준다. 이 접근법은 사용자 이해, 개인화된 추천 및 텍스트 생성을 포함한 여러 응용 도메인에서 성능을 향상시킬 수 있는 큰 잠재력을 보여준다.\n' +
+      '\n' +
+      '우리의 기부금은 4배입니다\n' +
+      '\n' +
+      '* 우리는 LLM을 맥락화하기 위해 다양한 양식(예: 비디오 시청 이력, 등급, 위치 방문)에서 증류된 사용자 임베딩을 활용하는 다용도 프레임워크인 User-LLM을 소개한다. 다양한 상호 작용 양식의 사용자 선호도 및 행동을 동적으로 통합하여 LLM 이해 및 개인화 기능을 향상시키면서 다양한 인코더 아키텍처 및 멀티모달 융합 메커니즘을 지원한다.\n' +
+      '* 우리는 최첨단 기준선에 대해 사용자-LLM을 엄격하게 평가하여 특히 심층적인 사용자 이해 및 긴 컨텍스트 입력을 요구하는 작업에서 상당한 성능 개선을 보여준다. 우리의 접근법은 계산 효율성을 유지하면서 개인화에 탁월하며 전통적인 텍스트 프롬프트 기반 상황화를 능가한다.\n' +
+      '* 사용자-LLM은 유연한 훈련 전략을 제공한다. 특히, LLM을 동결 상태로 유지하면서 사용자 인코더만 미세 조정하는 것은 LLM을 효과적으로 맥락화하고 LoRA 기반 텍스트 프롬프트 LLM 튜닝(또한 원래의 LLM 가중치를 보존함)보다 우수하다. 이는 사용자-LLM의 적응성을 강조하여 핵심을 변경하지 않고 LLM을 효과적으로 맥락화하고 언어 모델링 및 일반화 능력을 유지한다.\n' +
+      '* 우리는 사용자 임베딩을 통합하기 위한 _cross-attention_ 및 _soft-prompt_ 접근법에 대한 심층 분석을 제공하며, 추가 효율성 이득을 위해 _Perceiver_ 레이어의 잠재력을 탐색한다. 광범위한 절제 연구는 다양한 사용자-LLM 구성 요소 및 설계 선택의 영향에 대한 실용적인 지침을 제공한다.\n' +
+      '\n' +
+      '##2 관련 업무\n' +
+      '\n' +
+      '### User Modeling\n' +
+      '\n' +
+      '이중 인코더 및 자가 지도 학습은 사용자 모델 및 추천 시스템에 널리 사용되고, 사용자 이해 및 개인화 신호로서 전이 가능한 표현을 제공한다(Covington et al., 2016; 20; Sountsov and Sarawagi, 2016; Volkovs et al., 2017; Chidambaram et al., 2018; Gillick et al., 2018; Yang et al., 2018; Ma et al., 2018; Yi et al., 2019; Gillick et al., 2019; Yang et al., 2020; Jiang et al., 2020; Ning et al., 2021). 대비 학습(Yao et al., 2021; Xie et al., 2022; Chen et al., 2022; Xia et al., 2023) 및 그래프 표현 학습(Cai et al., 2023; Yang et al., 2023)과 같은 다른 자기 지도 학습 접근법은 거대하지만 잡음이 많은 사용자 상호작용 데이터로부터 고품질 표현을 학습하는 것으로 입증되었다. 최근에는 순차 추천 시스템에 미리 학습된 BERT 모델(Devlin et al., 2018)이 적용되고 있다. 예를 들어, Bert4Rec(Sun et al., 2019) 및 U-Bert(Qiu et al., 2021)는 사용자의 행동을 자가 감독 방식으로 모델링하기 위해 사전 훈련 및 미세 조정 접근법을 레버리지한다. 우리의 연구는 사용자 모델링 및 개인화를 더욱 향상시키기 위해 LLM의 새로운 기능과 사용자 표현을 통합할 수 있는 가능성을 탐구한다.\n' +
+      '\n' +
+      '### 언어 모델 기반 개인화\n' +
+      '\n' +
+      'LLM의 출현은 구별 모델에 비해 우수한 자연 언어 생성 능력을 입증하기 위해 생성 모델을 추진했다. 사용자 이력 상호 작용을 프롬프트로서 포맷하고 LLM을 활용하여 다양한 태스크에 걸쳐 추천을 생성하기 위한 다양한 방법에 대한 광범위한 작업이 있었다(Petrov 및 Macdonald, 2023; Kang et al., 2023; Xu et al., 2023; Liu et al., 2023; Lyu et al., 2023; Ji et al., 2023; Li et al., 2023; Wu et al., 2023a). 그러나, 사용자의 전체 이력을 LLM의 컨텍스트 윈도우에 직접 통합하는 것은 종종 비실용적이거나 과도하게 비싸다. 앞서 언급한 접근법과 달리 LLM을 맥락화하기 위해 사용자 임베딩을 활용할 것을 제안한다.\n' +
+      '\n' +
+      '최근 연구(Doddapaneni et al., 2024)는 사용자 활동 텍스트로부터 도출된 사용자 임베딩을 이용하여 LLM 개인화를 탐색하였다. 이와는 대조적으로, 우리는 보다 효율적인 접근을 위해 사용자 활동 토큰을 활용한다. 또한, 정교한 융합 기법을 사용하여 여러 데이터 세트 및 작업에 걸쳐 포괄적인 경험적 평가를 수행하여 본 방법의 능력에 대한 철저한 평가를 제공한다.\n' +
+      '\n' +
+      '### LLMs의 긴 문맥\n' +
+      '\n' +
+      '모델이 장기적인 사용자 데이터와 행동 패턴을 통합하려면 긴 컨텍스트가 중요합니다. LLM에 대한 긴 맥락을 가능하게 하기 위한 광범위한 작업이 있었다. 하나의 작업 라인은 긴 컨텍스트의 위치 인코딩들을 원래의 윈도우 사이즈로 재매핑함으로써 컨텍스트 윈도우를 확장하는 것이다(Chen et al., 2023; Jin et al., 2024), 또는 어텐션 계층들의 서브세트에 이용 가능한 관련 추가 컨텍스트들을 노출시킴으로써(Tworkowski et al., 2023). 또 다른 방향은 별도의 검색 모델(Xu et al., 2023a) 또는 메모리 뱅크(Wang et al., 2023) 등을 이용하여 기존 윈도우에 맞도록 긴 문맥으로 정보를 증류하거나, 특수 토큰(Ge et al., 2023; Mu et al., 2023; Chevalier et al., 2023)을 학습하여 정보를 압축하는 것이다. 다른 접근법들은 수정된 어텐션 계산(Ding et al., 2023; Liu et al., 2023; Chen et al., 2023) 및 구조화된 상태 공간 모델들과 같은 선형 어텐션 프레임워크들(Gu et al., 2023; Gu and Dao, 2023; Tay et al., 2022)을 포함한다. 이 방법은 각 사용자 이벤트를 표현하기 위해 단일 토큰을 사용하여 긴 컨텍스트를 해결한다. 추출된 표현들은 LLM 텍스트 임베딩 공간과 정렬된다. 따라서, 우리의 모델은 기존의 LLM 기반 기술 및 응용 프로그램과 호환된다.\n' +
+      '\n' +
+      '### Multimodal LLM\n' +
+      '\n' +
+      'CLIP(Radford et al., 2021) 및 ImageBind(Girdhar et al., 2023)와 같은 초기 멀티모달 LLM들은 이미지 및 텍스트 표현들을 정렬하는 것에 의존하였다. 이어서, 교차-어텐션(예를 들어, 플라밍고(Alayrac et al., 2022), Coca(Yu et al., 2022)) 및 소프트 프롬프트(예를 들어, PaLI(Chen et al., 2022), Palm-E(Driess et al., 2023))를 활용하는 융합 기술들이 등장하였다. NextGPT(Wu et al., 2023b), OneLLM(Han et al., 2023) 및 Anymal(Moon et al., 2023)과 같은 최근 연구는 다양한 입력 양식에 대한 통합된 프레임워크를 탐색했다. 또한, 가토(Reed et al., 2022)와 제미니(Gemini Team Google, 2023)에서 볼 수 있듯이 멀티모달 모델의 종단간 훈련이 주목을 받고 있다. 이러한 발전에 영감을 받아 사용자-LLM은 사용자 이해 능력을 가진 효율적인 LLM 상황화에 중점을 둔다.\n' +
+      '\n' +
+      '## 3 User-LLM\n' +
+      '\n' +
+      '이 섹션에서는 그림 2와 같이 사용자 임베딩으로 LLM을 컨텍스트화하기 위한 2단계 접근법인 User-LLM 프레임워크를 소개한다. 먼저 미리 훈련된 사용자 인코더가 사용자 임베딩을 생성한다. 둘째, 이러한 임베딩은 _cross-attention_ 또는 _soft-prompt_ 기술을 통해 LLM에 통합되어, LLM 추가 컨텍스트 및 개인화된 응답을 생성하기 위한 안내를 제공한다.\n' +
+      '\n' +
+      '### Embedding Generation\n' +
+      '\n' +
+      '사용자-LLM은 트랜스포머 기반 인코더를 활용하여 ID 기반 특징 시퀀스로부터 사용자 임베딩을 생성한다. 사용자 데이터가 \\(a\\)와 \\(b\\)의 두 가지 양식을 포함하는 시나리오를 고려하십시오. 각 양식에는 고유한 어휘가 있습니다. 각 모달리티로부터의 아이템들은 정수 ID들에 매핑되고, 별개의 임베딩 표현들을 갖는다. 결합된 표현을 생성하기 위해 정렬된 항목 \\(a_{i}\\)과 \\(b_{i}\\)을 하나의 임베딩 \\(f_{i}\\)으로 융합한다. 융합된 임베딩들의 시퀀스는 사용자 임베딩들을 생성하기 위한 사용자 인코더에 대한 입력으로서 작용한다.\n' +
+      '\n' +
+      '**Autoregressive Encoder** 이 작업에서는 사용자 인코더로 Autoregressive Transformer를 사용한다. 도 1에 도시된 바와 같다. 도 2(왼쪽)에서, 이 모델은 사용자 활동들의 시퀀스를 취하며, 여기서 각각의 활동은 다수의 모달리티들(예를 들어, 아이템 이름, 등급, 카테고리)에 의해 기술된다. 개별 특징은 별도로 내장된 다음, 트랜스포머 디코더에 의해 연결 및 처리된다. 출력은 원래 피쳐 공간으로 다시 투영되며, 여기서 촬영장비별 소프트맥스 레이어는 로짓 수를 계산합니다. 입력 임베딩 및 출력 소프트맥스 레이어는 가중치를 공유한다는 점에 유의한다.\n' +
+      '\n' +
+      '자기 회귀 설계는 모델이 최적화를 위해 교차 엔트로피 손실을 사용하여 이전 토큰을 기반으로 향후 토큰을 예측할 수 있도록 한다. 자기회귀 변환기는 입력 토큰들의 시퀀스가 주어지면 그에 상응하는 임베딩들을 생성한다. 이러한 임베딩은 LLM의 사용자 컨텍스트 역할을 하여 개인화된 응답 생성을 가능하게 한다.\n' +
+      '\n' +
+      '우리의 프레임워크는 다양한 사용자 인코더를 지원하면서 적응할 수 있습니다. 듀얼 엔코더와 같은 대안을 실험하여 경쟁력 있는 결과를 얻었습니다.\n' +
+      '\n' +
+      '사용자 임베딩을 이용한### LLM 컨텍스트화\n' +
+      '\n' +
+      '###### 3.2.1 모델 아키텍처\n' +
+      '\n' +
+      'User-LLM은 _cross-attention_를 사용하여 사용자 임베딩을 LLM들과 통합한다(도 2 참조). 미리 훈련된 사용자 인코더로부터의 출력 임베딩들은 Flamingo Alayrac 등(2022)이 동작하는 방법과 유사하게 LLM 내의 중간 텍스트 표현들과 교차-참석된다. 우리의 프레임워크는 _soft-prompt_Lester 등(2021)과 같이 사전 임베딩들을 포함하는 상이한 통합 메커니즘들에 적응가능함을 유념한다.\n' +
+      '\n' +
+      '#### 3.2.2 Efficiency\n' +
+      '\n' +
+      '텍스트 기반 방법에 비해 사용자-LLM은 상당한 효율성 향상을 제공한다. 먼저, 사용자 인코더와 LLM 모두의 사전 훈련된 가중치를 활용하여 훈련 가능한 파라미터가 적은 모델 수렴 속도를 개선한다. 또한, 사용자-LLM은 사용자 활동을 조밀한 표현으로 응축하여 이벤트당 단일 토큰만을 요구한다. 이는 LLM의 컨텍스트 윈도우를 자유롭게 하여 추론 효율을 향상시킨다. 또한, User-LLM은 _cross-attention_을 활용하여 LLM의 모델 차원보다 작은 차원으로 사용자 임베딩을 유지하고 프로젝션 연산이 필요하지 않게 한다. 이러한 설계 선택은 훈련 및 추론 동안 계산 오버헤드를 상당히 감소시킨다.\n' +
+      '\n' +
+      '추론 효율을 더욱 최적화하기 위해, User-LLM은 _Perceiver_Jaegle 등(2021) 유닛을 자신의 프로젝션 레이어에 통합한다. _ Perceiver_는 크로스 어텐션을 통해 입력 표현으로부터 관련 정보를 추출하기 위해 훈련 가능한 잠재 쿼리를 활용하는 트랜스포머 기반 아키텍처이다. User-LLM에서, _Perceiver_는 더 짧은 시퀀스 길이를 갖는 잠재 쿼리를 사용하여 사용자 임베딩들을 컴팩트한 포맷으로 효과적으로 압축한다. 이 압축은 사용자 이력을 나타내는 데 필요한 토큰의 수를 감소시켜 LLM의 컨텍스트 창을 더욱 자유롭게 한다. 이는 시끄러운 컨텍스트로부터 통찰력을 증류하는 _Perceiver_의 능력과 함께 사용자-LLM을 광범위한 사용자 이력을 갖는 실제 응용에 이상적으로 만든다.\n' +
+      '\n' +
+      '###### 3.2.3 훈련 전략\n' +
+      '\n' +
+      '사용자-LLM은 다양한 사용 사례에 맞게 성능을 조정할 수 있는 유연한 교육 전략을 제공한다. 사용자-LLM의 기능을 철저히 탐구하기 위해 우리는 주로 서로 다른 모델 구성 요소를 대상으로 하는 4가지 전략을 조사했다.\n' +
+      '\n' +
+      '**Full**: 전체 모델(LLM, 사용자 인코더 및 투영 레이어)을 미세 조정하는 것은 사용자 상호 작용에 대한 최대 파라미터 적응을 가능하게 하여 사용자-LLM의 개인화 잠재력의 상한을 드러낸다.\n' +
+      '**Enc**: 사용자 인코더 및 프로젝션 레이어(LLM frozen)를 파인튜닝하는 것은 LLM이 특정 사용자 데이터에 오버피팅되는 것을 방지하면서 효율적인 LLM 컨텍스트화 접근법을 제공한다. 이것은 LLM의 일반적인 언어 능력을 유지한다.\n' +
+      '**LoRA**: LLM을 LoRA(Low-Rank Adaptation) Hu et al.(2022)로 Finetuning하는 것은 사용자 인코더 및 프로젝션 레이어와 함께, 치명적인 망각을 방지하고 LLM의 핵심 지식을 유지하는 파라미터 효율성을 제공한다.\n' +
+      '**Proj**: 프로젝션 레이어들(LLM 및 사용자 인코더 동결됨)만을 피네튜닝하는 것은 효과적인 LLM 상황화에 필요한 최소 파라미터 튜닝을 평가한다.\n' +
+      '\n' +
+      '도 2: **User-LLM의 개요. 좌측: 멀티모달 자기회귀 트랜스포머 인코더 프리 트레이닝. 오른쪽: 사용자 임베딩을 사용한 LLM 상황화입니다. 사용자의 상호 작용 이력의 특징은 자동 회귀 사용자 인코더에 의해 인코딩된 다음 _cross-attention_.**를 통해 언어 모델에 통합된다.\n' +
+      '\n' +
+      '## 4 Experiments\n' +
+      '\n' +
+      '### 데이터 세트 및 작업\n' +
+      '\n' +
+      '우리는 널리 인식된 세 가지 데이터 세트에 대해 접근 방식을 평가했다. 표 1은 처리 후 그들의 통계를 요약한 것이다. 특히 아마존 리뷰 데이터 세트는 희소성과 변동성이 높은 것으로 잘 알려져 있으며 훨씬 적은 수의 훈련 및 평가 예를 포함한다.\n' +
+      '\n' +
+      '***MovieLens20M1** 이것은 개인화 및 추천 알고리즘을 평가하기 위해 널리 사용되는 벤치마크 데이터세트(Harper and Konstan, 2015)이다. 상호 작용 기능은 영화 이름, 장르 및 등급입니다. 각주 1: [https://grouplens.org/datasets/movielens/](https://grouplens.org/datasets/movielens/]\n' +
+      '이 데이터셋은 Google Maps에 대한 리뷰 정보를 2021년 9월까지 포함하고 있으며, 실험을 위해 뉴욕의 데이터를 사용하였다. 상호작용 기능은 장소 이름, 장소 범주, 등급 및 검토입니다. 각주 2: [https://datarepo.eng.ucsd.edu/mcauley_group/gdrive/googlelocal/](https://datarepo.eng.ucsd.edu/mcauley_group/gdrive/googlelocal/)\n' +
+      'Amazon Review Dataset3**(He and McAuley, 2016) Amazon.com에서 크롤링된 일련의 제품 리뷰 데이터 세트이며, 평가를 위해 "Movie_and_TV" 카테고리를 사용했다. 상호작용 특징은 사용자가 작성한 짧은 의견 요약인 제품 제목, 제품 카테고리, 평점, 리뷰 요약이다. 각주 3: [https://nijianmo.github.io/amazon/index.html](https://nijianmo.github.io/amazon/index.html)\n' +
+      '\n' +
+      '각 사용자의 특징 시퀀스(타임스탬프로 분류)에 슬라이딩 윈도우를 적용하여 학습 및 테스트 예제를 생성하였다. 이렇게 하면 N개의 항목을 포함하는 입력이 생성되며, 다음 항목은 레이블로 표시됩니다. 모델 평가 일관성을 보장하기 위해, 최종 예제(가장 최근의 상호 작용을 나타냄)는 각 사용자에 대한 테스트 예제로 사용되며 트레이닝 세트에 결코 포함되지 않는다.\n' +
+      '\n' +
+      '다양한 평가 요구를 해결하기 위해 세 가지 유형의 작업에 대한 모델 성능에 접근했다.\n' +
+      '\n' +
+      '***다음 아이템 예측** 아이템들의 이력 시퀀스가 주어지면, 모델은 후속 아이템을 예측한다. 예를 들어, 이전에 시청한 영화 ID들의 시퀀스에 기초하여 사용자가 시청하는 다음 영화를 예측하는 단계를 포함한다.\n' +
+      '**즐겨찾기 장르 또는 카테고리 예측** 모델은 아이템들의 시퀀스(예를 들어, 영화 ID들의 시퀀스가 주어진 즐겨찾기 영화 장르를 예측하는 것)에 기초하여 사용자의 즐겨찾기 장르 또는 카테고리를 예측한다. 즐겨찾기는 사용자의 이력에서 가장 높은 빈도를 갖는 것이다. 이 간단한 작업은 역사적 상호 작용에서 사용자 선호도를 추출하고 이해하는 사용자-LLM의 능력을 입증하는 개념 증명 역할을 한다.\n' +
+      '* ** 멀티모달 리뷰 생성** 이 작업은 단순한 예측을 넘어 확장됩니다. 여기서, 모델은 멀티모달 입력 특징(예를 들어, 영화 ID, 장르 및 등급)을 활용하여 실제 리뷰를 생성해야 한다. 이러한 특징들은 주어진 아이템에 대한 사용자의 잠재적인 리뷰의 생성을 안내하는 임베딩을 생성하기 위해 인코딩된다.\n' +
+      '\n' +
+      '### 기준선 및 실험 설정\n' +
+      '\n' +
+      '사용자-LLM의 효율성을 평가하기 위해 다음과 같은 기준선과 비교한다.\n' +
+      '\n' +
+      '***Dual Encoder(DualEnc)** 대규모 추천 시스템 및 자연어 작업에 널리 사용되는 임베딩 기반 투타워 모델.\n' +
+      '* **Bert4Rec** 최신 언어 모델 파워 추천 모델 BERT4Rec(Sun et al., 2019). 공정한 비교를 보장하기 위해 Bert4Rec는 사용자 인코더와 유사한 변압기 매개변수를 사용한다.\n' +
+      '* **TextPrompt(TP)** 원시 텍스트 사용자 이력에 대한 텍스트 프롬프트 기반 미세 조정을 통해 사용자 이력과 컨텍스트화된 LLM.\n' +
+      '\n' +
+      '본 논문의 실험은 이중 인코더 아키텍처와 성능을 비교하는 절제 연구와 함께 임베딩 생성을 위해 주로 자기 회귀 트랜스포머를 사용했다. 공동 훈련을 위해 섹션 3.2.3에 설명된 4가지 다른 훈련 전략을 탐색하고 사전 훈련된 인코더와 무작위로 초기화된 인코더의 영향을 평가했다.\n' +
+      '\n' +
+      '모든 텍스트 프롬프트 기반 LLM 미세 조정 및 사용자-LLM 실험에 대해 모델에서 처리되는 총 예제 수를 비교를 위해 동일하게 유지했다. Dual Encoder와 Bert4Rec 기준선의 경우 하이퍼 파라미터 튜닝을 수행하여 가장 좋은 성능 결과를 보고하였다.\n' +
+      '\n' +
+      '우리의 실험은 사전 훈련된 LLM으로 PaLM-2 XXS(Anil et al., 2023)를 활용했다. 사용자 인코더는 어텐션 헤드가 \\(8\\)인 \\(6\\) 레이어 \\(128\\) 차원 트랜스포머이다. _Perceivers_의 경우, \\(6\\) cross-attention layer와 \\(16\\)의 질의 차원을 갖는 모듈을 구성하였다. 모든 LoRA 튜닝 실험을 위해 \\(rank=8\\)을 사용하였다.\n' +
+      '\n' +
+      '전체 성능 비교\n' +
+      '\n' +
+      '이 하위 섹션은 다양한 작업 및 기준선에서의 모델 정확도를 비교합니다. 보고된 모든 사용자-LLM 실험은 사전 훈련된 인코더를 활용하고 공동 훈련 동안 세 가지 구성요소(인코더, 프로젝션 레이어 및 LLM)를 모두 미세 조정하며,\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c|c c c|c} \\hline \\hline \\multirow{2}{*}{**Dataset**} & **Train** & **Test** & **Seq** & \\multirow{2}{*}{**Item**} \\\\  & **Examples** & **Example** & & \\\\ \\hline MovieLens20M & 13,821,405 & 81,970 & 50 & Movie \\\\ \\hline Google Review & 3,387,375 & 80,080 & 50 & Place \\\\ \\hline Amazon Review & 357,258 & 5,756 & 50 & Product \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 1: 데이터세트 트레인/테스트 분할 크기, 시퀀스 길이, 및 아이템 특징.\n' +
+      '\n' +
+      '달리 명시되지 않는 한.\n' +
+      '\n' +
+      '1 다음 항목 예측\n' +
+      '\n' +
+      '표 2는 User-LLM이 다음 항목 예측을 위해 MovieLens와 Google Local review 데이터셋에서 두 개의 non-LLM 기준선보다 우수함을 보여준다. 그러나 Bert4Rec는 제한된 훈련 예제로부터 더 강력한 표현 학습을 가능하게 하는 양방향 아키텍처로 인해 희박한 아마존 리뷰 데이터 세트에서 탁월하다. 대조적으로, 우리의 자기회귀(단방향) 접근법은 효과적인 사용자 모델링을 위해 더 큰 데이터 세트에 의존한다. 이는 Amazon Review 데이터셋이 다음 항목 예측 작업에 대해 효과적으로 학습하기 위한 자기회귀적 접근에 충분한 정보를 제공하지 못할 수 있음을 시사한다.\n' +
+      '\n' +
+      '도. 도 3은 MovieLens20M 상에서 사용자-LLM 및 텍스트-프롬프트-기반 LLM 미세조정을 비교한다(부록에서 더 많은 결과들).\n' +
+      '\n' +
+      '**가변 컨텍스트 길이** 미리 정의된 길이(예를 들어, 50개, 100개 또는 200개 항목) 및 튜닝 가능한 모든 파라미터를 갖는 시퀀스에 대해 트레이닝될 때(도의 실선). 3) 사용자-LLM은 더 짧은 시퀀스(50개 항목)를 갖는 텍스트-프롬프트 기반 미세조정보다 약간 낮은 성능을 보인다. 그러나 사용자-LLM은 시퀀스가 길어질 때 텍스트 프롬프트 기반 접근 방식을 크게 능가한다. 이는 다음 항목 예측이 특정 항목 이름(예: 영화 제목)을 암기하는 LLM의 능력에 크게 의존하기 때문일 것이다. 문자 프롬프트는 LLM에 기억할 수 있는 수많은 이름 또는 제목을 제공하여 이러한 유형의 작업에서 탁월합니다. 시퀀스가 길어질수록 다양하고 잠재적으로 시끄러운 정보를 도입하여 순수한 암기의 효과가 떨어진다. LLM들이 긴 입력 컨텍스트로 덜 효과적이라는 것은 알려진 제한이다(Liu et al., 2023). 대조적으로, 이러한 복잡한 긴 시퀀스로부터 관련 사용자 정보를 효과적으로 증류하는 사용자-LLM의 능력은 LLM의 이해를 향상시키고 더 나은 성능으로 이어진다.\n' +
+      '\n' +
+      '입력 시퀀스 길이가 증가함에 따라 사용자-LLM과 텍스트-프롬프트 기반 접근법 모두 성능 저하를 경험한다. 이는 이용 가능한 트레이닝 예제의 수가 상당히 감소했기 때문일 가능성이 있다(길이 50, 100 및 200에 대해 각각 13.8M, 10.6M 및 7.0M). 자기회귀 인코더는 학습 데이터의 부족으로 인해 모델 성능에 영향을 미치지만, 사용자-LLM의 성능 감소는 텍스트 프롬프트 기반 접근법에 비해 현저하게 덜 심각하다.\n' +
+      '\n' +
+      '**계산 효율성** 특히 텍스트 프롬프트 기반 접근법의 계산 비용 및 메모리 요구 사항은 입력 시퀀스 길이가 증가함에 따라 점점 더 금지된다. 표 3은 사용자-LLM의 계산 효율을 강조한다. 사용자 인코더는 ID 기반 사용자 활동 시퀀스를 컴팩트한 사용자 임베딩으로 증류하여 LLM이 입력 시퀀스 길이에 관계없이 고정된 길이의 \\(32\\)-토큰 입력 쿼리를 처리할 수 있게 한다. 반대로, 텍스트-프롬프트 기반 접근법은 LLM 입력 토큰 길이들이 입력 시퀀스와 비례하여 스케일링될 것을 요구한다.\n' +
+      '\n' +
+      '구체적으로, LLM 파라미터의 개수를 \\(N\\), 인코더 파라미터를 \\(N_{e}\\), 및 _Perceiver_ 파라미터를 \\(N_{p}\\)으로 한다. 우리는 엔코더와 _Perceiver_와 관련된 계산 비용을 무시할 수 있다. 배치 크기\\(B\\), 훈련 단계\\(S\\) 및 입력 길이(토큰에서)\\(L\\)를 가정하면, 훈련 토큰의 총 수는 \\(D=BSL\\)이다. 휴리스틱 \\(FLOPs\\approx 6ND\\)(Kaplan et al., 2020)을 적용하면, 사용자-LLM은 시퀀스 길이가 200에 도달할 때 최대 78.1X의 FLOPs 감소를 보여주며, 이는 사용자-LLM이 긴 시퀀스 모델링을 위해 더 계산적으로 효율적이고 실질적으로 실현 가능한 솔루션을 제공한다는 것을 보여준다.\n' +
+      '\n' +
+      '**냉동 LLM** 사용자-LLM은 원래 지식을 보존하면서 LLM을 맥락화하는 데 탁월합니다. 섹션 3.2.3에 설명된 바와 같이, 사용자-LLM은 LLM이 동결된 상태(예를 들어, 훈련 전략 _Enc_)를 유지하도록 하여 치명적인 망각 문제를 방지한다. 도. 도 3(점선)은,\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l l l l l} \\hline \\hline \\multirow{2}{*}{**Dataset**} & \\multirow{2}{*}{**Rec**} & \\multicolumn{2}{c}{**Baseline**} & \\multirow{2}{*}{**User-LLM**} \\\\ \\cline{3-4}  & & **DualEnc** & & **Bert4Rec** \\\\ \\hline \\multirow{3}{*}{MovieLens20M} & @1 & 0.044 & 0.038 & **0.054** \\\\  & @5 & 0.135 & 0.135 & **0.164** \\\\  & @10 & 0.206 & 0.158 & **0.243** \\\\ \\hline \\multirow{3}{*}{Google Review} & @1 & 0.005 & 0.005 & **0.015** \\\\  & @5 & 0.012 & 0.019 & **0.052** \\\\  & @10 & 0.023 & 0.033 & **0.071** \\\\ \\hline \\multirow{3}{*}{Amazon Review} & @1 & 0.021 & 0.034 & **0.037** \\\\  & @5 & 0.026 & **0.051** & 0.047 \\\\ \\cline{1-1}  & @10 & 0.031 & **0.062** & 0.051 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 2: User-LLM v.s. DualEnc & Bert4Rec baselines for next item prediction. 사용자-LLM에 대해 전체 피네토네이션을 사용한다는 점에 유의하십시오.\n' +
+      '\n' +
+      '도 3: User-LLM v.s. TextPrompt(TP) baseline for next item prediction on MovieLens20M(varying sequence length, unfrozen or frozen LLM). **Unf frozen LLM**: Full finetune for TP model, training strategy _Full_ for User-LLM. **동결 LLM**: TP 모델에 대한 LoRA 파라미터 튜닝, User-LLM에 대한 트레이닝 전략 _Enc_.\n' +
+      '\n' +
+      '동결된 LLM이 있는 사용자-LLM은 텍스트 프롬프트 기반 LoRA 튜닝의 정확도를 능가한다. 이 관찰은 텍스트 프롬프트 기반 전체 미세 조정에서 성능 향상이 크게 과적합으로 인해 LLM 내에서 상당한 지식 손실로 이어질 수 있음을 시사한다.\n' +
+      '\n' +
+      '또한, 냉동 LLM을 사용하는 사용자-LLM은 냉동되지 않은 LLM(사용자-LLM 및 텍스트 프롬프트 기반 접근법 모두)을 사용하는 모델보다 우수하다. 이는 다운스트림 태스크 성능을 개선하기 위해 LLM에 인코딩된 기초 지식의 가치를 강조한다. 사용자 임베딩을 활용함으로써 사용자-LLM은 효율적이고 안정적인 LLM 상황화를 가능하게 하여 텍스트 프롬프트 기반 방법의 단점을 효과적으로 완화한다.\n' +
+      '\n' +
+      '######4.3.2 심층 사용자 이해\n' +
+      '\n' +
+      '사용자 인코더들이 다음 아이템 예측 태스크들에 대해 사전 트레이닝되더라도, 추출된 사용자 임베딩들은 일반화된 사용자 컨텍스트를 캡슐화한다. 이러한 임베딩을 활용하여 사용자-LLM은 표 4와 같이 다양한 개인화 작업에 대한 큰 일반화 기능을 보여준다. 이러한 작업은 사용자 심층적인 이해가 필요하며, 사용자-LLM의 상호작용 데이터에서 사용자 의도와 선호도를 이해하는 데 효과가 있음을 보여준다.\n' +
+      '\n' +
+      '사용자-LLM은 사용자 이력 아이템 ID들의 시퀀스에 기초하여 장르/카테고리 ID를 예측하도록 트레이닝되는 듀얼 인코더 베이스라인보다 우수하다. 인코더의 다음 항목 예측에 대한 사전 훈련에도 불구하고 사용자-LLM은 세 가지 데이터 세트 모두에서 특수 듀얼 인코더를 능가한다. TextPrompt baseline에 비해 User-LLM은 Amazon Review에서 우수한 성능을 보이며, MovieLens와 Google Local Review에서도 비슷한 성능을 보이며, 컨텍스트 윈도우(16배 작음)가 상당히 작아 효율성을 강조하고 있다.\n' +
+      '\n' +
+      '사용자-LLM은 또한 아이템 이름, 카테고리 및 사용자 등급을 기반으로 리뷰 생성의 멀티모달 태스크에서 그 강도를 입증한다. 아마존 리뷰 및 구글 로컬 리뷰 데이터 세트 모두에서 텍스트 프롬프트 기준선을 초과합니다. 이 성공은 사용자 이력의 밀집 표현을 활용하는 사용자-LLM의 능력에 기인하며, 이는 텍스트 프롬프트 기반 LLM 미세조정이 종종 어려움을 겪는 긴 입력이 있는 작업에서 특히 분명한 이점이다. 듀얼 인코더는 이러한 텍스트 생성 작업을 처리할 수 없습니다.\n' +
+      '\n' +
+      '### Efficiency\n' +
+      '\n' +
+      '**파라미터 효율성** 임베딩-LLM은 경쟁적 성능을 달성하기 위해 더 적은 튜닝 가능한 파라미터를 필요로 한다. 표 5는 다중 훈련 전략에 걸친 모델 정확도를 보여준다. 특히, _Enc_ 접근법(인코더 및 프로젝션 레이어를 튜닝하고 LLM을 동결하는 것)은 상당히 적은 튜닝된 파라미터를 요구하면서 완전한 피네튜닝에 필적할만한 작업 정확도를 달성하였다. 이는 사용자 인코더와 LLM 모두의 사전 훈련된 가중치를 효과적으로 활용하여 훈련 중 광범위한 파라미터 업데이트의 필요성을 최소화하기 때문이다. 따라서, 본 논문에서 제안하는 방법은 LLM의 개인화를 위한 파라미터 효율적인 솔루션을 제공하여, 연산량을 줄이고, 자원이 제한된 장치에서 모델 튜닝을 용이하게 한다.\n' +
+      '\n' +
+      '** 추론 효율** 더 나아가 User-LLM은 추론 효율적이다. 사용자 이력에서 각각의 이벤트를 나타내기 위해 다수의 토큰을 필요로 하는 텍스트 프롬프트 기반 접근법과 비교하여, 우리의 임베딩 기반 접근법은 이벤트 정보를 조밀한 표현으로 효과적으로 응축하여 이벤트당 단일 토큰만을 필요로 한다. _Perceiver_의 통합은 긴 사용자 이력에 대한 총 토큰 수를 더욱 감소시켜, 훨씬 더 빠른 추론 속도를 초래하고 실시간 애플리케이션에 이상적인 접근 방식을 만든다. 표 6은 User-LLM 및 그 _Perceiver_ 변이체가 더 적은 수의 토큰을 요구하면서 경쟁 성능을 유지하고, 그 결과 LLM 내의 어텐션 모듈에서의 계산 복잡도를 상당히 감소시킨다는 것을 보여준다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c c} \\hline \\hline \\multirow{2}{*}{**Dataset**} & \\multirow{2}{*}{**Task**} & \\multicolumn{2}{c}{**Baseline**} & \\multirow{2}{*}{**User-LLM**} \\\\ \\cline{3-4}  & & **DualEnc** & & & \\\\ \\hline \\multirow{2}{*}{\n' +
+      '\\begin{tabular}{c} MovieLens \\\\ 20M \\\\ \\end{tabular} } & \\multirow{2}{*}{FavGenre} & \\multirow{2}{*}{0.779} & \\multirow{2}{*}{**0.788**} & \\multirow{2}{*}{0.785} \\\\ \\cline{1-1} \\cline{5-5}  & & & & \\\\ \\hline Google & \\multirow{2}{*}{FavCat} & \\multirow{2}{*}{0.812} & \\multirow{2}{*}{**0.887**} & \\multirow{2}{*}{0.862} \\\\  & ReviewG & & & 10.20 & \\\\ \\hline Amazon & \\multirow{2}{*}{FavCat} & \\multirow{2}{*}{0.855} & \\multirow{2}{*}{0.885} & \\multirow{2}{*}{**0.890**} \\\\ Review & & & & 22.82 & \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 4: 즐겨찾기 장르/카테고리 생성 및 리뷰 생성. Metrics: Recall@1 for favorite genre/category prediction tasks and ROUGE-Lsum for review generation.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c c} \\hline \\hline  & & **Len50** & **Len100** & **Len200** \\\\ \\hline \\multirow{2}{*}{\\# Tokens} & User-LLM & 32 & 32 & 32 \\\\ \\cline{2-5}  & TP & 700 & 1350 & 2500 \\\\ \\hline \\multirow{2}{*}{FLOPs Reduction} & \\multirow{2}{*}{21.9X} & \\multirow{2}{*}{42.2X} & \\multirow{2}{*}{78.1X} \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 3: 사용자-LLM v.s. TextPrompt(TP) 및 사용자-LLM에 의해 달성된 FLOPs 감소에 대한 LLM 입력 토큰 카운트. FLOPs reduction은 FLOPs(TP)/FLOPs(User-LLM)을 의미한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c c c} \\hline \\hline\n' +
+      '**Dataset** & **Task** & **Full** & **LoRA** & **Enc** & **Proj** \\\\ \\hline MovieLens & NextItem & **0.054** & 0.053 & 0.052 & 0.040 \\\\\n' +
+      '20M & FavGenre & **0.785** & 0.784 & 0.783 & 0.750 \\\\ \\hline \\multirow{2}{*}{\\begin{tabular}{c} Google \\\\ Review \\\\ \\end{tabular} } & NextItem & 0.015 & **0.016** & 0.015 & 0.015 \\\\  & FavCat & **0.862** & 0.844 & 0.844 & 0.615 \\\\  & ReviewG & 11.72 & 11.64 & **11.76** & 9.61 \\\\ \\hline \\multirow{2}{*}{\n' +
+      '\\begin{tabular}{c} Amazon \\\\ Review \\\\ \\end{tabular} } & NextItem & **0.037** & 0.028 & 0.028 & 0.014 \\\\  & FavCat & **0.890** & 0.887 & 0.885 & 0.850 \\\\  & ReviewG & **26.38** & 24.56 & 24.30 & 19.04 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 5: 서로 다른 훈련 전략 간의 비교. 메트릭: Recall@1.\n' +
+      '\n' +
+      '### Ablation Study\n' +
+      '\n' +
+      '**장기 및 단기 사용자 컨텍스트** 사용자-LLM의 설계는 그것이 장기 및 단기 사용자 컨텍스트를 모두 통합할 수 있게 한다. 우리는 단기 사용자 상호작용으로 LLM에 프롬프트하는 동안 사용자 인코더에 장기 사용자 이력을 공급하여 컴팩트한 사용자 임베딩을 생성할 수 있다. 표 7에 도시된 바와 같이, User-LLM은 일반적으로 다음 아이템 예측 태스크들에 대한 장기 및 단기 사용자 컨텍스트를 조합할 때 더 나은 결과들을 달성한다. 임베딩 생성을 위한 50개의 사용자 활동과 LLM 프롬프트를 위한 10개의 가장 최근의 활동을 사용하여, User-LLM(_AR50TP10_)은 장기 사용자 정보를 제공함으로써 단기 컨텍스트(_TP10_)만으로 TextPrompt를 능가하고 의미 있는 사용자 표현을 효율적으로 추출함으로써 장기 컨텍스트(_TP50_)로 TextPrompt를 능가한다. User-LLM이 장기 사용자 데이터만을 사용하는 _AR50_와 비교하여, 단기 컨텍스트는 아이템 이름들에 대한 추가적인 자연 언어 정보를 모델(_AR50TP10_)에 제공한다. 이는 계산 효율성을 유지하면서 다음 항목 이름 예측을 개선한다.\n' +
+      '\n' +
+      '**사전 훈련의 이점** 다운스트림 작업에 대한 사전 훈련 사용자 인코더의 이점을 연구합니다. 표 8의 3열과 4열에 제시된 결과는 사전 훈련된 인코더를 사용하는 모델이 평가된 모든 작업에서 무작위로 초기화된 인코더를 사용하는 모델을 일관되게 능가함을 보여준다. 이러한 발견은 사전 훈련이 인코더가 잠재적인 사용자 선호도를 효과적으로 캡처할 수 있게 하여 공동 훈련 프로세스 동안 LLM에 귀중한 컨텍스트를 제공한다는 것을 시사한다.\n' +
+      '\n' +
+      'Soft Prompt v.s. Cross Attention** 우리는 사용자-LLM 프레임워크 내에서 대체 인코더-LLM 통합 전략인 _soft-prompt_(Lester et al., 2021)의 성능을 평가하며, 여기서 사용자 임베딩을 언어 모델에 대한 소프트 프롬프트 토큰으로 미리 준비하고 동시에 추가 태스크 프롬프트를 학습한다. 작업 프롬프트의 길이를 \\(10\\)으로 설정하고 사전 훈련된 자기회귀 인코더를 실험에 사용하였다. 표 8의 마지막 열에 나타난 바와 같이, 교차 주의 기반 접근법은 일반적으로 소프트 프롬프트 접근법보다 우수하다. 이러한 장점은 두 개의 리뷰 생성 작업에서 특히 중요하며, 이는 _cross-attention_ 메커니즘이 LLM이 사용자 임베딩 내에서 인코딩된 풍부한 사용자 정보를 더 잘 추출하고 활용할 수 있게 함을 시사한다. 이것은 인간의 의도에 대한 미묘한 이해를 요구하는 작업에 대한 교차 주의의 가치를 강조한다.\n' +
+      '\n' +
+      '**다른 인코더** 사용자-LLM 프레임워크 내에서 대체 트랜스포머 기반 인코더인 듀얼 인코더(이 작업에서 기준선 역할을 함)를 사용하여 실험한다. 이 아키텍처는 임베딩을 생성하기 위해 두 개의 개별 사용자 및 레이블 타워를 특징으로 합니다. 사용자와 레이블 임베딩 사이의 유사성은 사전 훈련 동안 소프트맥스 레이어를 통한 손실 계산에 사용된다. LLM과 통합할 때 사용자 타워만 사용합니다. Dual Encoder를 사용한 User-LLM은 AR encoder보다 더 나쁜 성능을 보였다 (표 8). 한 가지 이유는 듀얼 인코더가 각 사용자에 대해 단일 임베딩만을 출력함으로써 AR 인코더에 비해 LLM에 더 적은 컨텍스트를 제공하기 때문이다. 또한, 자동 회귀 변압기는 모든 입력 토큰에 걸쳐 손실 계산의 이점을 얻는 반면, 듀얼 인코더는 입력 시퀀스당 단일 라벨에 의존한다. 이러한 한계는 다음과 같은 희소 데이터 세트에서 더욱 두드러진다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c c} \\hline \\hline \\multirow{2}{*}{**Task**} & \\multicolumn{2}{c}{**User-LLM**} & \\multicolumn{2}{c}{**User-LLM**} \\\\  & **Full** & **Enc** & **Full** & **Enc** \\\\ \\hline NextItem & 0.054 & 0.052 & 0.054 & 0.054 \\\\ FavGenre & 0.785 & 0.783 & 0.784 & 0.784 \\\\ \\hline Tokens & 50 & & 16 (**-68\\%**) \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 6: User-LLM 및 그 _Perceiver_ 변이체는 경쟁적 성능을 유지하면서 임베딩 토큰의 수를 효과적으로 감소시킨다. 실험은 무비렌즈 20M에서 이루어진다. 메트릭: Recall@1.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c c c} \\hline \\hline \\multirow{2}{*}{**Dataset**} & \\multirow{2}{*}{**Recall**} & \\multicolumn{3}{c}{**TextPrompt**} & \\multicolumn{3}{c}{**User-LLM**} \\\\ \\cline{3-6}  & & **TP10** & **TP50** & **AR50** & **AR50TP10** \\\\ \\hline \\multirow{3}{*}{MovieLens 20M} & @1 & 0.049 & **0.060** & 0.054 & 0.059 \\\\  & @5 & 0.142 & 0.172 & 0.164 & **0.173** \\\\  & @10 & 0.211 & 0.251 & 0.243 & **0.252** \\\\ \\hline \\multirow{3}{*}{Google Review} & @1 & **0.021** & **0.021** & 0.015 & **0.021** \\\\  & @5 & 0.060 & **0.061** & 0.052 & **0.061** \\\\  & @10 & 0.082 & **0.086** & 0.071 & 0.082 \\\\ \\hline \\multirow{3}{*}{Amazon Review} & @1 & 0.038 & 0.034 & 0.037 & **0.041** \\\\  & @5 & 0.047 & 0.042 & 0.047 & **0.051** \\\\ \\cline{1-1}  & @10 & 0.050 & 0.047 & 0.051 & **0.055** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 7: 단기 텍스트에 대한 실험은 장기 임베딩을 촉진한다. **TP10**: 최근 사용자 이벤트와 함께 텍스트 프롬프트 기준선 **TP50**: 최근 사용자 이벤트와 함께 텍스트 프롬프트 기준선 **AR50**: \\(50\\) 사용자 이벤트를 인코더 입력으로 사용합니다. **AR50TP10**: \\(50\\) 사용자 이벤트를 인코더 입력으로 하고 \\(10\\) 텍스트 형식의 가장 최근의 이벤트를 LLM 입력으로 한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c c c} \\hline \\hline \\multirow{2}{*}{**Dataset**} & \\multirow{2}{*}{**Task**} & \\multicolumn{3}{c}{**User-LLM**} \\\\ \\cline{3-6}  & & \\multicolumn{2}{c}{_cross-attention_} & _soft_ & _DualEnc_ \\\\  & & **PT** & **RD** & _prompt_ & _-Xatten_ \\\\ \\hline MovieLens & NextItem & **0.054** & 0.041 & 0.051 & 0.044 \\\\\n' +
+      '20M & FavGenre & 0.785 & 0.778 & **0.787** & 0.775 \\\\ \\hline \\multirow{3}{*}{Google Review} & NextItem & **0.015** & **0.015** & 0.013 & 0.014 \\\\  & FavCat & **0.862** & 0.853 & 0.822 & 0.797 \\\\  & ReviewG & **11.72** & 11.43 & 9.06 & 11.68 \\\\ \\hline \\multirow{3}{*}{Amazon Review} & NextItem & **0.037** & 0.026 & 0.031 & 0.020 \\\\  & FavCat & 0.890 & 0.882 & **0.894** & 0.854 \\\\ \\cline{1-1}  & ReviewG & **26.38** & 23.12 & 25.80 & 23.83 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 8: 아키텍처, 인코더 및 사전 훈련의 이점을 융합하는 상이한 모델에 대한 실험. Report Recall@1 for next item prediction and favorite genre/category prediction, ROUGE-Lsum for review generation. 전체 미세조정은 실험 전반에 걸쳐 사용된다. **PT** : 프리 트레이닝된 인코더. **RD** : 랜덤 초기화 부호화기 _ soft-prompt_: soft-prompt를 통해 LLM과 사용자 임베딩을 연결한다. _ DualEnc-Xatten_: 듀얼 인코더를 사용자 인코더로 사용하고 LLM에 교차 참석한다.\n' +
+      '\n' +
+      '아마존 리뷰는 더 큰 성능 격차로 이어진다.\n' +
+      '\n' +
+      '##5 결론 및 향후 과제\n' +
+      '\n' +
+      '본 논문에서는 사용자 임베딩을 통해 LLM을 컨텍스트화하기 위한 프레임워크인 User-LLM을 소개한다. 다양한 사용자 상호 작용에 대한 자체 감독 사전 훈련에서 파생된 이러한 임베딩은 숨겨진 사용자 선호도와 그 진화를 포착한다. 이러한 임베딩을 _cross-attention_ 및 _soft-prompt_를 통해 LLM들과 통합함으로써, 사용자-LLM은 LLM들이 사용자 컨텍스트들에 동적으로 조정하도록 권한을 부여한다.\n' +
+      '\n' +
+      '무비렌즈, 아마존 리뷰 및 구글 로컬 리뷰 데이터 세트에 걸친 포괄적인 평가는 다양한 작업에서 상당한 성능 개선을 보여주었다. 사용자-LLM은 특히 긴 시퀀스를 처리하고 사용자를 깊이 이해하는 데 있어 비LLM 기준 및 텍스트 기반 LLM 개인화 기술에 비해 경쟁적인 성능을 보였다. 사용자-LLM의 계산 효율과 LLM 지식을 보존하는 능력은 실제 사용자 이해 애플리케이션에 매우 적합한 접근법이 되도록 한다.\n' +
+      '\n' +
+      '향후 연구에서는 고급 사전 훈련 기법을 통해 사용자 임베딩 생성을 최적화하고, 사용자 임베딩과 언어 모델 공간 간의 정렬을 조사하여 더 깊은 사용자 컨텍스트 이해를 돕고, 광범위한 사용자 시나리오에 걸쳐 일반화 능력과 적응성을 향상시키기 위해 다양한 태스크에 대해 사용자-LLM을 훈련할 수 있다. 이러한 측면을 해결함으로써 사용자-LLM은 사용자 모델링 및 LLM 개인화를 위한 훨씬 더 강력하고 다재다능한 프레임워크가 될 가능성이 있다.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '*[1]J. Alayrac, J. Donahue, P. Luc, A. Miech, I. Barr, Y. 하손기 Lenc, A. Mensch, K 밀리컨, M. Reynolds, et al. (2022) Flamingo: a visual language model for few-shot learning. The Advances in Neural Information Processing Systems35, pp. 23716-23736. Cited by: SS1.\n' +
+      '*[2]R. 안일아목대 피라트 존슨, D. 레피킨, A. 파소스, S. 샤케리, E. 타로파, P. 베일리, Z. Chen, et al. (2023) Palm 2 기술 보고서. ArXiv:2305.10403. 인용: SS1.\n' +
+      '*[3]L. 바질 앤 엠 상비(2023) 대규모 언어 모델을 사용한 텍스트 요약: mpt-7b-명령어, falcon-7b-명령어 및 openai chat-gpt 모델의 비교 연구. 인용: SS1.\n' +
+      '*[4]T. 브라운, B. 만, N. 라이더 Subbiah, J. D. Kaplan, P. Dhariwal, A. Neelakantan, P. Shyam, G. Sastry, A. Askell, S. 가왈 허버트 보스, G 크루거, T 헤니건 어린이, A. 라메시, D. 지글러, J. 우, C. 윈터, C. 헤세, M. 첸 E. 시글러 M. 리트윈 그레이, B. 체스, J. 클라크, C. 버너, S. McCandlish, A. Radford, I. Sutskever, and D. Amodei(Eds.), pp. 1877-1901. Cited by: SS1.\n' +
+      '*[5]X. 카이천황 Xia, X. Ren(2023) LightGEL: 추천을 위한 단순하면서도 효과적인 그래프 대비 학습. The Eleventh International Conference on Learning Representations, ICLR 2023, Kigali, Rwanda, May 1-5, 2023, pp. 인용: SS1.\n' +
+      '*[6]S. 천성호 왕락 천영 Tian(2023) 위치 보간을 통해 대형 언어 모델의 컨텍스트 창을 확장한다. ArXiv:2306.15595. 인용: SS1.\n' +
+      '*[7]X. 천진 왕승 Changpinyo, A. Piergiovanni, P. Padlewski, D. Salz, S. 굿맨, A. 그리크너, B. 무스타파, L. Beyer, et al.(2022) PALM: 공동-스케일링된 다국어 언어-이미지 모델. ArXiv:2209.06794. 인용: SS1.\n' +
+      '*29, 2022, pp. 2172-2182. Cited by: SS1.\n' +
+      '*[9]Y. 천성호 기안홍당 라이자 류승 Han, and J. Jia(2023) LongLora: long-context large language models의 효율적인 fine-tuning. ArXiv:2309.12307. 인용: SS1.\n' +
+      '*[10]A. Chevalier, A. Wettig, A. Ajith, and D. Chen (2023) Adapting language models to compress context. ArXiv:2305.14788. 인용: SS1.\n' +
+      '*[11]M. 치담바라암 양동세 Wuan, H. Sung, B. Strope, R. Kurzweil (2018) Learning cross-lingual sentence representations via multi-task dual-encoder model. ArXiv:1810.12836. 인용: SS1.\n' +
+      '*[12]A. 차우더리 나랑, J 데블린, M. Bosma, G. Mishra, A. Roberts, P. Barham, H. W. Chung, C. Sutton, S. 게르만, P. 슈, K. 시상 Tsvyshchenko, J. Maynez, A. Rao, P. Barnes, Y. 테이남 셰이저, V 프라바카란, E. 레이프, N. Du B. Hutchinson R. 교황, J 브래드베리, J 오스틴, M. 이사드, G. 구아리, P. 음, T. 듀크 A. 레브스카야 S. 게마왓 데브, H. 미칼레우스키, X 가르시아, V 미즈라 로빈슨 L. Fedus, D. Zhou, D. Ippolito, D. Luan, H. Zoph, A. Spiridonov, R. 세파시 D. 도한 S. 아그라왈 오메닉, A. M. 다이, T. S. 펠랏, M.\n' +
+      '\n' +
+      'Lewkowycz, A., Moreira, E., Child, R., Polozov, O., Lee, K., Zhou, Z., Wang, X., Saeta, B., Diaz, M., Firat, O., Catasta, M., Wei, J., Meier-Hellstern, K., Eck, D., Dean, J., Petrov, S., and Fiedel, N. Palm: 경로를 이용한 언어 모델링 스케일링 Journal of Machine Learning Research_, 24(240):1-113, 2023.\n' +
+      '* Covington et al. (2016a) Covington, P., Adams, J., and Sargin, E. Deep neural networks for youtube recommendations. In _Proceedings of the 10th ACM Conference on Recommender Systems (RecSys\'16)_, pp. 191---. 198, 2016a.\n' +
+      '* Covington et al. (2016b) Covington, P., Adams, J., and Sargin, E. Deep neural networks for youtube recommendations. In _Proceedings of the 10th ACM Conference on Recommender Systems_, New York, NY, USA, 2016b.\n' +
+      '* Devlin et al. (2018) Devlin, J., Chang, M. - W., Lee, K., and Toutanova, K. N. Bert: Pretraining of deep bidirectional transformer for language understanding. _ arXiv preprint arXiv:1810.04805_, 2018.\n' +
+      '* Ding et al. (2023) Ding, J., Ma, S., Dong, L., Zhang, X., Huang, S., Wang, W., Zheng, N., and Wei, F. Longnet: Scaling Transformers to 1,000,000,000 token. _ arXiv preprint arXiv:2307.02486_, 2023.\n' +
+      '* Doddapaneni et al. (2024) Doddapaneni, S., Sayana, K., Jash, A., Sodhi, S., and Kuzmin, D. User embedding model for personalized language prompting. _ arXiv preprint arXiv:2401.04858_, 2024.\n' +
+      '* Driess et al. (2023) Driess, D., Xia, F., Sajjadi, M. S., Lynch, C., Chowdhery, A., Ichter, B., Wahid, A., Tompson, J., Vuong, Q., Yu, T., et al. Palm-e: embodied multimodal language model. _ arXiv preprint arXiv:2303.03378_, 2023.\n' +
+      '* Ge et al. (2023) Ge, T., Hu, J., Wang, X., Chen, S. -Q., and Wei, F. In-context autoencoder for context compression in a large language model. _ arXiv preprint arXiv:2307.06945_, 2023.\n' +
+      '* 제미니팀 구글(2023) 제미니팀 구글. 제미니: 매우 유능한 멀티모달 모델의 가족입니다. _ arXiv preprint arXiv:2312.11805_, 2023.\n' +
+      '* Gillick et al. (2018) Gillick, D., Presta, A., and Tomar, G. S. End-to-end retrieval in continuous space. _ arXiv preprint arXiv:1811.08008_, 2018.\n' +
+      '* Gillick et al. (2019) Gillick, D., Kulkarni, S., Lansing, L., Presta, A., Baldridge, J., le, E., and Garcia-Olano, D. Learning dense representations for entity retrieval. _ ArXiv preprint arXiv:1909.10506_, 2019.\n' +
+      '* Girdhar et al. (2023) Girdhar, R., El-Nouby, A., Liu, Z., Singh, M., Alwala, K. V., Joulin, A., and Misra, I. Imagebind: One embedding space to bind them all. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pp. 15180-15190, 2023.\n' +
+      '* Google(2023) Google, G. T. Gemini: A family of highly capable multimodal models, 2023.\n' +
+      '* Gu & Dao(2023) Gu, A. and Dao, T. Mamba: 선택적 상태 공간을 갖는 선형-시간 시퀀스 모델링, 2023.\n' +
+      '* Gu et al. (2023) Gu, A., Johnson, I., Timalsina, A., Rudra, A., and Re, C. How to training your HIPPO:state space models with generalized orthogonal basis projection. _The Eleventh International Conference on Learning Representations, ICLR 2023, Kigali, Rwanda, May 1-5, 2023_. OpenReview.net, 2023\n' +
+      '* Han et al. (2023) Han, J., Gong, K., Zhang, Y., Wang, J., Zhang, K., Lin, D., Qiao, Y., Gao, P., and Yue, X. 오넬름: 모든 양식을 언어와 정렬하기 위한 하나의 프레임워크. _ arXiv preprint arXiv:2312.03700_, 2023.\n' +
+      '* Harper & Konstan (2015) Harper, F. M. and Konstan, J. A. The movielens dataset: History and context. _ ACM Trans. Interact. 인텔 Syst._ , 5(4), 2015. ISSN 2160-6455. doi: 10.1145/2827872.\n' +
+      '* He & McAuley (2016) He, R. 그리고 McAuley, J. Ups and downs: 단일 클래스 협업 필터링으로 패션 트렌드의 시각적 진화를 모델링합니다. [Proceedings of the 25th International Conference on World Wide Web_, 2016]에서.\n' +
+      '* Hu et al. (2022) Hu, E. J., Shen, Y., Wallis, P., Allen-Zhu, Z., Li, Y., Wang, S., Wang, L., and Chen, W. LoRA: 대형 언어 모델의 낮은 순위 적응. _International Conference on Learning Representations_, 2022.\n' +
+      '* Jaegle et al. (2021) Jaegle, A., Kimeno, F., Brock, A., Vinyals, O., Zisserman, A., and Carreira, J. Perceiver: General perception with iterative attention. In _International conference on machine learning_, pp. 4651-4664. PMLR, 2021.\n' +
+      '* Ji et al. (2023) Ji, J., Li, Z., Xu, S., Hua, W., Ge, Y., Tan, J., and Zhang, Y. Genrec: Large language model for generative recommendation, 2023.\n' +
+      '* Jiang et al. (2020) Jiang, J.-Y., Wu, T., Roumpos, G., Cheng, H.-T., Yi, X., Chi, E., Ganapathy, H., Jindal, N., Cao, P., and Wang, W. 온라인 콘텐츠 공유 플랫폼을 위한 엔드 투 엔드 딥 세심하게 개인화된 아이템 검색 In _Proceedings of The Web Conference 2020_, pp. 2870-2877, 2020.\n' +
+      '* Jin et al. (2024) Jin, H., Han, X., Yang, J., Jiang, Z., Liu, Z., Chang, C.-Y., Chen, H., and Hu, X. Llm maybe longlm: Self-extend llm context window without tuning. _ arXiv preprint arXiv:2401.01325_, 2024.\n' +
+      '* Kang et al. (2023) Kang, W. - C., Ni, J., Mehta, N., Sathiamoorthy, M., Hong, L., Chi, E., and Cheng, D. Z. llms understand user preferences? 사용자 등급 예측에 대한 llms 평가, 2023.\n' +
+      '\n' +
+      '* Kaplan et al. (2020) Kaplan, J., McCandlish, S., Henighan, T., Brown, T. B., Chess, B., Child, R., Gray, S., Radford, A., Wu, J., and Amodei, D. Scaling laws for neural language models, 2020.\n' +
+      '* Kojima et al. (2022) Kojima, T., Gu, S. S., Reid, M., Matsuo, Y., and Iwasawa, Y. 대형 언어 모델은 제로 샷 추론기입니다. In Koyejo, S., Mohamed, S., Agarwal, A., Belgrave, D., Cho, K., and Oh, A. (eds.), _Advances in Neural Information Processing Systems_, volume 35, pp. 22199-22213. Curran Associates, Inc., 2022.\n' +
+      '* Lester et al. (2021) Lester, B., Al-Rfou, R., and Constant, N. 매개 변수 효율적인 프롬프트 조정을 위한 축척의 검정력입니다. In _Proceedings of the 2021 Conference on Empirical Methods in Natural Language Processing_, 2021.\n' +
+      '* Li et al. (2022) Li, J., Shang, J., and McAuley, J. Uctopic: Unsupervised contrastive learning for phrase representations and topic mining. In _Proceedings of the 60th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)_, pp. 6159-6169, 2022.\n' +
+      '* Li et al. (2023) Li, R., Deng, W., Cheng, Y., Yuan, Z., Zhang, J., and Yuan, F. Exploring upper limit of text-based collaborative filtering using large language models: Discoveries and insights, 2023.\n' +
+      '* Liu et al. (2023a) Liu, H., Zaharia, M., and Abbeel, P. Ring attention with blockwise transformers for near-infinite context. _ arXiv preprint arXiv:2310.01889_, 2023a.\n' +
+      '*Liu et al. (2023b) Liu, J., Liu, C., Zhou, P., Lv, R., Zhou, K., and Zhang, Y. 채팅은 좋은 추천인인가요? 예비 조사, 2023b.\n' +
+      '* Liu et al. (2023c) Liu, N. F., Lin, K., Hewitt, J., Paranjape, A., Bevilacqua, M., Petroni, F., and Liang, P. Lost in middle: How language models use long context. _ arXiv preprint arXiv:2307.03172_, 2023c.\n' +
+      '*Liu et al. (2023d) Liu, Y., Shi, K., He, K. S., Ye, L., Fabbri, A. R., Liu, P., Radev, D., and Cohan, A. On learning to summarize to summarized with large language models as references, 2023d.\n' +
+      '* Lyu et al. (2023) Lyu, H., Jiang, S., Zeng, H., Wang, Q., Zhang, S., Chen, R., Leung, C., Tang, J., Xia, Y., and Luo, J. Llm-rec: prompting large language models, 2023.\n' +
+      '* Ma et al. (2018) Ma, J., Zhao, Z., Yi, X., Chen, J., Hong, L., and Chi, E. H. Modeling task relationships in multi-task learning with multi-gate mixture-of- experts. In _Proceedings of the 24th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining_, pp. 1930-1939, 2018.\n' +
+      '*Moon et al. (2023) Moon, S., Madotto, A., Lin, Z., Nagarajan, T., Smith, M., Jain, S., Yeh, C.-F., Murugesan, P., Heidari, P., Liu, Y., et al. Anymal: An efficient and scalable any-modality augmented language model. _ arXiv preprint arXiv:2309.16058_, 2023.\n' +
+      '* Mu et al. (2023) Mu, J., Li, X. L., and Goodman, N. 요지 토큰으로 프롬프트를 압축하는 방법을 배우는 중입니다. _ arXiv preprint arXiv:2304.08467_, 2023.\n' +
+      '* Ning et al. (2021) Ning, L., Singhal, K., Zhou, E. X., and Prakash, S. 제한된 네거티브로 연합 표현 및 권장 사항을 학습합니다. _ ArXiv e-prints_, 2021.\n' +
+      '* OpenAI(2023) OpenAI. Gpt-4 기술 보고서입니다 ArXiv_, abs/2303.08774, 2023.\n' +
+      '* Petrov & Macdonald (2023) Petrov, A. V. and Macdonald, C. Generative sequential recommendation with gptrec, 2023.\n' +
+      '* Qiu et al. (2021) Qiu, Z., Wu, X., Gao, J., and Fan, W. U-bert: 개선된 추천을 위한 사전 트레이닝 사용자 표현들. _ AAAI Conference on Artificial Intelligence_, 35, 2021년 진행.\n' +
+      '* Radford et al. (2021) Radford, A., Kim, J. W., Hallacy, C., Ramesh, A., Goh, G., Agarwal, S., Sastry, G., Askell, A., Mishkin, P., Clark, J., et al. Learning transferable visual models from natural language supervision. In _International conference on machine learning_, pp. 8748-8763. PMLR, 2021.\n' +
+      '*Reed et al. (2022) Reed, S., Zolna, K., Parisotto, E., Colmenarejo, S. G., Novikov, A., Barth-Maron, G., Kimenez, M., Sulsky, Y., Kay, J., Springenberg, J. T., et al. A generalist agent. _ ArXiv:2205.06175_, 2022.\n' +
+      '* Sountsov & Sarawagi (2016) Sountsov, P. and Sarawagi, S. 인코더 디코더 모델에서의 길이 바이어스 및 글로벌 컨디셔닝을 위한 경우. _ arXiv preprint arXiv:1606.03402_, 2016.\n' +
+      '* Sun et al. (2019) Sun, F., Liu, J., Wu, J., Pei, C., Lin, X., Ou, W., and Jiang, P. Bert4rec: Sequential recommendation with bidirectional encoder representations from transformer. Zhu, W., Tao, D., Cheng, X., Cui, P., Rundensteiner, E. A., Carmel, D., He, Q., and Yu, J. X. (eds.), _Proceedings of the 28th ACM International Conference on Information and Knowledge Management, CIKM 2019, Beijing, China, November 3-7, 2019_, pp. 1441-1450. ACM, 2019. doi: 10.1145/3357384.3357895.\n' +
+      '* Tay et al. (2022) Tay, Y., Dehghani, M., Bahri, D., and Metzler, D. Efficient Transformers: A survey. _ ACM 컴퓨터. Surv._ , 55(6), 2022 dec. ISSN 0360-0300. doi: 10.1145/3530811.\n' +
+      '* Touvron et al. (2019) Touvron, H., Martin, L., Stone, K., Albert, P., Almahairi, A., Babaei, Y., Bashlykov, N., Batra, S., Bhosale, S., Bikel, D., Blecher, L., Ferrer, C. C., Chen, M., Cucurull, G., Esiobu, D., Fernandes, J., Fu, J., Fu, W., Fuller, B., Gao, C., Goswami, V., Goyal, N., Hartshorn, A., H., Kardas, M., Kerkez, V., Khabsa, M., Kloumann, I., Korenev, A., Koura, P. S., Lachaux, M. - A., Lavril, T., Lee, J., Liskovich, D., Lu, Y., Mao, Y., Martinet, T., Mishra, P., Molybog, I., Nie, Y., Poulton, A., Reizenstein, J., Runeta, R., Saladi, K., Schelten, A., Silva, R., Smith, E. M., Subramanian, R., Tan, E. E., Tang, B., Taylor, R., Williams, A., Kuan, J. X., Zu, P., Yan, Z., Zarov, I., Zambadur, M., Fan, A., Rodriguez, A., Stojnic, R., Edunov, S., and Scialom, T. 라마 2: 오픈 파운데이션 및 미세 조정된 채팅 모델, 2023.\n' +
+      '* [7] Tworkowski, S., Staniszewski, K., Pacek, M., Wu, Y., Michalewski, H., and Milos, P. Focused transformer: Contrastive training for context scaling. _arXiv preprint arXiv:2307.03170_, 2023.\n' +
+      '* [8] Volkovs, M., Yu, G. W., and Poutanen, T. Dropoutnet: Addressing cold start in recommender systems. In _NIPS_, pp. 4957-4966, 2017.\n' +
+      '* [9] Wang, W., Dong, L., Cheng, H., Liu, X., Yan, X., Gao, J., and Wei, F. Augmenting language models with long-term memory. _arXiv preprint arXiv:2306.07174_, 2023.\n' +
+      '* [10] Wei, J., Wang, X., Schuurmans, D., Bosma, M., Ichter, B., Xia, F., Chi, E., Le, Q., and Zhou, D. Chain-of-thought prompting elicits reasoning in large language models, 2023.\n' +
+      '* [11] Wu, L., Zheng, Z., Qiu, Z., Wang, H., Gu, H., Shen, T., Qin, C., Zhu, C., Zhu, H., Liu, Q., Xiong, H., and Chen, E. A survey on large language models for recommendation, 2023a.\n' +
+      '* [12] Wu, S., Fei, H., Qu, L., Ji, W., and Chua, T.-S. Next-gpt: Any-to-any multimodal llm. _arXiv preprint arXiv:2309.05519_, 2023b.\n' +
+      '* 4 May 2023_, pp. 992-1002. ACM, 2023. doi: 10.1145/3543507.3583336.\n' +
+      '* [14] Xie, X., Sun, F., Liu, Z., Wu, S., Gao, J., Zhang, J., Ding, B., and Cui, B. Contrastive learning for sequential recommendation. In _2022 IEEE 38th international conference on data engineering (ICDE)_, pp. 1259-1273. IEEE, 2022.\n' +
+      '* [15] Xu, P., Ping, W., Wu, X., McAfee, L., Zhu, C., Liu, Z., Subramanian, S., Bakhturin, E., Shoeybi, M., and Catanzaro, B. Retrieval meets long context large language models. _arXiv preprint arXiv:2310.03025_, 2023a.\n' +
+      '* [16] Xu, S., Hua, W., and Zhang, Y. Openp5: Benchmarking foundation models for recommendation. _arXiv:2306.11134_, 2023b.\n' +
+      '* [17] Yan, A., He, Z., Li, J., Zhang, T., and McAuley, J. Personalized showcases: Generating multi-modal explanations for recommendations. In _Proceedings of the 46th International ACM SIGIR Conference on Research and Development in Information Retrieval_, pp. 2251-2255, 2023.\n' +
+      '* [18] Yang, J., Yi, X., Zhiyuan Cheng, D., Hong, L., Li, Y., Xiaoming Wang, S., Xu, T., and Chi, E. H. Mixed negative sampling for learning two-tower neural networks in recommendations. In _Companion Proceedings of the Web Conference 2020_, pp. 441-447, 2020.\n' +
+      '* [19] Yang, Y., Huang, C., Xia, L., Huang, C., Luo, D., and Lin, K. Debiased contrastive learning for sequential recommendation. In _Proceedings of the ACM Web Conference 2023_, WWW \'23, pp. 1063-1073, New York, NY, USA, 2023. Association for Computing Machinery. ISBN 9781450394161. doi: 10.1145/3543507.3583361.\n' +
+      '* [20] Yanga, Y., Yuanc, S., Cera, D., Konga, S.-y., Constanta, N., Pilarc, P., Gea, H., Sunga, Y.-H., Stropea, B., and Kurzweila, R. Learning semantic textual similarity from conversations. _ACL 2018_, pp. 164, 2018.\n' +
+      '* [21] Yao, T., Yi, X., Cheng, D. Z., Yu, F., Chen, T., Menon, A., Hong, L., Chi, E. H., Tjoa, S., Kang, J. J., and Ettinger, E. Self-supervised learning for large-scale item recommendations. In _Proceedings of the 30th ACM International Conference on Information & Knowledge Management_, CIKM \'21, pp. 4321-4330, New York, NY, USA, 2021. Association for Computing Machinery. ISBN 9781450384469. doi: 10.1145/3459637.3481952.\n' +
+      '* [22] Yi, X., Yang, J., Hong, L., Cheng, D. Z., Heldt, L., Kumthekar, A. A., Zhao, Z., Wei, L., and Chi, E. (eds.). _Sampling-Bias-Corrected Neural Modeling for Large Corpus Item Recommendations_, 2019.\n' +
+      '* [23] Yu, J., Wang, Z., Vasudevan, V., Yeung, L., Seyedhosseini, M., and Wu, Y. Coca: Contrastive captioners are image-text foundation models. arxiv 2022. _arXiv preprint arXiv:2205.01917_, 2022.\n' +
+      '\n' +
+      '인코더 구조\n' +
+      '\n' +
+      '사용자-LLM은 트랜스포머 기반 사용자 인코더를 사용하여 ID 기반 특징 시퀀스로부터 사용자 임베딩을 생성한다. 멀티모달 사용자 상호작용 데이터로부터 정보를 효과적으로 융합하기 위해, 우리는 _early fusion_와 _late fusion_의 두 가지 융합 아키텍처를 탐색하고 비교한다. 도 1에 도시된 예에 따른다. 도 4를 참조하면, 사용자 상호 작용 타임라인의 각 항목은 이름, 등급 및 카테고리의 세 가지 양식을 갖는다. 각 양식(또는 기능)에는 고유한 어휘가 있습니다. 각 모달리티로부터의 아이템들은 정수 ID에 매핑되고 그들 자신의 임베딩 표현들을 갖는다. _early fusion_ architecture에서 \\(i_{th}\\) 항목의 세 가지 양식(이름, 등급 및 범주)을 융합 임베딩 \\(f_{i}\\)으로 결합한다. 그런 다음 융합된 임베딩의 시퀀스는 사용자 인코더에 공급되어 사용자 임베딩을 생성한다. 한편, _late fusion_ 아키텍처는 3개의 개별 피처 인코더를 사용하여 각 모달리티를 독립적으로 처리한다. 결과적인 임베딩들은 융합 층들을 사용하여 나중의 단계에서 단일 사용자 임베딩에 결합된다.\n' +
+      '\n' +
+      '**Autoregressive Transformer** 3.1절에서 설명한 바와 같이 User-LLM은 Autoregressive Transformer를 _early fusion_ encoder로 사용한다. 도면에 도시된 바와 같다. 도 2에 도시된 바와 같이, 이 모델은 사용자 활동들의 시퀀스를 수신하고, 여기서 각각의 활동은 다수의 모달리티들(이름, 등급, 및 카테고리)로 표현된다. 개별 특징은 먼저 내장된 다음, 트랜스포머 디코더에 의해 연결 및 처리된다. Autoregressive Transformer Encoder는 사용자의 타임라인에서 각 입력 항목에 대한 사용자 임베딩을 생성한다.\n' +
+      '\n' +
+      '**듀얼 인코더** 우리가 조사한 후기 융합 인코더는 \'사용자\'와 \'라벨\' 타워가 별도로 있는 듀얼 인코더 아키텍처입니다. \'사용자 타워\'는 트랜스포머를 활용하여 일련의 입력 토큰을 처리하는 반면, \'라벨 타워\'는 시퀀스 내에서 후속 토큰(라벨)을 처리한다. 각각의 인코더는 각자의 입력의 임베딩 표현을 생성하고, 이들 임베딩들 사이의 유사성은 소프트맥스 계층을 통한 손실 계산을 위해 계산된다. LLM과 통합할 때 사용자 임베딩 생성을 위해 \'사용자 타워\'만을 활용한다. 기본 설정으로 듀얼 인코더는 입력 시퀀스로부터 단일 사용자 임베딩을 생성한다. 생성된 임베딩의 개수는 융합 레이어의 구성을 통해 조절될 수 있다.\n' +
+      '\n' +
+      '자동 회귀 트랜스포머와 듀얼 인코더는 사용자 임베딩 생성에 다양한 이점을 제공합니다. 자동 회귀 변압기는 순차적 데이터 내에서 장거리 종속성과 상황 관계를 포착하는 데 탁월합니다. 그러나, 이들은 (입력 시퀀스 길이와 동일한) 고정된 수의 출력 임베딩을 생성하고, 특히 시퀀스 길이가 긴 경우, 나중에 LLM 통합 단계에서 비효율성을 잠재적으로 도입한다. 또한, 이러한 모델을 훈련시키는 것은 계산 집약적일 수 있다.\n' +
+      '\n' +
+      '오토레그레시브 트랜스포머에 비해 듀얼 인코더는 몇 가지 이점을 제공합니다. 내부에 있는 별도의 피쳐 인코더\n' +
+      '\n' +
+      '도 4: User-LLM에서 지원되는 인코더 아키텍처: _early fusion_ 및 _late fusion_ user 인코더.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:14]\n' +
+      '\n' +
+      '## 부록 추가 결과\n' +
+      '\n' +
+      '## 다음 항목 예측\n' +
+      '\n' +
+      '다음 문항 예측 과제에서 텍스트 프롬프트 기반 접근법과 User-LLM을 비교한 결과는 표 11과 표 10과 같다.\n' +
+      '\n' +
+      '### 자기회귀 부호화기 v.s. Dual 부호화기\n' +
+      '\n' +
+      '표 12는 장기 및 단기 사용자 컨텍스트 태스크에 대한 자기 회귀 인코더 및 듀얼 인코더를 비교한다. 사전 훈련된 인코더를 활용하고 **Full** 훈련 전략을 사용할 때 이 두 인코더의 성능은 표 13의 4열과 12열을 참조한다.\n' +
+      '\n' +
+      '### 훈련 전략 및 인코더 사전 훈련\n' +
+      '\n' +
+      '표 13은 상이한 트레이닝 전략 하에서 자기회귀 인코더 기반 사용자-LLM의 성능을 나타낸다. 또한 인코더-LLM 통합 단계에서 미리 훈련된 사용자 인코더와 무작위로 초기화된 사용자 인코더를 사용하는 결과를 비교한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c} \\hline \\hline\n' +
+      '**Dataset** & **Recall** & **TP** & **User-LLM** \\\\ \\hline \\multirow{3}{*}{Google Review} & @1 & **0.021** & 0.015 \\\\  & @5 & **0.061** & 0.050 \\\\  & @10 & **0.086** & 0.071 \\\\ \\hline \\multirow{3}{*}{Amazon Review} & @1 & 0.034 & **0.037** \\\\  & @5 & 0.042 & **0.047** \\\\  & @10 & 0.047 & **0.051** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 10: Google Local Review 및 Amazon Review 데이터셋에 대한 다음 항목 예측을 위한 User-LLM v.s. TextPrompt(TP) baseline. 우리는 사용자-LLM과 TP 모두에 풀 피네트럼을 사용한다는 점에 유의한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c|c c|c c||c c|c c|c c} \\hline \\hline \\multirow{2}{*}{**Recall**} & \\multicolumn{6}{c||}{**Unfrozen LLM**} & \\multicolumn{6}{c}{**Frozen LLM**} \\\\ \\cline{2-10}  & \\multicolumn{2}{c|}{**Len50**} & \\multicolumn{2}{c|}{**Len100**} & \\multicolumn{2}{c||}{**Len200**} & \\multicolumn{2}{c|}{**Len50**} & \\multicolumn{2}{c|}{**Len100**} & \\multicolumn{2}{c}{**Len200**} \\\\ \\cline{2-10}  & **TP** & **User-LLM** & **TP** & **User-LLM** & **TP** & **User-LLM** & **TP** & **User-LLM** & **TP** & **User-LLM** \\\\ \\hline @1 & **0.060** & 0.054 & 0.034 & **0.037** & 0.018 & **0.020** & 0.023 & **0.053** & 0.017 & **0.040** & 0.011 & **0.031** \\\\ @5 & **0.172** & 0.164 & 0.101 & **0.118** & 0.058 & **0.067** & 0.071 & **0.164** & 0.053 & **0.127** & 0.034 & **0.102** \\\\ @10 & **0.251** & 0.243 & 0.151 & **0.181** & 0.090 & **0.106** & 0.108 & **0.244** & 0.080 & **0.198** & 0.053 & **0.159** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 11: 동결된 LLM 또는 동결되지 않은 LLM이 있는 영화렌즈20M에 대한 가변 서열 길이 실험. **Unf frozen LLM**: Full finetune for TextPrompt(TP) model, training strategy _Full_ for User-LLM. **Frozen LLM**: LoRA parameters tuning for TextPrompt(TP) model, training strategy _Enc_ for User-LLM.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c c} \\hline \\hline \\multirow{2}{*}{**Dataset**} & \\multirow{2}{*}{**Recall**} & \\multicolumn{2}{c}{**AREnc-Xatten**} & \\multicolumn{2}{c}{**DualEnc-Xatten**} \\\\ \\cline{3-6}  & & **AR50** & **AR50TP10** & **DE50** & **DE50TP10** \\\\ \\hline \\multirow{3}{*}{MovieLens} & @1 & 0.054 & **0.059** & 0.044 & 0.051 \\\\  & @5 & 0.164 & **0.173** & 0.135 & 0.151 \\\\\n' +
+      '20M & @10 & 0.243 & **0.252** & 0.206 & 0.221 \\\\ \\hline \\multirow{3}{*}{Google Review} & @1 & 0.015 & **0.021** & 0.014 & 0.020 \\\\  & @5 & 0.052 & **0.061** & 0.046 & 0.055 \\\\  & @10 & 0.071 & **0.082** & 0.066 & 0.078 \\\\ \\hline \\multirow{3}{*}{Amazon Review} & @1 & 0.037 & **0.041** & 0.020 & 0.030 \\\\  & @5 & 0.047 & **0.051** & 0.024 & 0.038 \\\\ \\cline{1-1}  & @10 & 0.051 & **0.055** & 0.026 & 0.040 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 12: 오토레그레시브 인코더 및 듀얼 인코더의 두 개의 인코더 아키텍처를 갖는 단기 텍스트 프롬프트 장기 임베딩에 대한 실험. **AR50**: \\(50\\) 사용자 이벤트를 자기회귀 인코더 입력으로 사용합니다. **AR50TP10**: \\(50\\)개의 사용자 이벤트를 자기회귀 엔코더 입력으로 하고 \\(10\\)개의 최근 이벤트를 LLM 입력으로 텍스트 형식으로 한다. **DE50**: \\(50\\) 사용자 이벤트를 듀얼 인코더 입력으로 사용합니다. **DE50TP10**: \\(50\\)의 사용자 이벤트를 듀얼 인코더 입력으로 하고 \\(10\\)의 가장 최근의 이벤트를 LLM 입력으로 텍스트 형식으로 한다.\n' +
+      '\n' +
+      '### Cross-attention v.s. Soft-prompt\n' +
+      '\n' +
+      '표 14는 _cross-attention_ 및 _soft-prompt_의 두 가지 인코더-LLM 통합 전략의 성능을 비교한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l l l l l l l l l l l l} \\hline \\hline  & & & \\multicolumn{6}{c}{**AREnc-Xatten(User-LLM)**} & \\multicolumn{3}{c}{**DualEnc-Xatten**} \\\\ \\cline{3-11} \\multicolumn{1}{c}{**Dataset**} & \\multirow{2}{*}{**Metric**} & \\multicolumn{2}{c}{**Full**} & \\multicolumn{2}{c}{**LoRA**} & \\multicolumn{2}{c}{**Enc**} & \\multicolumn{2}{c}{**Proj**} & \\multicolumn{2}{c}{**Full + PT**} \\\\ \\cline{3-11} \\multicolumn{1}{c}{} & & & **PT** & **RD** & **PT** & **RD** & **PT** & **RD** & **PT** & **RD** \\\\ \\hline \\multirow{8}{*}{NextItem} & MovieLens20M & R@1 & **0.054** & 0.041 & 0.053 & 0.043 & 0.052 & 0.041 & 0.040 & 0.002 & 0.044 \\\\  & R@5 & **0.164** & 0.133 & 0.164 & 0.136 & **0.164** & 0.133 & 0.134 & 0.008 & 0.142 \\\\  & R@10 & 0.243 & 0.203 & **0.244** & 0.205 & 0.243 & 0.204 & 0.203 & 0.013 & 0.218 \\\\ \\cline{2-11}  & \\multirow{4}{*}{Google Review} & R@1 & 0.015 & 0.015 & **0.016** & 0.015 & 0.015 & 0.015 & 0.015 & 0.015 & 0.015 & 0.014 \\\\  & R@5 & 0.050 & **0.052** & 0.051 & 0.050 & 0.051 & 0.051 & 0.051 & 0.050 & 0.042 & 0.046 \\\\  & R@10 & **0.071** & **0.071** & 0.070 & 0.070 & 0.070 & 0.070 & 0.070 & 0.057 & 0.066 \\\\ \\cline{2-11}  & \\multirow{4}{*}{Amazon Review} & R@1 & **0.037** & 0.023 & 0.028 & 0.018 & 0.028 & 0.022 & 0.014 & 0.000 & 0.020 \\\\  & R@5 & **0.047** & 0.031 & 0.035 & 0.026 & 0.034 & 0.029 & 0.019 & 0.000 & 0.024 \\\\  & R@10 & **0.051** & 0.037 & 0.038 & 0.029 & 0.036 & 0.030 & 0.021 & 0.0003 & 0.026 \\\\ \\hline \\multirow{8}{*}{FavGenre (FavCat)} & MovieLens20M & R@5 & **0.096** & 0.094 & **0.096** & 0.094 & **0.096** & 0.094 & 0.093 & 0.093 & 0.091 & 0.094 \\\\  & R@10 & 0.099 & 0.099 & 0.099 & 0.099 & 0.099 & 0.099 & 0.099 & 0.099 & 0.091 & 0.099 \\\\ \\cline{2-11}  & \\multirow{4}{*}{Google Review} & R@1 & **0.862** & 0.853 & 0.844 & 0.785 & 0.844 & 0.775 & 0.615 & 0.142 & 0.797 \\\\  & R@5 & **0.951** & 0.944 & 0.938 & 0.915 & 0.937 & 0.911 & 0.855 & 0.505 & 0.920 \\\\  & R@10 & **0.964** & 0.956 & 0.948 & 0.941 & 0.949 & 0.936 & 0.909 & 0.660 & 0.944 \\\\ \\cline{2-11}  & \\multirow{4}{*}{Amazon Review} & R@1 & **0.890** & 0.882 & 0.887 & 0.884 & 0.885 & 0.886 & 0.850 & 0.223 & 0.854 \\\\ \\cline{2-11}  & & \\multirow{4}{*}{Amazon Review} & R@5 & 0.934 & **0.948** & 0.917 & 0.931 & 0.917 & 0.930 & 0.918 & 0.663 & 0.912 \\\\ \\cline{1-1}  & & & & & & & & & & & & & \\\\ \\cline{1-1}  & & & & & & & & & & & & & \\\\ \\cline{1-1}  & & & & & & & & & & & & & \\\\ \\cline{1-1}  & & & & & & & & & & & & & \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 13: 상이한 트레이닝 전략들 및 상이한 사용자 인코더 아키텍처들을 갖는 사용자-LLM 실험 결과들. **PT**: 미리 훈련된 사용자 인코더. **RD**: 랜덤 초기화 사용자 인코더.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l l l l l l l l l l l} \\hline \\hline  & & & \\multicolumn{4}{c}{_cross-attention_ (User-LLM)} & \\multicolumn{4}{c}{_soft-prompt_} \\\\ \\cline{3-11}  & & & \\multicolumn{2}{c}{Full} & \\multicolumn{2}{c}{LoRA} & \\multicolumn{2}{c}{Enc} & \\multicolumn{2}{c}{Proj} & \\multicolumn{2}{c}{Full} & \\multicolumn{2}{c}{LoRA} & \\multicolumn{2}{c}{Enc} & \\multicolumn{2}{c}{Proj} \\\\ \\hline \\multirow{3}{*}{NextItem} & MovieLens20M & R@1 & **0.054** & 0.053 & 0.052 & 0.040 & 0.051 & 0.036 & 0.0047 & 0.0025 \\\\  & Google Review & R@1 & 0.015 & **0.016** & 0.015 & 0.015 & 0.013 & 0.008 & 0.012 & 0.008 \\\\  & Amazon Review & R@1 & **0.037** & 0.028 & 0.028 & 0.014 & 0.031 & 0.01\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:17]\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
