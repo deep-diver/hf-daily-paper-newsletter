@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# Euroboros: Speculative Decoding with Large Model Enhanced Drafting\n' +
+      '\n' +
+      'Weilin Zhao\n' +
+      '\n' +
+      'Yuxiang Huang\n' +
+      '\n' +
+      'Xu Han\n' +
+      '\n' +
+      'Chaojun Xiao\n' +
+      '\n' +
+      'Zhiyuan Liu\n' +
+      '\n' +
+      'Maosong Sun\n' +
+      '\n' +
+      'Equal contribution \\({}^{1}\\)NLP Group, Department of Computer Science and Technology, Institute for Artificial Intelligence, Beijing Information Science and Technology National Research Center, Tsinghua University, Beijing. Correspondence to: Weilin Zhao \\(<\\)zw123@mails.tsinghua.edu.cn\\(>\\), Yuxiang Huang \\(<\\)huang-yx21@mails.tsinghua.edu.cn\\(>\\), Xu Han \\(<\\)hanxu2022@tsinghua.edu.cn\\(>\\), Zhiyuan Liu \\(<\\)liuzy@tsinghua.edu.cn\\(>\\).\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      'Drafting-then-verifying decoding methods such as speculative decoding are widely adopted training-free methods to accelerate the inference of large language models (LLMs). Instead of employing an autoregressive process to decode tokens sequentially, speculative decoding initially creates drafts with an efficient small model. Then LLMs are required to conduct verification and correction in a non-autoregressive fashion to minimize time overhead. Generating longer drafts can lead to even more significant speedups once verified, but also incurs substantial trial and error costs if it fails. Suffering from the high verification failure probability, existing decoding methods cannot draft too much content for verification at one time, achieving sub-optimal inference acceleration. In this paper, we introduce Ouroboros, which constructs a phrase candidate pool from the verification process of LLMs to provide candidates for draft generation of the small model. Thereby, Ouroboros can further improve the efficiency and effectiveness of the initial drafts. The experimental results on typical text generation tasks show that Ouroboros achieves speedups of up to \\(1.9\\times\\) and \\(2.8\\times\\) compared to lookahead decoding and speculative decoding, respectively. The source code of Ouroboros is available at [https://github.com/thunlp/Ouroboros](https://github.com/thunlp/Ouroboros).\n' +
+      '\n' +
+      'Machine Learning, ICML\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      'Large language models (LLMs) such as GPT-4 (Achiam et al., 2023) reach significant breakthroughs in the field of NLP and exhibit comprehensive abilities to handle complex NLP tasks (Lewkowycz et al., 2022; Nakano et al., 2021; Driess et al., 2023). Besides, various open-source LLMs with tens of billions of parameters (Touvron et al., 2023; 01; ai, 2023; Bi et al., 2024) have also shown promising task performance. Benefiting from recent advances in parallel computing devices and distributed training algorithms (Shoeybi et al., 2019; Rasley et al., 2020), the training time of LLMs has been significantly shortened. However, the inference of LLMs is still difficult to parallelize, since these models all employ an autoregressive process to decode tokens one by one. Therefore, simply adopting an autoregressive decoding process cannot meet the high inference efficiency requirement in various real-time application scenarios of LLMs such as ChatGPT (OpenAI, 2022).\n' +
+      '\n' +
+      'To losslessly accelerate the inference of LLMs, various drafting-then-verifying decoding methods have been proposed (Fu et al., 2023; Xia et al., 2023; Leviathan et al., 2023; Chen et al., 2023a). Given a target model to accelerate its inference, these decoding methods first approximate a draft quickly and then verify the draft in a non-autoregressive parallel manner. Under such a framework, how to efficiently and effectively generate drafts has become a critical factor in accelerating LLM inference. Some efforts are devoted to designing additional decoding modules to generate multiple tokens at a time but require expensive training (Cai et al., 2024). Thus, training-free methods such as lookahead decoding (Fu et al., 2023) and speculative decoding (Xia et al., 2023; Leviathan et al., 2023; Chen et al., 2023a) receive increasing attention. Lookahead decoding generates multiple n-gram candidates in parallel and uses the n-gram candidates as drafts, while speculative decoding utilizes a small model to quickly generate drafts.\n' +
+      '\n' +
+      'Despite the success of these training-free drafting-then-verifying decoding methods, we observe their two limitations: **(1) Insufficient Draft.** Because of the time overhead involved in drafting itself, writing long drafts can result in high error costs when these drafts fail. However, drafting too short also misses potential acceleration. Once a long draft is verified, the benefit in accelerating LLM inference is very obvious. **(2) Underutilized Verification**. Current verification mechanisms can only correct the first incorrect token in the draft and discard its subsequent tokens as unusable, leaving room for the exploitation of these discarded tokens. Based on our pilot observations, many discardedtokens are predicted correctly. For example, given the draft "I like to drink apples and bananas", current verification mechanisms simply correct "drink" to "eat" and discard all correct tokens after "drink". Exploiting these arbitrarily discarded tokens may also be of great benefit in accelerating LLM inference.\n' +
+      '\n' +
+      'To overcome the above two limitations of existing drafting-then-verifying decoding methods, this paper introduces a more efficient decoding framework Ouroboros. Similar to speculative decoding, given a target model, Ouroboros uses the target model to verify drafts and a much smaller model to generate drafts. Then, Ouroboros designs a phrase candidate pool consisting of multiple informative phrases to help generate drafts. On the one hand, drafting at the phrase level rather than the token level can make the drafting phase more efficient at producing longer drafts. On the other hand, concatenating the phrases in the pool can extend the draft to even longer with low cost and high quality. During the verifying phase, Ouroboros utilizes the full verification results, including both verified and discarded tokens, to generate candidate inspiration and update the candidate pool. Updating the candidate pool helps further improve the speed and quality of drafting. More specifically, the main efforts of Ouroboros are as follows:\n' +
+      '\n' +
+      '(1) Ouroboros shares a candidate pool between the target model and the draft model. During the drafting phase, the smaller draft model first uses the phrase candidate pool to produce a sentence draft at the phrase level. Then, according to the last token of the sentence draft, the top-k candidate phrases that can be connected with the sentence draft are selected from the candidate pool. By concatenating the sentence draft and the \\(k\\) phrases, Ouroboros generates \\(k\\) longer drafts for the next verifying phase.\n' +
+      '\n' +
+      '(2) Ouroboros make full use of the verification results. The draft prefix that has been verified correct is used as the generation results. Those substrings validated as high quality in the draft are used for candidate inspiration to speed up the drafting phase in future iterations. Ouroboros is the first framework to use the target model to enhance drafting.\n' +
+      '\n' +
+      'Figure 1: The framework of Ouroboros. Given the input prefix ABCD, we suppose the target model we want to optimize will continue the sequence with consecutive letters and generate EFGHIJKLMN..., while a smaller model might output EFGHWKLMN.... \\(\\Box\\) In each iteration, we first use the last token (D in this case) to retrieve some candidates that are possibly next to D. \\(\\varo\\) A smaller model is used to verify those candidates, and after correction, a sequence EFG is generated. \\(\\varo\\) The above procedure is performed multiple times, where ABCDEFG generates HIWK, and ABCDEFGHWK generates LMN. \\(\\varo\\) After that, the sequences generated based on the smaller model are combined into a sentence draft EFGHWKLMN, and some candidates starting with the last token N are retrieved as draft suffixes. \\(\\varo\\) The target model then verifies them simultaneously. (1) The target model finds that the next token of I should be J instead of W, so that **EFGHIJ** can be used as generation. (2) Those draft tokens after W, which is KLMN, cannot be used as generation in the current iteration since they are based on a wrong context W. However, since they are highly matched with the output of the target model, we can generate high-quality candidates KLMN and LMNO, which can give inspiration for future generations after **EFGHIJ**. (3) Low-quality candidate suffixes NOXQ and NRSY are fixed by the target model, changing to NOPQ and NOPT, respectively. Both the refined candidates gain at least one token corrected and can help speed up generation in future iterations.\n' +
+      '\n' +
+      ' (3) We find out that cold starting with an empty candidate pool yields suboptimal performance. We introduce context locality and use a candidate pool that is prefilled by a similar task as an initialization to perform generation. This can provide extra speedups.\n' +
+      '\n' +
+      'We implement Ouroboros and conduct sufficient experiments on various text generation tasks such as code generation (Chen et al., 2021; Austin et al., 2021), text summarization (See et al., 2017; Hermann et al., 2015) and machine translation (Bojar et al., 2016). The experimental results demonstrate that Ouroboros is completely lossless on task performance and can achieve significant inference acceleration without additional model fine-tuning. As compared with the recent competitive decoding methods, Ouroboros achieves up to a 1.9\\(\\times\\) acceleration compared to lookahead decoding, a 2.8\\(\\times\\) acceleration compared to speculative decoding, and a 3.9\\(\\times\\) acceleration compared to naive autoregressive decoding.\n' +
+      '\n' +
+      '## 2 Ouroboros\n' +
+      '\n' +
+      '### Overall framework\n' +
+      '\n' +
+      'For the typical autoregressive decoding process, given an input prefix including n tokens \\(x_{1\\cdots n}\\) and the LLM \\(\\mathcal{T}\\) used for inference, the decoding process can be formalized as \\(y_{1\\cdots n}=\\mathcal{T}(x_{1\\cdots n})\\), where \\(y_{1\\cdots n}\\) is the output of the model \\(\\mathcal{T}\\) with \\(x_{1\\cdots n}\\) as input. Then, \\(y_{n}\\) will be output as the decoded token, and \\(x_{1\\cdots n}\\) and \\(y_{n}\\) are concatenated as the input prefix for decoding the next token. Obviously, decoding one token following this autoregressive manner requires the entire forward pass of the model \\(\\mathcal{T}\\) once, which is extremely expensive when the size of \\(\\mathcal{T}\\) is huge.\n' +
+      '\n' +
+      'As shown in Figure 1, to accelerate the inference of the target model \\(\\mathcal{T}\\), Ouroboros splits the decoding pipeline into two phases, the drafting and verifying phases, and designs a phrase candidate pool \\(\\mathcal{P}\\) shared by the two phases. To make the drafting phase efficient enough, rather than using \\(\\mathcal{T}\\) as the draft model, Ouroboros selects a model \\(\\mathcal{S}\\) much smaller than \\(\\mathcal{T}\\) to generate drafts. In the drafting phase, Ouroboros first uses \\(\\mathcal{S}\\) to generate a sentence draft \\(d_{1\\cdots\\gamma}\\) containing \\(\\gamma\\) tokens, given the input prefix \\(x_{1\\cdots n}\\). Generaly, generating \\(d_{1\\cdots\\gamma}\\) has to perform the \\(\\gamma\\)-step autoregressive decoding. With the help of the phrase candidate pool \\(\\mathcal{P}\\), Ouroboros uses phrases in the candidate pool as phrase drafts to construct \\(d_{1\\cdots\\gamma}\\). Constructing \\(d_{1\\cdots\\gamma}\\) phrase by phrase is more efficient than token by token.\n' +
+      '\n' +
+      'Different from typical drafting-then-verifying decoding methods directly use \\(d_{1\\cdots\\gamma}\\) for verification, in Ouroboros, the draft generated for the target model \\(\\mathcal{T}\\) consists of two segments: a sentence draft and several candidate suffixes \\(\\{c^{(1)}_{1\\cdots\\beta},c^{(2)}_{1\\cdots\\beta},\\cdots\\}\\). Each candidate suffix \\(c^{(i)}_{1\\cdots\\beta}\\) containing \\(\\beta\\) tokens is also sampled from the pool \\(\\mathcal{P}\\). Ouroboros concatenates the sentence draft and the candidate suffixes to form longer drafts. By concatenating one sentence draft with multiple candidate suffixes, we can form multiple drafts sharing the same prefix. For example, we can concat the draft "I love to eat" and the candidate suffixes "eat apples" and "eat bananas" to respectively build longer drafts "I love to eat apples" and "I love to eat bananas".\n' +
+      '\n' +
+      'Constructing multiple longer drafts can increase the probability that one of these drafts passes the verifying phase, thereby accelerating the inference of \\(\\mathcal{T}\\) using longer drafts. But the cost of verifying these longer drafts one by one is also unbearable. Fortunately, since multiple longer drafts generated at one time share the prefix (the sentence draft), Ouroboros constructs a sophisticated Transformer attention masking mechanism to complete the verification of all longer drafts with only one forward pass of \\(\\mathcal{T}\\).\n' +
+      '\n' +
+      'Traditional verification retains the verified prefix in drafts and outputs them as decoded tokens, while discarding all subsequent failed tokens. After the target model \\(\\mathcal{T}\\) verifies drafts containing both a sentence draft and several candidate suffixes, Ouroboros generates candidate inspirations based on those failed tokens and conducts candidate refinements on the candidate suffixes. Both candidate inspirations and candidate refinements can enhance the phrase candidate pool \\(\\mathcal{P}\\) to facilitate better and faster draft generation.\n' +
+      '\n' +
+      'Next, we will break down Ouroboros into four parts: sentence draft generation, longer draft construction, synthetic drafts verification, candidate inspiration and refinement, and introduce these four parts separately.\n' +
+      '\n' +
+      '### Longer Draft Construction\n' +
+      '\n' +
+      'In the drafting phase, the model \\(\\mathcal{S}\\) writes a draft \\(d_{1\\cdots\\gamma}\\) with \\(\\gamma\\) tokens, and the target model \\(\\mathcal{T}\\) verifies the draft and outputs the verified tokens. For each input token, generative LLMs predict its next token, i.e., verifying \\(d_{1\\cdots\\gamma}\\), does not require \\(d_{\\gamma}\\) to be included in the input to \\(\\mathcal{T}\\). However, for typical drafting-then-verifying methods such as speculative\n' +
+      '\n' +
+      'Figure 2: The customized attention masking in Ouroboros.\n' +
+      '\n' +
+      'decoding (Leviathan et al., 2023; Chen et al., 2023a), \\(d_{\\gamma}\\) is passed as an input to the target model \\(\\mathcal{T}\\) so that they can produce an extra ground truth token when the draft is completely correct. The above observation indicates that, the time cost of running \\(\\gamma-1\\) tokens or \\(\\gamma\\) tokens in parallel varies little owing to the parallel computing capabilities of various hardware devices, but entering additional suffixes may yield further speedups once the entire draft is approved.\n' +
+      '\n' +
+      'Therefore, we propose to use the candidate pool \\(\\mathcal{P}\\) consisting phrases of length \\(\\beta\\) to generate multiple draft suffixes. We denote the vocabulary space \\(\\mathcal{V}\\) of both the target model \\(\\mathcal{T}\\) and smaller model \\(\\mathcal{S}\\). For each token \\(v\\) in \\(\\mathcal{V}\\), we define\n' +
+      '\n' +
+      '\\[\\mathcal{P}(v)\\coloneqq\\{c_{2\\cdots\\beta}|c_{1\\cdots\\beta}\\in\\mathcal{P} \\wedge c_{1}=v\\}. \\tag{1}\\]\n' +
+      '\n' +
+      'Intuitively, \\(\\mathcal{P}(v)\\) is the set of phrase suffixes that starts with the token \\(v\\). Because memorizing all phrases in \\(\\mathcal{P}(v)\\) is too expensive, Ouroboros restricts \\(|\\mathcal{P}(v)|\\leq W\\) to limit the candidate phrase size to \\(W\\) for each token, and using the least recently used (LRU) replacement technique to update candidate phrases in \\(\\mathcal{P}(v)\\). Given a sentence draft \\(d_{1\\cdots\\gamma}\\), we select out \\(K\\) newest candidate suffixes inserted in \\(\\mathcal{P}(d_{\\gamma})\\). We denote the selected candidate suffixes using \\(\\{c^{(1)}_{2\\cdots\\beta},c^{(2)}_{2\\cdots\\beta},\\cdots,c^{(K)}_{2\\cdots\\beta}\\}\\).\n' +
+      '\n' +
+      '### Synthetic Draft Verification\n' +
+      '\n' +
+      'Based on the input prefix \\(x_{1\\cdots n}\\), the sentence draft \\(d_{1\\cdots\\gamma}\\) and \\(K\\) candidate suffixes \\(c^{(1)}_{2\\cdots\\beta},c^{(2)}_{2\\cdots\\beta},\\cdots,c^{(K)}_{2\\cdots\\beta}\\), a parallel verification is performed using a customized attention masking as in Figure 2 and is denoted as\n' +
+      '\n' +
+      '\\[\\begin{split}&\\cdots,\\hat{d}_{1\\cdots\\gamma},\\{\\hat{c}^{(1)}_{2 \\cdots\\beta},\\cdots,\\hat{c}^{(K)}_{2\\cdots\\beta}\\}\\\\ &=\\mathcal{T}(x_{1\\cdots n},d_{1\\cdots\\gamma},\\{c^{(1)}_{2\\cdots \\beta},\\cdots,c^{(K)}_{2\\cdots\\beta}\\}).\\end{split} \\tag{2}\\]\n' +
+      '\n' +
+      'In Eq (2), \\(\\hat{d}_{1\\cdots\\gamma+1}\\) are predicted by next token prediction corresponding to \\(\\{x_{n},d_{1\\cdots\\gamma}\\}\\), where \\([\\cdot,\\cdot]\\) is the concatenation operation. \\(\\hat{c}^{(i)}_{2\\cdots\\beta}\\) are predicted by next token prediction corresponding to \\([d_{\\gamma},\\hat{c}^{(i)}_{2\\cdots\\beta-1}]\\), for all \\(1\\leq i\\leq K\\). All the calculations in Eq (2) are performed using only a single forward pass of the target model \\(\\mathcal{T}\\). The results \\(\\hat{d}\\), \\(\\hat{c}^{(i)}\\) are used as the reference output of \\(d\\) and \\(c^{(i)}\\), respectively.\n' +
+      '\n' +
+      'We define \\(\\text{len}(\\text{LCP}(x_{1\\cdots n},y_{1\\cdots n}))\\) the longest common prefix length of two token sequence as\n' +
+      '\n' +
+      '\\[\\text{len}(\\text{LCP}(x_{1\\cdots n},y_{1\\cdots n}))=\\arg\\max_{1\\leq l\\leq n} \\{l|x_{1\\cdots l}=y_{1\\cdots l}\\}. \\tag{3}\\]\n' +
+      '\n' +
+      'And then we define \\(l_{d}=\\text{len}(\\text{LCP}(d_{1\\cdots\\gamma},\\hat{d}_{1\\cdots\\gamma}))\\). If \\(l_{d}<\\gamma\\), which means the draft is verified wrong, the matched prefix is used as the generated result of \\(\\mathcal{T}\\) and the first wrong token is corrected using \\(\\hat{d}\\). More specifically, we output \\(\\hat{d}_{1\\cdots(l_{d}+1)}\\) as the generation result. Otherwise, the draft is verified as correct (i.e., \\(l_{d}=\\gamma\\)). Then we need to select out the longest-matched candidate \\(c^{(\\text{best})}\\) using\n' +
+      '\n' +
+      '\\[\\text{best}=\\arg\\max_{1\\leq i\\leq K}\\text{len}(\\text{LCP}(c^{(i)},\\hat{c}^{(i )})). \\tag{4}\\]\n' +
+      '\n' +
+      'Denote \\(l_{c}=\\text{len}(\\text{LCP}(c^{(best)},\\hat{c}^{(best)}))\\) the matched length of the best candidate, and the final decoding result will be \\([\\hat{d}_{1\\cdots\\gamma},\\hat{c}^{(best)}_{1\\cdots(l_{c}+1)}]\\).\n' +
+      '\n' +
+      '```\n' +
+      'Input: input ids \\(x\\), smaller model \\(\\mathcal{S}\\), target model \\(\\mathcal{T}\\), candidate pool \\(\\mathcal{P}\\) storing phrases of length \\(\\beta\\), sentence draft length \\(\\gamma\\), candidate suffixes amount \\(K\\). Output: generated tokens, updated candidate pool. whileEOS not generateddo /* Sentence Draft Generation */ \\(d\\coloneqq[]\\) whileLet(\\(d\\)) \\(<\\gamma\\)do \\(\\mathcal{C}\\coloneqq\\mathcal{P}(x,d,\\)l.last.token()) \\(\\mathcal{\\hat{C}}\\coloneqq\\mathcal{S}(x,d,\\)l.\\(\\mathcal{C})\\)  Update \\(\\mathcal{P}\\) like Lookahead Decoding  Get \\(\\hat{c}^{(best)}\\) from \\(\\mathcal{C}\\) and accept length \\(l_{c}\\) \\(d\\coloneqq[d,\\hat{c}^{(best)}_{1\\cdots(l_{c}+1)}]\\) endwhile /* Longer Draft Construction */ \\(\\mathcal{C}\\coloneqq\\text{top-k}(\\mathcal{P}(d.\\)last.token())\\), /* Synthetic Draft Verification */ \\(\\hat{d},\\hat{\\mathcal{C}}\\coloneqq\\mathcal{T}(x,d,\\mathcal{C})\\)  Get accept length of draft \\(l_{d}\\) if\\(d=\\hat{d}\\)then  Get \\(\\hat{c}^{(best)}\\) and accept length \\(l_{c}\\) \\(x\\coloneqq[x,\\hat{d},\\hat{c}^{(best)}_{1\\cdots(l_{c}+1)}]\\) else \\(x\\coloneqq[x,\\hat{d}_{1\\cdots(l_{d}+1)}]\\) /* Candidate Inspiration */ for\\(i\\gets(l_{d}+2)\\)to\\((\\gamma-\\beta+2)\\)do if\\(d_{i\\cdots i+\\beta-2}=d_{i\\cdots i+\\beta-2}\\)then \\(\\mathcal{P}.\\)insert\\((\\hat{d}_{i\\cdots i+\\beta-1})\\) endif endfor endif /* Candidate Refinement */ \\(\\mathcal{P}.\\)replace\\((\\mathcal{C},\\hat{\\mathcal{C}})\\) endwhile\n' +
+      '```\n' +
+      '\n' +
+      '**Algorithm 1**Ouroboros\n' +
+      '\n' +
+      '### Sentence Draft Generation\n' +
+      '\n' +
+      'Given an input prefix \\(x_{1\\cdots n}\\), all candidates of the last token \\(x_{n}\\) are used to speed up drafting, denoted as \\(c^{(1)}_{2\\cdots\\beta},\\cdots,c^{(W)}_{2\\cdots\\beta}\\). By utilizing the custom attention mask in Figure 2 we can compute\n' +
+      '\n' +
+      '\\[\\begin{split}&\\cdots,\\{\\hat{c}^{(1)}_{2\\cdots\\beta},\\cdots,\\hat{c}^ {(W)}_{2\\cdots\\beta}\\}\\\\ &=\\mathcal{S}(x_{1\\cdots n},[],\\{c^{(1)}_{2\\cdots\\beta},\\cdots,c^ {(W)}_{2\\cdots\\beta}\\}).\\end{split} \\tag{5}\\]And the longest-matched candidate \\(c^{(\\text{best})}\\) is selected using\n' +
+      '\n' +
+      '\\[\\text{best}=\\arg\\max_{1\\leq i\\leq K}\\text{len}(\\text{LCP}(c^{(i)},\\tilde{c}^{(i)})). \\tag{6}\\]\n' +
+      '\n' +
+      'Denote \\(l_{c}=\\text{len}(\\text{LCP}(c^{(best)},\\tilde{c}^{(best)}))\\), then the generation result will be \\(\\hat{c}^{(best)}_{1\\cdots(l_{c}+1)}\\).\n' +
+      '\n' +
+      'Within the same forward pass of the smaller model \\(\\mathcal{S}\\) in Eq. (5), Lookahead Decoding also add extra inputs to generate new candidates to update the candidate pool \\(\\mathcal{P}\\), we will not go into detail due to space constraints and can refer to Fu et al. (2023).\n' +
+      '\n' +
+      'As shown in Figure 1 and Algorithm 1, the drafting of the smaller model is performed multiple rounds and the outputs are concatenated into a long sentence draft.\n' +
+      '\n' +
+      '### Candidate Inspiration and Refinement\n' +
+      '\n' +
+      'The above strategies helps us generate longer drafts at low cost, and therefore get more verification results. However, the current draft-then-verification algorithms only fix the first unmatch position \\(l_{d}+1\\) by \\(\\hat{d}_{l_{d}+1}\\) while the verification results on those positions after \\(l_{d}+1\\) are discarded, resulting in the under-utilization of the verification results. We define #Match-k\\((x_{1\\cdots n},y_{1\\cdots n})\\) the number of common substrings of length \\(k\\) of two token sequences as\n' +
+      '\n' +
+      '\\[\\text{\\#Match-k}(x_{1\\cdots n},y_{1\\cdots n})=\\big{|}\\{i|x_{i\\cdots i+k-1}=y_ {i\\cdots i+k-1}\\}\\big{|}. \\tag{7}\\]\n' +
+      '\n' +
+      'We test Speculative Decoding on three datasets, MBPP (Austin et al., 2021), CNN/DM (See et al., 2017; Hermann et al., 2015) and WMT16 (Bojar et al., 2016) as in Table 1 and find out that the LCP length of draft-then-verification is usually less than the number of matched tokens. We further find out that there exist many common substrings between those discarded draft tokens \\(d_{(l_{d}+2)\\cdots}\\) and reference tokens \\(\\hat{d}_{(l_{d}+2)\\cdots}\\), as shown in Figure 3. The observation indicates that the discard strategy on those tokens after the common prefix of Speculative Decoding is far from optimal. We can utilize those match positions after the common prefix to help us generate valid candidates. We call this _inspiration_.\n' +
+      '\n' +
+      'Therefore, we apply candidate inspiration to our sentence draft. Similar to the verification phase that uses common prefix \\(d_{1\\cdots l_{d}}\\) to generate output \\(\\hat{d}_{1\\cdots(l_{d}+1)}\\), we can use common substrings to generate candidates. For a given substring matching \\(d_{i\\cdots j}=\\hat{d}_{i\\cdots j}\\) after the accepted prefix, where \\(l_{d}<i<j\\), a new candidates \\(\\hat{d}_{i\\cdots j+1}\\) can be generated. We only collect those new candidates of length \\(\\beta\\) as inspiration, which corresponds to common substrings of length \\(\\beta-1\\).\n' +
+      '\n' +
+      'Similar to candidate inspiration that better utilizes the verification results of our sentence draft, we further refine those candidate suffixes based on their verification results. We design candidate refinement based on the intuition that candidates in \\(\\mathcal{P}\\) generated in the previous iteration are based on the previous context, and can become outdated as the generation proceeds. Therefore, when a candidate is selected as a candidate suffix, it may not fit the newer context well. We then directly update these candidates with their modified results validated by \\(\\mathcal{T}\\) to provide a better prior for candidate estimation. Specifically, old candidates \\(c^{(i)}\\) in pool \\(\\mathcal{P}\\) are replaced by the reference output \\(\\hat{c}^{(i)}\\) for all \\(1\\leq i\\leq K\\).\n' +
+      '\n' +
+      '### Warm Start\n' +
+      '\n' +
+      'Previous work starts generation with an empty initialized candidate pool \\(\\mathcal{P}\\)(Fu et al., 2023), causing the model to have insufficient inference speed at the beginning of the generation. We call it cold start. We find that we can use global candidates generated from previous generations as a warm up for the candidate pool.\n' +
+      '\n' +
+      '## 3 Experiment\n' +
+      '\n' +
+      '### Experimental Settings\n' +
+      '\n' +
+      'In order to evaluate the overall acceleration caused by Ouroboros, we evaluate Ouroboros on various typical text generation tasks, including code generation, arithmetic reasoning, document summarization, and machine translation.\n' +
+      '\n' +
+      '**Datasets**. For code generation, we evaluate Ouroboros on HumanEval (Chen et al., 2021) and the validation set of MBPP (Austin et al., 2021). There are 164 entries of HumanEval and they are composed of a text prompt and a\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c|c|c} \\hline \\hline Yi-base 34b/6b & MBPP & CNN/DM & WMT-16 \\\\ \\hline len(LCP(\\(d,\\hat{d}\\))) & 12.7 & 8.4 & 5.3 \\\\ \\#Match-1(\\(d,\\hat{d}\\)) & 18.9 & 17.8 & 17.0 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 1: Average matched tokens compare with longest common prefix length. Experiment on Yi-base 34b/6b (01-ai, 2023) using Speculative Decoding with draft length \\(\\gamma\\) = 20.\n' +
+      '\n' +
+      'Figure 3: The average number of common substrings of length \\(k\\) in those discarded verification tokens, i.e., #Match-k\\((d_{(l_{d}+2)\\cdots\\gamma},\\hat{d}_{(l_{d}+2)\\cdots})\\). Experiment on Yi-base 34b/6b (01-ai, 2023) using Speculative Decoding with draft length \\(\\gamma\\) = 20.\n' +
+      '\n' +
+      'prefix of Python function. The validation set of MBPP has 90 entries, in which the whole function is expected to be predicted with a given text prompt and test cases. The maximum generation lengths on HumanEval and MBPP are set to 512. For arithmetic reasoning, document summarization and machine translation, we evaluate our method on GSM8K (Cobbe et al., 2021), CNN/DM (See et al., 2017; Hermann et al., 2015) and WMT16 (Bojar et al., 2016) respectively. We randomly sample 100 entries of GSM8K and CNN/DM, and sample 100 entries from the German to English translation subset of WMT16. The maximum generation lengths on GSM8k, CNN/DM and WMT16 are respectively set to 256, 128, and 64.\n' +
+      '\n' +
+      '**Models**. For HumanEval and MBPP, we use Yi-base-34b/6b (01-ai, 2023), DeepSeek-coder-34b/7b (Bi et al., 2024) and CodeLlama-instruct-34b/7b (Roziere et al., 2023) as the backbone models for our experiments. For GSM8K, CNN/DM and WMT16, we use Yi-base-34b/6b and Llama-2-chat-70b/7b (Touvron et al., 2023). All these models are recently representative and popular LLMs.\n' +
+      '\n' +
+      '**Evaluation Methods.** The baselines of our experiments are greedy decoding, lookahead decoding (Fu et al., 2023) and speculative decoding (Leviathan et al., 2023; Chen et al., 2023). We report the decoding speed (tok/s) and the speed-up ratio compared with greedy decoding. We test Ouroboros both with and without warm start. When warm start is on, the candidate pool is shared among all data entries; when warm start is off, each data entry construct a new pool before generation. The decoding speed is measured on all entries of each dataset above. More hyperparameters of our experiments are included in Appendix B.\n' +
+      '\n' +
+      '### Overall Results\n' +
+      '\n' +
+      'Figure 4 shows that Ouroboros outperforms greedy decoding, lookahead decoding, and speculative decoding in all backbone models and dataset configurations. Ouroboros can achieve up to 61.2 tok/s generation speed with the max generation length of 512, which is 3.9\\(\\times\\) speed up compared with greedy decoding, 2.8\\(\\times\\) and 1.9\\(\\times\\) speed up compared with speculative decoding and lookahead decoding, respectively. Ouroboros without warm start is also faster than other generation algorithms, and warm start could increase the generation speed, indicating that context locality could accelerate generation.\n' +
+      '\n' +
+      'Table 2 shows that Ouroboros can also get substantial speed up on typical natural language tasks, where lookahead decoding and speculative decoding can only get limited acceleration. Ouroboros with warm start is the fastest, and Ouroboros without warm start can also surpass other algorithms by a large margin in all configurations, proving the effectiveness of Ouroboros regardless of context locality.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l l|c c|c c} \\hline \\hline \\multirow{2}{*}{Task} & \\multirow{2}{*}{Algorithm} & \\multicolumn{2}{c|}{Yi 34b/6b} & \\multicolumn{2}{c}{Llama-2 70b/7b} \\\\  & & tok/s & speed-up & tok/s & speed-up \\\\ \\hline \\multirow{4}{*}{GSM8k} & Greedy & 15.33 & 1.00 & 8.96 & 1.00 \\\\  & Speculative & 16.99 & 1.11 & 16.86 & 1.88 \\\\  & Lookahead & 25.14 & 1.64 & 13.77 & 1.54 \\\\  & Ouroboros & 26.41 & 1.72 & 22.18 & 2.48 \\\\  & Ouroboros\\({}^{\\dagger}\\) & **28.23** & **1.84** & **24.03** & **2.68** \\\\ \\hline \\multirow{4}{*}{CNN/DM} & Greedy & 14.62 & 1.00 & 8.12 & 1.00 \\\\  & Speculative & 17.82 & 1.22 & 12.77 & 1.57 \\\\  & Lookahead & 18.77 & 1.28 & 9.47 & 1.17 \\\\  & Ouroboros & 21.24 & 1.45 & 14.62 & 1.80 \\\\  & Ouroboros\\({}^{\\dagger}\\) & **22.65** & **1.55** & **14.67** & **1.81** \\\\ \\hline \\multirow{4}{*}{WMT16} & Greedy & 14.78 & 1.00 & 9.52 & 1.00 \\\\  & Speculative & 17.48 & 1.18 & 14.72 & 1.55 \\\\ \\cline{1-1}  & Lookahead & 17.98 & 1.22 & 14.65 & 1.54 \\\\ \\cline{1-1}  & Ouroboros & 19.75 & 1.34 & 19.11 & 2.01 \\\\ \\cline{1-1}  & Ouroboros\\({}^{\\dagger}\\) & **19.94** & **1.35** & **19.27** & **2.02** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 2: The decoding speed (tok/s) and speed-up ratio on GSM8K, CNN/DM and WMT16. “Ouroboros” with “\\({}^{\\dagger}\\)” represents warm start is on while “Ouroboros” means warm start is off. The fastest decoding methods are highlighted with the **bold** font, and the second largest results are with the underlined font.\n' +
+      '\n' +
+      'Figure 4: The decoding speed on HumanEval and MBPP. The unshadowed parts of Ouroboros are the results without warm start, and the shadowed parts are the extra improvement by warm start.\n' +
+      '\n' +
+      '### Ablation Studies and Analyses\n' +
+      '\n' +
+      'To give a deeper insight into how Ouroboros achieves higher generation speed, we conduct ablation studies and analyses to answer the following questions.\n' +
+      '\n' +
+      '**What are the effect of candidate suffixes, candidate inspiration, and candidate refinement?** To demonstrate the specific speed-up introduced by each mechanism of candidate suffixes, candidate inspiration, and candidate refinement, the ablation results are in Table 3. In the table, candidate inspiration has a positive effect when candidate suffixes are turned on, and shared candidates and candidate refinement have a positive impact in all circumstances. Each of them could bring a speed-up gain, and thus all of the three mechanisms are effective in Ouroboros framework design.\n' +
+      '\n' +
+      '**How many candidate suffixes are needed?** According to the hypothesis in Leviathan et al. (2023); Fu et al. (2023), parallelly verifying more tokens during model inference would not affect the inference speed. However, more candidate suffixes might slow down the verification in real-model inference scenarios. Here comes a trade-off between more candidate suffixes for possible speed-up and slower verification. Thus, we only select the top \\(k\\) newest candidates in the candidate pool. In Figure 5, there exists a best \\(k\\) value, fewer or more candidates cause slower decoding speed.\n' +
+      '\n' +
+      '**To what extent can context locality accelerate generation through warm start?** Context locality remains very high when continually generating within one task, but may vary across different datasets. For example, the candidate pool should contain code pieces when running on code generation datasets such as HumanEval and MBPP, but it might contain natural language pieces generating text. It remains a question that whether one type of language pieces could accelerate another type of language\'s generation. We conduct the following experiments to further investigate to what extent and how context locality can accelerate generation through warm start.\n' +
+      '\n' +
+      'We select four datasets: MBPP, GSM8K, CNN/DM, and WMT16, corresponding to code generation, arithmetic reasoning, document summarization, and machine translation, and sample 20 entries from each dataset to organize a new dataset containing different domains. We evaluate Ouroboros with multiple evaluation order, from which we could change context locality. We define consecutive number CN as how many entries from the same dataset are tested consecutively, as shown in Figure 6. In the "shuffle" configuration, we randomize the order of data entries. Higher CN indicates a better locality, and the "shuffle" configuration should have the worst locality. We measure the generation speed in different CN configurations or random shuffling.\n' +
+      '\n' +
+      'Table 4 shows that context locality indeed affects the effectiveness of warm start. With warm start, CN=20 leads to faster decoding compared to the shuffle setting. However, the effect caused by context locality is smaller than whether to turn on the warm start. The speed of lower CN is similar to the shuffle setting when applying warm start, but both are approximately 3 tok/s faster compared to the cold start setting, proving that the candidate pool is still effective across multiple tasks.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c|c c c c c} \\hline \\hline Setting & shuffle & CN=20 & shuffle & CN=20 & CN=10 & CN=4 & CN = 1 \\\\ \\hline Warm Start & off & off & on & on & on & on \\\\ \\hline tok/s & 32.68 & 32.53 & 35.39 & 36.00 & 35.32 & 34.83 & 35.36 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 4: The results of ablation studies on context locality and warm start. “CN” stands for consecutive number.\n' +
+      '\n' +
+      'Figure 5: The effect of selecting top-k candidates in candidate suffixes was tested on HumanEval using Yi-34b/6b without a warm start. The candidate pool size is 20.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c|c} \\hline \\hline Candidate & Candidate & Candidate & Candidate \\\\ Inspiration & Suffixes & Refinement & HumanEval \\\\ \\hline  & & & 49.90 \\\\ ✓ & & & 48.90 \\\\  & ✓ & & 55.92 \\\\ ✓ & ✓ & & 56.97 \\\\  & ✓ & ✓ & 57.23 \\\\ ✓ & ✓ & ✓ & 58.18 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 3: The ablation studies of each component on HumanEval using Yi-34b/6b without warm start. Note that “Candidate Refinement” cannot be applied when there are no candidate suffixes.\n' +
+      '\n' +
+      'Figure 6: The ablation studies on context locality and warm start. In our experiments, the task 1,2,3,4 are MBPP, GSM8K, CNN/DM, and WMT16, respectively.\n' +
+      '\n' +
+      '## 4 Related Work\n' +
+      '\n' +
+      'This section introduces existing efforts to achieve efficient LLM inference, including efficient decoding, efficient implementation and model compression. Note that both efficient implementation and model compression are orthogonal to our method, and can be combined for further speedup.\n' +
+      '\n' +
+      '### Efficient Decoding\n' +
+      '\n' +
+      'To alleviate efficiency issues caused by autoregressive decoding, non-autoregressive decoding methods have been proposed. Instead of generating tokens one by one, non-autoregressive methods generate multiple tokens in parallel at a time (Wei et al., 2019; Guo et al., 2020; Ghazvininejad et al., 2019). These non-autoregressive methods bring an improvement in inference efficiency and also significantly hurt model performance. To this end, drafting-then-verifying methods have been proposed (Stern et al., 2018; Xia et al., 2023; Leviathan et al., 2023; Chen et al., 2023). The drafting-then-verifying methods avoid LLMs from serial generation and instead use them to verify drafts in a non-autoregressive parallel manner, which do not reduce model performance and significantly accelerate inference.\n' +
+      '\n' +
+      'The key to drafting-then-verifying methods is to generate drafts quickly and well. Given a target model to accelerate its inference, some efforts explore to use the target model to efficiently generate drafts. Blockwise (Stern et al., 2018) and Medusa (Cai et al., 2024) add multiple extra output heads on top of LLMs and fine-tune heads to generate multiple draft tokens in parallel. Parallel Decoding (Santilli et al., 2023) and PaSS (Monea et al., 2023) add auxiliary input suffixes such as padding tokens or learnable padding tokens to generate draft output suffixes. Lookahead Decoding (Fu et al., 2023) generates n-gram pools using Jacobi-iteration and uses those n-grams starting with the last generated token as drafts. There are also some methods such as speculative decoding (Xia et al., 2023; Leviathan et al., 2023; Chen et al., 2023) to use a model smaller than the target model to generate drafts. To further align the draft model with the target model, distillation techniques are applied (Miao et al., 2023; Zhou et al., 2023). Even much smaller models can be used as a draft to speed up the draft model, forming multi-staged speculative decoding (Spector and Re, 2023; Chen et al., 2023). Apart from using different models, self-speculative (Zhang et al., 2023) and PPD (Yang et al., 2023) select part of the model layers as the draft model.\n' +
+      '\n' +
+      'Besides better generating drafts, traditional triangular attention masking can only verify one draft sentence using a complete forward pass. Tree-style verification (Miao et al., 2023; Cai et al., 2024) designs specific attention masking to verify multiple possible drafts at a time and find out the longest matched one. Lookahead decoding (Fu et al., 2023) also uses a custom attention masking to conduct n-gram Jacobi-iteration and draft verification in parallel.\n' +
+      '\n' +
+      '### Efficient Implementation\n' +
+      '\n' +
+      'The most direct solution to achieving efficient LLM inference is implementing LLMs efficiently to take advantage of hardware devices (such as GPUs). FlashDecoding (Dao et al., 2023) accelerates Transformer attention computation within LLMs by partitioning the decoding sequence into multiple small blocks and performing block-wise computation in fast GPU SRAM instead of GPU HBM. PageAttention (Kwon et al., 2023) using paged virtual memory management to organize the decoding cache during the decoding process, thereby effectively utilizing GPU memory bandwidth to reduce the memory access overhead of inference. Tensor Parallelism (Shoeybi et al., 2019) accelerates inference by sharding matrices into distributed GPUs and performing matrix multiplications in a distributed manner. Some efforts implement LLMs by optimizing underlying operators (Nvidia, a; Wang et al., 2021; Nvidia, b) and achieve promising results.\n' +
+      '\n' +
+      '### Model Compression\n' +
+      '\n' +
+      'Model compression methods are proposed to reduce the number of operations needed for model execution. Structure pruning (Fan et al., 2020; Wang et al., 2020; Zhang et al., 2021; Xia et al., 2022) and unstructured pruning (Han et al., 2015; Chen et al., 2020; Xu et al., 2021) climate non-essential parameters. Quantization (Zafrir et al., 2019; Frantar et al., 2023; Lin et al., 2023; Kim et al., 2023; Stock et al., 2021) methods quantize parameters into low-bit representations. Early-exiting (Elbayad et al., 2019; Bae et al., 2023) methods end the inference process when the output result in shallow layers reaches the confidence threshold. MoEfication (Zhang et al., 2022; Song et al., 2023) turns a dense model into a sparse activated model.\n' +
+      '\n' +
+      '## 5 Conclusion, Limitation and Future Work\n' +
+      '\n' +
+      'In this paper, we propose a practical algorithm Ouroboros, a bidirectional acceleration strategy. We speed up drafting of a smaller model for faster large model generation, and use the large model to provide inspirations for effective drafting. Experiments verify that Ouroboros achieves \\(1.9\\times\\) and \\(2.8\\times\\) speed-up compared to existing methods (Lookahead Decoding and Speculative Decoding), while does not require any model training, and does not affect the generation quality at all. We only implement and test Ouroboros in greedy decoding scenario, but Ouroboros can easily support random sampling, which remains our future work. We only focus on decoder-only model structure in the experiment. However, Ouroboros is an extendable framework, which can be applied to various model structures and can be combined with existing algorithms such as Medusa.\n' +
+      '\n' +
+      '## Acknowledgements\n' +
+      '\n' +
+      'This work is supported by ModelBest & OpenBMB.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* O. A. Abadi, S. Agarwal, L. Ahmad, I. Akkaya, F. L. Aleman, D. Almeida, J. Altenschmidt, S. Altman, S. Anadkat, et al. (2023)Gpt-4 technical report. arXiv preprint arXiv:2303.08774. Cited by: SS1.\n' +
+      '* J. Austin, A. Odena, M. Nye, M. Bosma, H. Michalewski, D. Dahan, E. Jiang, C. Cai, M. Terry, Q. Le, et al. (2021)Program synthesis with large language models. arXiv preprint arXiv:2108.07732. Cited by: SS1.\n' +
+      '* S. Bae, J. Ko, H. Song, and S. Yun (2023)Fast and robust early-exiting framework for autoregressive language models with synchronized parallel decoding. In Proceedings of EMNLP, Cited by: SS1.\n' +
+      '* X. Bi, D. Chen, S. Chen, D. Chen, S. Dai, C. Deng, H. Ding, Q. Dong, Q. Pu, Z. Fu, et al. (2024)DeepSeek llm: scaling open-source language models with longtermism. arXiv preprint arXiv:2401.02954. Cited by: SS1.\n' +
+      '* O. r. Bojar, R. Chatterjee, C. Federmann, Y. Graham, B. Haddow, M. Huck, A. Jimeno Yepes, P. Koehn, V. Logacheva, C. Monz, M. Negri, A. Neveol, M. Neves, M. Popel, M. Post, R. Rubino, C. Scarton, L. Specia, M. Turchi, K. Verspoor, and M. Zampieri (2016)Findings of the 2016 conference on machine translation. In Proceedings of the First Conference on Machine Translation, pp. 131-198. Cited by: SS1.\n' +
+      '* T. Cai, Y. Li, Z. Geng, H. Peng, J. D. Lee, D. Chen, and T. Dao (2024)STDIN inference acceleration framework with multiple decoding heads. arXiv preprint arXiv:2401.10774. Cited by: SS1.\n' +
+      '* C. Chen, S. Borgeaud, G. Irving, J. Lespiau, L. Sifre, and J. Jumper (2023)Accelerating large language model decoding with speculative sampling. arXiv preprint arXiv:2302.01318. Cited by: SS1.\n' +
+      '* M. Chen, J. Tworek, H. Jun, Q. Yuan, H. P. d. O. Pinto, J. Kaplan, H. Edwards, Y. Burda, N. Joseph, G. Brockman, et al. (2021)Evaluating large language models trained on code. arXiv preprint arXiv:2107.03374. Cited by: SS1.\n' +
+      '* T. Chen, J. Frankle, S. Chang, S. Liu, Y. Zhang, Z. Wang, and M. Carbin (2020)The lottery ticket hypothesis for pre-trained bert networks. In Proceedings of NeurIPS, pp. 15834-15846. Cited by: SS1.\n' +
+      '* Z. Chen, X. Yang, J. Lin, C. Sun, J. Huang, and K. C. Chang (2021)Cascade speculative drafting for even faster llm inference. arXiv preprint arXiv:2312.11462. Cited by: SS1.\n' +
+      '* K. Cobbe, V. Kosaraju, M. Bavarian, M. Chen, H. Jun, L. Kaiser, M. Plappert, J. Tworek, J. Hilton, R. Nakano, C. Hesse, and J. Schulman (2021)Training verifiers to solve math word problems. arXiv preprint arXiv:2110.14168. Cited by: SS1.\n' +
+      '* T. Dao, D. Haziza, F. Massa, and G. Sizov (2023)Flash-decoding for long-context inference. Cited by: SS1.\n' +
+      '* D. Driess, F. Xia, M. S. Sajjadi, C. Lynch, A. Chowdhery, B. Ichter, A. Wahid, J. Tompson, Q. Vuong, et al. (2023)Palm-e: an embodied multimodal language model. arXiv preprint arXiv:2303.03378. Cited by: SS1.\n' +
+      '* M. Elbayad, J. Gu, E. Grave, and M. Auli (2019)Depth-adaptive transformer. In Proceedings of ICLR, Cited by: SS1.\n' +
+      '* A. Fan, E. Grave, and A. Joulin (2020)Reducing transformer depth on demand with structured dropout. In Proceedings of ICLR, Cited by: SS1.\n' +
+      '* E. Frantar, S. Ashkboos, T. Hoefler, and D. Aistarh (2023)Gptq: accurate quantization for generative pre-trained transformers. In Proceedings of ICLR, Cited by: SS1.\n' +
+      '* Y. Fu, P. Bailis, I. Stoica, and H. Zhang (2023)Breaking the sequential dependency of llm inference using lookahead decoding. Note: Number 2023-11-21-lookahead-decoding Cited by: SS1.\n' +
+      '* M. Ghazvininejad, O. Levy, Y. Liu, and L. Zettlemoyer (2019)Mask-predict: parallel decoding of conditional masked language models. arXiv preprint arXiv:1904.09324. Cited by: SS1.\n' +
+      '* J. Guo, L. Xu, and E. Chen (2020)Jointly masked sequence-to-sequence model for non-autoregressive neural machine translation. In Proceedings of ACL, pp. 376-385. Cited by: SS1.\n' +
+      '* S. Han, J. Pool, J. Tran, and W. J. Dally (2015)Learning both weights and connections for efficient neural network. In Proceedings of NeurIPS, pp. 1135-1143. Cited by: SS1.\n' +
+      '* K. M. Hermann, T. Kocisky, E. Grefenstette, L. Espeholt, W. Kay, M. Suleyman, and P. Blunsom (2015)Teaching machines to read and comprehend. In Proceedings of NeurIPS, pp. 1693-1701. Cited by: SS1.\n' +
+      '* S. Kim, C. Hooper, A. Gholami, Z. Dong, X. Li, S. Shen, M. W. Mahoney, and K. Keutzer (2023)SqueezeLLM: dense-and-sparse quantization. arXiv preprint arXiv:2306.07629. Cited by: SS1.\n' +
+      '* J. K. K. Hermann, T. Kocisky, E. Grefenstette, L. Espeholt, W. Kay, M. Suleyman, and P. Blunsom (2015)Teaching machines to read and comprehend. In Proceedings of NeurIPS, pp. 1693-1701. Cited by: SS1.\n' +
+      '* J. K. Hermann, T. Kocisky, E. Grefenstette, L. Espeholt, W. Kay, M. Suleyman, and P. Blunsom (2015)Teaching machines to read and comprehend. In Proceedings of NeurIPS, pp.\n' +
+      '\n' +
+      '* Kwon et al. (2023) Kwon, W., Li, Z., Zhuang, S., Sheng, Y., Zheng, L., Yu, C. H., Gonzalez, J. E., Zhang, H., and Stoica, I. Efficient memory management for large language model serving with pagedattention. In _Proceedings of SOSP_, 2023.\n' +
+      '* Leviathan et al. (2023) Leviathan, Y., Kalman, M., and Matias, Y. Fast inference from transformers via speculative decoding. In _Proceedings of ICML_, pp. 19274-19286, 2023.\n' +
+      '* Lewkowycz et al. (2022) Lewkowycz, A., Andreassen, A., Dohan, D., Dyer, E., Michalewski, H., Ramasesh, V., Slone, A., Anil, C., Schlag, I., Gutman-Solo, T., et al. Solving quantitative reasoning problems with language models. _arXiv preprint arXiv:2206.14858_, 2022.\n' +
+      '* Lin et al. (2023) Lin, J., Tang, J., Tang, H., Yang, S., Dang, X., and Han, S. Awq: Activation-aware weight quantization for llm compression and acceleration. _arXiv preprint arXiv:2306.00978_, 2023.\n' +
+      '* Miao et al. (2023) Miao, X., Oliaro, G., Zhang, Z., Cheng, X., Wang, Z., Wong, R. Y. Y., Chen, Z., Arfeen, D., Abhyankar, R., and Jia, Z. Specimfer: Accelerating generative llm serving with speculative inference and token tree verification. _arXiv preprint arXiv:2305.09781_, 2023.\n' +
+      '* Monea et al. (2021) Monea, G., Joulin, A., and Grave, E. Pass: Parallel speculative sampling. _arXiv preprint arXiv:2311.13581_, 2023.\n' +
+      '* Nakano et al. (2021) Nakano, R., Hilton, J., Balaji, S., Wu, J., Ouyang, L., Kim, C., Hesse, C., Jain, S., Kosaraju, V., Saunders, W., et al. Webgpt: Browser-assisted question-answering with human feedback. _arXiv preprint arXiv:2112.09332_, 2021.\n' +
+      '* Nvidia (2021) Nvidia. Fastertransformer, a. URL [https://github.com/NVIDIA/FasterTransformer](https://github.com/NVIDIA/FasterTransformer).\n' +
+      '* Nvidia (2021) Nvidia. Tensorrt-llm, b. URL [https://github.com/NVIDIA/TensorRT-LLM](https://github.com/NVIDIA/TensorRT-LLM).\n' +
+      '* OpenAI (2022) OpenAI, T. Chatgpt: Optimizing language models for dialogue. _OpenAI_, 2022.\n' +
+      '* Rasley et al. (2020) Rasley, J., Rajbhandari, S., Ruwase, O., and He, Y. Deep-speed: System optimizations enable training deep learning models with over 100 billion parameters. In _Proceedings of SIGKDD_, pp. 3505-3506, 2020.\n' +
+      '* Roziere et al. (2023) Roziere, B., Gehring, J., Gloeckle, F., Sootla, S., Gat, I., Tan, X. E., Adi, Y., Liu, J., Remez, T., Rapin, J., et al. Code llama: Open foundation models for code. _arXiv preprint arXiv:2308.12950_, 2023.\n' +
+      '* Santilli et al. (2023) Santilli, A., Severino, S., Postolache, E., Maiorca, V., Mancusi, M., Marin, R., and Rodola, E. Accelerating transformer inference for translation via parallel decoding. 2023.\n' +
+      '* See et al. (2017) See, A., Liu, P. J., and Manning, C. D. Get to the point: Summarization with pointer-generator networks. In _Proceedings of ACL_, pp. 1073-1083, 2017.\n' +
+      '* Shoeybi et al. (2019) Shoeybi, M., Patwary, M., Puri, R., LeGresley, P., Casper, J., and Catanzaro, B. Megatron-lm: Training multi-billion parameter language models using model parallelism. _arXiv preprint arXiv:1909.08053_, 2019.\n' +
+      '* Song et al. (2023) Song, Y., Mi, Z., Xie, H., and Chen, H. Powerinfer: Fast large language model serving with a consumer-grade gpu. _arXiv preprint arXiv:2312.12456_, 2023.\n' +
+      '* Spector & Re (2023) Spector, B. and Re, C. Accelerating llm inference with staged speculative decoding. _arXiv preprint arXiv:2308.04623_, 2023.\n' +
+      '* Stern et al. (2018) Stern, M., Shazeer, N., and Uszkoreit, J. Blockwise parallel decoding for deep autoregressive models. volume 31, 2018.\n' +
+      '* Stock et al. (2021) Stock, P., Fan, A., Graham, B., Grave, E., Gribonval, R., Jegou, H., and Joulin, A. Training with quantization noise for extreme model compression. In _Proceedings of ICLR_, 2021.\n' +
+      '* Touvron et al. (2023) Touvron, H., Martin, L., Stone, K., Albert, P., Almahairi, A., Babaei, Y., Bashlykov, N., Batra, S., Bhargava, P., Bhosale, S., et al. Llama 2: Open foundation and fine-tuned chat models. _arXiv preprint arXiv:2307.09288_, 2023.\n' +
+      '* Wang et al. (2021) Wang, X., Xiong, Y., Wei, Y., Wang, M., and Li, L. Light-Seq: A high performance inference library for transformers. In _Proceedings of NAACL_, pp. 113-120, 2021.\n' +
+      '* Wang et al. (2020) Wang, Z., Wohlwend, J., and Lei, T. Structured pruning of large language models. In _Proceedings of EMNLP_, pp. 6151-6162, 2020.\n' +
+      '* Wei et al. (2019) Wei, B., Wang, M., Zhou, H., Lin, J., Xie, J., and Sun, X. Imitation learning for non-autoregressive neural machine translation. _arXiv preprint arXiv:1906.02041_, 2019.\n' +
+      '* Xia et al. (2023) Xia, H., Ge, T., Wang, P., Chen, S.-Q., Wei, F., and Sui, Z. Speculative decoding: Exploiting speculative execution for accelerating seq2seq generation. In _Proceedings of EMNLP_, pp. 3909-3925, 2023.\n' +
+      '* Xia et al. (2022) Xia, M., Zhong, Z., and Chen, D. Structured pruning learns compact and accurate models. In _Proceedings of ACL_, pp. 1513-1528, 2022.\n' +
+      '* under the pre-train and fine-tune paradigm. In _Proceedings of NAACL_, pp. 2376-2382, 2021.\n' +
+      'Yang, S., Lee, G., Cho, J., Papailiopoulos, D., and Lee, K. Predictive pipelined decoding: A compute-latency trade-off for exact llm decoding. _arXiv preprint arXiv:2307.05908_, 2023.\n' +
+      '* Zafrir et al. (2019) Zafrir, O., Boudoukh, G., Izsak, P., and Wasserblat, M. Q8bert: Quantized 8bit bert. In _Proceedings of EMC2-NIPS_, pp. 36-39, 2019.\n' +
+      '* Zhang et al. (2023) Zhang, J., Wang, J., Li, H., Shou, L., Chen, K., Chen, G., and Mehrotra, S. Draft & verify: Lossless large language model acceleration via self-speculative decoding. _arXiv preprint arXiv:2309.08168_, 2023.\n' +
+      '* Zhang et al. (2021) Zhang, Z., Qi, F., Liu, Z., Liu, Q., and Sun, M. Know what you don\'t need: Single-shot meta-pruning for attention heads. volume 2, pp. 36-42, 2021.\n' +
+      '* Zhang et al. (2022) Zhang, Z., Lin, Y., Liu, Z., Li, P., Sun, M., and Zhou, J. MoEfication: Transformer feed-forward layers are mixtures of experts. In _Findings of ACL_, pp. 877-890, 2022.\n' +
+      '* Zhou et al. (2023) Zhou, Y., Lyu, K., Rawat, A. S., Menon, A. K., Rostamizadeh, A., Kumar, S., Kagy, J.-F., and Agarwal, R. Distillspec: Improving speculative decoding via knowledge distillation. _arXiv preprint arXiv:2310.08461_, 2023.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:12]\n' +
+      '\n' +
+      '## Appendix A\n' +
+      '\n' +
+      'Figure 7: An example of Ouroboros vs. Lookahead Decoding, Speculative Decoding and Greedy Decoding. Blue words are generated by the small model, black words are generated by the target model and red words are accepted candidate suffixes.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
