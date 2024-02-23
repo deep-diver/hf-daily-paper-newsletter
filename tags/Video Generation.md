@@ -1,0 +1,1 @@
+- [Snap Video: Scaled Spatiotemporal Transformers for Text-to-Video Synthesis](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/31/2024-02-23+Snap+Video%3A+Scaled+Spatiotemporal+Transformers+for+Text-to-Video+Synthesis.yaml) / 2024-02-23

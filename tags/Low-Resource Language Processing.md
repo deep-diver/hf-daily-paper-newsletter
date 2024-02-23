@@ -1,0 +1,1 @@
+- [LexC-Gen: Generating Data for Extremely Low-Resource Languages with Large Language Models and Bilingual Lexicons](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/31/2024-02-23+LexC-Gen%3A+Generating+Data+for+Extremely+Low-Resource+Languages+with+Large+Language+Models+and+Bilingual+Lexicons.yaml) / 2024-02-23

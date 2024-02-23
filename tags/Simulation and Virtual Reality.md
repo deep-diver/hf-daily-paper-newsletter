@@ -1,0 +1,1 @@
+- [CyberDemo: Augmenting Simulated Human Demonstration for Real-World Dexterous Manipulation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/31/2024-02-23+CyberDemo%3A+Augmenting+Simulated+Human+Demonstration+for+Real-World+Dexterous+Manipulation.yaml) / 2024-02-23

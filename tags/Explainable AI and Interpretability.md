@@ -29,3 +29,4 @@
 - [LAVE: LLM-Powered Agent Assistance and Language Augmentation for Video Editing](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/27/2024-02-19+LAVE%3A+LLM-Powered+Agent+Assistance+and+Language+Augmentation+for+Video+Editing.yaml) / 2024-02-19
 - [LLM Comparator: Visual Analytics for Side-by-Side Evaluation of Large Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/27/2024-02-19+LLM+Comparator%3A+Visual+Analytics+for+Side-by-Side+Evaluation+of+Large+Language+Models.yaml) / 2024-02-19
 - [Reformatted Alignment](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/28/2024-02-20+Reformatted+Alignment.yaml) / 2024-02-20
+- [Consolidating Attention Features for Multi-view Image Editing](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/31/2024-02-23+Consolidating+Attention+Features+for+Multi-view+Image+Editing.yaml) / 2024-02-23

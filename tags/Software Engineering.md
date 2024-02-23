@@ -1,0 +1,1 @@
+- [Copilot Evaluation Harness: Evaluating LLM-Guided Software Programming](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/31/2024-02-23+Copilot+Evaluation+Harness%3A+Evaluating+LLM-Guided+Software+Programming.yaml) / 2024-02-23
