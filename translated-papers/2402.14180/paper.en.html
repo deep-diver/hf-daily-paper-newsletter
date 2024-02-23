@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# Linear Transformers are Versatile In-Context Learners\n' +
+      '\n' +
+      'Max Vladymyrov\n' +
+      '\n' +
+      'Johannes von Oswald\n' +
+      '\n' +
+      'Mark Sandler\n' +
+      '\n' +
+      'Rong Ge\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      'Recent research has demonstrated that transformers, particularly linear attention models, implicitly execute gradient-descent-like algorithms on data provided in-context during their forward inference step. However, their capability in handling more complex problems remains unexplored. In this paper, we prove that any linear transformer maintains an implicit linear model and can be interpreted as performing a variant of preconditioned gradient descent. We also investigate the use of linear transformers in a challenging scenario where the training data is corrupted with different levels of noise. Remarkably, we demonstrate that for this problem linear transformers discover an intricate and highly effective optimization algorithm, surpassing or matching in performance many reasonable baselines. We reverse-engineer this algorithm and show that it is a novel approach incorporating momentum and adaptive rescaling based on noise levels. Our findings show that even linear transformers possess the surprising ability to discover sophisticated optimization strategies.\n' +
+      '\n' +
+      'Machine Learning, ICML\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      'Transformer architecture (Vaswani et al., 2017) has revolutionized the field of machine learning, driving breakthroughs across natural language processing, computer vision, and beyond. It has become the backbone of powerful foundation models (Anil et al., 2023; Achiam et al., 2023; Team et al., 2023; Jiang et al., 2023). However, despite their widespread success, the mechanisms that drive their performance remain an active area of research. A key component of their success is attributed to in-context learning (ICL, Brown et al., 2020) - an emergent ability of transformers to make predictions based on information provided within the input sequence itself, without explicit parameter updates.\n' +
+      '\n' +
+      'Recently, several papers (Garg et al., 2022; Akyurek et al., 2022; von Oswald et al., 2023) have suggested that ICL might be partially explained by an implicit meta-optimization of the transformers that happens on input context (aka mesa-optimization Hubinger et al., 2019). They have shown that transformers with linear self-attention layers (aka linear transformers) trained on linear regression tasks can internally implement gradient-based optimization.\n' +
+      '\n' +
+      'Specifically, von Oswald et al. (2023) demonstrated that linear transformers can execute iterations of an algorithm similar to the gradient descent algorithm (which they call GD\\({}^{++}\\)), with each attention layer representing one step of the algorithm. Later, Ahn et al. (2023); Zhang et al. (2023) further characterized this behavior, showing that the learned solution is a form of preconditioned GD, and this solution is optimal for one-layer linear transformers.\n' +
+      '\n' +
+      'In this paper, we continue to study linear transformers trained on linear regression problems. We prove that _any_ linear transformer maintains an implicit linear model. Under some restrictions, the algorithm it runs can be interpreted as a complex variant of preconditioned gradient descent with momentum-like behaviors.\n' +
+      '\n' +
+      'While maintaining a linear model (regardless of the data) might seem restrictive, we nevertheless find that linear transformers can discover powerful optimization algorithms. As a first example, we prove that in case of GD\\({}^{++}\\), the preconditioner results in a second order optimization algorithm.\n' +
+      '\n' +
+      'Furthermore, we demonstrate that linear transformers can be trained to uncover even more powerful and intricate algorithms. We modified the problem formulation to consider mixed linear regression with varying noise levels1 (inspired by Bai et al., 2023). This is a harder and non-trivial problem with no obvious closed-form solution, since it needs to account for various levels of noise in the input.\n' +
+      '\n' +
+      'Footnote 1: Google Research \\({}^{2}\\)Duke University. Correspondence to: Max Vladymyrov \\(<\\)mxv@google.com\\(>\\).\n' +
+      '\n' +
+      'Our experiments with two different noise variance distributions (uniform and categorical) demonstrate the remarkable flexibility of linear transformers. Training a linear transformer in these settings leads to an algorithm that outperforms GD\\({}^{++}\\) as well as various baselines derived from the exact closed-form solution of the ridge regression. We discover that this result holds even when training a lineartransformer with diagonal weight matrices.\n' +
+      '\n' +
+      'Through a detailed analysis, we reverse-engineered the learned algorithm, revealing key distinctions from GD\\({}^{++}\\), including momentum-like term and adaptive rescaling based on the noise levels.\n' +
+      '\n' +
+      'Our findings contribute to the growing body of research where novel, high-performing algorithms have been directly discovered through the reverse-engineering of transformer weights. This work expands our understanding of the implicit learning capabilities of attention-based models and highlights the remarkable versatility of even simple linear transformers as in-context learners. We demonstrate that transformers have the potential to discover effective algorithms that may advance the state-of-the-art in optimization and machine learning in general.\n' +
+      '\n' +
+      '## 2 Preliminaries\n' +
+      '\n' +
+      'In this section we introduce notations for linear transformers, data, and type of problems that we consider.\n' +
+      '\n' +
+      '### Linear transformers and in-context learning\n' +
+      '\n' +
+      'Given input sequence \\(e_{1},e_{2},...,e_{n}\\in\\mathbb{R}^{d}\\), a single head in a linear self-attention layer is usually parameterized by 4 matrices, key \\(W_{K}\\), query \\(W_{Q}\\), value \\(W_{V}\\) and projection \\(W_{P}\\). The output of the non-causal layer at position \\(i\\) is \\(e_{i}+\\Delta e_{i}\\) where \\(\\Delta e_{i}\\) is computed as\n' +
+      '\n' +
+      '\\[\\Delta e_{i}=W_{P}\\left(\\sum_{j=1}^{n}\\langle W_{Q}e_{i},W_{K}e_{j}\\rangle W_{ V}e_{j}\\right). \\tag{1}\\]\n' +
+      '\n' +
+      'Equivalently, one can use parameters \\(P=W_{P}W_{V}\\) and \\(Q=W_{K}^{\\top}W_{Q}\\), and the equation becomes\n' +
+      '\n' +
+      '\\[\\Delta e_{i}=\\sum_{j=1}^{n}(e_{j}^{\\top}Qe_{i})Pe_{j}. \\tag{2}\\]\n' +
+      '\n' +
+      'If we have multiple heads \\((P_{1},Q_{1}),(P_{2},Q_{2}),...,(P_{h},Q_{h})\\), the effect is just the summation of all heads\n' +
+      '\n' +
+      '\\[\\Delta e_{i}=\\sum_{k=1}^{H}\\sum_{j=1}^{n}(e_{j}^{\\top}Q_{k}e_{i})P_{k}e_{j}. \\tag{3}\\]\n' +
+      '\n' +
+      'We define a _linear transformer_ as a multi-layer neural network composed of \\(L\\) linear self-attention layers parameterized by \\(\\theta=\\{Q_{k}^{l},P_{k}^{l}\\}_{H,L}\\). To isolate the core mechanisms, we consider a simplified decoder-only architecture, excluding MLPs and LayerNorm components. This architecture was also used in previous work (von Oswald et al., 2023a; Ahn et al., 2023).\n' +
+      '\n' +
+      'We consider two versions of linear transformers: Full with the transformer parameters represented by full matrices and Diag, where the parameters are restricted to diagonal matrices only.\n' +
+      '\n' +
+      'Inspired by von Oswald et al. (2023a), in this paper we consider a regression problem where data is provided as a sequence of tokens. Each token \\(e_{i}=(x_{i},y_{i})\\in\\mathbb{R}^{d+1}\\) consists of a feature vector \\(x_{i}\\in\\mathbb{R}^{d}\\) and its corresponding output \\(y_{i}\\in\\mathbb{R}\\). Additionally, we append a query token \\(e_{n+1}=(x_{t},0)\\) to the sequence, where \\(x_{t}\\in\\mathbb{R}^{d}\\) represents test data. The goal of in-context learning is to predict \\(y_{t}\\) for the test data \\(x_{t}\\). We constrain the attention to only focus on the first \\(n\\) tokens of the sequence so that it ignores the query token.\n' +
+      '\n' +
+      'We use \\((x_{i}^{l},y_{i}^{l})\\) to denote the \\(i\\)-th token in the transformer\'s output at layer \\(l\\). The initial layer is simply the input: \\((x_{i}^{0},y_{i}^{0})=(x_{i},y_{i})\\). For a model with parameters \\(\\theta\\), we read out the prediction by taking the negative2 of the last coordinate of the final token in the last layer as \\(\\hat{y}_{\\theta}(\\{e_{1},...,e_{n}\\},e_{n+1})=-y_{n+1}^{L}\\).\n' +
+      '\n' +
+      'Footnote 2: We set the actual prediction to \\(-y_{n+1}^{l}\\), similar to von Oswald et al. (2023a), because it’s easier for linear transformers to predict \\(-y_{t}\\).\n' +
+      '\n' +
+      'Let\'s also define the following notation to be used throughout the paper\n' +
+      '\n' +
+      '\\[\\Sigma=\\sum_{i=1}^{n}x_{i}(x_{i})^{\\top};\\quad\\alpha=\\sum_{i=1}^ {n}y_{i}x_{i};\\quad\\lambda=\\sum_{i=1}^{n}(y_{i})^{2}\\] \\[\\Sigma^{l}=\\sum_{i=1}^{n}x_{i}^{l}(x_{i}^{l})^{\\top};\\quad\\alpha ^{l}=\\sum_{i=1}^{n}y_{i}^{l}x_{i}^{l};\\quad\\lambda^{l}=\\sum_{i=1}^{n}(y_{i}^ {l})^{2}\\]\n' +
+      '\n' +
+      '### Noisy regression model\n' +
+      '\n' +
+      'As a model problem, we consider data generated from a noisy linear regression model. For each input sequence \\(\\tau\\), we sample a ground-truth weight vector \\(w_{\\tau}\\sim N(0,I)\\), and generate \\(n\\) data points as \\(x_{i}\\sim N(0,I)\\) and \\(y_{i}=\\langle w_{\\tau},x_{i}\\rangle+\\xi_{i}\\), with noise \\(\\xi_{i}\\sim N(0,\\sigma_{\\tau}^{2})\\).\n' +
+      '\n' +
+      'Note that each sequence can have different ground-truth weight vectors \\(w_{\\tau}\\), but every data point in the sequence shares the same \\(w_{\\tau}\\) and \\(\\sigma_{\\tau}\\). The query is generated as \\(x_{t}\\sim N(0,I)\\) and \\(y_{t}=\\langle w_{\\tau},x_{t}\\rangle\\) (since the noise is independent, whether we include noise in \\(y_{q}\\) will only be an additive constant to the final objective).\n' +
+      '\n' +
+      'We further define an ordinary least square (OLS) loss as\n' +
+      '\n' +
+      '\\[L_{\\text{OLS}}(w)=\\sum_{i=1}^{n}\\left(y_{i}-\\langle w,x_{i}\\rangle\\right)^{2}. \\tag{4}\\]\n' +
+      '\n' +
+      'The OLS solution is \\(w^{*}:=\\Sigma^{-1}\\alpha\\) with residuals \\(r_{i}:=y_{i}-\\langle w^{*},x_{i}\\rangle\\).\n' +
+      '\n' +
+      'In the presence of noise \\(\\sigma_{\\tau}\\), \\(w^{*}\\) in general is not equal to the ground truth \\(w_{\\tau}\\). For a _known_ noise level \\(\\sigma_{\\tau}\\), the best estimator for \\(w_{\\tau}\\) is provided by ridge regression:\n' +
+      '\n' +
+      '\\[L_{\\text{RR}}(w)=\\sum_{i=1}^{n}\\left(y_{i}-\\langle w,x_{i}\\rangle\\right)^{2}+ \\sigma_{\\tau}^{2}\\|w\\|^{2}, \\tag{5}\\]\n' +
+      '\n' +
+      'with solution \\(w_{\\sigma^{2}}^{*}:=\\left(\\Sigma+\\sigma_{\\tau}^{2}I\\right)^{-1}\\alpha\\). Of course, in reality the variance of the noise is not known and has to be estimated from the data.\n' +
+      '\n' +
+      '### Fixed vs. mixed noise variance problems\n' +
+      '\n' +
+      'We consider two different problems within the noisy linear regression framework.\n' +
+      '\n' +
+      'Fixed noise variance.In this scenario, the variance \\(\\sigma_{\\tau}\\) remains constant for all the training data. Here, the in-context loss is:\n' +
+      '\n' +
+      '\\[L(\\theta)=\\operatorname*{\\mathbb{E}}_{\\begin{subarray}{c}w_{\\tau}\\sim N(0,I) \\\\ x_{i}\\sim N(0,I)\\\\ \\xi_{i}\\sim N(0,\\sigma_{\\tau}^{2})\\end{subarray}}\\left[(\\hat{y}_{\\theta}(\\{e _{1},...,e_{n}\\},e_{n+1})-y_{t})^{2}\\right], \\tag{6}\\]\n' +
+      '\n' +
+      'where \\(e_{i}=(x_{i},y_{i})\\) and \\(y_{i}=\\langle w_{\\tau},x_{i}\\rangle+\\xi_{i}\\). This problem was initially explored by Garg et al. (2022). Later, von Oswald et al. (2023) have demonstrated that a linear transformer (6) converges to a form of a gradient descent solution, which they called GD\\({}^{++}\\). We define this in details later.\n' +
+      '\n' +
+      'Mixed noise variance.In this case, the noise variance \\(\\sigma_{\\tau}\\) is drawn from some fixed distribution \\(p(\\sigma_{\\tau})\\) for each sequence. The in-context learning loss becomes:\n' +
+      '\n' +
+      '\\[L(\\theta)=\\operatorname*{\\mathbb{E}}_{\\begin{subarray}{c}w_{\\tau}\\sim N(0,I) \\\\ x_{i}\\sim N(0,I)\\\\ \\xi_{i}\\sim N(0,\\sigma_{\\tau}^{2})\\\\ \\sigma_{\\tau}\\sim p(\\sigma_{\\tau})\\end{subarray}}\\left[(\\hat{y}_{\\theta}(\\{e _{1},...,e_{n}\\},e_{n+1})-y_{t})^{2}\\right]. \\tag{7}\\]\n' +
+      '\n' +
+      'This scenario adds complexity because the model must predict \\(w_{\\tau}\\) for changing noise distribution, and the optimal solution likely would involve some sort of noise estimation.\n' +
+      '\n' +
+      'Surprisingly, this simple modification leads to both Full and Diag linear transformers converging to a significantly better solution than GD\\({}^{++}\\). In fact, GD\\({}^{++}\\) fails to model noise variance estimation, instead converging to a solution which can be interpreted as a single noise variance estimate across all input data.\n' +
+      '\n' +
+      '## 3 Related work\n' +
+      '\n' +
+      'In-context Learning as Gradient DescentOur work is inspired by the line of work that demonstrated in-context learning can be viewed as (variants of) gradient descent (Akyurek et al., 2022; von Oswald et al., 2023). For 1-layer linear transformer, several works (Zhang et al., 2023; Mahankali et al., 2023; Ahn et al., 2023) characterized the optimal parameters and training dynamics. More recent works extended the ideas to auto-regressive models (Li et al., 2023; von Oswald et al., 2023) and nonlinear models (Cheng et al., 2023). Fu et al. (2023) noticed that transformers perform similarly to second-order Newton methods on linear data, for which we give a plausible explanation in Theorem 5.1.\n' +
+      '\n' +
+      'In-context Learning in LLMsThere are also many works that study how in-context learning works in pre-trained LLMs (Kossen et al., 2023; Wei et al., 2023; Hendel et al., 2023; Shen et al., 2023). Due to the complexity of such models, the exact mechanism for in-context learning is still a major open problem. Several works (Olsson et al., 2022; Chan et al., 2022; Akyurek et al., 2024) identified induction heads as a crucial mechanism for simple in-context learning tasks, such as copying, token translation and pattern matching.\n' +
+      '\n' +
+      'Other theories for training transformersOther than the setting of linear models, several other works (Garg et al., 2022; Tarzanagh et al., 2023; Li et al., 2023; Huang et al., 2023; Tian et al., 2023;b) considered optimization of transformers under different data and model assumptions. (Wen et al., 2023) showed that it can be difficult to interpret the "algorithm" performed by transformers without very strong restrictions.\n' +
+      '\n' +
+      'Mixed Linear ModelsSeveral works observed that transformers can achieve good performance on a mixture of linear models (Bai et al., 2023; Pathak et al., 2023; Yadlowsky et al., 2023). While these works show that transformers can implement many variants of model-selection techniques, our result shows that linear transformers solve such problems by discovering interesting optimization algorithm with many hyperparameters tuned during the training process. Such a strategy is quite different from traditional ways of doing model selection. Transformers are also known to be able to implement strong algorithms in many different setups (Guo et al., 2023; Giannou et al., 2023).\n' +
+      '\n' +
+      'Effectiveness of linear and kernel-like transformersA main constraint on transformer architecture is that it takes \\(O(N^{2})\\) time for a sequence of length \\(N\\), while for a linear transformer this can be improved to \\(O(N)\\). Mirchandani et al. (2023) showed that even linear transformers are quite powerful for many tasks. Other works (Katharopoulos et al., 2020; Wang et al., 2020; Schlag et al., 2021; Choromanski et al., 2020) uses ideas similar to kernel/random features to improve the running time to almost linear while not losing much performance.\n' +
+      '\n' +
+      '## 4 Linear transformers maintain linear models\n' +
+      '\n' +
+      'While larger transformers with nonlinearities could represent complicated models, we show that linear transformersare restricted to maintaining a linear model based on the input, in the sense that the \\(l\\)-th layer output is always a linear function of the input with latent (and possibly nonlinear) coefficients.\n' +
+      '\n' +
+      '**Theorem 4.1**.: _Suppose the output of a linear transformer at \\(l\\)-th layer is \\((x_{1}^{l},y_{1}^{l}),(x_{2}^{l},y_{2}^{l}),...,(x_{n}^{l},y_{n}^{l}),(x_{t}^{l},y_{t}^{l})\\), then there exists matrices \\(M^{l}\\), vectors \\(u^{l},w^{l}\\) and scalars \\(a^{l}\\) such that_\n' +
+      '\n' +
+      '\\[x_{t}^{l+1} =M^{l}x_{i}+y_{i}u^{l},\\] \\[x_{t}^{l+1} =M^{l}x_{t},\\] \\[y_{t}^{l+1} =a^{l}y_{i}-\\langle w^{l},x_{i}\\rangle,\\] \\[y_{t}^{l+1} =-\\langle w^{l},x_{t}\\rangle.\\]\n' +
+      '\n' +
+      'This theorem implies that the output of linear transformer can always be explained as linear combinations of input with latent weights \\(a^{l}\\) and \\(w^{l}\\). This does not mean the matrices \\(M^{l}\\), vectors \\(u^{l},w^{l}\\) and numbers \\(a^{l}\\) are linear. In fact they can be quite complex, which we characterize below:\n' +
+      '\n' +
+      '**Lemma 4.2**.: _In the setup of Theorem 4.1, if we let_\n' +
+      '\n' +
+      '\\[\\left(\\begin{array}{cc}A^{l}&b^{l}\\\\ (c^{l})^{\\top}&d^{l}\\end{array}\\right):=\\] \\[\\sum_{k=1}^{h}\\left[P_{k}^{l}\\sum_{j=1}^{n}\\left(\\left(\\begin{array} []{c}x_{j}^{l}\\\\ y_{j}^{l}\\end{array}\\right)((x_{j}^{l})^{\\top},y_{j}^{l})\\right)Q_{k}^{l}\\right],\\]\n' +
+      '\n' +
+      '_then one can recursively compute matrices \\(M^{l}\\), vectors \\(u^{l},w^{l}\\) and numbers \\(a^{l}\\) for every layer with the following formula_\n' +
+      '\n' +
+      '\\[M^{l+1} =(I+A^{l})M^{l}+b^{l}(w^{l})^{\\top}\\] \\[u^{l+1} =(I+A^{l})u^{l}+a^{l}b^{l}\\] \\[a^{l+1} =(1+d^{l})a^{l}+\\langle c^{l},u^{l}\\rangle\\] \\[w^{l+1} =(1+d^{l})w^{l}-(M^{l})^{\\top}c^{l},\\]\n' +
+      '\n' +
+      '_with the init. condition \\(a^{0}=1,w^{0}=0,M^{0}=I,u^{0}=0\\)._\n' +
+      '\n' +
+      'As we can see the updates to the parameters are complicated and nonlinear. This allows linear transformers to be creative and implement strong algorithms, as we will later see in Section 5. In fact, even when we restrict the \\(P\\) and \\(Q\\) matrices to be diagonal, linear transformers are still very flexible. The updates in this case can be further simplified to a more familiar form:\n' +
+      '\n' +
+      '**Lemma 4.3**.: _In the setup of Theorem 4.1 with diagonal parameters (9), the parameters \\(u^{l},w^{l}\\) are updated as_\n' +
+      '\n' +
+      '\\[u^{l+1} =(I-\\Lambda^{l})u^{l}+\\Gamma^{l}\\Sigma\\left(a^{l}w^{*}-w^{l} \\right);\\] \\[w^{l+1} =(1+s^{l})w^{l}-\\Pi^{l}\\Sigma(a^{l}w^{*}-w^{l})-\\Phi^{l}u^{l}.\\]\n' +
+      '\n' +
+      '_Here \\(\\Lambda^{l},\\Gamma^{l},s^{l},\\Pi^{l},\\Phi^{l}\\) are matrices and numbers that depend on \\(M^{l},u^{l},a^{l},w^{l}\\) in Lemma 4.2._\n' +
+      '\n' +
+      'Note that \\(\\Sigma\\left(a^{l}w^{*}-w^{l}\\right)\\) is (proportional to) the gradient of a linear model \\(f(w^{l})=\\sum_{i=1}^{n}(a^{l}y_{i}-\\langle w^{l},x_{i}\\rangle)^{2}\\). This makes the updates similar to a gradient descent with momentum:\n' +
+      '\n' +
+      '\\[u^{l+1}=(1-\\beta)u^{l}+\\nabla f(w^{l});w^{l+1}=w^{l}-\\eta u^{l}.\\]\n' +
+      '\n' +
+      'Of course, the formula in Lemma 4.3 is still much more complicated with matrices in places of \\(\\beta\\) and \\(\\eta\\), and also including a gradient term for the update of \\(w\\).\n' +
+      '\n' +
+      '## 5 Power of diagonal attention matrices\n' +
+      '\n' +
+      'In the previous section we saw that linear transformers are limited in the sense that they always maintain a linear model. However, this does not necessarily mean that they can\'t solve some interesting in-context learning problems. Empirically, we have found that linear transformers are able to very accurately solve linear regression with mixed noise variance (7). Surprisingly, the final loss remains remarkably consistent even when the linear transformer\'s \\(Q\\) and \\(P\\) matrices (3) are constrained to be diagonal. In this section we are going to study this special case and understand why they work so well.\n' +
+      '\n' +
+      'Since the elements of \\(x\\) are permutation invariant, a diagonal parameterization reduces each attention heads to just four parameters:\n' +
+      '\n' +
+      '\\[P_{k}^{l}=\\left(\\begin{array}{cc}p_{x,k}^{l}I&0\\\\ 0&p_{y,k}^{l}\\end{array}\\right);\\quad Q_{k}^{l}=\\left(\\begin{array}{cc}q_{x, k}^{l}I&0\\\\ 0&q_{y,k}^{l}\\end{array}\\right). \\tag{8}\\]\n' +
+      '\n' +
+      'It would be useful to further reparametrize the linear transformer (3) using:\n' +
+      '\n' +
+      '\\[w_{xx}^{l} =\\sum_{k=1}^{H}p_{x,k}^{l}q_{x,k}^{l},\\quad w_{xy}^{l}=\\sum_{k=1} ^{H}p_{x,k}^{l}q_{y,k}^{l}, \\tag{9}\\] \\[w_{yx}^{l} =\\sum_{k=1}^{H}p_{y,k}^{l}q_{x,k}^{l},\\quad w_{yy}^{l}=\\sum_{k=1} ^{H}p_{y,k}^{l}q_{y,k}^{l}.\\]\n' +
+      '\n' +
+      'This leads to the following diagonal layer updates:\n' +
+      '\n' +
+      '\\[x_{i}^{l+1} =x_{i}^{l}+w_{xx}^{l}\\Sigma^{l}x_{i}^{l}+w_{xy}^{l}y_{i}^{l}\\alpha^ {l} \\tag{10}\\] \\[x_{t}^{l+1} =x_{t}^{l}+w_{xx}^{l}\\Sigma^{l}x_{t}^{l}+w_{xy}^{l}y_{t}^{l} \\alpha^{l}\\] \\[y_{i}^{l+1} =y_{i}^{l}+w_{yx}^{l}\\langle\\alpha^{l},x_{i}^{l}\\rangle+w_{yy}^{l} y_{i}^{l}\\lambda^{l},\\] \\[y_{t}^{l+1} =y_{t}^{l}+w_{yx}^{l}\\langle\\alpha^{l},x_{t}^{l}\\rangle+w_{yy}^{l }y_{t}^{l}\\lambda^{l}.\\]\n' +
+      '\n' +
+      'In essence, four variables \\(w_{xx}^{l}\\), \\(w_{xy}^{l}\\), \\(w_{yx}^{l}\\), \\(w_{yy}^{l}\\) represent the flow of information between the data and the labels across layers. For instance, \\(w_{xx}^{l}\\) measures how much information flows from \\(x^{l}\\) to \\(x^{l+1}\\), \\(w_{yx}^{l}\\) measures the flow from \\(x^{l}\\) to \\(y^{l+1}\\) and so forth. Since the model can always be captured by these 4 variables, having many heads does not significantly increase its representation power. When there is only one head the equation \\(w_{xx}^{l}w_{yy}^{l}=w_{xy}^{l}w_{yx}^{l}\\) is always true, while models with more than one head do not have this limitation. However empirically even models with one head is quite powerful.\n' +
+      '\n' +
+      '### Gd\\({}^{++}\\) and least squares solver\n' +
+      '\n' +
+      'GD\\({}^{++}\\), introduced in von Oswald et al. (2023a), represents a linear transformer that is trained on a fixed noise variance problem (6). It is a variant of a diagonal linear transformer, with all the heads satisfying \\(q_{y,k}^{l}=0\\). Dynamics are influenced only by \\(w_{xx}^{l}\\) and \\(w_{yx}^{l}\\), leading to simpler updates:\n' +
+      '\n' +
+      '\\[\\begin{split}& x_{i}^{l+1}=\\left(I+w_{xx}^{l}\\Sigma^{l}\\right)x_{i} ^{l}\\\\ & y_{i}^{l+1}=y_{i}^{l}+w_{yx}^{l}\\langle\\alpha^{l},x_{i}^{l} \\rangle.\\end{split} \\tag{11}\\]\n' +
+      '\n' +
+      'The update on \\(x\\) acts as preconditioning, while the update on \\(y\\) is just a gradient descent step based on the current data.\n' +
+      '\n' +
+      'While existing analysis by Ahn et al. (2023) has not yielded fast convergence rates for GD\\({}^{++}\\), we show here that it is actually a second-order optimization algorithm for the least squares problem (4):\n' +
+      '\n' +
+      '**Theorem 5.1**.: _Given \\((x_{1},y_{1}),...,(x_{n},y_{n}),(x_{t},0)\\) where \\(\\Sigma\\) has eigenvalues in the range \\([\\nu,\\mu]\\) with a condition number \\(\\kappa=\\nu/\\mu\\). Let \\(w^{*}\\) be the optimal solution to least squares problem (4), then there exists hyperparameters for GD\\({}^{++}\\) algorithm that outputs \\(\\hat{y}\\) with accuracy \\(|\\hat{y}-\\langle x_{t},w^{*}\\rangle|\\leq\\epsilon\\|x_{t}\\|\\|w^{*}\\|\\) in \\(l=O(\\log\\kappa+\\log\\log 1/\\epsilon)\\) steps. In particular that implies there exists an \\(l\\)-layer linear transformer that can solve this task._\n' +
+      '\n' +
+      'The convergence rate of \\(O(\\log\\log 1/\\epsilon)\\) is typically achieved only by second-order algorithms such as Newton\'s method.\n' +
+      '\n' +
+      '### Understanding \\(w_{yy}\\): adaptive rescaling\n' +
+      '\n' +
+      'If a layer only has \\(w_{yy}^{l}\\neq 0\\), it has a rescaling effect. The amount of scaling is related to the amount of noise added in a model selection setting. The update rule for this layer is:\n' +
+      '\n' +
+      '\\[y_{i}^{l+1}=\\left(1+w_{yy}^{l}\\lambda^{l}\\right)y_{i}^{l}.\\]\n' +
+      '\n' +
+      'As we can see, this rescales every \\(y\\) by a factor that depends on \\(\\lambda^{l}\\). When \\(w_{yy}^{l}<0\\), this results in a shrinking of the output based on the norm of \\(y\\) in the previous layer. This can be helpful for the mixed noise variance problem, because the ridge regression solution scales the least squares solution by a factor that depends on the noise level.\n' +
+      '\n' +
+      'Specifically, assuming \\(\\Sigma\\approx\\mathbb{E}[\\Sigma]=nI\\), the ridge regression solution becomes \\(w_{\\sigma^{2}}^{*}\\approx\\frac{n}{n+\\sigma^{2}}w^{*}\\), which is exactly a scaled version of the OLS solution. Further, when noise is larger, the scaled factor is smaller, which agrees with the behavior of a negative \\(w_{yy}\\).\n' +
+      '\n' +
+      '### Understanding \\(w_{xy}\\): adapting step-sizes\n' +
+      '\n' +
+      'The final term in the diagonal model, \\(w_{xy}\\), has a more complicated effect. Since it changes only the \\(x\\)-coordinates, it does not have an immediate effect on \\(y\\). To understand how it influences the \\(y\\) we consider a simplified two-step process, where the first step only has \\(w_{xy}\\neq 0\\) and the second step only has \\(w_{yx}\\neq 0\\) (so the second step is just doing one step of gradient descent). In this case, the first layer will update the \\(x_{i}\\)\'s as:\n' +
+      '\n' +
+      '\\[\\begin{split} x_{i}^{1}&=x_{i}+y_{i}w_{xy}\\underset{j= 1}{\\overset{n}{\\sum}}y_{j}x_{j}\\\\ &=x_{i}+w_{xy}y_{i}\\underset{j=1}{\\overset{n}{\\sum}}(\\langle w^{ *},x_{j}\\rangle+r_{j})x_{j}\\\\ &=x_{i}+w_{xy}y_{i}\\Sigma w^{*}\\\\ &=x_{i}+w_{xy}(\\langle w^{*},x_{i}\\rangle+r_{i})\\Sigma w^{*}\\\\ &=(I+w_{xy}\\Sigma w^{*}(w^{*})^{\\top})x_{i}+w_{xyproblem (7). We evaluate three types of single-head linear transformer models:\n' +
+      '\n' +
+      '* Full. Trains full parameter matrices.\n' +
+      '* Diag. Trains diagonal parameter matrices (10).\n' +
+      '* GD\\({}^{++}\\). An even more restricted diagonal variant defined in (11).\n' +
+      '\n' +
+      'For each experiment, we train each linear transformer modifications with a varying number of layers (\\(1\\) to \\(7\\)) using using Adam optimizer for \\(200\\,000\\) iterations with a learning rate of \\(0.0001\\) and a batch size of \\(2\\,048\\). In some cases, especially for large number of layers, we had to adjust learning rate to prevent stability issues. We report the best result out of \\(5\\) runs with different training seeds. We used \\(N=20\\) in-context examples in \\(D=10\\) dimensions. We evaluated the algorithm using \\(100\\,000\\) novel sequences.\n' +
+      '\n' +
+      'We use _adjusted evaluation loss_ as our main performance metric. It is calculated by subtracting the oracle loss from the predictor\'s loss. The oracle loss is the closed-form solution of the ridge regression loss (5), assuming the noise variance \\(\\sigma_{\\tau}\\) is known. The adjusted evaluation loss allows for direct model performance comparison across different noise variances. This is important because higher noise significantly degrades the model prediction. Our adjustment does not affect the model\'s optimization process, since it only modifies the loss by an additive constant.\n' +
+      '\n' +
+      'Baseline estimates.We evaluated the linear transformer against a closed-form solution to the ridge regression problem (5). We estimated the noise variance \\(\\sigma_{\\tau}\\) using the following methods:\n' +
+      '\n' +
+      '* _Constant Ridge Regression (ConstRR)._ The noise variance is estimated using a single scalar value for all the sequences, tuned separately for each mixed variance problem.\n' +
+      '* _Adaptive Ridge Regression (AdARR)._ Estimate the noise variance via unbiased estimator (Cherkassky & Ma, 2003)\\(\\sigma_{\\text{est}}^{2}=\\frac{1}{n-d}\\sum_{j=1}^{n}(y_{j}-\\hat{y}_{j})^{2}\\), where \\(\\hat{y}_{j}\\) represents the solution to the ordinary least squares (4), found in a closed-form.\n' +
+      '* _Tuned Adaptive Ridge Regression (TunedRR)._ Same as above, but after the noise is estimated, we tuned two additional parameters to minimize the evaluation loss: (1) a max. threshold value for the estimated variance, (2) a multiplicative adjustment to the noise estimator. These values are tuned separately for each problem.\n' +
+      '\n' +
+      'Figure 1: In-context learning performance for noisy linear regression problem across models with different number of layers and \\(\\sigma_{max}\\) for \\(\\sigma_{\\tau}\\sim U(0,\\sigma_{max})\\). Each marker corresponds to a separately trained model with a given number of layers. Models with diagonal attention weights (Diag) match those with full attention weights (Full). Models specialized on a fixed noise (GD\\({}^{++}\\)) perform poorly, similar to a Ridge Regression solution with a constant noise (ConstRR). Among the baselines, only tuned exact Ridge Regression solution (TunedRR) is comparable with linear transformers.\n' +
+      '\n' +
+      'Figure 2: Linear transformer models show a consistent decrease in error per layer when trained on data with mixed noise variance \\(\\sigma_{\\tau}\\sim U(0,5)\\). The error bars measure variance over \\(5\\) training seeds.\n' +
+      '\n' +
+      'Notice that all the baselines above are based on ridge regression, which is a closed-form, non-iterative solution. Thus, they have an algorithmic advantage over linear transformers that do not have access to matrix inversion. These baselines help us gauge the best possible performance, establishing an upper bound rather than a strictly equivalent comparison.\n' +
+      '\n' +
+      'A more faithful comparison to our method would be an iterative version of the AdaRR that does not use matrix inversion. Instead, we can use gradient descent to estimate the noise and the solution to the ridge regression. However, in practice, this gradient descent estimator converges to AdaRR only after \\(\\approx 100\\) iterations. In contrast, linear transformers typically converge in fewer than \\(10\\) layers.\n' +
+      '\n' +
+      'We consider two choices for the distribution of \\(\\sigma_{\\tau}\\):\n' +
+      '\n' +
+      '* _Uniform._\\(\\sigma_{\\tau}\\sim U(0,\\sigma_{max})\\) drawn from a uniform distribution bounded by \\(\\sigma_{max}\\). We tried multiple scenarios with \\(\\sigma_{max}\\) ranging from 0 to 7.\n' +
+      '* _Categorical._\\(\\sigma_{\\tau}\\in S\\) chosen from a discrete set \\(S\\). We tested \\(S=\\{1,3\\}\\) and \\(S=\\{1,3,5\\}\\).\n' +
+      '\n' +
+      'Our approach generalizes the problem studied by Bai et al. (2023), who considered only categorical variance selection and show experiments only with two \\(\\sigma_{\\tau}\\) values.\n' +
+      '\n' +
+      'Uniform noise variance.We begin with the uniform noise variance. Fig. 1 shows the performance of different models trained with varying numbers of layers and noise thresholds \\(\\sigma_{max}\\). Notably, Full and Diag achieve comparable performance across different numbers of layers and different \\(\\sigma_{max}\\). On the other hand, GD\\({}^{++}\\) converges to a higher value, closely approaching the performance of the ConstRR baseline.\n' +
+      '\n' +
+      'As \\(\\sigma_{max}\\) grows, linear transformers show a clear advantage over the baselines. With 4 layers, they outperform the closed-form solution AdaRR for \\(\\sigma_{max}=4\\) and larger. Models with \\(5\\) or more layers match or exceed the performance of TunedRR.\n' +
+      '\n' +
+      'We tested an additional hypothesis that linear transformers trained on a mixed noise variance problem result in an iterative algorithm, with each layer corresponding to one iteration with prediction \\(y^{l}_{n+1}\\). While we minimize the loss only for the final layer\'s prediction \\(y^{L}_{n+1}\\), we also track the loss for each intermediate prediction \\(y^{L}_{n+1}\\). Fig. 2 illustrates these intermediate iterations for models with different numbers of layers, trained on a uniform mixed noise variance problem with \\(\\sigma_{max}=5\\).\n' +
+      '\n' +
+      'We observe that GD\\({}^{++}\\) gradually decreases the loss after each layer after the second (surprisingly, the first layer does not improve predictions in models with more than 2 layers). Diag and Full behave more irregularly, with dramatic loss decrease happening in the first and final layers. Intermediate layers improve the prediction, but not consistently. This behavior suggests that these models might be accumulating information in the \\(x\\) components of the prediction before making the prediction at the last layer.\n' +
+      '\n' +
+      'The top of Fig. 3 offers a detailed perspective on performance of 7-layer models and the baselines. Here, we computed per-variance profiles across noise variance range from\n' +
+      '\n' +
+      'Figure 3: Per-variance profile of models behavior for uniform noise variance \\(\\sigma_{\\tau}\\sim U(0,\\sigma_{max})\\). _Top two rows:_ 7-layer models with varying \\(\\sigma_{max}\\). _Bottom row:_ models with varying numbers of layers, fixed \\(\\sigma_{max}=5\\). In-distribution noise is shaded grey.\n' +
+      '\n' +
+      '0 to \\(\\sigma_{max}+1\\). We can see that poor performance of GD\\({}^{++}\\) comes from its inability to estimate well across the full noise variance range. Its performance closely mirrors to ConstRR, suggesting that GD\\({}^{++}\\) under the hood might also be estimating a single constant variance for all the data.\n' +
+      '\n' +
+      'AdaRR perfectly estimates problems with no noise, but struggles more as noise variance grows. TunedRR improves the estimation a little by incorporating \\(\\sigma_{max}\\) into its tunable parameters. However, its prediction suffers in the middle range. Full and Diag are very closely comparable and perform well across the entire spectrum of noise variance. While more research is needed to definitively confirm or deny their equivalence, we believe that these models are actually not identical despite their similar performance.\n' +
+      '\n' +
+      'At the bottom of Fig. 3 we fixed the noise variance to \\(\\sigma_{max}=5\\) and show a per-variance profile for models with different layers. 2-layer models for Full and Diag behave similarly to GD\\({}^{++}\\), modeling only a single noise variance in the middle. However, the results quickly improve across the entire noise spectrum for 3 or more layers. In contrast, GD\\({}^{++}\\) quickly converges to a suboptimal solution.\n' +
+      '\n' +
+      'Categorical noise variance.Fig. 4 shows a notable difference between Diag and Full models for categorical noise variance \\(\\sigma_{\\tau}\\in\\{1,3\\}\\). This could stem from a bad local minima, or suggest a fundamental difference between the models for this problem. Interestingly, from per-variance profiling we see that Diag extrapolates better for variances not used for training, while Full, despite its lower in-distribution error, performs worse on unseen variances.\n' +
+      '\n' +
+      'For \\(\\sigma_{\\tau}\\in\\{1,3,5\\}\\), examining the per-variance profile at the bottom of Fig. 4 reveals differences in their behaviors. Full exhibits a more complex per-variance profile with more fluctuations than the diagonal model, suggesting greater representational capacity. Surprisingly, it did not translate to better loss results compared to Diag.\n' +
+      '\n' +
+      'For easy comparison, we also summarize the results of all methods and baselines in Table 1 in the Appendix.\n' +
+      '\n' +
+      '## 7 Conclusions\n' +
+      '\n' +
+      'We show that even linear transformers have remarkable capacity to handle challenging in-context learning problems. We prove that any linear transformer maintains an implicit linear model of the input data. Under certain restrictions, this model can be interpreted as a complex variant of preconditioned gradient descent with momentum-like behavior.\n' +
+      '\n' +
+      'When trained on noisy linear regression problems with unknown noise variance, linear transformers surpass standard baselines and uncover a sophisticated optimization algorithm, incorporating noise-aware step-size adjustments and rescaling based on noise levels.\n' +
+      '\n' +
+      'Our findings underscore the surprising ability of linear transformers to discover novel optimization algorithms when exposed to the right problems. This opens up exciting possibilities for future research, such as automated algorithm discovery using transformers or possible generalization to\n' +
+      '\n' +
+      'Figure 4: In-context learning performance for noisy linear regression problem across models with different number of layers for conditional noise variance \\(\\sigma_{\\tau}\\in\\{1,3\\}\\) and \\(\\sigma_{\\tau}\\in\\{1,3,5\\}\\). _Top row:_ loss for models with various number of layers and per-variance profile for models with 7 layers. _Bottom row:_ Per-variance profile of the model across different numbers of layers. In-distribution noise is shaded grey.\n' +
+      '\n' +
+      'other problems. Beyond linear regression, we hope that our work will inspire further exploration into the ability of transformers to learn and represent optimization algorithms.\n' +
+      '\n' +
+      'Our work highlights that even seemingly simple models, such as linear transformers, can embody remarkable complexity in the optimization algorithms they implicitly learn. While more work is needed, we hope that our paper can contribute to understanding the mechanisms behind in-context learning.\n' +
+      '\n' +
+      '## 8 Broader Impact\n' +
+      '\n' +
+      'This paper presents work whose goal is to advance the field of Machine Learning. There are many potential societal consequences of our work, none which we feel must be specifically highlighted here.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* Achiam et al. (2023) Achiam, J., Adler, S., Agarwal, S., Ahmad, L., Akkaya, I., Aleman, D., Almeida, J., Altenschmidt, S., Anadkat, S., et al. Gpt-4 technical report. _arXiv preprint arXiv:2303.08774_, 2023.\n' +
+      '* Ahn et al. (2023) Ahn, K., Cheng, X., Daneshmand, H., and Sra, S. Transformers learn to implement preconditioned gradient descent for in-context learning. _arXiv preprint arXiv:2306.00297_, 2023.\n' +
+      '* Akyurek et al. (2022) Akyurek, E., Schuurmans, D., Andreas, J., Ma, T., and Zhou, D. What learning algorithm is in-context learning? investigations with linear models. _arXiv preprint arXiv:2211.15661_, 2022.\n' +
+      '* Akyurek et al. (2024) Akyurek, E., Wang, B., Kim, Y., and Andreas, J. In-Context language learning: Architectures and algorithms. _arXiv preprint arXiv:2401.12973_, 2024.\n' +
+      '* Anil et al. (2023) Anil, R., Dai, A. M., Firat, O., Johnson, M., Lepikhin, D., Passos, A., Shakeri, S., Taropa, E., Bailey, P., Chen, Z., et al. Palm 2 technical report. _arXiv preprint arXiv:2305.10403_, 2023.\n' +
+      '* Bai et al. (2023) Bai, Y., Chen, F., Wang, H., Xiong, C., and Mei, S. Transformers as statisticians: Provable in-context learning with in-context algorithm selection. _arXiv preprint arXiv:2306.04637_, 2023.\n' +
+      '* Brown et al. (2020) Brown, T., Mann, B., Ryder, N., Subbiah, M., Kaplan, J. D., Dhariwal, P., Neelakantan, A., Shyam, P., Sastry, G., Askell, A., et al. Language models are few-shot learners. _Advances in neural information processing systems_, 33:1877-1901, 2020.\n' +
+      '* Chan et al. (2022) Chan, S., Santoro, A., Lampinen, A., Wang, J., Singh, A., Richemond, P., McClelland, J., and Hill, F. Data distributional properties drive emergent in-context learning in transformers. _Advances in Neural Information Processing Systems_, 35:18878-18891, 2022.\n' +
+      '* Cheng et al. (2023) Cheng, X., Chen, Y., and Sra, S. Transformers implement functional gradient descent to learn non-linear functions in context. _arXiv preprint arXiv:2312.06528_, 2023.\n' +
+      '* Cherkassky & Ma (2003) Cherkassky, V. and Ma, Y. Comparison of model selection for regression. _Neural computation_, 15(7):1691-1714, 2003.\n' +
+      '* Choromanski et al. (2020) Choromanski, K., Likhosherstov, V., Dohan, D., Song, X., Gane, A., Sarlos, T., Hawkins, P., Davis, J., Mohiuddin, A., Kaiser, L., et al. Rethinking attention with performers. _arXiv preprint arXiv:2009.14794_, 2020.\n' +
+      '* Fu et al. (2023) Fu, D., Chen, T.-Q., Jia, R., and Sharan, V. Transformers learn higher-order optimization methods for in-context learning: A study with linear models. _arXiv preprint arXiv:2310.17086_, 2023.\n' +
+      '* Garg et al. (2022) Garg, S., Tsipras, D., Liang, P. S., and Valiant, G. What can transformers learn in-context? a case study of simple function classes. _Advances in Neural Information Processing Systems_, 35:30583-30598, 2022.\n' +
+      '* Giannou et al. (2023) Giannou, A., Rajput, S., Sohn, J.-y., Lee, K., Lee, J. D., and Papailiopoulos, D. Looped transformers as programmable computers. _arXiv preprint arXiv:2301.13196_, 2023.\n' +
+      '* Guo et al. (2023) Guo, T., Hu, W., Mei, S., Wang, H., Xiong, C., Savarese, S., and Bai, Y. How do transformers learn in-context beyond simple functions? a case study on learning with representations. _arXiv preprint arXiv:2310.10616_, 2023.\n' +
+      '* Hendel et al. (2023) Hendel, R., Geva, M., and Globerson, A. In-context learning creates task vectors. _arXiv preprint arXiv:2310.15916_, 2023.\n' +
+      '* Huang et al. (2023) Huang, Y., Cheng, Y., and Liang, Y. In-context convergence of transformers. _arXiv preprint arXiv:2310.05249_, 2023.\n' +
+      '* Hubinger et al. (2019) Hubinger, E., van Merwijk, C., Mikulik, V., Skalse, J., and Garrabrant, S. Risks from learned optimization in advanced machine learning systems. _arXiv preprint arXiv:1906.01820_, 2019.\n' +
+      '* Jiang et al. (2023) Jiang, A. Q., Sablayrolles, A., Mensch, A., Bamford, C., Chaplot, D. S., Casas, D. d. l., Bressand, F., Lengyel, G., Lample, G., Saulnier, L., et al. Mistral 7b. _arXiv preprint arXiv:2310.06825_, 2023.\n' +
+      '* Katharopoulos et al. (2020) Katharopoulos, A., Vyas, A., Pappas, N., and Fleuret, F. Transformers are rnns: Fast autoregressive transformers with linear attention. In _International conference on machine learning_, pp. 5156-5165. PMLR, 2020.\n' +
+      '\n' +
+      'Kossen, J., Rainforth, T., and Gal, Y. In-context learning in large language models learns label relationships but is not conventional learning. _arXiv preprint arXiv:2307.12375_, 2023.\n' +
+      '* Li et al. (2023) Li, Y., Ildaz, M. E., Papailiopoulos, D., and Oymak, S. Transformers as algorithms: Generalization and stability in in-context learning. In _International Conference on Machine Learning_, pp. 19565-19594. PMLR, 2023.\n' +
+      '* Mahankali et al. (2023) Mahankali, A., Hashimoto, T. B., and Ma, T. One step of gradient descent is provably the optimal in-context learner with one layer of linear self-attention. _arXiv preprint arXiv:2307.03576_, 2023.\n' +
+      '* Mirchandani et al. (2023) Mirchandani, S., Xia, F., Florence, P., Ichter, B., Driess, D., Arenas, M. G., Rao, K., Sadigh, D., and Zeng, A. Large language models as general pattern machines. _arXiv preprint arXiv:2307.04721_, 2023.\n' +
+      '* Olsson et al. (2022) Olsson, C., Elhage, N., Nanda, N., Joseph, N., DasSarma, N., Henighan, T., Mann, B., Askell, A., Bai, Y., Chen, A., et al. In-context learning and induction heads. _arXiv preprint arXiv:2209.11895_, 2022.\n' +
+      '* Pathak et al. (2023) Pathak, R., Sen, R., Kong, W., and Das, A. Transformers can optimally learn regression mixture models. _arXiv preprint arXiv:2311.08362_, 2023.\n' +
+      '* Schlag et al. (2021) Schlag, I., Irie, K., and Schmidhuber, J. Linear transformers are secretly fast weight programmers. In _International Conference on Machine Learning_, pp. 9355-9366. PMLR, 2021.\n' +
+      '* Shen et al. (2023) Shen, L., Mishra, A., and Khashabi, D. Do pretrained transformers really learn in-context by gradient descent? _arXiv preprint arXiv:2310.08540_, 2023.\n' +
+      '* Tarzanagh et al. (2023) Tarzanagh, D. A., Li, Y., Zhang, X., and Oymak, S. Max-margin token selection in attention mechanism. In _Thirty-seventh Conference on Neural Information Processing Systems_, 2023.\n' +
+      '* Team et al. (2023) Team, G., Anil, R., Borgeaud, S., Wu, Y., Alayrac, J.-B., Yu, J., Soricut, R., Schalkwyk, J., Dai, A. M., Hauth, A., et al. Gemini: a family of highly capable multimodal models. _arXiv preprint arXiv:2312.11805_, 2023.\n' +
+      '* Tian et al. (2023a) Tian, Y., Wang, Y., Chen, B., and Du, S. Scan and snap: Understanding training dynamics and token composition in 1-layer transformer. _arXiv preprint arXiv:2305.16380_, 2023a.\n' +
+      '* Tian et al. (2023b) Tian, Y., Wang, Y., Zhang, Z., Chen, B., and Du, S. Joma: Demystifying multilayer transformers via joint dynamics of mlp and attention. In _NeurIPS 2023 Workshop on Mathematics of Modern Machine Learning_, 2023b.\n' +
+      '* Vaswani et al. (2017) Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A. N., Kaiser, L., and Polosukhin, I. Attention is all you need. _Advances in neural information processing systems_, 30, 2017.\n' +
+      '* von Oswald et al. (2023a) von Oswald, J., Niklasson, E., Randazzo, E., Sacramento, J., Mordvintsev, A., Zhmoginov, A., and Vladymyrov, M. Transformers learn in-context by gradient descent. In _International Conference on Machine Learning_, pp. 35151-35174. PMLR, 2023a.\n' +
+      '* von Oswald et al. (2023b) von Oswald, J., Niklasson, E., Schlegel, M., Kobayashi, S., Zucchet, N., Scherrer, N., Miller, N., Sandler, M., Vladymyrov, M., Pascanu, R., et al. Uncovering mesa-optimization algorithms in transformers. _arXiv preprint arXiv:2309.05858_, 2023b.\n' +
+      '* Wang et al. (2020) Wang, S., Li, B. Z., Khabsa, M., Fang, H., and Ma, H. Linformer: Self-attention with linear complexity. _arXiv preprint arXiv:2006.04768_, 2020.\n' +
+      '* Wei et al. (2023) Wei, J., Wei, J., Tay, Y., Tran, D., Webson, A., Lu, Y., Chen, X., Liu, H., Huang, D., Zhou, D., et al. Larger language models do in-context learning differently. _arXiv preprint arXiv:2303.03846_, 2023.\n' +
+      '* Wen et al. (2023) Wen, K., Li, Y., Liu, B., and Risteski, A. Transformers are uninterpretable with myopic methods: a case study with bounded dyck grammars. In _Thirty-seventh Conference on Neural Information Processing Systems_, 2023.\n' +
+      '* Yadlowsky et al. (2023) Yadlowsky, S., Doshi, L., and Tripuraneni, N. Pretraining data mixtures enable narrow model selection capabilities in transformer models. _arXiv preprint arXiv:2311.00871_, 2023.\n' +
+      '* Zhang et al. (2023) Zhang, R., Frei, S., and Bartlett, P. L. Trained transformers learn linear models in-context. _arXiv preprint arXiv:2306.09927_, 2023.\n' +
+      '\n' +
+      '## Appendix A Omitted proofs from Section 4\n' +
+      '\n' +
+      'We first give the proof for Theorem 4.1. In the process we will also prove Lemma 4.2, as Theorem 4.1 follows immediately from an induction based on the lemma.\n' +
+      '\n' +
+      'Proof.: We do this by induction. At \\(l=0\\), it\'s easy to check that we can set \\(a^{(0)}=1,w^{(0)}=0,M^{(0)}=I,u^{(0)}=0\\).\n' +
+      '\n' +
+      'Suppose this is true for some layer \\(l\\), if the weights of layer \\(l\\) are \\((P_{1}^{l},Q_{1}^{l}),...,(P_{k}^{l},Q_{k}^{l})\\) for \\(k\\) heads, at output of layer \\(l+1\\) we have:\n' +
+      '\n' +
+      '\\[\\left(\\begin{array}{c}x_{i}^{l+1}\\\\ y_{i}^{l+1}\\end{array}\\right)=\\left(\\begin{array}{c}x_{i}^{l}\\\\ y_{i}^{l}\\end{array}\\right)+\\sum_{k=1}^{p}\\left[P_{k}^{l}\\sum_{j=1}^{n}\\left( \\left(\\begin{array}{c}x_{j}^{l}\\\\ y_{j}^{l}\\end{array}\\right)((x_{j}^{l})^{\\top},y_{j}^{l})\\right)Q_{k}^{l} \\right]\\left(\\begin{array}{c}x_{i}^{l}\\\\ y_{i}^{l}\\end{array}\\right). \\tag{12}\\]\n' +
+      '\n' +
+      'Note that the same equation is true for \\(i=n+1\\) just by letting \\(y_{n+1}=0\\). Let the middle matrix has the following structure:\n' +
+      '\n' +
+      '\\[\\left(\\begin{array}{cc}A&b\\\\ c^{\\top}&d\\end{array}\\right):=\\sum_{k=1}^{p}\\left[P_{k}^{l}\\sum_{j=1}^{n}\\left( \\left(\\begin{array}{c}x_{j}^{l}\\\\ y_{j}^{l}\\end{array}\\right)((x_{j}^{l})^{\\top},y_{j}^{l})\\right)Q_{k}^{l} \\right],\\]\n' +
+      '\n' +
+      'Then one can choose the parameters of the next layer as in Lemma 4.2\n' +
+      '\n' +
+      '\\[M^{l+1} =(I+A)M^{l}+b(w^{l})^{\\top}\\] \\[u^{l+1} =(I+A)u^{l}+a^{l}b\\] \\[a^{l+1} =(1+d)a^{l}+\\langle c,u^{l}\\rangle\\] \\[w^{l+1} =(1+d)w^{l}-(M^{l})^{\\top}c.\\]\n' +
+      '\n' +
+      'One can check that this choice satisfies (12). \n' +
+      '\n' +
+      'Next we will prove Lemma 4.3. This lemma is in fact a corollary of Lemma 4.2. We first give a more detailed version which explicitly state the unknown matrices \\(\\Lambda^{l},\\Gamma^{l},\\Pi^{l},\\Phi^{l}\\):\n' +
+      '\n' +
+      '**Lemma A.1**.: _In the setup of Theorem 4.1 with diagonal parameters (9), one can recursively compute matrices \\(u^{l},w^{l}\\) using the following formula_\n' +
+      '\n' +
+      '\\[u^{l+1} =\\left((1+w^{l}_{xy}(a^{l})^{2}\\rho)I+w^{l}_{xx}\\Sigma^{l}\\right)u ^{l}\\] \\[+a^{l}w^{l}_{xy}\\left(M^{l}+a^{l}u^{l}(w^{*})^{\\top}\\right)\\Sigma \\left(a^{l}w^{*}-w^{l}\\right),\\] \\[w^{l+1} =(1+w^{l}_{yy}\\lambda^{l})w^{l}\\] \\[-w^{l}_{yx}(M^{l})^{\\top}(M^{l}+a^{l}u^{l}(w^{*})^{\\top})\\Sigma(a ^{l}w^{*}-w^{l})\\] \\[-a^{l}\\rho w^{l}_{yx}(M^{l})^{\\top}u^{l},\\]\n' +
+      '\n' +
+      '_where \\(\\rho=\\sum_{i=1}^{n}r_{i}^{2}\\) and initial conditions \\(a^{0}=1,w^{0}=0,M^{0}=I,u^{0}=0\\)_\n' +
+      '\n' +
+      'Proof.: First, we compute the following matrix that appeared in Lemma 4.2 for the specific diagonal case:\n' +
+      '\n' +
+      '\\[\\left(\\begin{array}{cc}A^{l}&b^{l}\\\\ (c^{l})^{\\top}&d^{l}\\end{array}\\right) =\\sum_{k=1}^{p}\\left[P_{k}^{l}\\sum_{j=1}^{n}\\left(\\left( \\begin{array}{c}x_{j}^{l}\\\\ y_{j}^{l}\\end{array}\\right)((x_{j}^{l})^{\\top},y_{j}^{l})\\right)Q_{k}^{l} \\right],\\] \\[=\\left(\\begin{array}{cc}w^{l}_{xx}\\Sigma^{l}&w^{l}_{xy}\\alpha^{ l}\\\\ w^{l}_{yx}(\\alpha^{l})^{\\top}&w^{l}_{yy}\\lambda^{l}\\end{array}\\right).\\]This implies that \\(A^{l}=w_{xx}^{l}\\Sigma^{l}\\), \\(b^{l}=w_{xy}^{l}\\alpha^{l}\\), \\(c^{l}=w_{yx}^{l}\\alpha^{l}\\) and \\(d^{l}=w_{yy}^{l}\\lambda^{l}\\). Next we rewrite \\(\\alpha^{l}\\):\n' +
+      '\n' +
+      '\\[\\alpha^{l} =\\sum_{i=1}^{n}y^{l}x^{l}\\] \\[=\\sum_{i=1}^{n}(a^{l}y_{i}-\\langle w^{l},x_{i}\\rangle)(M^{l}x_{i}+ y_{i}u^{l})\\] \\[=\\sum_{i=1}^{n}(a^{l}r_{i}+\\langle a^{l}w^{*}-w^{l},x_{i}\\rangle) ((M^{l}+a^{l}u^{l}(w^{*})^{\\top})x_{i}+r_{i}u^{l})\\] \\[=\\sum_{i=1}^{n}\\langle a^{l}w^{*}-w^{l},x_{i}\\rangle(M^{l}+a^{l}u ^{l}(w^{*})^{\\top})x_{i}+\\sum_{i=1}^{n}a^{l}r_{i}^{2}u^{l}\\] \\[=(M^{l}+a^{l}u^{l}(w^{*})^{\\top})\\Sigma(a^{l}w^{*}-w^{l})+a^{l} \\rho u^{l}.\\]\n' +
+      '\n' +
+      'Here the first step is by Theorem 4.1, the second step replaces \\(y_{i}\\) with \\(\\langle w^{*},x_{i}\\rangle+r_{i}\\), the third step uses the fact that \\(\\sum_{i=1}^{n}r_{i}x_{i}=0\\) to get rid of the cross terms.\n' +
+      '\n' +
+      'The remaining proof just substitutes the formula for \\(\\alpha^{l}\\) into Lemma 4.2.\n' +
+      '\n' +
+      'Now Lemma A.1 implies Lemma 4.3 immediately by setting \\(\\Lambda^{l}=-w_{xy}^{l}(a^{l})^{2}\\rho)I-w_{xx}^{l}\\Sigma^{l},\\Gamma^{l}=a^{l} w_{xy}^{l}\\left(M^{l}+a^{l}u^{l}(w^{*})^{\\top}\\right)\\), \\(s^{l}=tw_{yy}\\lambda^{l}\\), \\(\\Pi^{l}=w_{yx}^{l}(M^{l})^{\\top}(M^{l}+a^{l}u^{l}(w^{*})^{\\top})\\) and \\(\\Phi^{l}=a^{l}\\rho w_{yx}^{l}(M^{l})^{\\top}\\).\n' +
+      '\n' +
+      '## Appendix B Omitted proof for Theorem 5.1\n' +
+      '\n' +
+      'In this section we prove Theorem 5.1 by finding hyperparameters for GD\\({}^{++}\\) algorithm that solves least squares problems with very high accuracy. The first steps in the construction iteratively makes the data \\(x_{i}\\)\'s better conditioned, and the last step is a single step of gradient descent. The proof is based on several lemma, first we observe that if the data is very well-conditioned, then one-step gradient descent solves the problem accurately:\n' +
+      '\n' +
+      '**Lemma B.1**.: _Given \\((x_{1},y_{1}),...,(x_{n},y_{n})\\) where \\(\\Sigma:=\\sum_{i=1}^{n}x_{i}x_{i}^{\\top}\\) has eigenvalues between \\(1\\) and \\(1+\\epsilon\\). Let \\(w^{*}:=\\arg\\min_{w}\\sum_{i=1}^{n}(y_{i}-\\langle w,x_{i}\\rangle)^{2}\\) be the optimal least squares solution, then \\(\\hat{w}=\\sum_{i=1}^{n}y_{i}x_{i}\\) satisfies \\(\\|\\hat{w}-w^{*}\\|\\leq\\epsilon\\|w^{*}\\|\\)._\n' +
+      '\n' +
+      'Proof.: We can write \\(y_{i}=\\langle x_{i},w^{*}\\rangle+r_{i}\\). By the fact that \\(w^{*}\\) is the optimal solution we know \\(r_{i}\\)\'s satisfy \\(\\sum_{i=1}^{n}r_{i}x_{i}=0\\). Therefore \\(\\hat{w}=\\sum_{i=1}^{n}y_{i}x_{i}=\\sum_{i=1}^{n}\\langle x_{i},w^{*}\\rangle x_{i }=\\Sigma w^{*}\\). This implies\n' +
+      '\n' +
+      '\\[\\|\\hat{w}-w^{*}\\|=\\|(\\Sigma-I)w^{*}\\|\\leq\\|\\Sigma-I\\|\\|w^{*}\\|\\leq\\epsilon\\|w^ {*}\\|.\\]\n' +
+      '\n' +
+      'Next we show that by applying just the preconditioning step of GD\\({}^{++}\\), one can get a well-conditioned \\(x\\) matrix very quickly. Note that the \\(\\Sigma\\) matrix is updated as \\(\\Sigma\\leftarrow(I-\\gamma\\Sigma)\\Sigma(I-\\gamma\\Sigma)\\), so an eigenvalue of \\(\\lambda\\) in the original \\(\\Sigma\\) matrix would become \\(\\lambda(1-\\gamma\\lambda)^{2}\\). The following lemma shows that this transformation is effective in shrinking the condition number\n' +
+      '\n' +
+      '**Lemma B.2**.: _Suppose \\(\\nu/\\mu=\\kappa\\geq 1.1\\), then there exists an universal constant \\(c<1\\) such that choosing \\(\\gamma\\nu=1/3\\) implies_\n' +
+      '\n' +
+      '\\[\\frac{\\max_{\\lambda\\in[\\nu,\\mu]}\\lambda(1-\\gamma\\lambda)^{2}}{\\min_{\\lambda \\in[\\nu,\\mu]}\\lambda(1-\\gamma\\lambda)^{2}}\\leq c\\kappa.\\]\n' +
+      '\n' +
+      '_On the other hand, if \\(\\nu/\\mu=\\kappa\\leq 1+\\epsilon\\) where \\(\\epsilon\\leq 0.1\\), then choosing \\(\\gamma\\nu=1/3\\) implies_\n' +
+      '\n' +
+      '\\[\\frac{\\max_{\\lambda\\in[\\nu,\\mu]}\\lambda(1-\\gamma\\lambda)^{2}}{\\min_{\\lambda \\in[\\nu,\\mu]}\\lambda(1-\\gamma\\lambda)^{2}}\\leq 1+2\\epsilon^{2}.\\]The first claim shows that one can reduce the condition number by a constant factor in every step until it\'s a small constant. The second claim shows that once the condition number is small (\\(1+\\epsilon\\)), each iteration can bring it much closer to 1 (to the order of \\(1+O(\\epsilon^{2})\\)).\n' +
+      '\n' +
+      'Now we prove the lemma.\n' +
+      '\n' +
+      'Proof.: First, notice that the function \\(f(x)=x(1-\\gamma x)^{2}\\) is monotonically nondecreasing for \\(x\\in[0,\\nu]\\) if \\(\\gamma\\nu=1/3\\) (indeed, it\'s derivative \\(f^{\\prime}(x)=(1-\\gamma x)(1-3\\gamma x)\\) is always nonnegative). Therefore, the max is always achieved at \\(x=\\nu\\) and the min is always achieved at \\(x=\\mu\\). The new ratio is therefore\n' +
+      '\n' +
+      '\\[\\frac{\\nu(1-\\gamma\\nu)^{2}}{\\mu(1-\\gamma\\mu)^{2}}=\\kappa\\frac{4/9}{(1-1/3 \\kappa)^{2}}.\\]\n' +
+      '\n' +
+      'When \\(\\kappa\\geq 1.1\\) the ratio \\(\\frac{4/9}{(1-1/3\\kappa)^{2}}\\) is always below \\(\\frac{4/9}{(1-1/3.3)^{2}}\\) which is a constant bounded away from 1.\n' +
+      '\n' +
+      'When \\(\\kappa=1+\\epsilon<1.1\\), we can write down the RHS in terms of \\(\\epsilon\\)\n' +
+      '\n' +
+      '\\[\\frac{\\nu(1-\\gamma\\nu)^{2}}{\\mu(1-\\gamma\\mu)^{2}}=\\kappa\\frac{4/9}{(1-1/3 \\kappa)^{2}}=(1+\\epsilon)(1+\\frac{1}{2}(1-\\frac{1}{1+\\epsilon}))^{-2}.\\]\n' +
+      '\n' +
+      'Note that by the careful choice of \\(\\gamma\\), the RHS has the following Taylor expansion:\n' +
+      '\n' +
+      '\\[(1+\\epsilon)(1+\\frac{1}{2}(1-\\frac{1}{1+\\epsilon}))^{-2}=1+\\frac{3\\epsilon^{2 }}{4}-\\frac{5\\epsilon^{3}}{4}+O(\\epsilon^{4}).\\]\n' +
+      '\n' +
+      'One can then check the RHS is always upperbounded by \\(2\\epsilon^{2}\\) when \\(\\epsilon<0.1\\).\n' +
+      '\n' +
+      'With the two lemmas we are now ready to prove the main theorem:\n' +
+      '\n' +
+      'Proof.: By Lemma B.2 we know in \\(O(\\log\\kappa+\\log\\log 1/\\epsilon)\\) iterations, by assigning \\(\\kappa\\) in the way of Lemma B.2 one can reduce the condition number of \\(x\\) to \\(\\kappa^{\\prime}\\leq 1+\\epsilon/2\\kappa\\) (we chose \\(\\epsilon/2\\kappa\\) here to give some slack for later analysis).\n' +
+      '\n' +
+      'Let \\(\\Sigma^{\\prime}\\) be the covariance matrix after these iterations, and \\(\\nu^{\\prime},\\mu^{\\prime}\\) be the upper and lowerbound for its eigenvalues. The data \\(x_{i}\\)\'s are transformed to a new data \\(x_{i}^{\\prime}=Mx_{i}\\) for some matrix \\(M\\). Let \\(M=A\\Sigma^{-1/2}\\), then since \\(M^{\\prime}=AA^{\\top}\\) we know \\(A\\) is a matrix with singular values between \\(\\sqrt{\\mu^{\\prime}}\\) and \\(\\sqrt{\\nu^{\\prime}}\\). The optimal solution \\((w^{\\star})^{\\prime}=M^{-\\top}w^{\\star}\\) has norm at most \\(\\sqrt{\\nu}/\\sqrt{\\mu^{\\prime}}\\|w^{\\star}\\|\\). Therefore by Lemma B.1 we know the one-step gradient step with \\(\\hat{w}=\\sum_{i=1}^{n}\\frac{1}{\\mu^{\\prime}}y_{i}x_{i}\\) satisfy \\(\\|\\hat{w}-(w^{\\star})^{\\prime}\\|\\leq(\\kappa^{\\prime}-1)\\sqrt{\\nu}/\\sqrt{\\mu^{ \\prime}}\\|w^{\\star}\\|\\). The test data \\(x_{t}\\) is also transformed to \\(x_{t}^{\\prime}=A\\Sigma^{-1/2}x_{t}\\), and the algorithm outputs \\(\\langle\\hat{w},x_{t}^{\\prime}\\rangle\\), so the error is at most \\(\\sqrt{\\nu}\\|w^{\\star}\\|*\\|x_{t}^{\\prime}\\|\\leq(\\kappa^{\\prime}-1)\\sqrt{\\kappa }\\sqrt{\\kappa^{\\prime}}\\|w^{\\star}\\|*\\|x_{t}\\|\\). By the choice of \\(\\kappa^{\\prime}\\) we can check that RHS is at most \\(\\epsilon\\|w^{\\star}\\|\\|x_{t}\\|\\). \n' +
+      '\n' +
+      '## Appendix C More experiments\n' +
+      '\n' +
+      'Here we provide results of additional experiments that did not make it to the main text.\n' +
+      '\n' +
+      'Fig. 5 shows an example of unadjusted loss. Clearly, it is virtually impossible to compare the methods across various noise levels this way.\n' +
+      '\n' +
+      'Fig. 6 shows per-variance profile of intermediate predictions of the network of varying depth. It appears that GD\\({}^{++}\\) demonstrates behavior typical of GD-based algorithms: early iterations model higher noise (similar to early stopping), gradually converging towards lower noise predictions. Diag exhibits this patter initially, but then dramatically improves, particularly for lower noise ranges. Intriguingly, Full displays the opposite trend, first improving low-noise predictions, followed by a decline in higher noise prediction accuracy, especially in the last layer.\n' +
+      '\n' +
+      'Finally, Table 1 presents comprehensive numerical results for our experiments across various mixed noise variance models. For each model variant (represented by a column), the best-performing result is highlighted in bold.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{|c||c|c|c|c|c|c|c||c|c|c|} \\hline Method & \\multicolumn{8}{|c||}{Uniform \\(\\sigma_{\\tau}\\sim(0,\\sigma_{max})\\)} & \\multicolumn{2}{|c|}{Categorical \\(\\sigma_{\\tau}\\in S\\)} \\\\ \\cline{2-10}  & 0 & 1 & 2 & 3 & 4 & 5 & 6 & 7 & \\{1,3\\} & \\{1,3,5\\} \\\\ \\hline \\hline \\multicolumn{10}{|c|}{1 layer} \\\\ \\hline GD\\({}^{++}\\) & 1.768 & 1.639 & 1.396 & 1.175 & 1.015 & 0.907 & 0.841 & 0.806 & 1.007 & 0.819 \\\\ \\hline Diag & 1.767 & 1.639 & 1.396 & 1.175 & 1.015 & 0.906 & 0.841 & 0.806 & 1.007 & 0.819 \\\\ \\hline Full & 1.768 & 1.640 & 1.397 & 1.176 & 1.016 & 0.907 & 0.842 & 0.806 & 1.008 & 0.820 \\\\ \\hline \\hline \\multicolumn{10}{|c|}{2 layers} \\\\ \\hline GD\\({}^{++}\\) & 0.341 & 0.295 & 0.243 & 0.265 & 0.347 & 0.366 & 0.440 & 0.530 & 0.305 & 0.427 \\\\ \\hline Diag & 0.265 & 0.214 & 0.173 & 0.188 & 0.219 & 0.242 & 0.254 & 0.259 & 0.201 & 0.246 \\\\ \\hline Full & 0.264 & 0.215 & 0.173 & 0.188 & 0.220 & 0.245 & 0.259 & 0.263 & 0.202 & 0.276 \\\\ \\hline \\hline \\multicolumn{10}{|c|}{3 layers} \\\\ \\hline GD\\({}^{++}\\) & 0.019 & 0.021 & 0.071 & 0.161 & 0.259 & 0.344 & 0.454 & 0.530 & 0.222 & 0.422 \\\\ \\hline Diag & 0.013 & 0.015 & 0.048 & 0.087 & 0.109 & 0.118 & 0.121 & 0.123 & 0.098 & 0.119 \\\\ \\hline Full & 0.012 & 0.015 & 0.049 & 0.075 & 0.101 & 0.117 & 0.124 & 0.127 & 0.076 & 0.113 \\\\ \\hline \\hline \\multicolumn{10}{|c|}{4 layers} \\\\ \\hline GD\\({}^{++}\\) & 9.91e-05 & 0.014 & 0.066 & 0.160 & 0.258 & 0.344 & 0.454 & 0.530 & 0.222 & 0.422 \\\\ \\hline Diag & 1.19e-04 & 0.006 & 0.024 & 0.041 & 0.050 & 0.059 & 0.065 & 0.073 & 0.043 & 0.062 \\\\ \\hline Full & 1.63e-04 & 0.005 & 0.021 & 0.038 & 0.052 & 0.065 & 0.068 & 0.076 & 0.032 & 0.061 \\\\ \\hline \\hline \\multicolumn{10}{|c|}{5 layers} \\\\ \\hline GD\\({}^{++}\\) & 1.14e-07 & 0.014 & 0.066 & 0.161 & 0.265 & 0.344 & 0.454 & 0.530 & 0.222 & 0.422 \\\\ \\hline Diag & 1.81e-07 & 0.004 & 0.016 & 0.029 & 0.041 & 0.051 & 0.058 & 0.062 & 0.026 & 0.051 \\\\ \\hline Full & 1.79e-07 & **0.002** & 0.015 & 0.026 & 0.038 & 0.048 & 0.059 & 0.065 & 0.016 & 0.048 \\\\ \\hline \\hline \\multicolumn{10}{|c|}{6 layers} \\\\ \\hline GD\\({}^{++}\\) & 2.37e-10 & 0.009 & 0.066 & 0.161 & 0.265 & 0.344 & 0.454 & 0.530 & 0.222 & 0.422 \\\\ \\hline Diag & 2.57e-10 & 0.003 & 0.014 & 0.028 & 0.040 & 0.048 & 0.054 & 0.059 & 0.020 & 0.047 \\\\ \\hline Full & 2.71e-10 & **0.002** & 0.014 & 0.025 & 0.036 & 0.044 & 0.052 & 0.059 & 0.011 & 0.043 \\\\ \\hline \\hline \\multicolumn{10}{|c|}{7 layers} \\\\ \\hline GD\\({}^{++}\\) & 2.65e-12 & 0.009 & 0.066 & 0.161 & 0.265 & 0.344 & 0.454 & 0.530 & 0.222 & 0.422 \\\\ \\hline Diag & 2.50e-12 & **0.002** & 0.014 & 0.027 & 0.040 & 0.047 & 0.052 & 0.059 & 0.018 & 0.046 \\\\ \\hline Full & 2.50e-1Figure 6: Layer by layer prediction quality for different models with \\(\\sigma_{\\tau}\\sim U(0,5)\\). The error bars measure std over \\(5\\) training seeds.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
