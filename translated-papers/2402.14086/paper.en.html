@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# LexC-Gen: Generating Data for Extremely Low-Resource Languages\n' +
+      '\n' +
+      'with Large Language Models and Bilingual Lexicons\n' +
+      '\n' +
+      'Zheng-Xin Yong\\({}^{1}\\) Cristina Menghini\\({}^{2}\\) Stephen H. Bach\\({}^{1}\\)\n' +
+      '\n' +
+      '\\({}^{1}\\)Department of Computer Science, Brown University\n' +
+      '\n' +
+      '\\({}^{2}\\)Data Science Institute, Brown University\n' +
+      '\n' +
+      '{contact.yong,cristina_menghini,stephen_bach}@brown.edu\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      'Data scarcity in low-resource languages can be addressed with word-to-word translations from labeled task data in high-resource languages using bilingual lexicons. However, bilingual lexicons often have limited lexical overlap with task data, which results in poor translation coverage and lexicon utilization. We propose lexicon-conditioned data generation (LexC-Gen), a method that generates low-resource-language classification task data at scale. Specifically, LexC-Gen first uses high-resource-language words from bilingual lexicons to generate lexicon-compatible task data, and then it translates them into low-resource languages with bilingual lexicons via word translation. Across 17 extremely low-resource languages, LexC-Gen generated data is competitive with expert-translated gold data, and yields on average 5.6 and 8.9 points improvement over existing lexicon-based word translation methods on sentiment analysis and topic classification tasks respectively. We show that conditioning on bilingual lexicons is the key component of LexC-Gen. LexC-Gen is also practical--it only needs a single GPU to generate data at scale. It works well with open-access LLMs, and its cost is one-fifth of the cost of GPT4-based multilingual data generation.\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      'Labeled data are virtually non-existent for _extremely low-resource languages_(Joshi et al., 2020), which creates significant disparities in NLP advancements relative to high-resource languages (Mabokela et al., 2022; Robinson et al., 2023; Bang et al., 2023; Yong et al., 2023; Ustun et al., 2024). One solution to overcome the data bottleneck is to use _bilingual lexicons_, which cover more than 5000 languages around the world (Wang et al., 2022; Koto et al., 2024). Bilingual lexicons, often the first product of language documentation (Meara, 1993; Schreuder and Weltens, 1993; Kroll and Ma, 2017), are dictionaries that map words from one language to their translations in another language. With bilingual lexicons, one can obtain data in low-resource languages by translating labeled task data from high-resource languages through word-for-word substitution.\n' +
+      '\n' +
+      'While prior work has demonstrated the effectiveness of bilingual lexicons in augmenting data and improving downstream task performance (Wang et al., 2022; Jones et al., 2023, inter alia), we observe that often the words in the _existing task data_--readily available labeled data in high-resource languages for a target task, e.g., sentiment analysis or topic classification--have low lexical overlap with the words in the task-agnostic bilingual lexicons, as shown in Figure 1. This _data-lexicon mismatch_ creates two problems: (1) many high-resource-language word tokens remain untranslated and (2) many words in the bilingual lexicon, which possibly contain\n' +
+      '\n' +
+      'Figure 1: We observe data-lexicon mismatch (i.e., low lexical overlap) between existing task data and bilingual lexicons (Figure 0(a)). LexC-Gen addresses the issue by maximizing the lexical overlap. Its generated data have more words translated (i.e., higher word translation coverage) and cover more low-resource-language words in bilingual lexicon (i.e., higher lexicon utilization rate) (Figure 0(b)).\n' +
+      '\n' +
+      'tion for downstream tasks, are missing from the translated dataset.\n' +
+      '\n' +
+      'In this work, we introduce **LexC-Gen**,1 which is a **lex**icon-**c**onditioned data **gen**eration method, to mitigate data-lexicon mismatch and generate task training data for extremely low-resource languages. Specifically, we train LLMs to generate high-resource-language task data using words from bilingual lexicons, so the data have a higher lexical overlap with the lexicons. This results in better word translation coverage and lexicon utilization rate (Figure 1). Then we translate the generated data into low-resource languages using bilingual lexicons. We also propose a quality-control method that checks for input-label consistency to filter out poor-quality generated data.\n' +
+      '\n' +
+      'Footnote 1: pronounced as lek-see-jen\n' +
+      '\n' +
+      'We evaluated **LexC-Gen** across 17 extremely low-resource languages on sentiment analysis and topic classification tasks. We found that finetuning classifiers on LexC-Gen generated data improves on average 5.6 and 8.9 points in accuracy respectively over word-translated existing training data (Wang et al., 2022). Surprisingly, finetuning on LexC-Gen word-translated data even matches the performance of finetuning on _gold data_ in the target language curated by native speakers or professional translators. We show that lexicon-conditioning is the critical success factor of **LexC-Gen**.\n' +
+      '\n' +
+      '**LexC-Gen**\'s data generation process is cost-effective. Specifically, it takes only a single V100 GPU and less than 36 hours to complete data generation with LexC-Gen at scale--this costs less than $100 with Google Cloud services. This is 20% of the cost of GPT4-based method for multilingual data generation (Whitehouse et al., 2023).\n' +
+      '\n' +
+      '**LexC-Gen** also works well with LLMs with permissive licenses such as BLOOMZ (Muennighoff et al., 2023). Therefore, the generated cross-lingual training data can be made open access for further research and building systems for extremely low-resource languages, which benefits multilingual NLP progress for these data-scarce languages.\n' +
+      '\n' +
+      'Our contributions can be summarized as follows:\n' +
+      '\n' +
+      '1. We present **LexC-Gen**, a lexicon-conditioned generation method that conditions LLMs on bilingual lexicons to generate low-resource-language task data at scale.\n' +
+      '2. We demonstrate that training on word-translated task data can match training on _gold data_ for extremely low-resource-languages.\n' +
+      '3. We performed extensive ablation study on **LexC-Gen**. We show that simply scaling up generated task data is _insufficient_. Lexicon-conditioning is necessary to maximize lexical overlap between task data and bilingual lexicons.\n' +
+      '\n' +
+      '## 2 Related Work\n' +
+      '\n' +
+      '**Generating task data with LLMs** LLMs-powered data generation is a recent promising area of research that enables cost-effective collection of diverse task data with minimal human labor (Honovich et al., 2023; Radharapu et al., 2023; Wang et al., 2023; Nayak et al., 2023; Yehudai et al., 2024). Nonetheless, this line of work has been underexplored in a multilingual setting. Whitehouse et al. (2023) demonstrated that GPT-4\'s generated multilingual training data for commonsense reasoning task in mid-/high-resource languages can improve cross-lingual performance. However, language coverage of LLMs and translation models are significantly smaller than lexicons (Wang et al., 2022; Bapna et al., 2022; Koto et al., 2024). Instead, we use LLMs to generate task data that maximize lexical overlap with bilingual lexicons for\n' +
+      '\n' +
+      'Figure 2: **LexC-Gen** Given a bilingual lexicon and the set of classes for a classification task, (1) we randomly sample the class label and a set of words from bilingual lexicon, for as many instances we desire to generate. (2) We use these pairs to build the prompts to query CTG-trained LLM (Figure 3) and generate the task data in high-resource language. (3) Then, we train a task classifier on existing task data to filter generated data and ensure input-label consistency. (4) After filtering, we apply word-to-word translation with the bilingual lexicon following prior work (Wang et al., 2022). Finally we get the synthetic task data for the target low-resource language, which is used to finetune task classifier.\n' +
+      '\n' +
+      'translations, and we show that our synthetic data can improve NLU semantic task performance in extremely low-resource languages.\n' +
+      '\n' +
+      '**Lexicon-based cross-lingual data augmentation** Lexicon-based augmentation creates data for low-resource languages by swapping words in high-resource-language data with their dictionary word translations in bilingual lexicons. This is useful for low-resource languages that cannot be readily translated by translation models/APIs with limited language coverage. Prior work has demonstrated their effectiveness across a wide range of NLP tasks, such as machine translation Streiter and Iomdin (2000); Ramesh and Sankaranarayanan (2018); Thompson et al. (2019); Kumar et al. (2022); Jones et al. (2023), sequence labeling Scherrer and Sagot (2013); Mayhew et al. (2017); Wang et al. (2022), sentiment classification Rasooli et al. (2018); Ali et al. (2021); Mohammed and Prasad (2023), and topic classification Song et al. (2019). However, many lexicon-based data augmentation strategies for semantic tasks in low-resource languages rely on domain-specific lexicons Das and Bandyopadhyay (2010); Buechel et al. (2016); Ali et al. (2021); Mohammed and Prasad (2023); Koto et al. (2024), and performance-wise they still fall short of gold training data collected in the target low-resource language Rasooli et al. (2018); Koto et al. (2024). Our method **Lex**C-Gen not only works with domain-agnostic bilingual lexicons, but also demonstrates competitive performance with gold training data on sentiment analysis and topic classification tasks across many extremely low-resource languages.\n' +
+      '\n' +
+      '## 3 LexC-Gen\n' +
+      '\n' +
+      'We aim to generate data for classification tasks in a low-resource language \\(L\\), given access to (1) labeled task data \\(\\mathcal{T}_{H}\\) with \\(C\\) classes in a high-resource language \\(H\\), (2) a bilingual lexicon \\(D_{H}^{L}\\) that maps words from \\(H\\) to \\(L\\), and (3) an LLM supporting \\(H\\).\n' +
+      '\n' +
+      '**LexC-Gen** uses these inputs to generate labeled task data \\(\\widetilde{\\mathcal{T}}_{L}\\) in low-resource language. Our key idea is to prompt the LLM to generate task data using high-resource-language words from bilingual lexicons in order to create task data that have a higher lexical overlap with those bilingual lexicons (Figure 0(a)), and thus can be more effectively translated into \\(L\\). In the following, we describe the steps to obtain \\(\\widetilde{\\mathcal{T}}_{L}\\). For readability, we refer to \\(D_{H}^{L}\\) as \\(D\\).\n' +
+      '\n' +
+      '### Sample Lexicon Words and Class Label\n' +
+      '\n' +
+      'First, we randomly sample a set \\(W_{H}\\) of high-resource-language words \\(w_{H}\\) from \\(D\\) and a class label \\(c\\). This corresponds to step (1) in Figure 2. The goal is to prompt our LLM to generate task inputs of class \\(c\\) using as many words from \\(W_{H}\\) as possible.\n' +
+      '\n' +
+      '### Generate Data with LLM Trained with Controlled-Text Generation (CTG)\n' +
+      '\n' +
+      'Next, we prompt an LLM to generate high-resource-language task data \\(\\widetilde{\\mathcal{T}}_{H|D}\\) conditioned on the bilingual lexicon. This is step (2) in Figure 2. However, because open-access instruction-tuned LLMs such as BLOOMZ Muennighoff et al. (2023) are not finetuned for this purpose, we carry out controlled text generation (CTG) training of LLMs Zhang et al. (2023); Zhou et al. (2023) to create CTG-trained LLM.\n' +
+      '\n' +
+      '**CTG Training** We construct CTG training data from existing task data \\(\\mathcal{T}_{H}\\). Each instance \\(t_{H}\\in\\mathcal{T}_{H}\\) consists of a pair of text \\(x_{H}\\) and task label \\(c\\). We randomly sample a variable number of word tokens \\(w_{H}\\) uniformly at random without repetition from \\(x_{H}\\) to create \\(W_{H}\\). Then, we format the CTG training data using the prompt template in Figure 3, so that the LLM learns to generate task input \\(\\tilde{x}_{H|c,W_{H}}\\) conditioned on \\(c\\) and \\(W_{H}\\).\n' +
+      '\n' +
+      'CTG training is data-efficient. We found that generating only a single CTG training example per\n' +
+      '\n' +
+      'Figure 3: **Controlled-Text Generation (CTG) training. This figure shows the pipeline for the LLM finetuning for CTG. We construct the training data starting from the existing labeled task data \\(\\mathcal{T}_{H}\\). From each instance \\(t_{H}\\), we sample without replacement a set of words \\(W_{H}\\) and associate it to class \\(c\\). This information is plugged into the prompt template, and it is used to finetune an LLM that generates sentences conditioned on \\(c\\) and \\(W_{H}\\).**\n' +
+      '\n' +
+      'each \\(t_{H}\\in\\mathcal{T}_{H}\\) is already sufficient to instruction-tune the model. Specifically, our CTG training data consists of 500 and 701 instances for our sentiment analysis and topic classification tasks respectively.\n' +
+      '\n' +
+      'Task Data GenerationAfter CTG training, we prompt the LLM reusing the template in Figure 3, but now we use lexicon words with random task class labels from Section 3.1. We can now generate synthetic high-resource-language task data \\(\\widetilde{\\mathcal{T}}_{H|D}\\) at scale conditioned on bilingual lexicons.\n' +
+      '\n' +
+      '### Input-Label Consistency Filter\n' +
+      '\n' +
+      'To ensure high-quality data, we apply an input-label consistency filter after data generation to reduce training noise from labeling errors. For instance, CTG-trained LLM may generate a sentence with negative sentiment even though the specified task label \\(c\\) is positive sentiment in the input prompt (Figure 3). Therefore, we finetune a small classifier mBERT on the same existing task data \\(\\mathcal{T}_{H}\\) and use it to relabel \\(\\widetilde{\\mathcal{T}}_{H|L}\\). Then, we filter out all data instances where the classifier\'s prediction does not match the generated input-label pairs.\n' +
+      '\n' +
+      'At this point (step (3) in Figure 2), we have high-quality lexicon-compatible task data in language \\(H\\) that allows for better word-to-word translation into language \\(L\\) by using \\(D\\).\n' +
+      '\n' +
+      '### Word-to-Word Translation into Low-Resource Languages\n' +
+      '\n' +
+      'Finally, we carry out word-to-word translation following the procedures in prior work Wang et al. (2022); Jones et al. (2023). We use \\(D\\) to substitute the high-resource-language words \\(w_{H}\\in\\widetilde{\\mathcal{T}}_{H|D}\\) with their low-resource-language word translation \\(w_{L}\\), thus creating \\(\\widetilde{\\mathcal{T}}_{L}\\). We randomly sample \\(w_{L}\\) if \\(w_{H}\\) has multiple possible translations and keep \\(w_{H}\\) as is in \\(\\widetilde{\\mathcal{T}}_{H|D}\\) if there is no translation for it in \\(D\\). After we obtain the synthetic cross-lingual task data \\(\\widetilde{\\mathcal{T}}_{L}\\), we use it as training data to finetune a classifier for the target task in the low-resource-language.\n' +
+      '\n' +
+      '## 4 Experimental Setup\n' +
+      '\n' +
+      'We compare LexC-Gen against baselines and gold translations on sentiment analysis and topic classification tasks. We describe the task datasets in Section 4.1, how we instantiate LexC-Gen in Section 4.2, and our baselines as well as gold translations in Section 4.3.\n' +
+      '\n' +
+      '### Tasks and Datasets\n' +
+      '\n' +
+      'We evaluate LexC-Gen on sentiment analysis and topic classification tasks across 17 low-resource languages. The task datasets contain _gold training data_ that are curated with translations by native\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c c c c c} \\hline \\hline\n' +
+      '**Methods** & **\\#data** & **ace** & **ban** & **bbc** & **bjn** & **bug** & **mad** & **min** & **Avg** \\\\ \\hline \\multicolumn{10}{l}{_Zero-shot prompting_} \\\\ \\hline BLOOMZ-7.1.B & 0 & 47.0 & 50.5 & 43.0 & 49.5 & 38.5 & 48.0 & 52.5 & 47.0 \\\\ GPT-4 & 0 & 60.8 & 71.3 & 47.8 & **79.8** & 30.8 & 58.3 & **80.3** & 61.3 \\\\ \\hline \\multicolumn{10}{l}{_Cross-lingual zero-shot_} \\\\ \\hline Existing Task Data (en) & 500 & 56.8 & 60.2 & 51.1 & 63.3 & 45.8 & 56.0 & 57.7 & 55.8 \\\\ \\hline \\multicolumn{10}{l}{_Word translation_} \\\\ \\hline Existing Task Data (\\(\\mathsf{\\mathsf{\\mathsf{\\mathsf{\\mathsf{\\mathsf{\\mathsf{\\mathsf{\\mathsf{\\mathsf{ \\mathsf{\\mathsf{\\mathsf{\\mathsf{\\mathsf{\\mathsf{\\mathsfmathsf{\\mathsfmathsf{ }}}}}}}}}}}}}}}}\\) & \\multicolumn{1}{c}{} & \\multicolumn{1}{c}{} & \\multicolumn{1}{c}{} & \\multicolumn{1}{c}{} & \\multicolumn{1}{c}{} & \\multicolumn{1}{c}{} & \\multicolumn{1}{c}{} \\\\ \\multicolumn{10}{l}{+ Existing Task Data (en)} & 500 & 63.6 & 58.3 & 55.8 & 66.4 & 57.7 & 59.3 & 71.6 & 61.8 \\\\ \\multicolumn{10}{l}{+ Existing Task Data (en)} & 1000 & 67.8 & 62.4 & 60.4 & 66.3 & 56.7 & 62.4 & 75.1 & 64.4 \\\\ \\multicolumn{10}{l}{+ Label Distillation} \\\\ Wang et al. (2022) & 1000 & 58.8 & 52.9 & 45.7 & 58.8 & 43.9 & 56.8 & 68.7 & 55.1 \\\\ \\multicolumn{10}{l}{+ Existing Task Data (en)} & \\multicolumn{1}{c}{} & \\multicolumn{1}{c}{} & \\multicolumn{1}{c}{} & \\multicolumn{1}{c}{} & \\multicolumn{1}{c}{} & \\multicolumn{1}{c}{} & \\multicolumn{1}{c}{} & \\multicolumn{1}{c}{} \\\\ \\multicolumn{10}{l}{+ Label Distillation} \\\\ Wang et al. (2022) & 1000 & 58.8 & 52.9 & 45.7 & 58.8 & 43.9 & 56.8 & 68.7 & 55.1 \\\\ \\multicolumn{10}{l}{+ Basic C-Gen-1K (\\(\\mathsf{\\mathsf{\\mathsf{\\mathsf{\\mathsf{\\mathsf{\\mathsf{\\mathsf{\\mathsf{\\mathsf{\\mathsf{ \\mathsf{\\mathsf{\\mathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsf{       \\mathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsf{   \\mathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsf{    \\mathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsf{   \\mathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsf{   \\mathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsf{   \\mathsfmathsfmathsfmathsfmathsfmathsfmathsf{   \\mathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsf{   \\mathsfmathsfmathsfmathsfmathsfmathsfmathsf{  \\mathsfspeakers or professional translators. Detailed information for the tasks and languages can be found in Appendix B.\n' +
+      '\n' +
+      'Sentiment analysisWe use the NusaX sentiment analysis dataset Winata et al. (2023) developed for Indonesian low-resource languages. The dataset has 3 sentiment labels: positive, neutral, and negative. In our setup, we evaluate **LexC-Gen** on 7 languages that also exist in the Gatitos lexicon.\n' +
+      '\n' +
+      'Topic classificationSIB-200 Adelani et al. (2023) is a topic classification benchmark that covers 200 languages and 7 topic categories. We evaluate **LexC-Gen** on the _10 worst-performing languages_ that we found to have the largest performance gap between gold translations and the word translation baseline Wang et al. (2022).\n' +
+      '\n' +
+      '### LexC-Gen Instantiation\n' +
+      '\n' +
+      'LlmWe use the BLOOMZ model Muenighoff et al. (2023) with 7.1 billion parameters (BLOOMZ-7.1B) as our initial instruction-tuned LLM. This allows us to compare performance between its zero-shot prompting and its usage with LexC-Gen.\n' +
+      '\n' +
+      'Bilingual lexiconsWe choose Gatitos bilingual lexicons Jones et al. (2023) to translate the generated English data into low-resource languages. Gatitos includes English entries such as frequent English words, numbers, and time, and they are translated into 170 extremely low-resource languages. Gatitos have been manually reviewed, so its entries have higher quality than other bilingual lexicons such as Panlex Kamholz et al. (2014).\n' +
+      '\n' +
+      'Generated task dataWe first use LexC-Gen to generate English datasets with 1K, 10K, and 100K instances, to which we refer as **LexC-Gen**-1K, -10K, and -100K, before filtering out mismatched input-label pairs. The effective data size after filtering with input-label consistency checking is between 20% and 40% of the generated task data. Then, we use Gatitos lexicons Jones et al. (2023) to translate them into low-resource languages.\n' +
+      '\n' +
+      'Training and data generation with LLMWe provide further training and inference details of **LexC-Gen** in Appendix C. We also showcase examples of the generated data in Appendix E.\n' +
+      '\n' +
+      'Task finetuningWe finetune pretrained mBERT2 with classification heads on **LexC-Gen** generated low-resource-language data for sentiment analysis and topic classification tasks evaluation (further details are in Appendix D).\n' +
+      '\n' +
+      'Footnote 2: bert-base-multilingual-cased model.\n' +
+      '\n' +
+      '### Baselines\n' +
+      '\n' +
+      'We compare **LexC-Gen** against (1) **zero-shot prompting** with BLOOMZ-7.1B and GPT-4;3 (2) **cross-lingual zero-shot transfer** where mBERT\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c c c c c c c} \\hline \\hline\n' +
+      '**Methods** & **\\#data** & **bam** & **ewe** & **fij** & **grn** & **lin** & **lus** & **sag** & **tso** & **tum** & **twi** & **Avg** \\\\ \\hline \\multicolumn{10}{l}{_Zero-shot prompting_} \\\\ \\hline BLOOMZ-7.1.B & 0 & 41.7 & 34.3 & 35.3 & 41.7 & 42.2 & 38.7 & 36.8 & 41.7 & 40.2 & 41.7 & 39.4 \\\\ GPT-4 & 0 & 34.3 & 33.3 & 52.9 & 53.9 & 53.4 & 46.1 & 32.4 & **54.9** & **53.4** & 40.7 & 45.5 \\\\ \\hline \\multicolumn{10}{l}{_Cross-lingual zero-shot_} \\\\ \\hline Existing Task Data (en) & 701 & 29.6 & 32.5 & 42.5 & 57.7 & 42.0 & 49.9 & 37.6 & 39.6 & 40.3 & 40.7 & 41.2 \\\\ \\hline \\multicolumn{10}{l}{_Word translation_} \\\\ \\hline Existing Task Data (T) & 701 & 40.2 & 41.4 & 49.1 & 63.9 & 52.3 & 61.8 & 46.7 & 39.1 & 42.5 & 54.9 & 49.2 \\\\ + Existing Task Data (en) & 1402 & 42.5 & 41.4 & 47.8 & 67.2 & 55.9 & 63.4 & 47.9 & 40.0 & 43.4 & 56.4 & 50.6 \\\\ + Label Distillation & 1402 & 37.5 & 33.1 & 41.9 & 59.0 & 37.8 & 56.5 & 38.5 & 42.1 & 41.2 & 35.0 & 42.3 \\\\ \\multicolumn{10}{l}{_\\begin{tabular}{l} **LexC-Gen**-1K (T) \\\\ \\end{tabular} } \\\\ \\hline \\(\\sim 220\\) & 22.9 & 37.8 & 40.2 & 50.1 & 45.0 & 52.5 & 40.9 & 29.2 & 37.6 & 42.1 & 39.8 \\\\ + Existing Task Data (en) & \\(\\sim 920\\) & 36.5 & 41.2 & 45.3 & 68.3 & 53.0 & 61.9 & 49.1 & 37.1 & 39.0 & 53.7 & 48.5 \\\\ \\multicolumn{10}{l}{_\\begin{tabular}{l} **LexC-Gen**-10K (T) \\\\ \\end{tabular} } \\\\ \\hline \\(\\sim 2.2\\)K & 38.5 & 40.5 & 51.4 & 67.1 & 57.6 & 64.1 & 55.3 & 41.1 & 42.6 & 55.1 & 51.3 \\\\ + Existing Task Data (en) & \\(\\sim 2.9\\)K & 33.8 & 42.6 & 51.3 & 67.1 & 59.3 & 64.8 & 53.8 & 43.8 & 43.2 & 54.3 & 51.4 \\\\ \\multicolumn{10}{l}{_\n' +
+      '\\begin{tabular}{l} **LexC-Gen**-**100K (T) \\\\ \\end{tabular} } \\\\ \\hline \\(\\sim 22\\)K & 44.0 & **51.1** & **70.2** & **74.3** & **67.4** & **69.3** & **61.0** & 42.2 & 50.9 & 64.9 & **59.5** \\\\ + Existing Task Data (en) & \\(\\sim 23\\)K & **46.2** & 47.6 & 68.0 & 73.0 & 67.2 & 68.9 & 57.0 & 42.6 & 53.0 & **65.8** & 58.9 \\\\ \\hline \\hline \\multicolumn{10}{l}{_Gold Translations_} & 701 & 54.9 & 53.0 & 61.7 & 71.2 & 64.6 & 68.4 & 60.7 & 55.9 & 63.4 & 62.2 & 61.6 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 2: Topic classification accuracy for 10 worst-performing languages in the SIB-200 dataset Adelani et al. (2023). We follow the schema defined in Table 1.\n' +
+      '\n' +
+      'is finetuned on English training data and evaluated on low-resource-language test data; (3) **word translation**Wang et al. (2022) where mBERT is finetuned on the data that are translated from the English training data via word-substitution with the same bilingual lexicon Gatitos Jones et al. (2023); (4) **gold translations** where mBERT is finetuned on expert-translated task training data in the target low-resource language (see Section 4.1)\n' +
+      '\n' +
+      'We implement the word translation baseline by referring to the state-of-the-art method Wang et al. (2022). Here, we do not adapt the pretrained mBERT before task finetuning for fair comparison. We follow the protocol by Wang et al. (2022) and report the result where we also combine word-translated data with English training data ("+ Existing Task Data (en)") and perform _label distillation_--a technique that uses a classifier (mBERT in our case) trained on existing task data to relabel the translated data.\n' +
+      '\n' +
+      '## 5 Results and Analysis\n' +
+      '\n' +
+      '### LexC-Gen outperforms all baselines\n' +
+      '\n' +
+      '**LexC-Gen** outperforms all baselines in both sentiment analysis (Table 1) and topic classification tasks (Table 2). In sentiment analysis, finetuning classifiers on the mixture of **LexC-Gen**-100K (100K generated data instances that are filtered down to around 37K instances) and existing English task data improves over the cross-lingual zero-shot baseline by 15.2 percentage points and word translation baseline by 6.6 points. In topic classification, **LexC-Gen**-100K yields improvement of 18.3 points over the cross-lingual zero-shot baseline and 8.9 points over the word translation baseline.\n' +
+      '\n' +
+      '**LexC-Gen**-100K improves over baselines because first, it improves the word translation coverage of data instances (Figure 0(b) left) so there are fewer undesirable artifacts of untranslated words in high-resource languages. Second, it significantly increases the lexicon utilization rate (Figure 0(b) right and Section 5.5), which allows more low-resource-language words from the lexicon to be present in the task data so the task classifier can associate task labels with the semantic information carried by these words.\n' +
+      '\n' +
+      '### LexC-Gen is competitive with gold translations\n' +
+      '\n' +
+      'Table 1 and Table 2 show that finetuning classifiers on **LexC-Gen**-100K generated cross-lingual data is competitive with training on expert-translated data for many low-resource languages. Our findings also generalize to larger task classifiers, such as XLMR-base and XLMR-large Conneau et al. (2020) (see Figure 10 in Appendix J). Our result is surprising because **LexC-Gen** generated data still use English syntax with SVO word order. Yet, **LexC-Gen** still works for languages with different word orders, such as Balinese (ban) and Mizo (lus) with OSV word order and Toba batak (bbc) with VOS word order.\n' +
+      '\n' +
+      'One possible explanation is that solving sentiment analysis and topic classification tasks relies more on semantic information than syntactic information. Because of the larger word translation coverage and extremely high lexicon utilization rate (Figure 0(b)), **LexC-Gen** generated data at scale contain sufficient semantic information in low-resource languages for classifiers to learn the task. Nonetheless, it requires a much larger **LexC-Gen** dataset to match gold translations performance. **LexC-Gen** data (after filtering) are around 75\\(\\times\\) and 30\\(\\times\\) the size of gold translations as shown in Table 1 and Table 2 for sentiment analysis and topic classification tasks respectively.\n' +
+      '\n' +
+      '### Mixing in English task data helps for small-scale translated data\n' +
+      '\n' +
+      'In both word translation baseline (Existing Task Data (T)) and **LexC-Gen**-1K with small-scale\n' +
+      '\n' +
+      'Figure 4: Ablation study of lexicon-conditioning in LexC-Gen-100K on sentiment analysis. “Gen w/o filter” generates data without using words from lexicons and without input-label consistency filtering. “Gen” is “Gen w/o filter” but with filtering. We plot the accuracy difference against finetuning with gold translations (green dotted line). We control the training data size for “Gen w/o filter” and “Gen” to be the same as **LexC-Gen**-100K and include Wang et al. (2022) as baseline.\n' +
+      '\n' +
+      'translated data, including existing English task data during classifier finetuning improves task performance substantially. For instance, in sentiment analysis, it yields 18.2 points performance gain for **LexC-Gen-1**K. However, at larger scales of data such as **LexC-Gen-100K**, mixing in English task data only gives marginal performance gain; for instance, 1 point average gain in the sentiment analysis task. This is because LexC-Gen-100K has around 37K training examples (after input-label consistency filtering), which dominate over the small-sized existing English task data with 500 examples. 4\n' +
+      '\n' +
+      'Footnote 4: In the following subsections, analysis of LexC-Gen does not include English existing task data.\n' +
+      '\n' +
+      '### Lexicon-conditioning is crucial for strong task performance\n' +
+      '\n' +
+      'Figure 4 shows that using words from lexicons to generate task data (i.e., lexicon-conditioning) is necessary for matching gold translations performance. Ablating away lexicon-conditioning and quality control ("Gen w/o filter") has the worst performance-- it even underperforms the word translation baseline [22] on 500 existing task data samples for sentiment analysis. Even with quality control from Section 3.4, scaling data generation without lexicon conditioning ("Gen") still performs worse than **LexC-Gen-100K**. This is due to low lexical overlap between the data and bilingual lexicons. "Gen" data have poorer lexicon utilization rate, as it only covers 62.5% of low-resource-language words in the bilingual lexicon. In contrast, LexC-Gen-100K covers 92.8% words. We refer our readers to Appendix G for further details of our ablation study.\n' +
+      '\n' +
+      '### Scaling generated data increases lexicon utilization rate\n' +
+      '\n' +
+      'Figure 5 shows that scaling up the data generation process improves the utilization rate of bilingual lexicons, which is the total proportion of low-resource-language words in bilingual lexicons appearing in the translated dataset, because **LexC-Gen** uses more words from lexicons to generate task data. We observe that as lexicon utilization rate improves, sentiment analysis accuracy increases. This is because there is more semantic information for classifiers to learn the downstream tasks in the target language. We also obtain a similar graph with the topic classification task (see Appendix Figure 9). Scaling is enabled by the generative nature of **LexC-Gen**, as opposed to previous approaches constrained to the quantity of labeled task data in high-resource languages.\n' +
+      '\n' +
+      '### Quality control reduces training data size and boosts performance\n' +
+      '\n' +
+      'Figure 6 shows that applying input-label consistency filter as data quality control not only reduces the size of the generated training data by two-third, which results in 3 times faster finetuning of the task classifier, but also increases the task performance from 56.2 points (ablation of quality control at 100K generated data) to 70.0 points (37K generated data after quality control filtering), which even matches the performance of finetuning on gold translations. Our findings align with prior work with English data [23] that shows that optimizing for data quality results in more significant gains than simply scaling up data quantity.\n' +
+      '\n' +
+      'Quality control with a classifier trained on exist\n' +
+      '\n' +
+      'Figure 5: Sentiment analysis accuracy (red solid line, left y-axis) and lexicon utilization rate (blue dotted line, right y-axis) against the size of **LexC-Gen** training task data in log10-scale.\n' +
+      '\n' +
+      'Figure 6: Ablation of input-label consistency filter on **LexC-Gen** generated data for sentiment analysis.\n' +
+      '\n' +
+      'ing task data is effective for **LexC-Gen**, but not for label distillation in Wang et al.\'s Wang et al. (2022) word translation baseline (Table 1 and Table 2). There are two possible reasons. First, label distillation uses the classifier trained on high-resource-language data to relabel translated data in low-resource languages. This cross-lingual transfer may introduce errors in the classifier\'s predictions, as opposed to **LexC-Gen\'s** relabeling in the same high-resource language. Second, **LexC-Gen** offers _stricter_ quality control by discarding all instances with mismatched labels between the classifier and LLMs, thus improving task performance (see Figure 12 in Appendix M).\n' +
+      '\n' +
+      '### LLMs are better used for generating data than zero-shot prompting\n' +
+      '\n' +
+      'Zero-shot prompting with BLOOMZ-7.1B is the weakest baseline (Table 1 and Table 2), but using it in **LexC-Gen** to generate task data to finetune smaller task classifiers makes it achieve the state-of-the-art performance and match gold translations. Our results suggest that for extremely low-resource languages it is best to leverage LLMs (including GPT-4 as shown in Appendix H) to generate training data at scale instead of using them out-of-the-box by zero-shot prompting.5 This finding aligns with recent work that shows that finetuning LLMs with their self-generated task data improves downstream task performance Wang et al. (2023).\n' +
+      '\n' +
+      'Footnote 5: Even few-shot prompting GPT-4 cannot close the performance gap with gold translations. See Appendix K.\n' +
+      '\n' +
+      '## 6 Discussion\n' +
+      '\n' +
+      'Effectiveness of bilingual lexiconsOur work shows that task-agnostic bilingual lexicons like Gatitos Jones et al. (2023) contain _sufficient_ semantic information for sentiment analysis and topic classification in extremely low-resource languages. However, it requires a high degree of lexical overlap between task data and lexicon to include the information in the translated data (Figure 0(a)). We also found that lexicon size and quality are important. Using Gatitos lexicons Jones et al. (2023) for **LexC-Gen** outperforms using Panlex Kamholz et al. (2014) because the former contains more entries and is higher in quality for extremely low-resource languages (see Appendix I).\n' +
+      '\n' +
+      'Addressing training data bottleneckLexC-Gen directly addresses the labeled data scarcity problem of extremely low-resource languages Joshi et al. (2020). Since it is challenging to construct high-quality task-specific lexicons or to collect labeled task data that align well with bilingual lexicons, **LexC-Gen** serves a practical solution that automatically generates task training data at scale for low-resource languages.\n' +
+      '\n' +
+      'Low LLM training costLexC-Gen relies on the CTG-trained LLM that follows the prompt instruction of generating task data using a set of given words. Our CTG training only depends on high-resource-language task data, and is independent of low-resource languages and bilingual lexicons. In other words, once an LLM is CTG-trained, researchers can _reuse_ it with different bilingual lexicons to generate data for various low-resource languages on the same task _without retraining_, thus incurring minimal LLM training cost.\n' +
+      '\n' +
+      'Low LLM generation costLexC-Gen benefits low-resource language NLP practitioners who often face resource constraint. **LexC-Gen** only takes less than 36 hours in total to complete both CTG training and 100K data samples generation with a 7-billion-parameter LLM on a _single_ Tesla V100 GPU. Overall, it costs less than $100.6 This is one-fifth of the cost of using state-of-the-art GPT-4-based multilingual data generation method Whitehouse et al. (2023) (see Appendix H).\n' +
+      '\n' +
+      'Footnote 6: A Tesla V100 GPU costs around $2.48 per hour for on-demand VMs on Google Cloud.\n' +
+      '\n' +
+      'Distribution-friendly synthetic dataWe show that LexC-Gen works well with open-access models with permissive licenses such as BLOOMZ. Therefore, its generated data are usable for proprietary or public research. The data can also be distributed for broader multilingual applications.\n' +
+      '\n' +
+      '## 7 Conclusion\n' +
+      '\n' +
+      'We propose LexC-Gen to generate low-resource-language task data by using LLMs to generate lexicon-compatible task data that are better translated into low-resource languages with bilingual lexicons. We show that finetuning on our generated data for sentiment analysis and topic classification tasks can match gold data that are difficult to collect. Given that **LexC-Gen** is a practical solution, we hope it alleviates the severe data scarcity problem of low-resource languages and accelerates NLP progress in these long-tail languages.\n' +
+      '\n' +
+      '### Limitations\n' +
+      '\n' +
+      'Word ambiguityIn our word-to-word translation, we follow the protocol of prior work Wang et al. (2022) and randomly choose a word translation if a particular word is mapped to multiple translations. In other words, we do not disambiguate word translations in low-resource languages because the low-resource-language words existing in lexicons do not come with linguistic information (such as parts-of-speech tags) or context (such as example sentences) that are necessary for word sense disambiguation Navigli (2009). Therefore, our word translations may introduce errors in the translated task data. Future work could expand the entries in bilingual lexicons to incorporate linguistic or contextual information to enable word sense disambiguation and improve the quality of the translated data in low-resource languages.\n' +
+      '\n' +
+      'Syntax mismatchSince LexC-Gen is based on word-to-word translation, it suffers the inherent limitation that the syntax of its generated word-translated sentences remains unchanged and therefore might not match that of low-resource languages. Nonetheless, we have shown that despite this limitation, LexC-Gen still improves performance significantly in semantic tasks such as sentiment analysis and topic classification for languages with different word orders. This suggests that LexC-Gen is a viable solution for semantic tasks when in-language training data are extremely difficult to collect for low-resource languages. Future work should explore syntactical transformation of LexC-Gen\'s synthetic data to better align with low-resource languages for tasks, such as machine translation and named entity recognition, that heavily rely on syntactic information.\n' +
+      '\n' +
+      'TasksWe experimented LexC-Gen on sentiment analysis and topic classification tasks, both of which are NLU tasks that low-resource languages are still lagging behind high-resource languages Winata et al. (2023); Adelani et al. (2023). We acknowledge that future work is warranted to explore the potentials and limitations of LexC-Gen on other NLU tasks that (1) require sensitivity to semantic complexity at the sentence level, such as common sense reasoning and natural language inference, or (2) syntax information, such as named entity recognition and information retrieval.\n' +
+      '\n' +
+      'Source languageIn our experiments, we follow prior work Jones et al. (2023); Wang et al. (2022) and generate low-resource-language task data from English task data using English-based Gatitos bilingual lexicons Jones et al. (2023). Future work should explore extending LexC-Gen beyond English and generating task data in high-resource languages that are more related to the low-resource languages than English language. It would also be interesting to explore if BLOOMZ or other open-access LLMs are capable in terms of controlled-text generation abilities for non-English languages.\n' +
+      '\n' +
+      '### Broader Impacts and Ethical Considerations\n' +
+      '\n' +
+      'Since our work addresses the training data scarcity problem of extremely low-resource languages Joshi et al. (2020); Yong et al. (2023); Singh et al. (2024), inter alia), we foresee adoption and further research of our methods by NLP practitioners for tackling other NLU semantic tasks. Since our approach works well with LLMs with permissive licenses, it is possible that the generated task data are widely distributed for NLP applications in many different low-resource languages.\n' +
+      '\n' +
+      'One potential risk of synthetic data is model collapse Shumailov et al. (2023) where synthetic data cause the tails of the original data distribution disappear. Here, our work focuses on synthetic data for long-tail languages. We want to emphasize that LexC-Gen\'s generated cross-lingual training data _are not_ substitute for natural in-language data. Our work actually encourages more human investment in low-resource languages in terms of lexicon curation and task data collection. We not only demonstrate that high-quality bilingual lexicons are effective in improving semantic task performance, but also show that gold translations in the target low-resource language require less data to achieve strong task performance.\n' +
+      '\n' +
+      '## Acknowledgements\n' +
+      '\n' +
+      'We thank Julia Kreutzer, Genta Indra Winata, Alham Fikri Aji, David Ifeoluwa Adelani, Ruochen Zhang, and Brown University Superlab for helpful feedback on our paper. We gratefully acknowledge support from Cisco.\n' +
+      '\n' +
+      'Disclosure: Stephen Bach is an advisor to Snorkel AI, a company that provides software and services for data-centric artificial intelligence.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* D. H. Adelani, H. Liu, X. Shen, N. Vassilyev, J. O. Alabi, Y. Mao, H. Gao, and A. E. Lee (2023)Sib-200: a simple, inclusive, and big evaluation dataset for topic classification in 200+ languages and dialects. External Links: Link Cited by: SS1.\n' +
+      '* W. Ali, N. Ali, Y. Dai, J. Kumar, S. Tumrani, and Z. Xu (2021)Creating and evaluating resources for sentiment analysis in the low-resource language: sindhi. In Proceedings of the Eleventh Workshop on Computational Approaches to Subjectivity, Sentiment and Social Media Analysis, Online, pp. 188-194. External Links: Link, Document Cited by: SS1.\n' +
+      '* Y. Bang, S. Cahyawijaya, N. Lee, W. Dai, D. Su, B. Wile, H. L., Z. Ji, T. Yu, W. Chung, Q. V. Do, Y. Xu, and P. Fung (2023)A multitask, multilingual, multimodal evaluation of chatgpt on reasoning, hallucination, and interactivity. arXiv preprint arXiv:2302.04023. Cited by: SS1.\n' +
+      '* A. Bapna, I. Caswell, J. Kreutzer, O. Firat, D. van Esch, A. Siddhant, M. Niu, P. Baljekar, X. Garcia, W. Macherey, et al. (2022)Building machine translation systems for the next thousand languages. arXiv preprint arXiv:2205.03983. Cited by: SS1.\n' +
+      '* S. Buechel, J. Hellrich, and U. Hahn (2016)Feelings from the past--Adapting affective lexicons for historical emotion analysis. In Proceedings of the Workshop on Language Technology Resources and Tools for Digital Humanities (LT4DH), Osaka, Japan, pp. 54-61. External Links: Link, Document Cited by: SS1.\n' +
+      '* A. Conneau, K. Khandelwal, N. Goyal, V. Chaudhary, G. Wenzek, F. Guzman, E. Grave, M. Ott, L. Zettlemoyer, and V. Stoyanov (2020)Unsupervised cross-lingual representation learning at scale. In Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics, Online, pp. 8440-8451. External Links: Link, Document Cited by: SS1.\n' +
+      '* M. R. Costa-jussa, J. Cross, O. Celebi, M. Elbayad, K. Heafield, K. Heffernan, E. Kalbassi, J. Lam, D. Licht, J. Maillard, et al. (2022)No language left behind: scaling human-centered machine translation. arXiv preprint arXiv:2207.04672. Cited by: SS1.\n' +
+      '* A. Das and S. Bandyopadhyay (2010)Sentiwordnet for bangla. Knowledge Sharing Event-4: Task2, pp. 1-8. Cited by: SS1.\n' +
+      '* T. Dettmers, A. Pagnoni, A. Holtzman, and L. Zettlemoyer (2023)Qlora: efficient finetuning of quantized llms. arXiv preprint arXiv:2305.14314. Cited by: SS1.\n' +
+      '* J. Devlin, M. Chang, K. Lee, and K. Toutanova (2019)BERT: pre-training of deep bidirectional transformers for language understanding. In Proceedings of the 2019 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies, Volume 1 (Long and Short Papers), Minneapolis, Minnesota, pp. 4171-4186. External Links: Link, Document Cited by: SS1.\n' +
+      '* C. Hokamp and Q. Liu (2017)Lexically constrained decoding for sequence generation using grid beam search. In Proceedings of the 55th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers), Vancouver, Canada, pp. 1535-1546. External Links: Link, Document Cited by: SS1.\n' +
+      '* O. Honovich, T. Scialom, O. Levy, and T. Schick (2023)Unnatural instructions: tuning language models with (almost) no human labor. In Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers), Toronto, Canada, pp. 14409-14428. External Links: Link, Document Cited by: SS1.\n' +
+      '* J. H. Hu, H. Khayrallah, R. Culkin, P. Xia, T. Chen, M. Post, and B. Van Durme (2019)Improved lexically constrained decoding for translation and monolingual rewriting. In Proceedings of the 2019 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies, Volume 1 (Long and Short Papers), Minneapolis, Minnesota, pp. 839-850. External Links: Link, Document Cited by: SS1.\n' +
+      '* A. Jones, I. Caswell, O. Firat, and I. Saxena (2023)GATTOS: using a new multilingual lexicon for low-resource machine translation. In Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing, Singapore, pp. 371-405. External Links: Link, Document Cited by: SS1.\n' +
+      '* P. Joshi, S. Santy, A. Budhiraja, K. Bali, and M. Choudhury (2020)The state and fate of linguistic diversity and inclusion in the NLP world. In Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics, Online, pp. 6282-6293. External Links: Link, Document Cited by: SS1.\n' +
+      '* D. Kamholz, J. Pool, and S. M. Colowick (2014)Panlex: building a resource for panlingual lexical translation. In LREC, pp. 3145-3150. External Links: Link, Document Cited by: SS1.\n' +
+      '* F. Koto, T. Beck, Z. Talat, I. Gurevych, and T. Baldwin (2024)Zero-shot sentiment analysis in low-resource languages using a multilingual sentiment lexicon. External Links: Link, Document Cited by: SS1.\n' +
+      '* J. F. Kroll and F. Ma (2017)The bilingual lexicon. The handbook of psycholinguistics, pp. 294-319. External Links: Link, Document Cited by: SS1.\n' +
+      '* N. Kumar, D. Kumar, and S. Mishra (2022)Dict-nmt: bilingual dictionary based nmt forextremely low resource languages. _arXiv preprint arXiv:2206.04439_.\n' +
+      '* Mabokela et al. (2022) Koena Ronny Mabokela, Turgay Celik, and Mpho Raborife. 2022. Multilingual sentiment analysis for under-resourced languages: A systematic review of the landscape. _IEEE Access_.\n' +
+      '* Mayhew et al. (2017) Stephen Mayhew, Chen-Tse Tsai, and Dan Roth. 2017. Cheap translation for cross-lingual named entity recognition. In _Proceedings of the 2017 Conference on Empirical Methods in Natural Language Processing_, pages 2536-2545, Copenhagen, Denmark. Association for Computational Linguistics.\n' +
+      '* Meara (1993) Paul Meara. 1993. The bilingual lexicon and the teaching of vocabulary. _The bilingual lexicon_, pages 279-297.\n' +
+      '* Mohammed and Prasad (2023) Idi Mohammed and Rajesh Prasad. 2023. Building lexicon-based sentiment analysis model for low-resource languages. _MethodsX_, 11:102460.\n' +
+      '* Muennighoff et al. (2023) Niklas Muennighoff, Thomas Wang, Lintang Sutawika, Adam Roberts, Stella Biderman, Teven Le Scao, M Saiful Bari, Sheng Shen, Zheng Xin Yong, Hailey Schoelkopf, Xiangru Tang, Dragomir Radev, Alham Fikri Aji, Khalid Almubarak, Samuel Albanie, Zaid Alyafeai, Albert Webson, Edward Raff, and Colin Raffel. 2023. Crosslingual generalization through multitask finetuning. In _Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)_, pages 15991-16111, Toronto, Canada. Association for Computational Linguistics.\n' +
+      '* Navigli (2009) Roberto Navigli. 2009. Word sense disambiguation: A survey. _ACM computing surveys (CSUR)_, 41(2):1-69.\n' +
+      '* Nayak et al. (2023) Nihal Nayak, Yiyang Nan, Avi Trost, and Stephen Bach. 2023. Learning to generate instructions to adapt language models to new tasks. In _NeurIPS 2023 Workshop on Instruction Tuning and Instruction Following_.\n' +
+      '* OpenAI (2024) OpenAI. 2024. Pricing.\n' +
+      '* Post and Vilar (2018) Matt Post and David Vilar. 2018. Fast lexically constrained decoding with dynamic beam allocation for neural machine translation. In _Proceedings of the 2018 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies, Volume 1 (Long Papers)_, pages 1314-1324, New Orleans, Louisiana. Association for Computational Linguistics.\n' +
+      '* Purwarianti and Cristayanti (2019) Ayu Purwarianti and Ida Ayu Putu Ari Cristayanti. 2019. Improving bi-lstm performance for indonesian sentiment analysis using paragraph vector. In _2019 International Conference of Advanced Informatics: Concepts, Theory and Applications (ICAICTA)_, pages 1-5. IEEE.\n' +
+      '* Qi et al. (2020) Peng Qi, Yuhao Zhang, Yuhui Zhang, Jason Bolton, and Christopher D. Manning. 2020. Stanza: A Python natural language processing toolkit for many human languages. In _Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics: System Demonstrations_.\n' +
+      '* Radharapu et al. (2023) Bhaktipriya Radharapu, Kevin Robinson, Lora Aroyo, and Preethi Lahoti. 2023. Aart: Ai-assisted red-teaming with diverse data generation for new llm-powered applications. _arXiv preprint arXiv:2311.08592_.\n' +
+      '* Ramesh and Sankaranarayanan (2018) Sree Harsha Ramesh and Krishna Prasad Sankaranarayanan. 2018. Neural machine translation for low resource languages using bilingual lexicon induced from comparable corpora. In _Proceedings of the 2018 Conference of the North American Chapter of the Association for Computational Linguistics: Student Research Workshop_, pages 112-119, New Orleans, Louisiana, USA. Association for Computational Linguistics.\n' +
+      '* Rasooli et al. (2018) Mohammad Sadegh Rasooli, Noura Farra, Axinia Radeva, Tao Yu, and Kathleen McKeown. 2018. Cross-lingual sentiment transfer with limited resources. _Machine Translation_, 32:143-165.\n' +
+      '* Robinson et al. (2023) Nathaniel Robinson, Perez Ogayo, David R. Mortensen, and Graham Neubig. 2023. ChatGPT MT: Competitive for high- (but not low-) resource languages. In _Proceedings of the Eighth Conference on Machine Translation_, pages 392-418, Singapore. Association for Computational Linguistics.\n' +
+      '* Scherrer and Sagot (2013) Yves Scherrer and Benoit Sagot. 2013. Lexicon induction and part-of-speech tagging of non-resourced languages without any bilingual resources. In _RANLP Workshop on Adaptation of language resources and tools for closely related languages and language variants_.\n' +
+      '* Schreuder and Weltens (1993) Robert Schreuder and Bert Weltens. 1993. _The bilingual lexicon_, volume 6. John Benjamins Publishing.\n' +
+      '* Shumailov et al. (2023) Ilia Shumailov, Zakhar Shumaylov, Yiren Zhao, Yarin Gal, Nicolas Papernot, and Ross Anderson. 2023. Model dementia: Generated data makes models forget. _arXiv e-prints_, pages arXiv-2305.\n' +
+      '* Silva (2021) Eduardo Marin Silva. 2021. On the 1978 version of the african reference alphabet.\n' +
+      '* Singh et al. (2024) Shivalika Singh, Freddie Vargus, Daniel Dsouza, Borje F. Karlsson, Abinaya Mahendiran, Wei-Yin Ko, Herumb Shandilya, Jay Patel, Deviidas Mataciunas, Laura OMahony, Mike Zhang, Ramith Hettiarachchi, Joseph Wilson, Marina Machado, Luisa Souza Moura, Dominik Krzeminski, Hakimeh Fadaei, Irem Ergun, Ifeoma Okoh, Aisha Alaagib, Oshan Mudannayake, Zaid Alyafeai, Vu Minh Chien, Sebastian Ruder, Surya Guthikonda, Emad A. Alghamdi, Sebastian Gehrmann, Niklas Muennighoff, Max Bartolo, Julia Kreutzer, Ahmet Ustun, Marzieh Fadaei, and Sara Hooker. 2024. Aya dataset: An open-access collection for multilingual instruction tuning.\n' +
+      '\n' +
+      'Yangqiu Song, Shyam Upadhyay, Haoruo Peng, Stephen Mayhew, and Dan Roth. 2019. Toward any-language zero-shot topic classification of textual documents. _Artificial Intelligence_, 274:133-150.\n' +
+      '* Streiter and Iomdin (2000) Oliver Streiter and Leonid L Iomdin. 2000. Learning lessons from bilingual corpora: Benefits for machine translation. _International journal of corpus linguistics_, 5(2):199-230.\n' +
+      '* Thompson et al. (2019) Brian Thompson, Rebecca Knowles, Xuan Zhang, Huda Khayrallah, Kevin Duh, and Philipp Koehn. 2019. HABLex: Human annotated bilingual lexicons for experiments in machine translation. In _Proceedings of the 2019 Conference on Empirical Methods in Natural Language Processing and the 9th International Joint Conference on Natural Language Processing (EMNLP-IJCNLP)_, pages 1382-1387, Hong Kong, China. Association for Computational Linguistics.\n' +
+      '* Wang et al. (2022) Xinyi Wang, Sebastian Ruder, and Graham Neubig. 2022. Expanding pretrained models to thousands more languages via lexicon-based adaptation. In _Proceedings of the 60th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)_, pages 863-877, Dublin, Ireland. Association for Computational Linguistics.\n' +
+      '* Wang et al. (2023) Yizhong Wang, Yeganeh Kordi, Swaroop Mishra, Alisa Liu, Noah A. Smith, Daniel Khashabi, and Hannaneh Hajishirzi. 2023. Self-instruct: Aligning language models with self-generated instructions. In _Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)_, pages 13484-13508, Toronto, Canada. Association for Computational Linguistics.\n' +
+      '* Whitehouse et al. (2023) Chenxi Whitehouse, Monojit Choudhury, and Alham Aji. 2023. LLM-powered data augmentation for enhanced cross-lingual performance. In _Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing_, pages 671-686, Singapore. Association for Computational Linguistics.\n' +
+      '* Wilie et al. (2020) Bryan Wilie, Karissa Vincentio, Genta Indra Winata, Samuel Cahyawijaya, Xiaohong Li, Zhi Yuan Lim, Sidik Soleman, Rahmad Mahendra, Pascale Fung, Syafri Bahar, and Ayu Purwarianti. 2020. IndoNLU: Benchmark and resources for evaluating Indonesian natural language understanding. In _Proceedings of the 1st Conference of the Asia-Pacific Chapter of the Association for Computational Linguistics and the 10th International Joint Conference on Natural Language Processing_, pages 843-857, Suzhou, China. Association for Computational Linguistics.\n' +
+      '* Winata et al. (2023a) Genta Winata, Lingjue Xie, Karthik Radhakrishnan, Yifan Gao, and Daniel Preotiuc-Pietro. 2023a. Efficient zero-shot cross-lingual inference via retrieval. In _Proceedings of the 13th International Joint Conference on Natural Language Processing and the 3rd Conference of the Asia-Pacific Chapter of the Association for Computational Linguistics (Volume 2: Short Papers)_, pages 93-104, Nusa Dua, Bali. Association for Computational Linguistics.\n' +
+      '* Winata et al. (2020) Genta Indra Winata, Alham Fikri Aji, Samuel Cahyawijaya, Rahmad Mahendra, Fajri Koto, Ade Romadbony, Kemal Kurniawawan, David Moeljadi, Radityo Eko Prasojo, Pascale Fung, Timothy Baldwin, Jey Han Lau, Rico Sennrich, and Sebastian Ruder. 2023b. NusaX: Multilingual parallel sentiment dataset for 10 Indonesian local languages. In _Proceedings of the 17th Conference of the European Chapter of the Association for Computational Linguistics_, pages 815-834, Dubrovnik, Croatia. Association for Computational Linguistics.\n' +
+      '* Yehudai et al. (2024) Asaf Yehudai, Boaz Carmeli, Yosi Mass, Ofir Arviv, Nathaniel Mills, Assaf Toledo, Eyal Shnarch, and Leshem Choshen. 2024. Genie: Achieving human parity in content-grounded datasets generation. _arXiv preprint arXiv:2401.14367_.\n' +
+      '* Yong et al. (2023) Zheng Xin Yong, Cristina Menghini, and Stephen Bach. 2023a. Low-resource languages jailbreak GPT-4. In _Socially Responsible Language Modelling Research_.\n' +
+      '* Yong et al. (2023b) Zheng Xin Yong, Hailey Schoelkopf, Niklas Muennighoff, Alham Fikri Aji, David Ifeoluwa Adelani, Khalil Almubarak, M Saiful Bari, Lintang Sutawika, Jungo Kasai, Ahmed Baruwa, Genta Winata, Stella Biderman, Edward Raff, Dragomir Radev, and Vassilina Nikoulina. 2023b. BLOOM+1: Adding language support to BLOOM for zero-shot prompting. In _Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)_, pages 11682-11703, Toronto, Canada. Association for Computational Linguistics.\n' +
+      '* Zhang et al. (2023) Hanqing Zhang, Haolin Song, Shaoyu Li, Ming Zhou, and Dawei Song. 2023. A survey of controllable text generation using transformer-based pre-trained language models. _ACM Computing Surveys_, 56(3):1-37.\n' +
+      '* Zhou et al. (2023a) Chunting Zhou, Pengfei Liu, Puxin Xu, Srini Iyer, Jiao Sun, Yuning Mao, Xuezhe Ma, Avia Efrat, Ping Yu, LILI YU, Susan Zhang, Gargi Ghosh, Mike Lewis, Luke Zettlemoyer, and Omer Levy. 2023a. LIMA: Less is more for alignment. In _Thirty-seventh Conference on Neural Information Processing Systems_.\n' +
+      '* Zhou et al. (2023b) Wangchunshu Zhou, Yuchen Eleanor Jiang, Ethan Wilcox, Ryan Cotterell, and Mrinmaya Sachan. 2023b. Controlled text generation with natural language instructions. In _Proceedings of the 40th International Conference on Machine Learning_, volume 202 of _Proceedings of Machine Learning Research_, pages 42602-42613. PMLR.\n' +
+      '* Ustun et al. (2024) Ahmet Ustun, Viraat Aryabumi, Zheng-Xin Yong, Wei-Yin Ko, Daniel D\'souza, Ghemileke Onilude, Neel Bhandari, Shivalika Singh, Hui-Lee Ooi, Amr Kayid, Freddie Vargus, Phil Blunsom, Shayne Longpre, Niklas Muennighoff, Marzich Fadaee, Julia Kreutzer, and Sara Hooker. 2024. Aya model: An instruction finetuned open-access multilingual language model.\n' +
+      '\n' +
+      'Public Release\n' +
+      '\n' +
+      'The **project page** for LexC-Gen is on [https://batsresearch.github.io/lexcgen/](https://batsresearch.github.io/lexcgen/). The **code** repository for **LexC-Gen** is [https://github.com/BatsResearch/LexC-Gen](https://github.com/BatsResearch/LexC-Gen). All **data** artifacts are on [https://github.com/BatsResearch/LexC-Gen-Data-Archive](https://github.com/BatsResearch/LexC-Gen-Data-Archive).\n' +
+      '\n' +
+      '## Appendix B Tasks and Languages\n' +
+      '\n' +
+      'We evaluated LexC-Gen on sentiment analysis and topic classification tasks across 17 extremely low-resource languages. All of them are classified as 0 or 1 in Joshi et al.\'s Joshi et al. (2020) taxonomy. Appendix B shows the language information of all the languages covered by our evaluation tasks. The datasets we use here are for research purposes.\n' +
+      '\n' +
+      'For NusaX sentiment analysis dataset Winata et al. (2023), the authors employ two expert annotators who are native speakers of each local language to translate text from Indonesian sentiment analysis dataset Purwarianti and Crisdayanti (2019); Wilie et al. (2020) while maintaining the sentence\'s sentiment polarity, preserving entities, and maintaining the complete information content of the original text. The dataset has 500 train, 100 validation, and 400 test examples for each language.\n' +
+      '\n' +
+      'Our baseline BLOOMZ has only been exposed to 5 out of 17 languages, which are Bambara, Lingala, Tsonga, Tumbuka, and Twi. These languages are in the topic classification tasks.\n' +
+      '\n' +
+      'For SIB-200 topic classification dataset Adelani et al. (2023), it is constructed using the translations from FLORES-200 Costa-jussa et al. (2022), a multi-way parallel corpus that are curated with professional translators. The authors annotated the English portion of the Flores-200 dataset and extend the topic classification labels to the remaining 204 languages covered in FLORES-200. The dataset contains 701 training examples, 99 validation examples, and 204 test examples for each language for each language.\n' +
+      '\n' +
+      '## Appendix C CTG Training and Data Generation Details\n' +
+      '\n' +
+      'CTG training of LLMsWe construct the CTG training dataset, which have 500 and 701 English instances respectively, for sentiment analysis and topic classification following CTG training part of Section 3.2. Then, we finetune BLOOMZ-7.1B model (with permissive RAILS license) on a single V100 GPU using BitsAndBytesConfig and LoraConfig from transformers library for 4-bit QLoRA parameter-efficient finetuning Dettmers et al. (2023). With 4-bit QLoRA, we can now finetune 7-billion parameter LLMs on commercially available GPUs without special setup (which otherwise would have been challenging as such finetuning would be restricted to GPUs with larger GPU memory such as A100 40GB GPUs.). We use the paged AdamW optimizer and set the learning rate to \\(2e^{-4}\\), the sequence length to 1024, and the total effective training batch size to 1. We use the following hyperparameters for QLoRA adapters (Table 4).\n' +
+      '\n' +
+      'We perform CTG training for 10 epochs and save the checkpoint every 500 steps. The entire CTG training can be finished within an hour on a single GPU.\n' +
+      '\n' +
+      'Selection of CTG-trained LLM checkpointAfter CTG training, we want to select the best model checkpoint that can maximize the usage of provided English word tokens when generating task data so the task data will have more lexical coverage with bilingual lexicons. Section 3.4. Specifically, we prompt the model to generate \\(\\widetilde{T}_{X}\\) input text and measure how well it uses tokens from \\(L_{w_{X}\\sim D_{X}^{\\vee}}\\) to generate text. The best checkpoint is the one that uses the most tokens. In practice, it is already sufficient to select the best checkpoint by evaluating only 200 generations per checkpoint.\n' +
+      '\n' +
+      'In our search for the best generation hyperparameters, we found that either a low \\(p\\) or a low temperature (but not both at the same time) is the best for models to maximize the usage of provided tokens to generate text.\n' +
+      '\n' +
+      'Data generationFor each data instance generation, we randomly sample 10 high-resource-language (English) words from the bilingual lexicons and a class label to prompt the CTG-trained LLM, using the prompt template from Figure 3, to generate a maximum of 256 tokens. All these sampled words from lexicons do **not** come with linguistic information (such as parts-of-speech tags information) or task-related information (such as whether the words are topic or sentiment related). Following our findings before, we perform top-p sampling using \\(p=0.1\\) and temperature of 1 for data generation.\n' +
+      '\n' +
+      'Input-label consistency filterWe finetune mBERT classifier on our existing English task data in high-resource languages (English) following the setup described in Appendix D. On the English validation set (existing task data), it has \\(84.6\\pm 0.7\\) and \\(86.6\\pm 2.9\\) accuracy points for sentiment analysis and topic classification respectively. Then, we use the classifier to relabel the generated data and filter out instances where the classifier\'s labels do not match the original provided labels that are used to prompt LLMs to generate data in **LexC-Gen**.\n' +
+      '\n' +
+      'Word-to-word translationAfter filtering the generated data, we tokenize the words using the English Stanza tokenizer Qi et al. (2020) and then perform word-to-word subsititton with the bilingual lexicon as described in Section 3.4. We follow Wang et al. (2022) and do not perform any lemmatization or stemming before word translation, as our preliminary experiments found that they introduce noises and harm task performance.\n' +
+      '\n' +
+      '## Appendix D Finetuning Task Classifiers\n' +
+      '\n' +
+      'Task classifiersFor both sentiment analysis and topic classification tasks, we finetune our mBERT classifier for 100 epochs in all setups with early stopping with patience of 3 evaluated on task validation sets. All finetuning runs took between 5 to 20 epochs to complete because of early stopping, allowing each run (even for on **LexC-Gen\'s larger-scale generated task dataset) to be completed within 24 hours on a single V100 GPU. We use a batch size of 32, a learning rate of \\(1e^{-5}\\), and the AdamW optimizer for classifier finetuning.\n' +
+      '\n' +
+      'Task validation setTo select the best task classifier for evaluation after finetuning on **LexC-Gen** generated training data, we use the validation set that is readily provided along with the task (instead of splitting our **LexC-Gen** generated data into train-validation data splits) and is word-translated. Specifically, we translate the English validation datasets with word-for-word substitution using bilingual lexicons and select the best classifier using the highest F1 score on the word-translated validation set. We also use this word-translated validation set for our word translation baseline Wang et al. (2022). For cross-lingual zero-shot baseline, we use the readily available English task validation data.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l l} \\hline \\hline\n' +
+      '**Hyperparameters** & **Values** \\\\ \\hline Dropout & 0.1 \\\\ \\(\\alpha\\) & 16 \\\\ \\(r\\) & 64 \\\\ Layers & query\\_key\\_value, \\\\  & dense, \\\\  & dense\\_h\\_to\\_4h, \\\\  & dense\\_4h\\_to\\_h \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 4: Hyperparameters for QLoRA Dettmers et al. (2023) finetuning for controlled text generation (CTG) training of LLMs.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l l l l l l l l} \\hline \\hline Languages & ISO Code & Task & Is seen? & Language Family & Subgrouping & Script & Word Order \\\\ \\hline Acehnese & ace & SA & ✗ & Austronesian & Malayo-Polynesian & Latin & SOV \\\\ Balinese & ban & SA & ✗ & Austronesian & Malayo-Polynesian & Latin & OVS \\\\ Toba batak & bbc & SA & ✗ & Austronesian & Malayo-Polynesian & Latin & VOS \\\\ Banjarese & bjn & SA & ✗ & Austronesian & Malayo-Polynesian & Latin & SVO \\\\ Buginese & bug & SA & ✗ & Austronesian & Malayo-Polynesian & Latin & VOS \\\\ Madurese & bug & SA & ✗ & Austronesian & Malayo-Polynesian & Latin & SVO \\\\ Minangkabau & min & SA & ✓ & Austronesian & Malayo-Polynesian & Latin & SVO \\\\ \\hline Bambara & ban & TC & ✗ & Niger-Congo & Mande & Latin & SOV \\\\ Ewe & ewe & TC & ✗ & Atlantic-Congo & Volta-Congo & Latin & SVO \\\\ Fijian & fij & TC & ✗ & Austronesian & Malayo-Polynesian & Latin & VOS \\\\ Guarani & grn & TC & ✗ & Tupian & Tupi-Guran & Latin & SVO \\\\ Lingala & lin & TC & ✗ & Atlantic-Congo & Benue-Congo & Latin & SVO \\\\ Mizo & lus & TC & ✗ & Sino-Tibetan & Tibeto-Burman & Latin & OSV \\\\ Sango & sag & TC & ✗ & Atlantic-Congo & Ngbandi-based creole & Latin & SVO \\\\ Tsonga & tso & TC & ✗ & Atlantic-Congo & Volta-Congo & Latin & SVO \\\\ Tumbuka & tum & TC & ✗ & Atlantic-Congo & Volta-Congo & Latin & SVO \\\\ Twi & twi & TC & ✗ & Atlantic-Congo & Kwa & Latin & SVO \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 3: Languages covered in our sentiment analysis (SA) and topic classification (TC) evaluation tasks. “Is seen?” refers to whether the language has been seen in pretraining of our mBERT task classifier. Note that while many African languages as well as Guarani language use Latin-based scripts, they have language-specific alphabets such as African reference alphabets Silva (2021) and Guarani alphabets (e.g., \\(\\tilde{\\text{G}}/\\tilde{\\text{g}}\\)).\n' +
+      '\n' +
+      '## Appendix E Samples of Generated Task Data\n' +
+      '\n' +
+      'Table 6 and Table 7 show the LexC-Gen generated text samples for each class label in sentiment analysis and topic classification tasks respectively.\n' +
+      '\n' +
+      '## Appendix F Zero-Shot Prompting\n' +
+      '\n' +
+      'BLOOMZ-7B1For BLOOMZ zero-shot prompting, we use the prompts created for sentiment analysis and topic classification tasks in xP3 (Muennighoff et al., 2023) and take the average accuracy scores.\n' +
+      '\n' +
+      'Gpt-4We use gpt-4-0125-turbo because it is cheaper for large-scale evaluation and is documented to be more powerful than GPT-4 (OpenAI, 2024). We follow Adelani et al. (2023) for their zero-shot prompting template for the topic classification task: "Is this a piece of news regarding {{\'science, technology, travel, politics, sports, health, entertainment, or geography\'}}? {{INPUT}}" For sentiment analysis, we adapt the prompt to become "Does this sentence have {{\'positive, negative, neutral\'}} sentiment? {{INPUT}}"\n' +
+      '\n' +
+      '## Appendix G Ablation of Lexicon-Conditioning\n' +
+      '\n' +
+      'Lexicon-conditioned generation refers to generating data using words from lexicons. In our ablation study in Section 5.4, we ablate away two components: lexicon-conditioning and quality control with input-label consistency filter.\n' +
+      '\n' +
+      'Gen w/o filterThis refers to generating data with LLM that only learns to generate task data in CTG. In other words, we remove the provided set of words in the prompt in Figure 3 when we perform CTG-training. In data generation, we do not provide words from lexicons, and we use high temperature and high (\\(p=0.9\\)) in top-\\(p\\) sampling so the CTG-trained LLM can generate diverse task data. After data generation, we did not perform any quality control filtering. This ablation setup measures the significance of both lexicon-conditioned generation and input-label consistency filter.\n' +
+      '\n' +
+      'GenThis follows **Gen w/o filter** above but with filtering to ensure that the generated task data have matching labels and input text. This ablation setup measures the significance of lexicon-conditioned generation.\n' +
+      '\n' +
+      'Controlled variablesIn both **Gen** and **Gen w/o filter**, we control the training data size by randomly sampling a subset of data so that they match the effective training dataset size of **LexC-Gen**-100K after input-label consistency filtering. Aside from removal of lexicon-conditioning prompt as described above and high \\(p\\) for sampling, the CTG training and data generation setups used for **Gen** and **Gen w/o filter** are the same as LexC-Gen-100K.\n' +
+      '\n' +
+      '## Appendix H Comparisons between LexC-Gen and GPT-4\n' +
+      '\n' +
+      'We adapt the few-shot prompting template (Figure 14) from the GPT-4-based multilingual data generation method (Whitehouse et al., 2023) to include lexicon-conditioning instruction following **LexC-Gen**\'s procedure in Section 3.2. We follow Whitehouse et al. (2023) and use 5 random few-shot samples from the existing task data. However,\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c} \\hline \\hline\n' +
+      '**Methods** & **\\#data** & **ace** & **bbc** & **bug** & **mad** \\\\ \\hline \\multicolumn{6}{l}{_Zero-shot prompting_} \\\\ \\hline GPT-4 & 0 & 60.8 & 47.8 & 30.8 & 58.3 \\\\ \\hline \\multicolumn{6}{l}{_Few-shot prompting_} \\\\ \\hline GPT-4 (5-shot) & 5 & 60.8 & 50.0 & 36.0 & 61.8 \\\\ \\hline \\multicolumn{6}{l}{_Word translation_} \\\\ \\hline Existing Task Data (T) & 701 & 63.6 & 55.8 & 57.7 & 59.3 \\\\ + Existing Task Data (en) & 1402 & 67.8 & 60.4 & 56.7 & 62.4 \\\\\n' +
+      '**LexC-Gen-100K (T)** & \\(\\sim 22\\)K & **70.0** & **65.1** & **63.7** & **69.9** \\\\ \\multicolumn{6}{l}{_Gold Translations_} & 701 & 72.1 & 68.6 & 68.1 & 66.7 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 5: Sentiment analysis with 5-shot GPT4 on languages that zero-shot GPT4 has a significant gap with gold translations.\n' +
+      '\n' +
+      'instead of prompting GPT-4 to generate a list of 10 task data instances, we prompt GPT-4 to generate a single task data instance, as our preliminary experiments found that otherwise GPT-4 would then distribute lexicon-conditioning words across multiple task instances.\n' +
+      '\n' +
+      'We choose gpt-4-turbo-0125 (the latest version of GPT-4-Turbo to date) because according to OpenAI\'s documentation (OpenAI, 2024), it is more powerful and cheaper than gpt-4. It costs $0.01 per 1K input tokens and $0.03 per 1K output tokens. After data generation with GPT-4 following setup described in Section 3.2 and Appendix C, we also perform input-label consistency check in Section 3.3. For fair comparison with LexC-Gen, we match the size of the GPT-4 filtered data with LexC-Gen filtered data.\n' +
+      '\n' +
+      'Figure 7 shows that we obtain comparable performance between LexC-Gen and GPT-4 generated data at large scale. Our GPT-4-based data generation following Whitehouse et al. (2023) costs us around $580 to generate sentiment analysis data for _only_ a language in such setup. This is around 5 times more expensive that generating the task data with LexC-Gen on a single V100 GPU.\n' +
+      '\n' +
+      'We want to highlight that using 5-shot in-context-learning to generate task data with GPT-4 can match gold translations performance in Figure 7, but 5-shot prompting to solve sentiment analysis yields underwhelming performance that is worse than word-translation baseline as shown in Table 5.\n' +
+      '\n' +
+      '## Appendix I Lexicons: Gatitos versus Panlex\n' +
+      '\n' +
+      'Gatitos (Jones et al., 2023) is an open-source bilingual lexicon dataset that consists of around 4000 short English segments translated into 170 extremely low-resource languages. 93% of Gatitos consists of single-word tokens, and all the entries were reviewed by Jones et al. (2023). On the other hand, Panlex (Kamholz et al., 2014) is an open-access massive database consisting of word and phrase translations for 5000+ languages. The data come from more than 2500 individual dictionaries and contains more than 1 billion translations in total across all language pairs.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l l l} \\hline \\hline\n' +
+      '**Generated Text** & **Sentiment** \\\\ \\hline \\hline \\multicolumn{1}{l}{ulon ’m reusam leumeeh ngeun hek, ulee sikula papeun tuleh member. Hike trails, ta’jub jamek let man keun keun lon.} & \\multicolumn{1}{l}{Negative} \\\\ \\hline \\multicolumn{1}{l}{(I’m feeling weak and tired, principal board member. Hike trails, wonderful plural pursuit but not for me.)} & \\multicolumn{1}{l}{} \\\\ \\hline \\hline \\multicolumn{1}{l}{Please, peutamah nyan pre uteun handbook jadwal keulayi keu umum ureung} & Neutral \\\\ \\multicolumn{1}{l}{umum, nyan ’s jareung hadiah lam nyan areusip} & \\multicolumn{1}{l}{} \\\\ \\multicolumn{1}{l}{(Please, extend the free forest handbook schedule for general public, it’s hardly present in the archive)} & \\multicolumn{1}{l}{} \\\\ \\hline \\multicolumn{1}{l}{Wonderful, trang ngeun mangat, superior guna, tajam ngeun carong, ngeun nyan barang nakeuh superb. ulon nasihat meujuang toke ’s ho jak keu nyan, nyan ’s saboh konfiden peunigkat.} & \\multicolumn{1}{l}{} \\\\ \\multicolumn{1}{l}{(Wonderful, bright and comfortable, superior service, sharp and smart, and the package is superb. I advise struggling entrepreneur’s to go for it, it’s a confidence booster.)} & \\multicolumn{1}{l}{} \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 6: Text samples of generated sentiment analysis data in Aechnese language by LexC-Gen. The English words that remain untranslated are underlined. The bracketed English text is the originally generated text by LexC-Gen in Section 3.2 before being tokenized and translated with the bilingual lexicons in Section 3.4.\n' +
+      '\n' +
+      'Figure 7: Sentiment analysis on Madurese language with LexC-Gen and GPT-4 generated data.\n' +
+      '\n' +
+      'Figure 8 shows that translating LexC-Gen generated data with Gatitos outperforms translating with Panlex on NusaX sentiment analysis dataset. One reason is that Panlex has a smaller lexicon size than Gatitos, as for the seven extremely low-resource languages in NusaX, Panlex only has around 840 entries, but Gatitos has around 4271 entries. Therefore, the task data have a poorer word translation coverage with Panlex. In addition, while the data source of Gatitos is not detailed by Jones et al. (2023) from Google, the authors describe that Gatitos lexicons are manually reviewed and are less noisy than Panlex. In other words, the word translations with Gatitos are of higher quality.\n' +
+      '\n' +
+      '## Appendix J Data Requirement for Larger Task Classifiers\n' +
+      '\n' +
+      'Figure 10 breaks down the LexC-Gen generated data size required for task classifiers of different sizes--mBERT Devlin et al. (2019) has 172 million parameters, XLMR-base Conneau et al. (2020) has 270 million parameters, and XLMR-large has 550 million parameters--to match gold translations performance. First, we observe that LexC-Gen generated data scales with task classifiers. Large task classifiers trained on LexC-Gen data can still match gold translations performance. Furthermore, the larger the task classifier size, the _less data_ we need to achieve the same accuracy. For instance, XLMR-large already exceeds accuracy of 70 points with 5K LexC-Gen data but mBERT requires 35K LexC-Gen data to reach the same accuracy.\n' +
+      '\n' +
+      'Second, we find that XLMR-base matches gold performance at around 15K, as opposed to mBERT at around 35K, but XLMR-large requires around 10K more LexC-Gen data than XLMR-base to be as competitive as gold translations. This result suggests that as size of task classifiers increases, the required synthetic data size to match gold translations performance does not necessarily decrease.\n' +
+      '\n' +
+      '## Appendix K Few-Shot Prompting with GPT-4\n' +
+      '\n' +
+      'We explore 5-shot prompting with GPT-4 on the four languages that it performs poorly with zero-shot prompting on sentiment analysis task. We use a random selection of 5 different training data instances for in-context learning and append them before the prompt for GPT-4 as described in Appendix F.\n' +
+      '\n' +
+      'Table 5 shows that while 5-shot prompting of GPT-4 improves sentiment analysis accuracy compared to 0-shot prompting, it is still worse that fine\n' +
+      '\n' +
+      'Figure 8: Sentiment analysis accuracy on NusaX dataset between word translation of LexC-Gen generated data with Gatitos Jones et al. (2023) and Panlex Kamholz et al. (2014).\n' +
+      '\n' +
+      'Figure 10: Sentiment analysis accuracy on the NusaX dataset (averaged across all 7 languages) with different task classifiers. The dotted lines (1), (2), and (3) represent the accuracy for mBERT, XLMR-base and XLMR-large classifiers when trained on gold translations respectively.\n' +
+      '\n' +
+      'Figure 9: Topic classification accuracy (red, left y-axis) and lexicon utilization rate (blue, right y-axis) against the size of LexC-Gen task data in log10-scale.\n' +
+      '\n' +
+      'tuning mBERT classifier on both the word translation baseline mixed in with existing English task data and LexC-Gen data.\n' +
+      '\n' +
+      '## Appendix L Lexically Constrained Decoding\n' +
+      '\n' +
+      'Lexically constrained decoding is an inference-time technique that enforces explicit word-/phrase-based constraints in generation (Hokamp and Liu, 2017; Post and Vilar, 2018; Hu et al., 2019) so that certain words and phrases will appear in output strings. We are curious if it can also create lexicon-compatible task data like LexC-Gen. We use out-of-the-box lexically constrained decoding method, implemented in the HuggingFace\'s generation function with force_words_ids, to generate from BLOOMZ-7.1B model finetuned only on controlled-text generation task with class label \\(c\\) (i.e., "Gen" models in Section 5.4) with beam size of 5. We apply the lexical constraint such that a random subset of 10 words tokens from bilingual lexicons will appear in the model\'s generations of task inputs given a class label. We generate 100K samples from lexically constrained decoding and apply the same input-label consistency filter.\n' +
+      '\n' +
+      'Figure 11 shows that lexically constrained decoding underperforms LexC-Gen. Upon non-exhaustive inspection of the generated instances, we find that while lexically constrained decoding yields task data with high lexicon utilization rate, in many cases it simply join some lexicon tokens together in order to satisfy the lexical constraint, hence forming grammatically incorrect and unnatural sentences. This suggests that it is non-trivial to generate natural sentences using random and independent word tokens in inference time.\n' +
+      '\n' +
+      '## Appendix M Label Distillation for LexC-Gen Generated Data\n' +
+      '\n' +
+      'We extend the quality control study in Section 5.6 and compare **LexC-Gen**\'s input-label consistency filter against label distillation for LexC-Gen (Wang et al., 2022), where we use the mBERT classifier trained on existing English task data to _relabel_ all **LexC-Gen** generated data. Since label distillation does not filter out poor-quality data instances, the generated data from LexC-Gen-1K, -10K and -100K remains the same. Therefore, for fair comparison against our state-of-the-art **LexC-Gen**-100K performance, we randomly sample data subsets from the relabeled 100K data to match the size of filtered **LexC-Gen**-100K training data at 37K samples.\n' +
+      '\n' +
+      'Figure 12 shows that simply relabeling generated data (blue line) underperforms by input-label consistency filter (red line) at training data size of 37K. For label distillation to match the performance, we need 100K relabeled data, which is significantly more than filtered **LexC-Gen** data and thus incurs significant task finetuning costs. Therefore, input-label consistency filter is a better quality control method as it gives better task performance while reducing the training data size.\n' +
+      '\n' +
+      '## Appendix N Do Generated Data Help\n' +
+      '\n' +
+      'High-Resource Languages?\n' +
+      '\n' +
+      'While our work is focusing on low-resource languages, we are interested in whether our **LexC-Gen** generated data in English can also help English tasks (that **LexC-Gen** is CTG-trained on). We compared filtered **LexC-Gen**-100K data and existing English data (which are the gold task data)\n' +
+      '\n' +
+      'Figure 11: Sentiment analysis accuracy on NusaX dataset between lexically constrained decoding (Post and Vilar, 2018; Hu et al., 2019) and **LexC-Gen**.\n' +
+      '\n' +
+      'Figure 12: Relabeling all labels for generated data (i.e., label distillation (Wang et al., 2022)) as opposed to input-label consistency filter for LexC-Gen on sentiment analysis.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:19]\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l l l} \\hline \\hline\n' +
+      '**Generated Text** & **Topic** \\\\ \\hline Badminton y bi agodie mu de w he players fa di dwuma badges ( fr rackets mu tennis ) k b balls k mu bi sap. & Sports \\\\ (Badminton is a game in which players use badges (called rackets in tennis) to & \\\\ hit balls into a net.) & \\\\ \\hline The mptam mfikyifuo y located so no koko boro so no refugee camp ne serves & Travel \\\\ s bi airnsnode firi no camp ’s pere k kora no nkae firi no tragedy te ase ber a & \\\\ moving so. & \\\\ (The community garden is located on the hill above the refugee camp and serves & \\\\ as a symbol of the camp’s struggle to keep the memory of the tragedy alive & \\\\ while moving on.) & \\\\ \\hline Information visualization enne becomes bi akade k boa users te ase kuntann & Science/ \\\\ asm. & \\\\ (Information visualization then becomes a tool to help users understand complex & \\\\ information.) & \\\\ \\hline Voters mu France b si gyinae mu bi referendum so June 15 s k ma kwan saa ara & Politics \\\\ - sex civil unions. & \\\\ (Voters in France will decide in a referendum on June 15 whether to allow & \\\\ same-sex civil unions.) & \\\\ \\hline aane, no awia aduane bu y ber bn nnipa k firi mu firi wn kwan k w bi ny nkmmdie, k y anigye firi, anaas embarrass obi. & Entertainment \\\\ (Yeah, the lunch break is when people go out of their way to have a bad & \\\\ conversation, to make fun of, or embarrass someone.) & \\\\ \\hline Benada ’s nkaeb na y wie a bi ayarehw agyinatukuo firi nhwehwmu concluded & Health \\\\ a Mr. Garfield ’s owuo na n aso k akwanhytia. & \\\\ (Tuesday’s announcement was made after a medical board of inquiry concluded & \\\\ that Mr. Garfield’s death was not due to accident.) & \\\\ \\hline Rarely y ahum surges, de w he y no san tene firi waves breaking adum no & Geography \\\\ mpoano, duru no mpoano. & \\\\ (Rarely do storm surges, which are the return flow from waves breaking off the & \\\\ shore, reach the beach.) & \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 7: Text samples of generated topic classification data in Twi language by LexC-Gen. The English words that remain untranslated are underlined. The bracketed English text is the originally generated text by LexC-Gen in Section 3.2 before being tokenized and translated with the bilingual lexicons in Section 3.4.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c c c c c} \\hline \\hline\n' +
+      '**Methods** & **\\#data** & **ace** & **ban** & **bbc** & **bjn** & **bug** & **mad** & **min** & **Avg** \\\\ \\hline \\hline \\multicolumn{10}{l}{_Zero-shot prompting_} \\\\ \\hline BLOOMZ-7.1.B & 0 & 47.0 & 50.5 & 43.0 & 49.5 & 38.5 & 48.0 & 52.5 & 47.0 \\\\ GPT-4 & 0 & 60.8 & 71.3 & 47.8 & 79.8 & 30.8 & 58.3 & 80.3 & 61.3 \\\\ \\hline \\multicolumn{10}{l}{_Cross-lingual zero-shot_} \\\\ \\hline Existing Task Data (en) & 500 & 54.3 & 55.4 & 40.0 & 66.1 & 38.0 & 50.0 & 68.9 & 53.2 \\\\ DistFuse (Winata et al., 2023a) & 500 & 65.5 & 70.5 & 65.3 & 75.3 & 58.0 & 67.3 & 73.5 & 67.9 \\\\ \\hline \\multicolumn{10}{l}{_Word translation_} \\\\ \\hline Existing Task Data (T) & 500 & 69.0 & 62.4 & 65.5 & 76.9 & 59.8 & 64.4 & 70.7 & 67.0 \\\\ \\multicolumn{10}{l}{+ Existing Task Data (en)} & 1000 & 68.0 & 72.7 & 63.4 & 80.5 & 59.1 & 73.8 & 81.2 & 71.2 \\\\ \\multicolumn{10}{l}{+ Label Distillation} & 1000 & 63.1 & 66.4 & 58.4 & 73.0 & 44.2 & 67.8 & 80.1 & 64.7 \\\\ \\multicolumn{10}{l}{(Wang et al., 2022)} \\\\ \\hline \\multicolumn{10}{l}{**LexC-Gen-1K (T)**} & \\(\\sim 370\\) & 38.4 & 38.0 & 38.3 & 38.9 & 38.3 & 38.2 & 39.2 & 38.5 \\\\ \\multicolumn{10}{l}{+ Existing Task Data (en)} & \\(\\sim 870\\) & 70.1 & 70.2 & 56.5 & 78.2 & 43.3 & 60.2 & 73.0 & 64.5 \\\\ \\multicolumn{10}{l}{**LexC-Gen-10K (T)**} & \\(\\sim 3.7\\)K & 70.4 & 70.0 & 59.8 & 78.2 & 61.7 & 67.8 & 79.0 & 69.6 \\\\ \\multicolumn{10}{l}{+ Existing Task Data (en)} & \\(\\sim 4.2\\)K & 70.6 & 71.2 & 61.9 & 79.3 & 62.7 & 68.0 & 79.3 & 70.4 \\\\ \\multicolumn{10}{l}{**LexC-Gen-100K (T)**} & \\(\\sim 37\\)K & 75.3 & **77.7** & 71.2 & 81.7 & **68.3** & 73.3 & **81.8** & 75.6 \\\\ \\multicolumn{10}{l}{**+ Existing Task Data (en)**} & \\(\\sim 38\\)K & **75.6** & 77.0 & **73.0** & **81.8** & 66.1 & **75.2** & 81.5 & **75.7** \\\\ \\hline \\hline \\multicolumn{10}{l}{_Gold Translations_} \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 8: Sentiment analysis accuracy on 7 Indonesian extremely low-resource local languages in the NusaX dataset (Winata et al., 2023b) with XLMR-base classifier (Conneau et al., 2020). We follow the schema defined in Table 1. We also include the reported scores from another baseline DistFuse (Winata et al., 2023a) that uses cross-lingual retrieval to improve NusaX task performance.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c c c c c} \\hline \\hline\n' +
+      '**Methods** & **\\#data** & **ace** & **ban** & **bbc** & **bjn** & **bug** & **mad** & **min** & **Avg** \\\\ \\hline \\hline \\multicolumn{10}{l}{_Zero-shot prompting_} \\\\ \\hline BLOOMZ-7.1.B & 0 & 47.0 & 50.5 & 43.0 & 49.5 & 38.5 & 48.0 & 52.5 & 47.0 \\\\ GPT-4 & 0 & 60.8 & 71.3 & 47.8 & 79.8 & 30.8 & 58.3 & 80.3 & 61.3 \\\\ \\hline \\multicolumn{10}{l}{_Cross-lingual zero-shot_} \\\\ \\hline Existing Task Data (en) & 500 & 65.8 & 71.4 & 39.6 & 78.4 & 35.2 & 61.5 & 81.8 & 62.0 \\\\ \\hline \\multicolumn{10}{l}{_Word translation_} \\\\ \\hline Existing Task Data (T) & 500 & 71.0 & 60.8 & 64.9 & 74.4 & 58.1 & 69.1 & 82.3 & 68.7 \\\\ \\multicolumn{10}{l}{+ Existing Task Data (en)} & 1000 & 73.1 & 78.2 & 67.2 & 82.7 & 58.1 & 67.8 & 80.1 & 72.5 \\\\ \\multicolumn{10}{l}{+ Label Distillation} & 1000 & 65.4 & 70.9 & 70.9 & 73.4 & 45.6 & 71.1 & 77.8 & 67.9 \\\\ \\multicolumn{10}{l}{**LexC-Gen-1K (T)**} & \\(\\sim 370\\) & 38.2 & 38.5 & 43.1 & 40.4 & 39.0 & 38.2 & 42.6 & 40.0 \\\\ \\multicolumn{10}{l}{+ Existing Task Data (en)} & \\(\\sim 870\\) & 71.5 & 74.3 & 59.5 & 82.5 & 54.5 & 70.1 & 79.9 & 70.3 \\\\ \\multicolumn{10}{l}{**LexC-Gen-100K (T)**} & \\(\\sim 37\\)K & 68.0 & 69.9 & 68.3 & 81.8 & 61.8 & 67.3 & 83.2 & 71.5 \\\\ \\multicolumn{10}{l}{+ Existing Task Data (en)} & \\(\\sim 4.2\\)K & 68.3 & 77.2 & 63.9 & 83.9 & 60.3 & 70.3 & **85.3** & 72.7 \\\\ \\multicolumn{10}{l}{**LexC-Gen-100K (T)**} & \\(\\sim 37\\)K & 74.6 & 78.8 & **73.2** & 83.5 & **68.3** & 75.1 & 82.2 & 76.5 \\\\ \\multicolumn{10}{l}{**+ Existing Task Data (en)**} & \\(\\sim 38\\)K & **75.9** & **79.1** & 72.3 & **84.7** & 67.1 & **76.7** & 84.2 & **77.1** \\\\ \\hline \\hline \\multicolumn{10}{l}{_Gold Translations_} \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 9: Sentiment analysis accuracy on 7 Indonesian extremely low-resource local languages in the NusaX dataset (Winata et al., 2023b) with XLMR-large classifier (Conneau et al., 2020). We follow the schema defined in Table 1.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c c c c c c c c} \\hline \\hline\n' +
+      '**Methods** & **\\#data** & **bam** & **ewe** & **fij** & **grn** & **lin** & **lus** & **sag** & **tso** & **tum** & **twi** & **Avg** \\\\ \\hline \\multicolumn{13}{l}{_Zero-shot prompting_} \\\\ \\hline BLOOMZ-7.1.B & 0 & 41.7 & 34.3 & 35.3 & 41.7 & 42.2 & 38.7 & 36.8 & 41.7 & 40.2 & 41.7 & 39.4 \\\\ GPT-4 & 0 & 34.3 & 33.3 & 52.9 & 53.9 & 53.4 & 46.1 & 32.4 & **54.9** & 53.4 & 40.7 & 45.5 \\\\ \\hline \\multicolumn{13}{l}{_Cross-lingual zero-shot_} \\\\ \\hline Existing Task Data (en) & 701 & 33.1 & 38.4 & 35.6 & 57.2 & 42.1 & 59.3 & 42.0 & 36.7 & 35.2 & 43.1 & 42.3 \\\\ \\hline \\multicolumn{13}{l}{_Word translation_} \\\\ \\hline Existing Task Data (T) & 701 & 37.5 & 36.9 & 44.8 & 66.5 & 51.3 & 63.5 & 47.5 & 39.6 & 42.3 & 50.6 & 48.1 \\\\ \\multicolumn{13}{l}{_+ Existing Task Data (en)_} & 1402 & 40.0 & 36.8 & 45.9 & 66.3 & 48.2 & 62.5 & 47.7 & 41.5 & 44.4 & 51.8 & 48.5 \\\\ \\multicolumn{13}{l}{_+ Label Distillation_} \\\\ \\hline \\multicolumn{13}{l}{_(Wang et al., 2022)_} \\\\ \\hline LexC-Gen-1k (T) & \\(\\sim 220\\) & 17.8 & 27.9 & 29.4 & 34.8 & 31.0 & 24.9 & 29.8 & 28.6 & 29.2 & 29.8 & 28.3 \\\\ \\multicolumn{13}{l}{_+ Existing Task Data (en)_} & \\(\\sim 920\\) & 31.8 & 37.8 & 37.3 & 65.0 & 50.0 & 59.7 & 46.8 & 35.9 & 37.9 & 48.1 & 45.0 \\\\ LexC-Gen-10k (T) & \\(\\sim 2.2\\)K & 39.3 & 40.3 & 50.0 & 64.2 & 55.9 & 66.5 & 55.0 & 41.4 & 46.5 & 54.9 & 51.4 \\\\ \\multicolumn{13}{l}{_+ Existing Task Data (en)_} & \\(\\sim 2.9\\)K & 36.9 & 42.4 & 50.6 & 67.2 & 55.9 & 64.8 & 54.6 & 39.8 & 46.4 & 53.9 & 51.2 \\\\ \\multicolumn{13}{l}{_+ LexC-Gen-100K_ (T)} \\\\ \\hline \\multicolumn{13}{l}{_+ Existing Task Data (en)_} \\\\ \\hline Existing Task Data (en) & 701 & 29.6 & 27.2 & 32.1 & 63.6 & 39.9 & 56.0 & 41.6 & 38.3 & 41.6 & 43.1 & 41.3 \\\\ \\multicolumn{13}{l}{_Word translation_} \\\\ \\hline Existing Task Data (T) & 701 & 42.4 & 43.1 & 48.5 & 70.6 & 52.9 & 66.4 & 43.4 & 43.5 & 47.7 & 52.9 & 51.1 \\\\ \\multicolumn{13}{l}{_+ Existing Task Data (en)_} & 1402 & 43.1 & 45.2 & 45.2 & 71.7 & 54.8 & 65.7 & 49.9 & 43.1 & 50.9 & 54.3 & 52.4 \\\\ \\multicolumn{13}{l}{_+ Label Distillation_} \\\\ \\hline \\multicolumn{13}{l}{_+_ Existing Task Data (en)_} \\\\ \\hline Existing Task Data (en) & 1402 & 37.9 & 27.8 & 42.9 & 64.6 & 43.5 & 58.9 & 48.3 & 42.6 & 48.8 & 39.5 & 45.5 \\\\ \\multicolumn{13}{l}{_+ Existing Task Data (en)_} \\\\ \\hline \\multicolumn{13}{l}{_+ Existing Task Data (en)_} \\\\ \\hline \\multicolumn{13}{l}{_+ Existing Task Data (en)_} \\\\ \\hline Existing Task Data (en) & 701 & 50.6 & 60.9 & 58.3 & 73.1 & 64.1 & 68.2 & 62.5 & 48.4 & 60.0 & 65.8 & 61.2 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 11: Topic classification accuracy for 10 worst-performing languages in the SIB-200 dataset (Adelani et al., 2023) with XLMR-large classifier (Conneau et al., 2020). We follow the schema defined in Table 11.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c c c c c c c} \\hline \\hline\n' +
+      '**Methods** & **\\#data** & **bam** & **ewe** & **fij** & **grn** & **lin** & **lus** & **sag** & **tso** & **tum** & **twi** & **Avg** \\\\ \\hline \\multicolumn{13}{l}{_Zero-shot prompting_} \\\\ \\hline BLOOMZ-7.1.B & 0 & 41.7 & 34.3 & 35.3 & 41.7 & 42.2 & 38.7 & 36.8 & 41.7 & 40.2 & 41.7 & 39.4 \\\\ GPT-4 & 0 & 34.3 & 33.3 & 52.9 & 53.9 & 53.4 & 46.1 & 32.4 & **54.9** & 53.4 & 40.7 & 45.5 \\\\ \\hline \\multicolumn{13}{l}{_Cross-lingual zero-shot_} \\\\ \\hline Existing Task Data (en) & 701 & 29.6 & 27.2 & 32.1 & 63.6 & 39.9 & 56.0 & 41.6 & 38.3 & 41.6 & 43.1 & 41.3 \\\\ \\hline \\multicolumn{13}{l}{_Word translation_} \\\\ \\hline Existing Task Data (T) & 701 & 42.4 & 43.1 & 48.5 & 70.6 & 52.9 & 66.4 & 43.4 & 43.5 & 47.7 & 52.9 & 51.1 \\\\ \\multicolumn{13}{l}{_+ Existing Task Data (en)_} \\\\ \\hline Existing Task Data (en) & 1402 & 43.1 & 45.2 & 45.2 & 71.7 & 54.8 & 65.7 & 49.9 & 43.1 & 50.9 & 54.3 & 52.4 \\\\ \\multicolumn{13}{l}{_+ Label Distillation_} \\\\ \\hline \\multicolumn{13}{l}{_+_ Existing Task Data (en)_} \\\\ \\hline \\multicolumn{13}{l}{_+_ Existing Task Data (en)_} \\\\ \\hline \\multicolumn{13}{l}{_+ Existing Task Data (en)_} \\\\ \\hline \\multicolumn{13}{l}{_+_ Existing Task Data (en)\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>

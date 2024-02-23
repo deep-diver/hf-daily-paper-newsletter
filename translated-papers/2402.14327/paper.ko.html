@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# Subobject-level Image Tokenization\n' +
+      '\n' +
+      'Delong Chen\\({}^{1}\\) Samuel Cahyawijaya\\({}^{1}\\) Jianfeng Liu\\({}^{2}\\) Baoyuan Wang\\({}^{2}\\) Pascale Fung\\({}^{1}\\)\n' +
+      '\n' +
+      '홍콩과학기술대학교\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      '트랜스포머 기반 비전 모델은 일반적으로 이미지를 입력 단위로 고정된 크기의 정사각형 패치로 토큰화하는데, 이는 이미지 콘텐츠에 대한 적응성이 부족하고 고유한 픽셀 그룹화 구조를 간과한다. 언어 모델들에서 널리 채택된 _subword_ tokenization에 의해 영감을 받아, 우리는 _subobject_ 레벨에서의 이미지 토큰화기를 제안하며, 여기서 서브객체들은 세그멘테이션 모델들(_e.g.,_ segment anything models)에 의해 획득된 의미적으로 의미있는 이미지 세그먼트들로 표현된다. 서브 오브젝트 토큰화 기반의 학습 시스템을 구현하기 위해 먼저 다양한 크기와 모양의 서브 오브젝트 세그먼트를 컴팩트한 임베딩 벡터로 압축하기 위해 시퀀스-투-시퀀스 오토엔코더(Sequence-to-Sequence AutoEncoder, SeqAE)를 도입한 후 비전 언어 학습을 위한 대용량 언어 모델에 서브 오브젝트 임베딩을 공급하였다. 실험 결과, 기존의 패치 수준 토큰화에 비해 하위 객체 수준 토큰화는 이미지를 객체 및 속성 설명으로 변환하는 효율적인 학습을 상당히 용이하게 하는 것으로 나타났다. 코드 및 모델은 [https://github.com/ChenDelong1999/subobjects](https://github.com/ChenDelong1999/subobjects)에서 오픈소싱될 것이다.\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      '자연어 처리(NLP) 분야에서 연구자들은 수년에 걸쳐 다양한 토큰화 접근법을 광범위하게 조사했지만, 최근 많은 언어 모델에 의해 채택된 BPE[2], Unigram[3], SentencePiece 토큰화기[4]로 대표되는 서브워드 레벨 토큰화에 수렴했다. 서브워드-레벨 토큰화는 문자-레벨 및 단어-레벨 대응물에 비해 어휘 크기의 폭발을 피할 뿐만 아니라 구성 일반화를 용이하게 하는 단어의 모폴로지를 캡처하는 데 더 우수하다. 예를 들어, 단어 _"토큰화"_ 및 _"일반화"_는 각각 두 개의 토큰으로 분해되어 접두사로 _"토큰"_ 및 _"일반"_를 산출하면서 동일한 접미사 토큰 _"-ization"_를 공유할 수 있다. 또한 하위 단어 수준\n' +
+      '\n' +
+      '그림 1: 언어 모델링과 이미지 모델링에서 토큰화 방법론 간의 연결. 제안된 하위 객체 수준 이미지 토큰화는 다른 대안들에 비해 우수한 것으로 입증된 하위 단어 수준 텍스트 토큰화에 해당한다.\n' +
+      '\n' +
+      '토큰화는 어휘 일반화를 가져와 토큰화 과정에서 알려지지 않은 토큰의 생성을 최소화한다.\n' +
+      '\n' +
+      '컴퓨터 비전(CV)에서는 우리의 시각 세계가 언어로서 통신에 대해 이산화되고 최적화되지 않았기 때문에 텍스트 데이터보다 희박하고 중복적이며 잡음이 많다. 원시 픽셀을 입력 유닛으로 직접 사용하는 것(예를 들어, ImageGPT[5])은 과도하게 많은 수의 토큰 및 이웃하는 픽셀 사이의 로우-레벨 관계의 불필요한 모델링으로 이어진다. 현재 분야에서 비전 모델의 지배적인 유형인 비전 트랜스포머(ViT) 아키텍처[6]는 토큰화 수준을 픽셀에서 정사각형 패치로 높인다. 단, 도 1에서 설명한 바와 같다. 도 1에 도시된 바와 같이, 이러한 패치-레벨 이미지 토큰화는 문자 N-그램-레벨 텍스트 토큰화 방법에 해당하며, 이는 의미적 경계들의 무지와 방대한 어휘 크기들로 인해 비효율적이고 비효율적인 경향이 있다[7; 2]. N-그램 토큰화와 유사하게, 패치 분할 동작은 이미지 내의 고유한 픽셀-그룹화 구조를 무시하고 객체의 모폴로지에 적응적이지 않다.\n' +
+      '\n' +
+      '본 논문에서는 수행적 서브워드 레벨 텍스트 토큰화에 착안하여, 단어와 문자 사이의 서브워드와 유사한 객체와 픽셀 사이의 중간 레벨에 있는 _"subobject"_-level 이미지 토큰화의 개념을 소개한다. 서브 오브젝트들은 지각적으로 의미 있는 시각적 구조들을 갖는 시각적 엔티티들(_예를 들어, 오브젝트들의 부분들)이다. SAM(Segment Anything Models) [8]을 이용하는 등의 이미지 세그멘테이션을 통해 얻을 수 있다. 하위 객체의 개념은 하위 비전에 대한 _superpixels_[9; 10]의 개념과 상위 비전에 대한 _part segmentation_[11] 태스크와 관련이 있지만 의미적으로 의미 있고, 개방형 어휘 및 범옵틱(panoptic)의 요구 사항을 강조하며, 또한 이미지 토큰화에 대한 적용과 NLP에서 하위 단어에 대한 연결을 강조한다.\n' +
+      '\n' +
+      '방법론 수준에서 본 논문은 하위 객체 수준 이미지 토큰화를 기반으로 학습 시스템을 효과적으로 생성하기 위한 두 가지 유형의 신경망 아키텍처를 제시한다. _ 첫째, 다양한 크기와 모양의 서브 오브젝트 세그먼트를 컴팩트한 임베딩 벡터로 압축하는 시퀀스-투-시퀀스 오토엔코더(Sequence-to-Sequence AutoEncoder, SeqAE)를 제안한다. 정사각형 입력 창에 불규칙한 세그먼트를 다운샘플링하고 피팅하는 것에 비해 SeqAE는 극도의 종횡비를 갖는 세그먼트를 처리할 때 더 많은 정보를 예약할 수 있다. _ 둘째, 새로운 언어의 텍스트 서브워드 토큰으로 간주하여 하위 객체 토큰을 LLM(Large Language Model)에 통합하는 LVLM(Large Vision Language Model)의 간단하면서도 효과적인 아키텍처를 설계하였다[13].\n' +
+      '\n' +
+      '경험적으로, 우리는 SA-1B 데이터세트[8]에서 SeqAE를 훈련시킨 다음, CLEVR[15]에서 생성된 합성 캡션 데이터세트를 사용하여 Phi-2 모델[14]에 기반한 하위 객체 수준 이미지 토큰화로 LVLM을 훈련시켰다. 본 연구의 결과는 하위 객체 수준 토큰화가 표준 ViT 스타일 또는 Fuyu 스타일 [16] 패치 수준 토큰화에 비해 상당히 가속화된 비전 언어 학습을 가능하게 하는 동시에 객체를 계수하고 크기, 재료 및 모양과 같은 시각적 속성을 큰 여백으로 인식하는 데 더 높은 정확도를 달성한다는 것을 보여준다.\n' +
+      '\n' +
+      '## 2 Method\n' +
+      '\n' +
+      '본 절에서는 하위 객체 수준 토큰화에 기반한 학습 시스템 생성 방법을 소개한다. 제안된 방법은 이미지들로부터 서브객체 경계들을 획득하는 단계(섹션 2.1); 서브객체의 원시 픽셀들을 컴팩트 벡터 임베딩으로 변환하는 단계(섹션 2.2); 비젼 언어 학습을 위한 입력으로서 임베딩된 서브객체 토큰들을 취하는 모델을 구축하는 단계(섹션 2.3)로 구성된다.\n' +
+      '\n' +
+      '도 2: Segment Anything Model(SAM) [8]의 _"segment everything"_ mode로부터의 초기 결과들은 많은 픽셀들을 공백으로 남긴다. 정보 손실을 방지하기 위해, 서브 객체 분할이 모든 픽셀을 커버하도록 마스크 확장 및 갭 주입의 후처리를 수행한다.\n' +
+      '\n' +
+      '모든 것을 하위 객체로 분할\n' +
+      '\n' +
+      '원하는 하위 객체 경계는 의미적 의미, 개방형 어휘, 포괄적이어야 한다. Superpixel segmentation, semantic/instance/panoptic segmentation과 같은 다른 대안들 중에서, Segment Anything Model(SAM)[8]의 _"segment everything"_ mode[17; 18](Automated mask generation이라고도 함)은 semantic meaningful 및 open-vocabulary라는 요건을 만족시키는데 더 많은 장점을 갖는다. 그러나, _"segment everything"_의 결과는 포괄적으로 보장되지 않는다. 도 1에 도시된 바와 같다. 도 2를 참조하면, _"segment everything"_ 결과에서 어떠한 마스크에도 가려지지 않는 많은 픽셀(흰색으로 표시됨)이 존재할 수 있다. 이러한 덮이지 않은 픽셀은 일반적으로 이웃 세그먼트 사이의 배경 또는 작은 간격에 해당한다. 포괄성을 보장하기 위해, 마스크를 확장하기 위해 작은 커널로 분할 마스크에 컨벌루션을 적용하고 갭을 채우는 후처리를 수행하고(흐린 마스크를 이진화하는 것과 유사), 여전히 세그먼트에 의해 가려지지 않는 픽셀에 연결 컴포넌트 레이블링을 수행한다. 이러한 마스크 확장 및 배경 채움에 의해 후처리된 세그먼트는 이미지 내의 모든 픽셀을 커버할 수 있고 임의의 정보 손실을 피할 수 있다.\n' +
+      '\n' +
+      'Subobject Embedding을 위한### SeqAE\n' +
+      '\n' +
+      '하위 객체 세그먼트는 불규칙한 크기와 모양을 가지고 있습니다. 가장 긴 쪽에 패딩하여 정사각형 인식 창에 세그먼트를 맞추는 것은 가능하지만 극단적인 종횡비를 가진 세그먼트를 마주할 때 매우 비효율적일 것이다. 정사각형 인식 윈도우가 32\\(\\times\\)32 픽셀(_i.e.,_1024 픽셀)인 트랜스포머 인코더를 고려하면, 오른쪽의 1 영역 내의 세그먼트만 손실 없이 인코딩할 수 있다. 그러나, 오른쪽에 도시된 바와 같이, 1024 컨텍스트 길이의 동일한 예산으로, 다운샘플링 동작 없이 녹색 곡선(역비례 함수) 하에서 더 넓은 2개 및 더 높은 3개의 세그먼트를 인코딩할 수 있다.\n' +
+      '\n' +
+      '이 문제를 해결하기 위해 SeqAE(Sequence-to-Sequence AutoEncoder)를 소개한다. SeqAE에서, 원시 세그먼트 픽셀 및 마스크는 컨텍스트 길이를 완전히 사용하기 위해 데이터 시퀀스로 _flattened_이다. SeqAE는 자가 감독 자동 인코딩 목적을 통해 서브 오브젝트 세그먼트를 컴팩트 임베딩으로 압축하도록 트레이닝된다. 도 1에 도시된 바와 같다. 도 3을 참조하면, 인코더는 입력 데이터 시퀀스로부터 잠재 벡터를 추출한 다음, 디코더는 입력들을 자동으로 복원한다. SeqAE는 신경 기계 번역을 위한 바닐라 인코더-디코더 트랜스포머 언어 모델과 많은 아키텍처 유사성을 공유하지만 [19] 다음의 두 가지 주요 수정을 갖는다:\n' +
+      '\n' +
+      '** 범주형 예측 대신 실제 값 회귀**: 언어 모델들에서, 디코더는 다음 토큰의 범주형 확률 분포를 예측하고, 교차-엔트로피(cross-entropy)를 통해 지상 진리 이산화된 원-핫 임베딩과 비교한다. 픽셀의 경우 각 RGB 픽셀을 \\(256^{3}\\)way 또는 3개의 256-way 범주형 분포로 간주할 수 있지만 어휘 크기가 매우 크거나 토큰 수를 3배 증가시킨다. 더 중요한 것은 픽셀 강도의 고유한 연속성을 무시하고 픽셀 강도 값 간의 관계 정보를 잃는다는 것이다.\n' +
+      '\n' +
+      '도 3: 서브 오브젝트 임베딩을 위한 제안된 시퀀스-투-시퀀스 오토엔코더(SeqAE)의 아키텍처. SeqAE는 학습 가능한 질의 벡터를 사용하여 이미지 세그먼트로부터 압축 잠재 변수를 추출하고 교차 주의 메커니즘을 통해 잠재 변수로부터 세그먼트를 자동으로 디코딩한다.\n' +
+      '\n' +
+      '(_e.g._, 모델은 적색이 보라색에 더 가깝지만 녹색에 훨씬 더 가깝다는 것을 알지 못한다. 따라서 SeqAE에서는 정규화된 실수값 픽셀 강도를 데이터 시퀀스로 직접 사용하고, 디코더 출력에 평균 제곱 오차(mean squared error, MSE) 회귀 손실을 적용한다.\n' +
+      '\n' +
+      '**학습 가능한 쿼리와 병목 프로젝터**: Perceiver Resampler[20]에서 영감을 받아 학습 가능한 쿼리 토큰이 입력 데이터 시퀀스에 추가됩니다. 픽셀 토큰과 상호 작용하고 인코더 계층을 거친 후 정보를 통합합니다. 인코더의 마지막 계층에서 질의 토큰의 상단에 선형 계층을 추가하여 차원을 \\(d_{\\text{model}}\\times n_{\\text{query}}\\)에서 \\(d_{\\text{SeqAE}}\\)으로 줄이고, 동일한 계층(transposed)을 사용하여 복호화기가 교차 응답할 수 있는 질의 토큰을 재구성한다. 이 선형 계층은 정보 압축을 장려하는 병목 현상으로 작용합니다.\n' +
+      '\n' +
+      'Subobject-level Image Tokenization 기반### LVLM\n' +
+      '\n' +
+      'LLM에 하위 객체 토큰을 삽입하는 방법은 간단하고 간단하다. Wang et al. [13]에서 영감을 얻은 우리는 새로운 언어의 텍스트 서브워드 토큰으로 취급하고, LLM으로부터 LVLM을 생성하는 것은 LLM에 외국어를 추가하는 것과 동등해진다. 도 1의 좌측에 도시된 바와 같다. 도 4를 참조하면, 서브워드 및 서브 오브젝트로부터 트랜스포머의 입력 토큰을 획득하는 과정은 개념적으로 유사하다. 그림의 오른쪽에 있습니다. 도 4를 참조하면, 서브 오브젝트 토큰들은 단일 이미지로부터 서브 오브젝트 토큰들의 시작과 끝을 마킹하는 한 쌍의 새로운 특수 토큰 <SOI> 및 <EOI>만으로 동일한 레벨에서 서브워드 토큰들과 인터리빙된다.\n' +
+      '\n' +
+      '그러나, 외국어로 간주되는 이미지는 자연 언어와 비교하여 하나의 근본적인 차이를 가지며, 이는 그 _dimensionality_이다. 이러한 고유한 특성을 수용하기 위해 다음 두 가지 기술적 수정을 수행한다.\n' +
+      '\n' +
+      '** 서브 오브젝트 토큰들에 대한 추가적인 위치 임베딩**: LLM 내에 존재하는 원래의 위치 임베딩은 단지 1차원 순서 관계를 나타낼 수 있기 때문에, 서브 오브젝트 토큰들에 대한 추가적인 2차원 위치 임베딩을 도입한다. 세그멘테이션 마스크의 절대 바운딩 박스 좌표([x,y,w,h] 형식으로)를 사용하여 서브 오브젝트들의 위치를 표현한다. 도 1에 도시된 바와 같다. 도 4를 참조하면, 바운딩 박스를 서브 오브젝트 토큰의 동일한 차원으로 투영하기 위해 선형 레이어를 트레이닝한 후, 이들을 함께 추가하고 그 결과를 트랜스포머 레이어에 공급한다.\n' +
+      '\n' +
+      '**하위 객체 토큰에 대한 자기회귀 예측 없음**: 이미지는 우리의 3차원 시각 세계의 2차원 투영이다. 이러한 하위 객체들은 자연어와 유사한 임의의 1차원 인과 구조를 형성하지 않아, "다음 하위 객체 토큰 예측"을 무관한 것으로 만든다. 따라서 LVLM 훈련 동안, 우리는 서브 오브젝트 토큰들을 건너뛰면서 텍스트 서브워드 토큰들에 대한 크로스 엔트로피 손실만을 계산한다.\n' +
+      '\n' +
+      '그림 4: 하위 객체 수준 이미지 토큰화를 사용하여 LLM 대 LVLM 적응. 우리는 학습 가능한 선형 가중치를 사용하여 SeqAE의 잠재 벡터를 투영하고 입력의 일부로 LLM에 공급한다. 각 서브 객체 토큰에 2차원 위치 임베딩을 추가하여 영상 내 각 서브 객체의 위치 정보를 제공한다.\n' +
+      '\n' +
+      '## 3 Experiment\n' +
+      '\n' +
+      'SeqAE의### 구현\n' +
+      '\n' +
+      '모델 SeqAE의 인코더와 디코더는 모두 16개의 레이어를 가지며, 각 레이어는 \\(d_{\\text{model}=768\\), \\(d_{\\text{FFN}=4096\\) 및 12개의 주의 헤드를 갖는 표준 트랜스포머 레이어이다. 학습 가능한 16개의 질의를 사용하며, 각 질의는 차원이 \\(d_{\\text{model}}=768\\)인 벡터이다. 인코더 출력\\(d_{\\text{SeqAE}}\\)은 768로 설정되었고, 따라서 병목 프로젝터는 \\(16\\times 768\\to 768\\)의 선형 레이어이다. 우리는 1024개의 토큰의 문맥 길이를 사용하는데, 이 토큰은 너비\\(\\times\\) 높이\\(\\leq 1024\\)(예: 32\\(\\times\\)32, 64\\(\\times\\)16, 16\\(\\times\\)64 세그먼트 등)의 세그먼트를 손실 없이 수용할 수 있다. 더 큰 세그먼트는 1024개의 토큰으로 다운 샘플링됩니다. 상기 구성들을 갖는 전체 SeqAE 모델은 총 3억 2,700만 개의 파라미터를 갖는다.\n' +
+      '\n' +
+      '**데이터** SA-1B 데이터셋 [8]을 사용하여 SeqAE 모델을 훈련한다. SeqAE 모델은 다양한 시각적 도메인에서 수백만 개의 이미지에 더 큰 규모(10억)의 고품질 분할 마스크를 포함하기 때문이다.\n' +
+      '\n' +
+      '훈련 단일 노드 8(\\times\\)NVIDIA A100 (80GB) 서버를 이용하여 SA-1B 데이터셋에서 SeqAE를 학습한다. GPU당 16개의 배치 크기와 1e-5의 학습률을 사용합니다.\n' +
+      '\n' +
+      'LVLM### 구현\n' +
+      '\n' +
+      '모델 우리는 고품질 텍스트 데이터에 대해 훈련된 2.7B 매개변수가 있는 기본 LLM인 Phi-2 모델1을 사용한다[14]. 우리는 질의/키/값 프로젝터와 FFN 레이어에 LoRA[21]를 적용한다. 두 개의 훈련 가능한 선형 레이어는 동결된 SeqAE 인코더 및 바운딩 박스 좌표로부터 LLM의 입력 토큰 공간으로 서브 오브젝트 임베딩을 투영하기 위해 새롭게 초기화된다.\n' +
+      '\n' +
+      '각주 1: [https://huggingface.co/microsoft/phi-2](https://huggingface.co/microsoft/phi-2)\n' +
+      '\n' +
+      '**데이터** CLEVR[15]에서 합성 이미지 캡션 데이터 세트를 만들고, 이 데이터 세트에는 지면-진실 위치, 속성 및 객체에 대한 관계를 제공하는 장면 그래프 주석이 포함되어 있다. 도 1에 도시된 바와 같다. 5 왼쪽, 장면 그래프 주석을 객체 카운트, 크기, 재료 및 모양에 대한 텍스트 설명으로 변환한다. 우리는 사물을 그들의 위치(좌에서 우로)에 따라 배열한다. 우리는 70k 샘플을 훈련에 사용하고 2k개의 보이지 않는 샘플을 평가한다.\n' +
+      '\n' +
+      '훈련 우리는 10개의 에폭에 대한 모델을 훈련시키기 위해 32의 유효 배치 크기를 사용한다. 시작 학습률이 1e-4인 코사인 학습률 스케줄러를 사용하였으며, 부객체 분할을 위해 MobileSAM-v2 [18]을 사용하였다. 서브 오브젝트 세그먼트 및 임베딩은 트레이닝 효율을 높이기 위해 미리 캐싱된다.\n' +
+      '\n' +
+      '### Results\n' +
+      '\n' +
+      'ViT 모델에서 가장 많이 사용되는 패치 크기 중 하나인 입력 영상을 \\(32\\times 32\\)의 정사각형 패치로 분할하는 패치 레벨 베이스라인과 서브 오브젝트 레벨 이미지 토큰화기에 기반한 LVLM을 비교한다. ViT와 마찬가지로 패치 토큰 임베딩은 평탄화된 프로젝트를 수행하는 선형 레이어입니다.\n' +
+      '\n' +
+      '그림 5: **Left**: CLEVR [15] 데이터 세트에서 합성 이미지 캡션의 예. <image>는 서브 오브젝트 토큰들의 위치를 나타낸다. **중간**: 하위 객체 수준의 이미지 토큰화를 통해 비전 언어 모델링이 상당히 빨라집니다. **Right**: 크기, 재질, 모양 및 개수 측면에서 생성된 설명의 정확성. 하위 객체 수준 방법이 표준 패치 수준 기준선을 크게 능가합니다.\n' +
+      '\n' +
+      '동일한 차원의 SeqAE 특허에 대한 패치(\\(32\\times 32\\times 3\\))와 자동 인코딩 재구성 목표를 사용하여 훈련된다. 이 기준선의 다른 설정은 하위 객체 기반 LVLM과 동일합니다.\n' +
+      '\n' +
+      '실험 결과는 그림 5에 제시되어 있다. 왼쪽에서는 하위 객체 수준 토큰화가 훈련 복잡성의 상당히 빠른 감소를 가능하게 한다는 것을 보여주며, 패치 수준 토큰화를 하위 객체 수준 토큰화로 대체할 때 동일한 모델이 훨씬 더 빠르게 학습할 수 있음을 보여준다. 오른쪽에서는 보이지 않는 2k개의 테스트 이미지에 대한 모델 생성 캡션의 평가를 제시한다. 생성된 자막(생성된 자막은 100% 구문 분석 가능)을 파싱하고, 지면 진리로 객체 크기, 재질, 모양 및 카운트의 예측 정확도를 각각 계산한다. 결과는 하위 객체 수준 토큰화에 기반한 모델이 네 가지 측면 모두에서 기준선보다 큰 마진만큼 우수하다는 것을 보여준다.\n' +
+      '\n' +
+      '## 4 Conclusion\n' +
+      '\n' +
+      '본 논문에서는 비전 언어 학습을 위한 패치 레벨 토큰화를 대체할 수 있는 하위 객체 레벨 이미지 토큰화를 소개한다. 우리의 예비 결과는 표준 패치 수준 기준선과 비교하여 하위 객체 수준 토큰화가 비전 언어 학습을 가속화하고 객체를 계수하는 데 더 높은 정확도를 달성하며 시각적 속성을 인식할 수 있음을 보여준다.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '*[1]S. J. Mielke, Z. Alyafeai, E. Salesky, C. Raffel, M. 디민 갈레, A. 라자, C. 시, W. Y. Lee, B. 사곶, S. Tan(2021) 단어와 문자 사이에: NLP에서 열린 어휘 모델링 및 토큰화의 간략한 이력. CoRRabs/2112.10508. External Links: Link, 2112.10508 Cited by: SS1.\n' +
+      '*[2]R. Sennrich, B. Haddow, and A. Birch (2016) Neural machine translation of rare word with subword units. 제54회 전산언어학회 연차총회에서 ACL 2016, August 7-12, Germany Berlin, Volume 1: Long Papers, L. 인용: SS1.\n' +
+      '* November 4, 2018, pp. 66-71. External Links: Link, Document Cited by: SS1.\n' +
+      '*[4]M. 천아래드포드 Child, J. Wu, H. Jun, D. Luan, and I. Sutskever (2020) Generative pretraining from pixels. In Proceedings of the 37th International Conference on Machine Learning, ICML 2020, 13-18 July 2020, Virtual Event, H. Laun, H. Laun, and H. Laun(Eds.), pp. 1691-1703. External Links: Link, Document Cited by: SS1.\n' +
+      '*[5]A. L. 도소비츠키 Beyer, A. Kolesnikov, D. Weissenborn, X. 자이태 Unterthiner, M 데하니 민더러, G. 헤이골드, S. Gelly, J. Uszkoreit, N. Houlsby (2021) 이미지는 16x16 단어의 가치가 있다: 스케일에서 이미지 인식을 위한 트랜스포머. 제9회 International Conference on Learning Representations, ICLR 2021, Virtual Event, Austria, May 3-7, 2021, pp. 외부 링크: 링크, 2012.10508 인용: SS1.\n' +
+      '*[6]P. McNamee and J. Mayfield (2004-07) Character n-gram tokenization for european language text retrieval. Inf. 리트. Boston.7(1/2), pp.73-97. External Links: Link, Document Cited by: SS1.\n' +
+      '*[7]A. 키릴로프, E. 민턴, N. 라비, H. 마오, C. 롤랜드, L. 구스타프손 샤오상 화이트헤드 A. C. 버그 Lo, P. Dollar, 그리고 R. B. Girshick(2023) Segment anything. IEEE/CVF International Conference on Computer Vision, ICCV 2023, Paris, France, October 1-6, 2023, pp. 3992-4003. External Links: Link, 2002.10508 Cited by: SS1.\n' +
+      '*[8]X. Ren and J. Malik (2003) Learning a classification model for segmentation. 9th IEEE International Conference on Computer Vision (ICCV 2003), 14-17 October 2003, Nice, France, pp. 10-17. External Links: Link, Document Cited by: SS1.\n' +
+      '*[9]X. Ren and J. Malik (2003) Learning a classification model for segmentation. 9th IEEE International Conference on Computer Vision (ICCV 2003), 14-17 October 2003, Nice, France, pp. 10-17. External Links: Link, Document Cited by: SS1.\n' +
+      '*[10]M. Ren and J. Malik (2003) Learning a classification model for segmentation. 9th IEEE International Conference on Computer Vision (ICCV 2003), 14-17 October 2003, Nice, France, pp. 10-17. External Links: Link, Document Cited by: SS1.\n' +
+      '*[11]M. Ren, J. Malik, and J. Malik (2018) Learning for classification model for segmentation. 9th IEEE International Conference on Computer Vision (ICCV 2018), 14-17 October 2003, Nice, France, pp. 10-17. External Links: Link, Document Cited by: SS1.\n' +
+      '*[12]M. Ren and J. Malik (2003) Learning a classification model for segmentation. 9th IEEE International Conference on Computer Vision (ICCV 2003), 14-17 October 2003, Nice, France, pp. 10-17. External Links: Link, Document Cited by: SS1.\n' +
+      '*[13]M. Ren and J. Malik (2003) Learning a classification model for segmentation. 9th IEEE International Conference on Computer Vision (ICCV 2003), 14-17 October 2003, Nice, France, pp. 10-17. External Links: Link, Document Cited by: SS1.\n' +
+      '*[14]M. Ren and J. Malik (2003) Learning a classification model for segmentation. 9th IEEE International Conference on Computer Vision (ICCV 2003), 14-17 October 2003, Nice, France, pp. 10-17. External Links: Link, Document Cited by: SS1.\n' +
+      '*[15]M. Ren, J. Malik, and J. Malik (2018) Learning for classification model for segmentation. 제10회 IEEE International Conference on Computer Vision (ICCV 2018)에서, 14-17 October 2003, Nice, France, pp. 10-17. External Links: Link, Document Cited by: SS1.\n' +
+      '*[16]M. Ren and J. Malik(2018) Learning for classification model for segmentation. 9th IEEE International Conference on Computer Vision (ICCV 2018), 14-17 October 2003, Nice, France, pp. 10-17. External Links: Link, Document Cited by: SS1.\n' +
+      '*[17]M. Ren, J. Malik, and J. Malik (2018) Learning for classification model for segmentation. 제10회 IEEE International Conference on Computer Vision (ICCV 2018)에서, 14-17 October 2003, Nice, France, pp. 10-17. External Links: Link, Document Cited by: SS1.\n' +
+      '*[18]M. Ren, J. Malik, and J. Malik (2018) Learning for classification model for segmentation. 제10회 IEEE International Conference on Computer Vision (ICCV 2018)에서, 14-17 October 2003, Nice, France, pp. 10-17. External Links: Link, Document Cited by: SS1.\n' +
+      '*[19]M. Ren, J. Malik, and J. Malik (2018) Learning for classification model for segmentation. 제10회 IEEE International Conference on Computer Vision (ICCV 2018)에서, 14-17 October 2003, Nice, France, pp. 10-17. External Links: Link, Document Cited by: SS1.\n' +
+      '*[20]M. Ren, J. Malik, and J. Malik (2018) Learning for classification model for segmentation. 제10회 IEEE International Conference on Computer Vision (ICCV 2018)에서, 14-17 October 2003, Nice, France, pp. 10-17. External Links: Link, Document Cited by: SS1.\n' +
+      '*[21]M. Ren, J. Malik, and J. Malik (2018) Learning for classification model for segmentation. 제10회 IEEE International Conference on Computer Vision (ICCV 2018)에서, 14-17 October 2003, Nice, France, pp. 10-17. External Links: Link, Document Cited by: SS1.\n' +
+      '*[22]M. Ren and J. Malik(2018) Learning for classification model for segmentation. 9th IEEE International Conference on Computer Vision (ICCV 2018), 14-17 October 2003, Nice, France, pp. 10-17. External Links: Link, Document Cited by: SS1.\n' +
+      '*[23]M. Ren and J. Malik(2018) Learning for classification model for segmentation. 9th IEEE International Conference on Computer Vision (ICCV 2018), 14-17 October 2003, Nice, France, pp. 10-17. External Links: Link, Document Cited by: SS1.\n' +
+      '*[24]M. Ren and J. Malik(2018) Learning for classification model for segmentation. 9th IEEE International Conference on Computer Vision (ICCV 2018), 14-17 October 2003, Nice, France, pp. 10-17. External Links: Link, Document Cited by: SS1.\n' +
+      '*[25]M. Ren and J. Malik(2018) Learning for classification model for segmentation. 9th IEEE International Conference on Computer Vision (ICCV 2018), 14-17 October 2003, Nice, France, pp. 10-17. External Links: Link, Document Cited by: SS1.\n' +
+      '*[26]M. Ren and J. Malik(2018) Learning for classification model for segmentation. 9th IEEE International Conference on Computer Vision (ICCV 2018), 14-17 October 2003, Nice, France, pp. 10-17. External Links: Link, Document Cited by: SS1.\n' +
+      '*[27]M. Ren, J. Malik, and J. Malik (2018) Learning for classification model for segmentation. 제10회 IEEE International Conference on Computer Vision (ICCV 2018)에서, 14-17 October 2003, Nice, France, pp. 10-17. External Links: Link, Document Cited by: SS1.\n' +
+      '*[28]M. Ren, J. Malik, and J. Malik (2018) Learning for classification model for segmentation. 제10회 IEEE International Conference on Computer Vision (ICCV 2018)에서, 14-17 October 2003, Nice, France, pp. 10-17. External Links: Link, Document Cited by: SS1.\n' +
+      '*[29]M. Ren, J. Malik, and J. Malik (2018) Learning for classification model for segmentation. 제10회 IEEE International Conference on Computer Vision (ICCV 2018)에서, 14-17 October 2003, Nice, France, pp. 10-17. External Links: Link, Document Cited by: SS1.\n' +
+      '*[30]M. Ren and J. Malik(2018) Learning for classification model for segmentation. 9th IEEE International Conference on Computer Vision (ICCV 2018), 14-17 October 2003, Nice, France, pp. 10-17. External Links: Link, Document Cited by: SS1.\n' +
+      '*[31]M. Ren and J. Malik(2018) Learning for classification model for segmentation. 제10회 IEEE International Conference on Computer Vision (ICCV 2018)에서, 14-17 October 2003, Nice, France, pp. 10-17. External Links: Link, Document Cited by: SS1.\n' +
+      '*[32]M. Ren and J. Malik(2018) Learning for classification model for segmentation. 9th IEEE International Conference on Computer Vision (ICCV 2018), 14-17 October 2003, Nice, France, pp. 10-17. External Links: Link, Document Cited by: SS1.\n' +
+      '*[33]M. Ren and J. Malik(2018) Learning for classification model for segmentation. 9th IEEE International Conference on Computer Vision (ICCV 2018), 14-17 October 2003, Nice, France, pp. 10-17. External Links: Link, Document Cited by: SS1.\n' +
+      '*[34]M. Ren and J. Malik(2018) Learning for classification model for segmentation. 9th IEEE International Conference on Computer Vision (ICCV 2018), 14-17 October 2003, Nice, France, pp. 10-17.\n' +
+      '\n' +
+      '* [10] David Stutz, Alexander Hermans, and Bastian Leibe. Superpixels: An evaluation of the state-of-the-art. _Comput. Vis. Image Underst._, 166:1-27, 2018.\n' +
+      '* ECCV 2022\n' +
+      '- 17th European Conference, Tel Aviv, Israel, October 23-27, 2022, Proceedings, Part VIII_, volume 13668 of _Lecture Notes in Computer Science_, pages 128-145. Springer, 2022.\n' +
+      '* [12] Alexander Kirillov, Kaiming He, Ross B. Girshick, Carsten Rother, and Piotr Dollar. Panoptic segmentation. In _IEEE Conference on Computer Vision and Pattern Recognition, CVPR 2019, Long Beach, CA, USA, June 16-20, 2019_, pages 9404-9413. Computer Vision Foundation / IEEE, 2019.\n' +
+      '* [13] Wenhui Wang, Hangbo Bao, Li Dong, Johan Bjorck, Zhiliang Peng, Qiang Liu, Kriti Aggarwal, Owais Khan Mohammed, Saksham Singhal, Subhojit Som, and Furu Wei. Image as a foreign language: BEIT pretraining for vision and vision-language tasks. In _IEEE/CVF Conference on Computer Vision and Pattern Recognition, CVPR 2023, Vancouver, BC, Canada, June 17-24, 2023_, pages 19175-19186. IEEE, 2023.\n' +
+      '* [14] Yuanzhi Li, Sebastien Bubeck, Ronen Eldan, Allie Del Giorno, Suriya Gunasekar, and Yin Tat Lee. Textbooks are all you need II: phi-1.5 technical report. _CoRR_, abs/2309.05463, 2023.\n' +
+      '* [15] Justin Johnson, Bharath Hariharan, Laurens van der Maaten, Li Fei-Fei, C. Lawrence Zitnick, and Ross B. Girshick. CLEVR: A diagnostic dataset for compositional language and elementary visual reasoning. In _2017 IEEE Conference on Computer Vision and Pattern Recognition, CVPR 2017, Honolulu, HI, USA, July 21-26, 2017_, pages 1988-1997. IEEE Computer Society, 2017.\n' +
+      '* [16] Adept Team. Fuyu-8B: A Multimodal Architecture for AI Agents. [https://www.adept.ai/blog/fuyu-8b](https://www.adept.ai/blog/fuyu-8b), 2023. [Accessed 19-02-2024].\n' +
+      '* [17] Chaoning Zhang, Dongsheng Han, Yu Qiao, Jung Uk Kim, Sung-Ho Bae, Seungkyu Lee, and Choong Seon Hong. Faster segment anything: Towards lightweight SAM for mobile applications. _CoRR_, abs/2306.14289, 2023.\n' +
+      '* [18] Chaoning Zhang, Dongshen Han, Sheng Zheng, Jinwoo Choi, Tae-Ho Kim, and Choong Seon Hong. Mobilesamv2: Faster segment anything to everything. _CoRR_, abs/2312.09579, 2023.\n' +
+      '* [19] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N. Gomez, Lukasz Kaiser, and Illia Polosukhin. Attention is all you need. In Isabelle Guyon, Ulrike von Luxburg, Samy Bengio, Hanna M. Wallach, Rob Fergus, S. V. N. Vishwanathan, and Roman Garnett, editors, _Advances in Neural Information Processing Systems 30: Annual Conference on Neural Information Processing Systems 2017, December 4-9, 2017, Long Beach, CA, USA_, pages 5998-6008, 2017.\n' +
+      '* 2022년 12월 9일_, 2022년.\n' +
+      '* [21] Edward J. Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, and Weizhu Chen. Lora: Low-rank adaptation of large language models. In _The Tenth International Conference on Learning Representations, ICLR 2022, Virtual Event, April 25-29, 2022_. OpenReview.net, 2022.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>

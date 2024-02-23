@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# Consolidating Attention Features for Multi-view Image Editing\n' +
+      '\n' +
+      'Or Patashnik\\({}^{1}\\)  Rinon Gal\\({}^{1,2}\\)  Daniel Cohen-Or\\({}^{1}\\)  Jun-Yan Zhu\\({}^{3}\\)  Fernando De la Torre\\({}^{3}\\)\n' +
+      '\n' +
+      '\\({}^{1}\\)Tel Aviv University \\({}^{2}\\)NVIDIA \\({}^{3}\\)Carnegie Mellon University\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      'Large-scale text-to-image models enable a wide range of image editing techniques, using text prompts or even spatial controls. However, applying these editing methods to multi-view images depicting a single scene leads to 3D-inconsistent results. In this work, we focus on spatial control-based geometric manipulations and introduce a method to consolidate the editing process across various views. We build on two insights: (1) maintaining consistent features throughout the generative process helps attain consistency in multi-view editing, and (2) the queries in self-attention layers significantly influence the image structure. Hence, we propose to improve the geometric consistency of the edited images by enforcing the consistency of the queries. To do so, we introduce QNeRF, a neural radiance field trained on the internal query features of the edited images. Once trained, QNeRF can render 3D-consistent queries, which are then softly injected back into the self-attention layers during generation, greatly improving multi-view consistency. We refine the process through a progressive, iterative method that better consolidates queries across the diffusion timesteps. We compare our method to a range of existing techniques and demonstrate that it can achieve better multi-view consistency and higher fidelity to the input scene. These advantages allow us to train NeRFs with fewer visual artifacts, that are better aligned with the target geometry.\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      'The advent of large-scale text-to-image models has led to rapid advancements in image editing techniques. Commonly, such techniques are used to modify a _single_ image by leveraging the rich visual and semantic prior found in a pre-trained text-to-image diffusion model. However, when considering _sets_ of images depicting a shared scene, naive applications of such methods lead to inconsistent edits across the set (see Figure 3).\n' +
+      '\n' +
+      'In the realm of multi-view editing, where the image set depicts a single object observed from multiple directions, a recent line of work proposes to leverage the inherent consistency of 3D representations [39] as a means to consolidate the edits into a more 3D-consistent set [20]. In practice, existing methods assume that the edits performed are\n' +
+      '\n' +
+      'Figure 2: Editing multi-view images of a boot, with a loose depth map [4]. We show a sample of three images from the set.\n' +
+      '\n' +
+      'Figure 1: Given an object-centric multi-view image set (center), we edit all images simultaneously (left and right), using 3D geometric control, such as changing the body skeleton. To promote consistency across different views, we leverage an image diffusion model and introduce QNeRF, a query feature space neural radiance field, to progressively consolidate attention features during the generation process.\n' +
+      '\n' +
+      'small enough that the underlying 3D representation can successfully average over any inconsistent changes. An assumption that holds well for simpler texture or appearance changes, but fails when dealing with more complex geometric changes. As such, these methods can be used to change the style of a person\'s portrait into a painting, but they struggle to make him raise his hands.\n' +
+      '\n' +
+      'In this work, we present an approach for consistent multi-view image editing, focusing on articulations and shape changes, as shown in Figures 1 and 2. We use ControlNet [59], which was trained to take rough spatial controls (_e.g._, body skeletons or loose depth maps [4]) as an input, and synthesize images aligned with them. Conditioning the generation of the images on these rough controls provides the model with a preliminary understanding of the edited image\'s coarse geometry. However, relying solely on this coarse geometry signal falls short of attaining high consistency among the edited images.\n' +
+      '\n' +
+      'Our key idea is to encourage the features of ControlNet to be consistent during the generation of the multi-view edited images. As shown by recent works [19], increasing the consistency of internal features can help improve the consistency of edited frames in video generation. In particular, we observe that the queries of the self-attention layers within the diffusion model significantly influence the structure of the output image. Hence, we propose consolidating the queries of all generated images into a 3D-consistent shared representation, by training a neural field in query feature space, which we term QNeRF. We then use the queries rendered from the QNeRF to guide the generation of the edited images, increasing the consistency of the edited multi-view images. The process of training the QNeRF and using the rendered queries is a progressive process interleaved during the denoising process. As illustrated in Figure 4, the updated QNeRF is trained with the extracted queries, and the rendered queries guide the features of the generated images within the diffusion network.\n' +
+      '\n' +
+      'We demonstrate that our approach enables a wide range of articulation and shape-based modifications, while achieving greater visual quality than alternative consistency-preserving approaches. These results are validated through qualitative evaluations, as well as automated metrics and user preference scores. Finally, we demonstrate that the underlying geometry of NeRFs trained on our results exhibits better alignment with the target controls.\n' +
+      '\n' +
+      '## 2 Related Work\n' +
+      '\n' +
+      'Image Editing with Diffusion Models.Advancements in large-scale diffusion models have significantly enhanced image editing techniques [6, 7, 25, 27, 38]. Specifically, the manipulation of internal representations within the diffusion model during the denoising process has been shown to enable high-quality and semantically meaningful edits [16, 18, 19, 21, 42, 43, 53]. Notably, some recent works focus on self-attention layers, and leverage the roles of queries, keys, and values within self-attention to obtain various edits [1, 8, 22]. While the above works focus on editing a _single_ image, we build on the functionality of self-attention components to achieve consistent multi-view image editing.\n' +
+      '\n' +
+      'Figure 4: We simultaneously generate multi-view edited images with a diffusion model. To consolidate the images, along the denoising process we (1) extract self-attention queries from the network, (2) train a NeRF (termed QNeRF) on the extracted queries and render consolidated queries, and (3) softly inject the rendered queries back to the network for each view. We repeat these steps throughout the denoising process.\n' +
+      '\n' +
+      'Figure 3: The first and third rows show images captured from different viewpoints. When these are individually edited using ControlNet [59] and MasaCtrl [8], inconsistencies arise. Note the shape of the lamp (top) or the distance of the foot from the wall (bottom). Images were edited using 2D controls projected from a shared 3D model (skeleton, box). The leftmost column shows controls corresponding to view 1.\n' +
+      '\n' +
+      ' Multi-view Data Synthesis and Editing.The rich prior embedded in large-scale image diffusion models has paved the way for a new 3D model editing and synthesis paradigm. In this approach, images corresponding to different camera views are edited or generated and then used to construct a 3D model that consolidates them. In Instruct-NeRF2NeRF [20], the authors propose to iteratively update the dataset used to train some initial NeRF. In each update iteration, an image from the dataset is edited with Instruct-Pix2Pix, and then the NeRF is updated accordingly to consolidate the different views. This dataset update approach was widely adopted in follow-up works [30, 31, 48, 50]. In texturing work, a recent approach is to render a given 3D mesh from multiple views, use a text-guided model to generate UV maps for these views, and then apply them to the 3D model [9, 44]. This process is performed iteratively with overlapping views, eventually leading to consistent texturing. Similarly, Kapon et al. [26] recently used a human diffusion model to generate 2D views, while employing a 3D representation to ensure consistency. Instead of editing a given dataset, a concurrent work [56] reconstructs a scene from a few images by generating 3D-consistent fake views.\n' +
+      '\n' +
+      'Our work also consolidates 2D edits across multiple views. However, we also change the underlying geometry. Moreover, we consolidate the views by training a NeRF on attention features, rather than working in pixel-space. Hence, we are more aligned with the real-image manifold, and less prone to pixel-space averaging artifacts.\n' +
+      '\n' +
+      'Rather than performing the edit in image space, another line of work operates directly on 3D representations. In particular, with the rapid improvement in implicit 3D representation [28, 39], 3D editing methods have emerged [17, 34, 36, 47, 58, 60]. Recent works employ advances in text-based image editing to edit an implicit 3D representation with text [2, 20, 47, 54, 55]. However, these works are guided by prompts, and hence cannot easily handle control-based guidance. Indeed, they typically focus on appearance and small structural modifications, while we target large geometric changes.\n' +
+      '\n' +
+      'Finally, some works perform shape edits by extracting a mesh from the NeRF, editing it with classical techniques, and then deforming the NeRF accordingly [3, 57, 58]. However, such techniques require expert knowledge and may not be as widely applicable as simple control-based methods.\n' +
+      '\n' +
+      'Feature NeRFs.Previous works showed that NeRFs can represent not only RGB images but also semantic latent features. Some works [29, 33, 52] distill semantic 2D features into NeRFs, allowing one to obtain semantic 3D information. Other works [11, 41] show that features rendered from NeRFs can be employed for consistent multi-view image generation. In this work, we distill the attention features of a diffusion model into a NeRF and use rendered features during the denoising process to achieve multi-view editing.\n' +
+      '\n' +
+      '## 3 Preliminaries\n' +
+      '\n' +
+      '### Self-Attention in Diffusion Models\n' +
+      '\n' +
+      'Recent diffusion models are typically implemented as a UNet [46] consisting of cross-attention, self-attention, and convolutional layers. Previous works studied the roles of these components, focusing on attention layers. In our work, we focus on the queries, keys, and values of _self-attention_ layers. Specifically, it has been shown that each query in self-attention layers determines the semantic meaning of the pixel that corresponds to it [1, 8]. Hence, the queries are associated with the structure of the generated image. Moreover, the keys and values of self-attention layers determine the appearance of the image, and by using the keys and values of one image in the denoising process of another image, the appearance is transferred [1]. In particular, in MasaCtrl [8], non-rigid edits are applied to an image. To preserve the appearance of the original image, they inject keys and values of self-attention layers from the original image into the generated one. In our method, we employ this technique to preserve the appearance of the original scene.\n' +
+      '\n' +
+      '### Neural Radiance Fields\n' +
+      '\n' +
+      'Neural Radiance Field (NeRF) is an implicit 3D representation, parameterized by a network. Given a spatial location \\(\\mathbf{x}\\) and a viewing direction \\(\\mathbf{d}\\), the network outputs the density \\(\\sigma(\\mathbf{x})\\) and the RGB value of that location \\(c(\\mathbf{x},\\mathbf{d})\\). These can then be used to render an image from a desired viewing direction, using classical volume rendering techniques [37, 39]. Specifically, given a camera ray \\(\\mathbf{r}(t)=\\mathbf{o}+t\\mathbf{d}\\), the expected color \\(C(\\mathbf{r})\\) is given by\n' +
+      '\n' +
+      '\\[C(\\mathbf{r})=\\int_{t_{n}}^{t_{f}}T(t)\\sigma(\\mathbf{r}(t))c(\\mathbf{r}(t), \\mathbf{d})dt, \\tag{1}\\]\n' +
+      '\n' +
+      'where\n' +
+      '\n' +
+      '\\[T(t)=\\exp\\left(-\\int_{t_{n}}^{t}\\sigma(\\mathbf{r}(s))ds\\right). \\tag{2}\\]\n' +
+      '\n' +
+      'In this work, we train a NeRF on latent representations rather than on RGB values. Following previous works [29, 33], we use the same volumetric rendering approach to render latent representations.\n' +
+      '\n' +
+      '## 4 Method\n' +
+      '\n' +
+      'Our method operates on a set of posed images \\(\\{x^{v}\\}_{v=1}^{n}\\) depicting the same scene from multiple viewpoints, along with a set of 2D spatial controls \\(\\{c^{v}\\}_{v=1}^{n}\\) loosely specifying the target geometry of the main object from each view (Figures 1, 2). These controls are the projection of a low-dimensional 3D model that is easy to manipulate, such as a skeleton or a box. We elaborate on the process of obtaining the edited controls in Appendix A.\n' +
+      '\n' +
+      'Given these controls, we simultaneously edit all the input images to generate output images \\(\\{\\hat{x}^{v}\\}_{v=1}^{n}\\). These output images should depict the same scene as the input images, with the subject\'s geometry changed to align with the provided controls. To edit the images, we leverage a pre-trained Stable Diffusion model [45], and the MasaCrtrl [8] approach. There, the images are first inverted with DDIM [49]. Then, they are re-synthesized following a given control, while preserving the appearance of the original scene by injecting the keys and values of self-attention layers from the original image into the edited one. However, this approach considers each image in isolation, and so the corresponding edit outputs are inconsistent between viewpoints. Our key idea to overcome this hurdle, is to consolidate the edits by improving their multiview consistency in the attention feature space. Specifically, we notice that the inconsistencies are largely in the object shapes. Hence, we propose to align the shapes by consolidating the self-attention queries between the different views. We do so by training a NeRF on the queries during the denoising process, which we term QNeRF.\n' +
+      '\n' +
+      'A conceptual overview of the consolidation process is illustrated in Figure 4. There, we depict the parallel networks, each of which denoises a single view. Query features are extracted from the networks and used to train the QNeRF, which consolidates them into a 3D-consistent representation. The consolidated query features are then softly-injected (Section 4.2) back into the denoising network, improving the multi-view consistency of the edited images.\n' +
+      '\n' +
+      'In practice, we perform the denoising process in intervals. In each interval, we interleave consolidation steps with steps that allow the features to evolve. All consolidation steps in a single interval employ the same trained QNeRF. Additionally, we inject the self-attention keys and values in all steps to preserve the original scene appearance [8]. The details of our QNeRF, feature injection approach, and the structure of intervals are provided below.\n' +
+      '\n' +
+      '### QNeRF\n' +
+      '\n' +
+      'The centerpiece of our approach is the QNeRF - a NeRF [39] trained on query features extracted from the diffusion model during the denoising process. The inherent 3D consistency of the QNeRF drives the consolidation of the queries. Specifically, at the last step of each of our intervals (Section 4.3), we extract the self-attention queries from the diffusion model along all UNet decoder layers with resolutions \\(\\in(16,32,64)\\). These yield a total of 9 query sets per denoised-image at a given denoising timestep. These comprise the training set on which we train our QNeRF.\n' +
+      '\n' +
+      'The QNeRF itself is a depth-nerfacto [14, 40, 51], with a series of adaptations to better fit our use case. First, rather than producing an RGB value for each input coordinate, we output \\(9\\) query values corresponding to the \\(9\\) extracted query layers. We do so by adding 9 heads to the base nerfacto network, where each head is optimized to output the queries of a specific self-attention layer. Hence, the dimension of each head\'s output is set to the number of channels in the respective layer\'s queries. The base nerfacto network predicts the density at each point, as in the original nerfacto architecture. By sharing the density between the different queries, we can better share cross-layer information and stabilize the geometry. Additionally, we omit the dependence of the QNeRF on the viewing direction. This choice embodies the fact that the queries represent geometry, which is not dependent on the viewing direction. The full architecture of our QNeRF is presented in Figure 5. To train it, we employ the q-loss:\n' +
+      '\n' +
+      '\\[\\mathcal{L}_{q}=\\sum_{\\mathbf{r}\\in\\mathcal{R}}\\sum_{l}\\|\\hat{\\mathbf{Q}}_{l}( r)-q^{r}(l)\\|, \\tag{3}\\]\n' +
+      '\n' +
+      'where \\(\\mathcal{R}\\) are sampled rays, \\(q^{r}(l)\\) are the extracted queries corresponding to ray \\(r\\) and layer \\(l\\). \\(\\hat{\\mathbf{Q}}_{l}(r)\\) is defined as in Equation 1, where we replace RGB value, \\(c\\), with a self-attention query. Additionally, we use the depth-loss \\(\\mathcal{L}_{\\text{depth}}\\) proposed by Deng et al. [14], and our final loss for training the QNeRF is written as \\(\\mathcal{L}=\\mathcal{L}_{q}+\\mathcal{L}_{\\text{depth}}\\).\n' +
+      '\n' +
+      'Once trained, we can use the QNeRF to render consolidated queries to guide the denoising process. We do so using the standard volumetric rendering technique [37, 39]. Finally, since we do not expect the geometry to significantly change between intervals, we initialize each QNeRF from the one trained at the prior interval.\n' +
+      '\n' +
+      '### Query Guidance\n' +
+      '\n' +
+      'With the QNeRF in hand, we wish to use consolidated queries produced by it to guide the denoising process. Consider the editing process of a specific frame with a given camera viewpoint. The direct way to use our QNeRF would be to render the queries for this particular viewpoint, and use them to replace the queries naturally created by the UNet during the denoising steps. However, in our initial experiments, we observed that such direct replacement can lead to visual artifacts in the edited frames. Instead, we\n' +
+      '\n' +
+      'Figure 5: The architecture of QNeRF. Nine heads are attached to the base network, to produce queries corresponding to nine self-attention layers of the diffusion model. Each group of heads corresponds to a self-attention layer of a certain resolution, and the number displayed above the arrow represents the number of channels in that group (1280, 640, 320).\n' +
+      '\n' +
+      'propose a "soft-guidance" mechanism inspired by previous works [12, 15, 16, 42]. At each query-guided denoising step, we first do a single forward pass through the UNet and extract all the naturally generated queries. We then perform a single optimization step on the input latents themselves, with the goal of minimizing the distance between these generated queries and the ones rendered from the QNeRF. Formally, the query guidance is defined as:\n' +
+      '\n' +
+      '\\[z_{t}^{v}\\gets z_{t}^{v}-\\alpha\\nabla_{z_{t}^{v}}\\sum_{l}\\|q^{v}(l)-q_{ \\text{ren}}^{v}(l)\\|^{2}, \\tag{4}\\]\n' +
+      '\n' +
+      'where \\(z_{t}^{v}\\) is the noisy latent code corresponding to viewpoint \\(v\\) at timestep \\(t\\), and \\(q^{v}(l),q_{\\text{ren}}^{v}(l)\\) are the generated and rendered self-attention queries of layer \\(l\\), respectively. After this update step, a DDIM [49] denoising step is applied to obtain \\(z_{t-1}^{v}\\).\n' +
+      '\n' +
+      '### Multi-view Image Denoising Interval\n' +
+      '\n' +
+      'As previously noted, rather than training a QNeRF for every denoising step, we employ an interval-based approach. The structure of each interval is motivated by two observations. On the one hand, it has been observed that in a standard denoising process, the internal UNet features of adjacent denoising timesteps are similar [35], to the extent that their computation can often be skipped and reused. Hence, we expect that guiding several adjacent timesteps with the same query features should not degrade the quality of the results. On the other hand, if we continue to reuse the same queries over an extended number of timesteps, we leave no room for the gradual change that does occur in the diffusion features. In an extreme case, using the same query-guidance for all timesteps would lead to the same queries being used across the entire diffusion path. Ideally, our mechanism should allow the queries to evolve freely along the denoising process.\n' +
+      '\n' +
+      'We thus propose an interleaved process, which breaks image generation into several overlapping intervals. Consider one such interval (illustrated in Figure 6), starting at diffusion timestep \\(T_{i}\\) and spanning \\(2\\tau\\) steps. We begin the interval by taking \\(\\tau\\) QNeRF-guided steps, using a QNeRF obtained from the end of the previous interval. We store the noisy latents obtained at this point (\\(T_{i}-\\tau\\)) for future use. Following these \\(\\tau\\) steps, we take another \\(\\tau\\) steps where we perform vanilla MasaCtrl editing, without any query guidance. These steps thus allow the queries to evolve freely, matching the more advanced step. At the end of these unguided steps, we extract the updated query features, and use them to optimize a new QNeRF. Finally, we retrieve the latents stored at \\(T_{i}-\\tau\\) and begin a new interval starting from this point, using the updated QNeRF for guidance.\n' +
+      '\n' +
+      'In the special case of the first interval, we do not have a QNeRF at hand. Hence, we perform unguided-editing for \\(2\\tau\\) steps (_i.e._, until \\(T-2\\tau\\)), train a QNeRF from features extracted at this step, and begin the next interval at \\(T-\\tau\\).\n' +
+      '\n' +
+      '### Progressive Consolidation\n' +
+      '\n' +
+      'The consolidation of the queries along the denoising process is done progressively, by training the QNeRF on-the-fly during intermediate steps of the generation. Specifically, the queries used to train the QNeRF at each interval, are affected by the consolidated queries rendered from the prior\n' +
+      '\n' +
+      'Figure 6: In each multi-view denoising interval we have query-guided steps, followed by steps without guidance. In query-guided steps, we alter the noisy latent code with an objective of proximity between the self-attention queries generated by the latent code, and queries rendered from the QNeRF. At the last step of the interval, we extract the generated queries and use them to train the QNeRF that provides guidance for the next interval. Query guidance consolidates the geometry across the different views. In addition, we inject the keys and values of self-attention layers from the original images to preserve the appearance.\n' +
+      '\n' +
+      'interval\'s QNeRF. By combining this approach with the scheduling within each interval, we provide the model with room to freely develop the queries, while ensuring that any injected queries are still the result of consolidated queries formed at the end of the previous interval. Crucially, this prevents the queries from drifting apart too far before they are re-consolidated. To grasp the effectiveness of this progressive process, consider the analogy to a zipper mechanism, as illustrated in Figure 7.\n' +
+      '\n' +
+      '## 5 Experiments\n' +
+      '\n' +
+      'Next, we evaluate our method qualitatively and quantitatively, and compare it to other baseline methods. We show results on \\(7\\) multi-view image sets, of \\(200\\)-\\(500\\) images each. Of these, \\(3\\) sets are used for comparisons. See Appendix B for additional dataset details.\n' +
+      '\n' +
+      '### Ablation Studies\n' +
+      '\n' +
+      'We begin with a study of the importance of the main components of our method. We consider the following configurations: (i) Independently editing the images with MasaCtrl [8], (ii) directly injecting the rendered queries instead of our soft-injection mechanism, and (iii) using a non-progressive consolidation process. There, we first edit all the images independently using MasaCtrl and cache their self-attention queries along different timesteps. We then train QNeRFs on these queries, and finally re-create the edits with soft Q-injections. Qualitative results are presented in Figure 8. As can be seen, independent image editing (second row) leads to inconsistent results. For example, the subject\'s feet are located in different positions with respect to the wooden deck (second column compared to third column). Additionally, the legs differ in their shapes (rightmost column) and the height of the deck varies between the images. Directly injecting the rendered queries (third row) makes the images consistent, but they diverge too much from the original images, cutting the legs and increasing the height of the deck. Training the QNeRFs with a non-progressive approach (fourth row) can lead to more artifacts, such as the missing leg in the fourth column. In the last row, the legs are consistently positioned, and their shape does not vary between different images. Additionally, the shape of the deck remains as in the original images.\n' +
+      '\n' +
+      '### Comparisons\n' +
+      '\n' +
+      'Next, we compare our method to prior art that tackles the multi-image editing problem. Specifically, we compare to three methods that take different approaches to the multi-image consistency problem: First, we compare with InstructNeRF2NeRF (IN2N) [20], a dataset update technique that first trains a NeRF on the data, then modifies it by iteratively rendering new images to replace existing dataset pictures, editing them, and training on them to better align the NeRF with the edits. Second, we compare with CSD [31] which performs a collaborative score distillation sampling (SDS) process that better aligns the SDS gradients across a large subset of images. We follow the authors and integrate CSD with IN2N, where the image-editing step itself is replaced with a CSD-based multi-view editing step. Finally, we compare with TokenFlow [19], a recent text-based video editing method that improves cross-frame consistency\n' +
+      '\n' +
+      'Figure 8: Ablation study results. Our full method creates more consistent images, while accurately preserving the original scene.\n' +
+      '\n' +
+      'Figure 7: Our progressive denoising process is analogous to a zipper mechanism. Each step of a zipper relies on the closure of all preceding parts, and benefits from the fact that they got closer together. The dotted red curves (left) illustrate the queries generated along the diffusion process of two views. The zipper represents the QNeRF that consolidates the red dots, and projects them to form the orange dots (left) which sit along closer trajectories. After a few steps, we repeat this process with the orange and green curves (right), progressively consolidating the generated queries.\n' +
+      '\n' +
+      'through a flow-based approach. Here, we concatenate the initial image set into a single video which we then edit.\n' +
+      '\n' +
+      'The above methods originally rely on text as an interface for editing. We integrate them with ControlNet [59], allowing us to specify the target edit with spatial control. Specifically, in IN2N and CSD, we replace the InstructPix2Pix editor with MasaCtrl [8]. We denote these versions of the methods by IN2N-CN and CSD-CN, respectively. For TokenFlow, we make use of their ControlNet version. Notably, TokenFlow builds its flow according to patch-similarity in the original video, which would not match the changed geometry in our case. We find that performance significantly improves when the flow is grounded in the inconsistent, frame-by-frame MasaCtrl images (rather than unedited images), and so compare with this variation of the model.\n' +
+      '\n' +
+      'Finally, the outputs of CSD and IN2N are NeRFs. Hence, for a fair comparison with TokenFlow and our method, we simply train a NeRF on the outputs of TokenFlow and our method. Training a NeRF on their outputs further allows us to compare the geometry between the different methods, by observing the depth of the NeRF.\n' +
+      '\n' +
+      'Rendered images of all methods are presented in Figure 9. In both IN2N and CSD, the model relies on partial dataset updates - _i.e._, there exists an implicit assumption that the target edit can be performed gradually, and that averaging over the partially-edited views will lead to a consistent NeRF. While this assumption holds for appearance edits, it does not hold for shape changes such as articulations. For example, moving the arms of a person in part of the dataset, eventually leads to a NeRF where partial arms are located in both the source and target locations. Now, the subject has \\(4\\) arms, and the baseline editing method struggles to recover. Indeed, such ghostly-limb artifacts can be seen in both methods. For example, in the last row in Figure 9, the original arms can be seen in both the RGB and depth images of CSD. For IN2N, the original arms can be seen in the depth image, and the new right arm has noisy geometry. Coupling CSD with MasaCtrl also leads to significant increases in computation times, as it requires running thousands of DDIM [49] inversions for every dataset update step. In one extreme case (the alligator-toy scene, containing \\(491\\) images), the method failed to update enough images to change the NeRF, even after a full week of training on an H100 GPU. We omit this instance from the automated evaluations. TokenFlow edits all images without a-priori averaging through a NeRF. Hence, it better aligns with the desired shape and avoids the ghostly-limb artifacts. However, geometric edits still violate its flow-consistency assumptions, leading to visual artifacts. Moreover, its feature injection approach struggles to match MasaCtrl\'s in faithfulness to the original frames.\n' +
+      '\n' +
+      'Our approach successfully overcomes the artifacts that arise with gradual dataset updates over an existing NeRF, while still retaining high similarity to the original frame.\n' +
+      '\n' +
+      'More qualitative results of our method are shown in Figures 10, 11. Additionally, we provide a supplemental video where we show the NeRFs trained on our edited images.\n' +
+      '\n' +
+      'Next, we evaluate our method quantitatively. Our evaluations were conducted over the "statue", "person" and "alligator-toy" scenes (shown in Figures 8, 9). Since we do not have access to ground-truth images or detailed geometry matching the edits, we opt for measuring quality in two ways: (1) Output image quality, as measured by the Kernel Inception Distance (KID) [5] between edited results and the original images. (2) Quality of final 3D representation, as measured through a user study.\n' +
+      '\n' +
+      'To evaluate image quality, for each scene and edit, we calculate the KID between the outputs of each method and the original scene images. We report the average score across all edits. KID is related to the Frechet Inception Distance (FID) [23], but is designed to be more indicative with small (fewer than \\(50,000\\) image) datasets. For completeness, we also report FID. The results are provided in Table 1. In all scenarios, our method achieves improved visual fidelity, indicating that it remains more faithful to the original scene, with fewer visual artifacts when compared to the baselines.\n' +
+      '\n' +
+      'To evaluate the quality of the 3D representation, we conducted a user study where we showed technical users a video of the depth maps extracted from the NeRFs trained for each method. We then asked the users to rank the videos by their alignment with the target pose, and by their quality. The depth maps of competing methods commonly contain holes and clouds created by the NeRF to circumvent inconsistent geometry across the views, hence we expect them to score lower among users. We collected \\(120\\) responses from \\(20\\) unique users. In Table 1 we report the average rank and winrate for each method, averaged over all scenes and edits.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c} \\hline \\hline Metric & IN2N-CN & CSD-CN & TokenFlow & Ours \\\\ \\hline KID (\\(\\downarrow\\)) & 0.280 & 0.090 & 0.440 & **0.072** \\\\ FID (\\(\\downarrow\\)) & 201 & 87 & 295 & **73** \\\\ \\hline User Study Rank (\\(\\downarrow\\)) & 2.26 & 2.12 & 3.70 & **1.90** \\\\ User Study Win-rate (\\(\\uparrow\\)) & 14.16\\% & 34.16\\% & 0.83\\% & **50.83\\%** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 1: Quantitative evaluation metrics. Our method outperforms the baselines both in terms of fidelity, and user-preference.\n' +
+      '\n' +
+      'Our method was preferred to the baselines in a majority of cases, indicating that the 3D representations extracted from our images were better aligned with the desired edit and of higher visual quality.\n' +
+      '\n' +
+      '## 6 Conclusions, Limitations, and Future work\n' +
+      '\n' +
+      'We presented a technique to consolidate the results of multi-view editing. We introduce QNeRF as a means to progressively consolidate the attention features of the images throughout the editing process. Our approach is generic, making it applicable to various diffusion-based editing techniques where the image layouts are modified. Here, we demonstrated our approach with two types of controls: articulations, and rough bounding boxes. These conditions are intentionally lenient, offering ease of control.\n' +
+      '\n' +
+      'Our work is based on the generative power of text-to-image models. However, it also inherits their common weaknesses. For example, the model struggles to generate human hands. Similarly, the model may still hallucinate fine details. In our work, we focused on consolidating the shape, however, in highly detailed objects, these fine details are not consistent despite the shared underlying shape. Similar hallucinations can be noticed in detailed background regions which are dis-occluded by the geometric manipulation. These inconsistencies can lead to blurry regions when training a NeRF on the edited multi-view images. See the supplementary for examples.\n' +
+      '\n' +
+      'In our work, we optimize the QNeRF with a black-box optimizer. This may cause it to "average" over outliers, even when it could be more beneficial to filter them out by applying robust statistics techniques. Additionally, we envision exploring alternative means for consolidating features, including the utilization of other three-dimensional representations like Gaussian Splats [28].\n' +
+      '\n' +
+      '## Acknowledgement\n' +
+      '\n' +
+      'We thank Gaurav Parmar, Maxwell Jones, Guy Tevet, Kangle Deng, and Or Perel for their early feedback and fruitful discussion. We also thank Kfir Aherman, Yuval Alaluf, Ruihan Gao, Songwei Ge, Oren Katzir, Sean Liu, Sigal Raab, and Guy Tevet for proofreading our manuscript and for their useful suggestions. This project is partly supported by Packard Fellowship, the Sony Corporation, and Cisco Research.\n' +
+      '\n' +
+      'Figure 9: Qualitative comparison of our approach with baseline methods. Techniques relying on “dataset update”, such as IN2N-CN and CSD-CN, struggle to alter the geometry. This can be seen in the noisy depth of the statue’s right arm when using IN2N-CN, and the ghostly right arm of the statue with CSD-CN. TokenFlow struggles to preserve the appearance of the original image, and tends to produce noisy geometry, suggesting a lack of consistency between the edited frames. Our method preserves the appearance of the original images while changing the geometry consistently.\n' +
+      '\n' +
+      'Figure 10: Qualitative results of our method. Here we edit the images with a skeleton and show a sample of three different views for each example.\n' +
+      '\n' +
+      'Figure 11: Qualitative results of our method. Here we edit the images with a loose depth map [4], and show a sample of three different views for each example.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* [1] Yuval Alaluf, Daniel Garibi, Or Patashnik, Hadar Averbuch-Elor, and Daniel Cohen-Or. Cross-image attention for zero-shot appearance transfer, 2023.\n' +
+      '* [2] Chong Bao, Yinda Zhang, Banghang Yang, Tianxing Fan, Zesong Yang, Hujun Bao, Guofeng Zhang, and Zhaopeng Cui. Sine: Semantic-driven image-based nerf editing with prior-guided editing field. In _The IEEE/CVF Computer Vision and Pattern Recognition Conference (CVPR)_, 2023.\n' +
+      '* [3] Bao and Yang, Zeng Junyi, Bao Hujun, Zhang Yinda, Cui Zhaopeng, and Zhang Guofeng. Neumesh: Learning disentangled neural mesh-based implicit field for geometry and texture editing. In _European Conference on Computer Vision (ECCV)_, 2022.\n' +
+      '* [4] Shariq Farooq Bhat, Niloy J. Mitra, and Peter Wonka. Loosecontrol: Lifting contronlnet for generalized depth conditioning, 2023.\n' +
+      '* [5] Mikolaj Binkowski, Danica J Sutherland, Michael Arbel, and Arthur Gretton. Demystifying mmd gans. In _International Conference on Learning Representations_, 2018.\n' +
+      '* [6] Manuel Brack, Felix Friedrich, Dominik Hintersdorf, Lukas Struppek, Patrick Schramowski, and Kristian Kersting. Sega: Instructing text-to-image models using semantic guidance, 2023.\n' +
+      '* [7] Tim Brooks, Aleksander Holynski, and Alexei A Efros. Instructpix2pix: Learning to follow image editing instructions. _arXiv preprint arXiv:2211.09800_, 2022.\n' +
+      '* [8] Mingdeng Cao, Xintao Wang, Zhongang Qi, Ying Shan, Xiaohu Qie, and Yinqiang Zheng. Masactrl: Tuning-free mutual self-attention control for consistent image synthesis and editing, 2023.\n' +
+      '* [9] Tianshi Cao, Karsten Kreis, Sanja Fidler, Nicholas Sharp, and KangXue Yin. Texfusion: Synthesizing 3d textures with text-guided image diffusion models. In _Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)_, 2023.\n' +
+      '* [10] Z. Cao, G. Hidalgo Martinez, T. Simon, S. Wei, and Y. A. Sheikh. Openpose: Realtime multi-person 2d pose estimation using part affinity fields. _IEEE Transactions on Pattern Analysis and Machine Intelligence_, 2019.\n' +
+      '* [11] Eric R. Chan, Connor Z. Lin, Matthew A. Chan, Koki Nagano, Boxiao Pan, Shalini De Mello, Orazio Gallo, Leonidas Guibas, Jonathan Tremblay, Sameh Khamis, Tero Karras, and Gordon Wetzstein. Efficient geometry-aware 3D generative adversarial networks. In _arXiv_, 2021.\n' +
+      '* [12] Hila Chefer, Yuval Alaluf, Yael Vinker, Lior Wolf, and Daniel Cohen-Or. Attend-and-excite: Attention-based semantic guidance for text-to-image diffusion models, 2023.\n' +
+      '* a 3D modelling and rendering package_. Blender Foundation, Stichting Blender Foundation, Amsterdam, 2018.\n' +
+      '* [14] Kangle Deng, Andrew Liu, Jun-Yan Zhu, and Deva Ramanan. Depth-supervised NeRF: Fewer views and faster training for free. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_, 2022.\n' +
+      '* [15] Prafulla Dhariwal and Alexander Nichol. Diffusion models beat gans on image synthesis. _Advances in neural information processing systems_, 34:8780-8794, 2021.\n' +
+      '* [16] Dave Epstein, Allan Jabri, Ben Poole, Alexei A. Efros, and Aleksander Holynski. Diffusion self-guidance for controllable image generation. 2023.\n' +
+      '* [17] Yutao Feng, Yintong Shang, Xuan Li, Tianjia Shao, Chenfanfu Jiang, and Yin Yang. Pie-nerf: Physics-based interactive elastodynamics with nerf, 2023.\n' +
+      '* [18] Songwei Ge, Taesung Park, Jun-Yan Zhu, and Jia-Bin Huang. Expressive text-to-image generation with rich text. In _IEEE International Conference on Computer Vision (ICCV)_, 2023.\n' +
+      '* [19] Michal Geyer, Omer Bar-Tal, Shai Bagon, and Tali Dekel. Tokenflow: Consistent diffusion features for consistent video editing. _arXiv preprint arxiv:2307.10373_, 2023.\n' +
+      '* [20] Ayaan Haque, Matthew Tancik, Alexei Efros, Aleksander Holynski, and Angjoo Kanazawa. Instruct-nerf2nerf: Editing 3d scenes with instructions. In _Proceedings of the IEEE/CVF International Conference on Computer Vision_, 2023.\n' +
+      '* [21] Amir Hertz, Ron Mokady, Jay Tenenbaum, Kfir Aherman, Yael Pritch, and Daniel Cohen-Or. Prompt-to-prompt image editing with cross attention control. 2022.\n' +
+      '* [22] Amir Hertz, Andrey Voynov, Shlomi Fruchter, and Daniel Cohen-Or. Style aligned image generation via shared attention. 2023.\n' +
+      '* [23] Martin Heusel, Hubert Ramsauer, Thomas Unterthiner, Bernhard Nessler, and Sepp Hochreiter. Gans trained by a two time-scale update rule converge to a local nash equilibrium. _Advances in neural information processing systems_, 30, 2017.\n' +
+      '* [24] Edward J Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, and Weizhu Chen. LoRA: Low-rank adaptation of large language models. In _International Conference on Learning Representations_, 2022.\n' +
+      '* [25] Inbar Huberman-Spiegelglas, Vladimir Kulikov, and Tomer Michaeli. An edit friendly ddpm noise space: Inversion and manipulations, 2023.\n' +
+      '* [26] Roy Kapon, Guy Tevet, Daniel Cohen-Or, and Amit H. Bermano. Mas: Multi-view ancestral sampling for 3d motion generation using 2d diffusion, 2023.\n' +
+      '* [27] Bahjat Kawar, Shiran Zada, Oran Lang, Omer Tov, Huiwen Chang, Tali Dekel, Inbar Mosseri, and Michal Irani. Imagic: Text-based real image editing with diffusion models. In _Conference on Computer Vision and Pattern Recognition 2023_, 2023.\n' +
+      '* [28] Bernhard Kerbl, Georgios Kopanas, Thomas Leimkuhler, and George Drettakis. 3d gaussian splatting for real-time radiance field rendering. _ACM Transactions on Graphics_, 42(4), 2023.\n' +
+      '* [29] Justin Kerr, Chung Min Kim, Ken Goldberg, Angjoo Kanazawa, and Matthew Tancik. Lerf: Language embedded radiance fields. In _International Conference on Computer Vision (ICCV)_, 2023.\n' +
+      '\n' +
+      '* [30] Umar Khalid, Hasan Iqbal, Nazmul Karim, Jing Hua, and Chen Chen. Latenteditor: Text driven local editing of 3d scenes, 2023.\n' +
+      '* [31] Subin Kim, Kyungmin Lee, June Suk Choi, Jongheon Jeong, Kihyuk Sohn, and Jinwoo Shin. Collaborative score distillation for consistent visual synthesis, 2023.\n' +
+      '* [32] Alexander Kirillov, Eric Mintun, Nikhila Ravi, Hanzi Mao, Chloe Rolland, Laura Gustafson, Tete Xiao, Spencer Whitehead, Alexander C. Berg, Wan-Yen Lo, Piotr Dollar, and Ross Girshick. Segment anything. _arXiv:2304.02643_, 2023.\n' +
+      '* [33] Sosuke Kobayashi, Eiichi Matsumoto, and Vincent Sitzmann. Decomposing nerf for editing via feature field distillation. In _Advances in Neural Information Processing Systems_, 2022.\n' +
+      '* [34] Juil Koo, Chanho Park, and Minhyuk Sung. Posterior distillation sampling. _arXiv preprint arXiv:2311.13831_, 2023.\n' +
+      '* [35] Senmao Li, Taihang Hu, Fahad Shahbaz Khan, Linxuan Li, Shiqi Yang, Yaxing Wang, Ming-Ming Cheng, and Jian Yang. Faster diffusion: Rethinking the role of unet encoder in diffusion models, 2023.\n' +
+      '* [36] Steven Liu, Xiuming Zhang, Zhoutong Zhang, Richard Zhang, Jun-Yan Zhu, and Bryan Russell. Editing conditional radiance fields. In _Proceedings of the International Conference on Computer Vision (ICCV)_, 2021.\n' +
+      '* [37] Nelson Max. Optical models for direct volume rendering. _IEEE Transactions on Visualization and Computer Graphics_, 1(2):99-108, 1995.\n' +
+      '* [38] Chenlin Meng, Yutong He, Yang Song, Jiqjun Wu, Jun-Yan Zhu, and Stefano Ermon. SDEdit: Guided image synthesis and editing with stochastic differential equations. In _International Conference on Learning Representations_, 2022.\n' +
+      '* [39] Ben Mildenhall, Pratul P. Srinivasan, Matthew Tancik, Jonathan T. Barron, Ravi Ramamoorthi, and Ren Ng. Nerf: Representing scenes as neural radiance fields for view synthesis. In _ECCV_, 2020.\n' +
+      '* [40] Thomas Muller, Alex Evans, Christoph Schied, and Alexander Keller. Instant neural graphics primitives with a multiresolution hash encoding. _ACM Trans. Graph._, 41(4):102:1-102:15, 2022.\n' +
+      '* [41] Michael Niemeyer and Andreas Geiger. Giraffe: Representing scenes as compositional generative neural feature fields. In _Proc. IEEE Conf. on Computer Vision and Pattern Recognition (CVPR)_, 2021.\n' +
+      '* [42] Gaurav Parmar, Krishna Kumar Singh, Richard Zhang, Yijun Li, Jingwan Lu, and Jun-Yan Zhu. Zero-shot image-to-image translation. In _Special Interest Group on Computer Graphics and Interactive Techniques Conference Conference Proceedings_. ACM, 2023.\n' +
+      '* [43] Or Patashnik, Daniel Garibi, Idan Azuri, Hadar Averbuch-Elor, and Daniel Cohen-Or. Localizing object-level shape variations with text-to-image diffusion models. In _Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)_, 2023.\n' +
+      '* [44] Elad Richardson, Gal Metzer, Yuval Alaluf, Raja Giryes, and Daniel Cohen-Or. Texture: Text-guided texturing of 3d shapes. In _Special Interest Group on Computer Graphics and Interactive Techniques Conference Conference Proceedings_. ACM, 2023.\n' +
+      '* [45] Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Bjorn Ommer. High-resolution image synthesis with latent diffusion models, 2021.\n' +
+      '* [46] Olaf Ronneberger, Philipp Fischer, and Thomas Brox. U-net: Convolutional networks for biomedical image segmentation. In _Medical Image Computing and Computer-Assisted Intervention-MICCAI 2015: 18th International Conference, Munich, Germany, October 5-9, 2015, Proceedings, Part III 18_, pages 234-241. Springer, 2015.\n' +
+      '* [47] Etai Sella, Gal Fiebelman, Peter Hedman, and Hadar Averbuch-Elor. Vox-e: Text-guided voxel editing of 3d objects, 2023.\n' +
+      '* [48] Ka Chun Shum, Jaeyeon Kim, Binh-Son Hua, Duc Thanh Nguyen, and Sai-Kit Yeung. Language-driven object fusion into neural radiance fields with pose-conditioned dataset updates, 2023.\n' +
+      '* [49] Jiaming Song, Chenlin Meng, and Stefano Ermon. Denoising diffusion implicit models. In _International Conference on Learning Representations_, 2021.\n' +
+      '* [50] Liangchen Song, Liangliang Cao, Jiatao Gu, Yifan Jiang, Junsong Yuan, and Hao Tang. Efficient-nerf2nerf: Streamlining text-driven 3d editing with multiview correspondence-enhanced diffusion models. _arXiv preprint arXiv:2312.08563_, 2023.\n' +
+      '* [51] Matthew Tancik, Ethan Weber, Evonne Ng, Ruilong Li, Brent Yi, Terrance Wang, Alexander Kristoffersen, Jake Austin, Kamyar Salahahi, Abhik Ahuja, David Mcallister, Justin Kerr, and Angjoo Kanazawa. Nerfsudio: A modular framework for neural radiance field development. In _Special Interest Group on Computer Graphics and Interactive Techniques Conference Conference Proceedings_. ACM, 2023.\n' +
+      '* [52] Vadim Tschernezki, Iro Laina, Diane Larlus, and Andrea Vedaldi. Neural Feature Fusion Fields: 3D distillation of self-supervised 2D image representations. In _Proceedings of the International Conference on 3D Vision (3DV)_, 2022.\n' +
+      '* [53] Narek Tumanyan, Michal Geyer, Shai Bagon, and Tali Dekel. Plug-and-play diffusion features for text-driven image-to-image translation. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_, pages 1921-1930, 2023.\n' +
+      '* [54] Can Wang, Menglei Chai, Mingming He, Dongdong Chen, and Jing Liao. Clip-nerf: Text-and-image driven manipulation of neural radiance fields. In _2022 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_. IEEE, 2022.\n' +
+      '* [55] Can Wang, Ruixiang Jiang, Menglei Chai, Mingming He, Dongdong Chen, and Jing Liao. Nerf-art: Text-driven neural radiance fields stylization. _arXiv preprint arXiv:2212.08070_, 2022.\n' +
+      '* [56] Rundi Wu, Ben Mildenhall, Philipp Henzler, Keunhong Park, Ruiqi Gao, Daniel Watson, Pratul P. Srinivasan, Dor Verbin, Jonathan T. Barron, Ben Poole, and Aleksander Holynski. Reconfusion: 3d reconstruction with diffusion priors. _arXiv_, 2023.\n' +
+      '\n' +
+      '* [57] Tianhan Xu and Tatsuya Harada. Deforming radiance fields with cages. In _ECCV_, 2022.\n' +
+      '* [58] Yu-Jie Yuan, Yang-Tian Sun, Yu-Kun Lai, Yuewen Ma, Rongfei Jia, and Lin Gao. Nerf-editing: geometry editing of neural radiance fields. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 18353-18364, 2022.\n' +
+      '* [59] Lvmin Zhang, Anyi Rao, and Maneesh Agrawala. Adding conditional control to text-to-image diffusion models, 2023.\n' +
+      '* [60] Jingyu Zhuang, Chen Wang, Lingjie Liu, Liang Lin, and Guanbin Li. Dreameditor: Text-driven 3d scene editing with neural fields. _arXiv preprint arXiv:2306.13455_, 2023.\n' +
+      '\n' +
+      '## Appendix A Implementation Details\n' +
+      '\n' +
+      'Skeleton EditingGiven a set of multi-view images of a scene, we begin by extracting the 2D pose using OpenPose [10]. Then, we triangulate the keypoints to obtain a 3D skeleton depicting the subject in the scene which can then be edited (_e.g_., in Blender [13]). We obtain the edited 2D skeletons by projecting the edited 3D skeleton using the camera viewpoints of the original images.\n' +
+      '\n' +
+      'Loose Depth EditingFor the examples shown in the paper, we manually modeled the scene using boxes and planes in Blender [13], which took a couple of minutes per scene. This process can be automated with the data processing pipeline of LooseControl [4]. After editing the modeled scene, we rendered the its depth using Blender [13] with the camera viewpoints of the original images.\n' +
+      '\n' +
+      'Original Images PreservationAs mentioned earlier, we preserve the appearance of the original images by injecting keys and values of self-attention layers, as done in MasaCtrl [8]. Specifically, following MasaCtrl, we perform this injection from the fourth denoising step, in the decoder layers of resolutions \\(32\\) and \\(64\\). In addition to this injection, we perform a slight LoRA fine-tune [24] of the model on the input images. The model is fine-tuned with a batch size of 2, for 300 steps. For fairness, we use the same fine-tuned model for all baselines.\n' +
+      '\n' +
+      'Depth Supervision For QNeRFSince we edit only the main subject in the image, the depth around this object should remain as in the original images. We assume that the depth of the queries is the same as the corresponding image. Therefore, we train a NeRF on the original set of multi-view images and render its depth. Then, we mask these depth images using a rough mask of the union of the object before and after the edit [32]. We use the depth loss term introduced in DS-NeRF [14].\n' +
+      '\n' +
+      'HyperparametersWe use Stable Diffusion v1.5 [45] and perform 50 steps of denoising. At the end of each interval, the QNeRF is trained for 10,000 steps with a depth-loss coefficient 1. For the query guidance, we set \\(\\alpha=60\\) in Equation 4 in the main paper.\n' +
+      '\n' +
+      '## Appendix B Datasets Details\n' +
+      '\n' +
+      'The person dataset is from Instruct-NeRF2NeRF. Besides it, all the other datasets were collected by us, using a simple phone camera. Below are the sizes of each of the datasets.\n' +
+      '\n' +
+      '## Appendix C Experiments\n' +
+      '\n' +
+      '### Comparisons\n' +
+      '\n' +
+      'For completeness, we compare our method with the vanilla Instruct-NeRF2NeRF method, using text as an interface for editing. We observe that the NeRF remains as the original one, even when we try different prompts and hyperparameters. Results for the prompt "raise his hands" are shown in Figure 12.\n' +
+      '\n' +
+      '### Dataset Size Analysis\n' +
+      '\n' +
+      'Our consolidation relies on the success of training the QNeRF. Hence, our method requires the same dataset size as the required size to train a NeRF. NeRFs are typically improved with the increase of number of images, and therefore the same applies for our method. It should be noted, that if the multi-view set size is enough to train a NeRF, then it is possible to increase the size of our input set by training a NeRF and rendering novel views.\n' +
+      '\n' +
+      'For completeness, we analyze the effect of increasing the input set size on our approach. Specifically, we apply our method for the lamp scene, with sets of sizes 50, 100, 150, 200, 250, 305. To create these sets, we randomly sample images from the original set. The results are shown in Figure 13. As can be seen in the results, even with a set of 50 images we are able to achieve much more consistent results compared to MasaCtrl [8] which edits each image in isolation. Our results are improved when increasing the dataset size, and are highly consistent with a set containing 200 images.\n' +
+      '\n' +
+      '## Appendix D Limitations\n' +
+      '\n' +
+      'As discussed in the paper, our method has several limitations. We demonstrate them in Figure 14.\n' +
+      '\n' +
+      'First, as can be seen in the two edited images of the person, his hand does not have fingers, and the palm is of low visual quality.\n' +
+      '\n' +
+      'The alligator toy is high-detailed, as can be seen by the texture of his different body parts (_e.g_., arms and face). Our method struggles to make all these fine details consistent, as can be seen in the number of fingers in the toy\'s feet. In the original image, the toy has four fingers in the right foot.\n' +
+      '\n' +
+      'Figure 12: Results of Instruct-NeRF2NeRF for the prompt “raise his hands”.\n' +
+      '\n' +
+      'While in the edited image of view 2 our method generates four fingers in this foot, it generates five fingers in view 1. This may be a resolution problem, as we ensure the consistency of the queries which are lower resolution from the generated image itself. In addition, it can be seen that the deck behind the toy looks different between the original and edited images.\n' +
+      '\n' +
+      '## Appendix E Running Time\n' +
+      '\n' +
+      'The running time of our method is linear in the number of images in the multi-view set. The typical running time of the entire pipeline for a dataset of 300 images is roughly 8.5 hours on an NVIDIA RTX A5000 GPU. This includes the time to invert the images, the denoising of the multi-view set, and the training of the QNeRFs along the process.\n' +
+      '\n' +
+      'In comparison, IN2N-CN [20, 59] takes roughly 5.5 hours on the same dataset and GPU. Note that IN2N-CN is slower than the vanilla IN2N, because MasaCtrl [8] requires DDIM inversion [49] in each dataset update iteration.\n' +
+      '\n' +
+      'CSD-CN [31] takes about three days on an NVIDIA H100 GPU with the same dataset.\n' +
+      '\n' +
+      'Figure 14: Demonstrating the limitations of our method.\n' +
+      '\n' +
+      'Figure 13: Evaluating our approach on a varying number of images in the dataset.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>

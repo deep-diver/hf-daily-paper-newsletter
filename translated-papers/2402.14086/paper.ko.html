@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# LexC-Gen: 극저자원 언어를 위한 데이터 생성\n' +
+      '\n' +
+      '대용량 언어 모델과 이중언어 어휘가 있는\n' +
+      '\n' +
+      '정신용({}^{1}\\) 크리스티나 멘기니({}^{2}\\) 스테판 H. 바흐({}^{1}\\)\n' +
+      '\n' +
+      '브라운대학교 컴퓨터과학과\n' +
+      '\n' +
+      '브라운대학교 데이터과학연구소\n' +
+      '\n' +
+      '{contact.yong,cristina_menghini,stephen_bach}@brown.edu\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      '저자원 언어의 데이터 부족은 이중 언어 어휘를 사용하여 고자원 언어의 라벨링된 작업 데이터에서 단어 대 단어 번역으로 해결할 수 있다. 그러나 이중언어 어휘는 작업 데이터와 어휘 중복이 제한되어 번역 범위와 어휘 활용률이 떨어지는 경우가 많다. 본 논문에서는 저자원 언어 분류 태스크 데이터를 스케일로 생성하는 방법인 LexC-Gen(Lexicon Conditioned Data Generation)을 제안한다. 구체적으로 LexC-Gen은 먼저 2개 국어 어휘의 높은 자원 언어 단어를 사용하여 어휘 호환 작업 데이터를 생성한 다음 단어 번역을 통해 2개 국어 어휘가 있는 낮은 자원 언어로 번역한다. 17개의 극히 낮은 자원 언어에서 LexC-Gen 생성 데이터는 전문가 번역 금 데이터와 경쟁적이며, 감성 분석 및 주제 분류 과제에 대한 기존 어휘 기반 단어 번역 방법에 비해 평균 5.6점 및 8.9점 개선되었다. 우리는 이중 언어 어휘에 대한 컨디셔닝이 LexC-Gen의 핵심 구성 요소임을 보여준다. LexC-Gen은 또한 실용적인데, 단지 하나의 GPU만 있으면 스케일에서 데이터를 생성할 수 있다. 오픈 액세스 LLM과 잘 작동하며, 그 비용은 GPT4 기반 다국어 데이터 생성 비용의 5분의 1이다.\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      '라벨링된 데이터는 _extremely low-resource languages_(Joshi et al., 2020)에 대해 사실상 존재하지 않으며, 이는 high-resource languages에 비해 NLP 진보에서 상당한 격차를 생성한다(Mabokela et al., 2022; Robinson et al., 2023; Bang et al., 2023; Yong et al., 2023; Ustun et al., 2024). 데이터 병목 현상을 극복하기 위한 하나의 해결책은 전세계 5000개 이상의 언어를 다루는 _bilingual lexicons_를 사용하는 것이다(Wang et al., 2022; Koto et al., 2024). 종종 언어 문서의 첫 번째 제품인 이중 언어 사전(미아라, 1993; 슈뢰더 및 웰튼, 1993; 크롤 및 마, 2017)은 한 언어에서 다른 언어로 번역된 단어까지 매핑하는 사전이다. 이중언어 어휘를 사용하면 단어 대체를 통해 레이블이 지정된 작업 데이터를 리소스 높은 언어에서 번역하여 리소스 낮은 언어의 데이터를 얻을 수 있다.\n' +
+      '\n' +
+      '이전 작업이 데이터를 증강하고 다운스트림 태스크 성능을 개선하는 데 있어 이중언어 어휘의 효과를 입증한 반면(Wang et al., 2022; Jones et al., 2023, inter alia), 우리는 종종 타겟 태스크에 대해 높은 리소스 언어로_-읽을 수 있는 라벨링된 데이터의 단어들이, 예를 들어, 감성 분석 또는 토픽 분류와 같이, 태스크-진단 이중언어 어휘의 단어들과 낮은 어휘 중복을 갖는다는 것을 관찰한다. 이 _data-lexicon mismatch_는 두 가지 문제를 생성한다: (1) 많은 고-리소스-언어 단어 토큰들이 번역되지 않은 채로 남아 있고 (2) 이중언어 어휘의 많은 단어들이, (1) 많은 고-리소스-언어 단어 토큰들을 포함할 수 있다.\n' +
+      '\n' +
+      '그림 1: 기존 작업 데이터와 이중언어 어휘 사이의 데이터-lexicon 불일치(즉, 낮은 어휘 중복)를 관찰한다(그림 0(a)). LexC-Gen은 어휘 중복을 최대화하여 문제를 해결한다. 생성된 데이터는 더 많은 번역된 단어(즉, 더 높은 단어 번역 커버리지)를 가지며, 이중 언어 어휘(즉, 더 높은 어휘 활용률)에서 더 많은 저자원 언어 단어를 커버한다(도 0(b)).\n' +
+      '\n' +
+      '다운스트림 작업에 대한 옵션이 번역된 데이터 세트에서 누락되었습니다.\n' +
+      '\n' +
+      '본 연구에서는 데이터-lexicon 불일치를 완화하고 매우 낮은 자원 언어에 대한 작업 훈련 데이터를 생성하기 위해 **lex**icon-**c**조건 데이터 **gen**eration 방법인 **LexC-Gen**,1을 소개한다. 구체적으로, LLM을 학습하여 이중언어 어휘의 단어들을 이용하여 고자원 언어 과제 데이터를 생성하므로 어휘와 어휘 중복도가 높다. 이는 더 나은 단어 번역 커버리지와 어휘 활용률을 초래한다(그림 1). 그런 다음 생성된 데이터를 이중 언어 어휘를 사용하여 저자원 언어로 번역한다. 또한 열악한 품질의 데이터를 필터링하기 위해 입력 라벨 일관성을 확인하는 품질 관리 방법을 제안한다.\n' +
+      '\n' +
+      '각주 1: Lek-see-jen으로 발음\n' +
+      '\n' +
+      '감성 분석 및 주제 분류 작업에 대해 17개의 극히 낮은 자원 언어에 걸쳐 **LexC-Gen**를 평가했다. LexC-Gen 생성 데이터에 대한 정밀 분류기는 단어 번역된 기존 학습 데이터에 비해 평균 5.6점과 8.9점의 정확도가 향상됨을 알 수 있었다 (Wang et al., 2022). 놀랍게도, LexC-Gen 단어 번역 데이터에 대한 미세조정은 원어민이나 전문 번역가가 큐레이션한 타겟 언어에서 _gold data_에 대한 미세조정의 성능과도 일치한다. 우리는 사전 조건이 **LexC-Gen**의 중요한 성공 요인임을 보여준다.\n' +
+      '\n' +
+      '**LexC-Gen**의 데이터 생성 과정은 비용 효율적이다. 특히, LexC-Gen을 대규모로 사용하여 데이터 생성을 완료하는 데 단일 V100 GPU와 36시간 미만이 소요되며, 구글 클라우드 서비스에서는 100달러 미만의 비용이 듭니다. 이는 다국어 데이터 생성을 위한 GPT4 기반 방법의 비용의 20%이다(Whitehouse et al., 2023).\n' +
+      '\n' +
+      '**LexC-Gen**는 BLOOMZ(Muennighoff et al., 2023)와 같은 허용 라이센스를 가진 LLM과도 잘 작동한다. 따라서, 생성된 언어 간 훈련 데이터는 이러한 데이터 부족 언어에 대한 다국어 NLP 진행에 도움이 되는 매우 낮은 자원 언어에 대한 추가 연구 및 시스템 구축을 위해 오픈 액세스가 가능하다.\n' +
+      '\n' +
+      '우리의 기여는 다음과 같이 요약할 수 있다:\n' +
+      '\n' +
+      '1. 본 논문에서는 저자원 언어 태스크 데이터를 생성하기 위해 이중언어 어휘에 LLM을 조건화하는 어휘 조건 생성 방법인 **LexC-Gen**를 제시한다.\n' +
+      '2. 워드-번역된 태스크 데이터에 대한 트레이닝이 극도로 낮은 리소스-언어에 대한 _gold data_에 대한 트레이닝과 일치할 수 있음을 입증한다.\n' +
+      '3. **LexC-Gen**에 대한 광범위한 절제 연구를 수행하였다. 우리는 생성된 태스크 데이터를 단순히 스케일링하는 것이 _insufficient_임을 보여준다. 과제 데이터와 이중언어 어휘 간의 어휘 중복을 극대화하기 위해서는 어휘-조건화가 필요하다.\n' +
+      '\n' +
+      '##2 관련 업무\n' +
+      '\n' +
+      'LLMs로 태스크 데이터를 생성하는** LLMs-powered 데이터 생성은 최소한의 인간 노동으로 다양한 태스크 데이터의 비용 효율적인 수집을 가능하게 하는 최근의 유망한 연구 분야이다(호노비치 등, 2023; Radharapu 등, 2023; Wang 등, 2023; Nayak 등, 2023; Yehudai 등, 2024). 그럼에도 불구하고, 이 작업 라인은 다국어 환경에서 미개척되어 왔다. Whitehouse et al. (2023)은 GPT-4가 생성한 중/고자원 언어에서 상식 추론 작업을 위한 다국어 학습 데이터가 교차 언어 성능을 향상시킬 수 있음을 입증하였다. 그러나, LLMs 및 번역 모델의 언어 커버리지는 어휘사전에 비해 상당히 작다(Wang et al., 2022; Bapna et al., 2022; Koto et al., 2024). 대신 LLM을 사용하여 이중 언어 사전과 어휘 중복을 최대화하는 작업 데이터를 생성합니다.\n' +
+      '\n' +
+      '그림 2: **LexC-Gen** 분류 작업에 대한 2개 국어 어휘와 클래스 세트가 주어지면, (1) 생성하고자 하는 많은 인스턴스에 대해 클래스 레이블과 2개 국어 어휘의 단어 세트를 무작위로 샘플링한다. (2) 이러한 쌍을 사용하여 CTG 훈련된 LLM(그림 3)을 쿼리하고 작업 데이터를 리소스 높은 언어로 생성하기 위한 프롬프트를 구축한다. (3) 생성된 데이터를 필터링하고 입력-라벨 일관성을 보장하기 위해 기존 태스크 데이터에 대한 태스크 분류기를 학습한다. (4) 필터링 후, 사전 작업(Wang et al., 2022)에 따라 2개 국어 어휘로 단어 대 단어 번역을 적용한다. 마지막으로 태스크 분류기를 미세화하는 데 사용되는 저자원 언어에 대한 합성 태스크 데이터를 얻는다.\n' +
+      '\n' +
+      '번역 및 합성 데이터는 매우 낮은 자원 언어에서 NLU 시맨틱 태스크 성능을 향상시킬 수 있음을 보여준다.\n' +
+      '\n' +
+      '**Lexicon-based cross-lingual data augmentation** Lexicon-based augmentation은 2개 국어 어휘의 사전 단어 번역과 함께 높은 자원 언어 데이터의 단어들을 스와핑함으로써 낮은 자원 언어에 대한 데이터를 생성한다. 이는 언어 적용 범위가 제한된 번역 모델/API로 쉽게 번역할 수 없는 저자원 언어에 유용하다. 이전 작업은 기계 번역 Streiter 및 Iomdin (2000); Ramesh 및 Sankaranarayanan (2018); Thompson et al. (2019); Kumar et al. (2022); Jones et al. (2023), 시퀀스 라벨링 Scherrer 및 Sagot (2013); Mayhew et al. (2017); Wang et al. (2022), 감성 분류 Rasooli et al. (2018); Ali et al. (2021); Mohammed and Prasad (2023), 토픽 분류 Song et al. (2019). 그러나, 저자원 언어에서 의미적 작업을 위한 많은 어휘 기반 데이터 증강 전략은 도메인 특정 어휘 Das 및 Bandyopadhyay (2010); Buechel et al. (2016); Ali et al. (2021); Mohammed and Prasad (2023); Koto et al. (2024); 그리고 성능 면에서 그들은 여전히 목표 저자원 언어 Rasooli et al. (2018); Koto et al. (2024)에서 수집된 금 트레이닝 데이터에 미치지 못한다. 본 논문에서 제안한 방법 **Lex**C-Gen은 도메인 진단 이중언어 사전과 함께 사용될 뿐만 아니라, 매우 낮은 자원 언어에 걸쳐 감성 분석 및 주제 분류 작업에 대한 골드 트레이닝 데이터로 경쟁적인 성능을 보여준다.\n' +
+      '\n' +
+      '## 3 LexC-Gen\n' +
+      '\n' +
+      '본 논문에서는 저자원 언어(Low-Resource Language)에서 분류 작업을 위한 데이터를 생성하는 것을 목표로 한다. (1) 고자원 언어(High-Resource Language)에서 (C) 클래스를 가진 (1) 레이블링 된 작업 데이터(\\(\\mathcal{T}_{H}\\), (2) 단어들을 \\(H\\)에서 \\(L\\)으로 매핑하는 이중언어 어휘(D_{H}^{L}\\), (3) 단어들을 지원하는 (H\\) LLM에 접근할 수 있다.\n' +
+      '\n' +
+      '**LexC-Gen**은 이러한 입력들을 사용하여 낮은 자원 언어로 라벨링된 태스크 데이터 \\(\\widetilde{\\mathcal{T}}_{L}\\)를 생성한다. 우리의 핵심 아이디어는 LLM이 이중언어 어휘와 더 높은 어휘 중복을 갖는 태스크 데이터를 생성하기 위해 이중언어 어휘에서 고자원 언어 단어를 사용하여 태스크 데이터를 생성하도록 촉구하는 것이다(그림 0(a)), 따라서 \\(L\\)으로 더 효과적으로 번역될 수 있다. 다음에서는 \\(\\widetilde{\\mathcal{T}}_{L}\\)을 구하는 단계를 설명한다. 가독성은 \\(D_{H}^{L}\\)을 \\(D\\)이라고 한다.\n' +
+      '\n' +
+      '### 샘플 어휘 단어 및 클래스 레이블\n' +
+      '\n' +
+      '먼저, 고자원 언어 단어들의 집합 \\(W_{H}\\)와 클래스 레이블 \\(c\\)을 무작위로 샘플링한다. 이것은 그림 2의 단계 (1)에 해당한다. 목표는 LLM이 가능한 한 \\(W_{H}\\)로부터 많은 단어들을 사용하여 클래스 \\(c\\)의 태스크 입력들을 생성하도록 프롬프트하는 것이다.\n' +
+      '\n' +
+      '### 제어 텍스트 생성(CTG)으로 학습된 LLM으로 데이터 생성\n' +
+      '\n' +
+      '다음으로, LLM이 이중언어 어휘에 조건화된 고자원 언어 과제 데이터\\(\\widetilde{\\mathcal{T}}_{H|D}\\)를 생성하도록 요청한다. 이것은 도 2에서의 단계 (2)이다. 그러나, BLOOMZ Muennighoff et al. (2023)과 같은 오픈-액세스 명령어-튜닝된 LLM들이 이러한 목적을 위해 미세조정되지 않기 때문에, 우리는 LLM Zhang et al. (2023); Zhou et al. (2023)의 제어된 텍스트 생성(CTG) 트레이닝을 수행하여 CTG-트레이닝된 LLM을 생성한다.\n' +
+      '\n' +
+      '**CTG Training** 기존의 task data \\(\\mathcal{T}_{H}\\)로부터 CTG training data를 구성한다. 각 인스턴스\\(t_{H}\\in\\mathcal{T}_{H}\\)는 텍스트\\(x_{H}\\)와 태스크 레이블\\(c\\)의 쌍으로 구성된다. 우리는 \\(x_{H}\\)부터 \\(W_{H}\\)을 생성하기 위해 \\(x_{H}\\)의 반복 없이 랜덤하게 일정한 수의 단어 토큰 \\(w_{H}\\)을 무작위로 샘플링한다. 그런 다음 그림 3의 프롬프트 템플릿을 사용하여 CTG 훈련 데이터를 포맷하여 LLM이 \\(c\\) 및 \\(W_{H}\\)에 조건화된 작업 입력 \\(\\tilde{x}_{H|c,W_{H}}\\)을 생성하도록 학습한다.\n' +
+      '\n' +
+      'CTG 훈련은 데이터 효율적입니다. 우리는 단 하나의 CTG 훈련 예제만 생성하는 것을 발견했다.\n' +
+      '\n' +
+      '도 3: **CTG(Controlled-Text Generation) 훈련. 이 그림은 CTG를 위한 LLM 미세 조정을 위한 파이프라인을 보여준다. 기존의 레이블링 된 태스크 데이터\\(\\mathcal{T}_{H}\\)부터 학습 데이터를 구성한다. 각 인스턴스 \\(t_{H}\\)로부터 단어 집합 \\(W_{H}\\)을 대체하지 않고 샘플링하여 클래스 \\(c\\)에 연관시킨다. 이 정보는 프롬프트 템플릿에 연결되며, \\(c\\) 및 \\(W_{H}\\)에 조건화된 문장을 생성하는 LLM을 미세화하는 데 사용된다.**\n' +
+      '\n' +
+      '각 \\(t_{H}\\in\\mathcal{T}_{H}\\)은 이미 모델을 지시-조정하기에 충분하다. 특히, CTG 훈련 데이터는 감정 분석 및 주제 분류 작업에 대해 각각 500개 및 701개의 인스턴스로 구성된다.\n' +
+      '\n' +
+      'CTG 훈련 후, LLM은 그림 3에서 템플릿을 재사용하도록 요청하지만, 지금은 섹션 3.1에서 무작위 작업 클래스 레이블이 있는 사전 단어를 사용한다. 이제 이중 언어 사전에서 조절된 스케일에서 합성 고자원 언어 작업 데이터\\(\\widetilde{\\mathcal{T}}_{H|D}\\)를 생성할 수 있다.\n' +
+      '\n' +
+      '### 입력-라벨 일관성 필터\n' +
+      '\n' +
+      '고품질 데이터를 보장하기 위해 데이터 생성 후 입력 레이블 일관성 필터를 적용하여 레이블링 오류로 인한 훈련 노이즈를 줄인다. 예를 들어, CTG 훈련된 LLM은 지정된 태스크 레이블 \\(c\\)이 입력 프롬프트에서 긍정적인 감성임에도 불구하고 부정적인 감성을 가진 문장을 생성할 수 있다(그림 3). 따라서 기존의 동일한 태스크 데이터(\\(\\mathcal{T}_{H}\\)에 대해 작은 분류기 mBERT를 세밀하게 조정한 후 다시 레이블링(\\widetilde{\\mathcal{T}_{H|L}\\)에 사용한다. 그런 다음 분류기의 예측이 생성된 입력 레이블 쌍과 일치하지 않는 모든 데이터 인스턴스를 필터링한다.\n' +
+      '\n' +
+      '이 시점(그림 2의 (3) 단계)에서, 우리는 \\(D\\)을 사용하여 더 나은 단어 대 단어 번역을 언어 \\(L\\)로 허용하는 언어 \\(H\\)의 고품질 어휘 호환 작업 데이터를 가지고 있다.\n' +
+      '\n' +
+      '### 저자원 언어로의 단어 대 단어 번역\n' +
+      '\n' +
+      '마지막으로, 선행 연구 Wang et al.(2022); Jones et al.(2023)의 절차에 따라 단어 대 단어 번역을 수행한다. 우리는 고자원 언어 단어\\(w_{H}\\in\\widetilde{\\mathcal{T}}_{H|D}\\)을 저자원 언어 단어 번역\\(w_{L}\\)으로 대체하기 위해 \\(D\\)을 사용하여 \\(\\widetilde{\\mathcal{T}}_{L}\\)을 생성한다. 만약 \\(w_{H}\\)에 여러 개의 번역이 가능하다면 우리는 무작위로 \\(w_{L}\\)을 샘플링하고 \\(D\\)에 번역이 없다면 \\(w_{H}\\)을 그대로 유지한다. 합성 언어 간 과제 데이터\\(\\widetilde{\\mathcal{T}}_{L}\\)를 구한 후, 이를 학습 데이터로 사용하여 저자원 언어에서 대상 과제에 대한 분류기를 미세화한다.\n' +
+      '\n' +
+      '##4 실험 설정\n' +
+      '\n' +
+      '감성 분석 및 주제 분류 과제에 대한 LexC-Gen과 기준선 및 금 번역을 비교한다. 섹션 4.1의 작업 데이터 세트, 섹션 4.2의 LexC-Gen 인스턴스화 방법 및 섹션 4.3의 골드 번역뿐만 아니라 기준선을 설명한다.\n' +
+      '\n' +
+      '### 작업 및 데이터 세트\n' +
+      '\n' +
+      '우리는 17개의 저자원 언어에 걸쳐 감성 분석 및 주제 분류 작업에 대해 LexC-Gen을 평가한다. 작업 데이터 세트에는 네이티브에 의한 번역으로 큐레이션되는 _gold 훈련 데이터_가 포함되어 있다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c c c c c} \\hline \\hline\n' +
+      '**Methods** & **\\#data** & **ace** & **ban** & **bbc** & **bjn** & **bug** & **mad** & **min** & **Avg** \\\\ \\hline \\multicolumn{10}{l}{_Zero-shot prompting_} \\\\ \\hline BLOOMZ-7.1.B & 0 & 47.0 & 50.5 & 43.0 & 49.5 & 38.5 & 48.0 & 52.5 & 47.0 \\\\ GPT-4 & 0 & 60.8 & 71.3 & 47.8 & **79.8** & 30.8 & 58.3 & **80.3** & 61.3 \\\\ \\hline \\multicolumn{10}{l}{_Cross-lingual zero-shot_} \\\\ \\hline Existing Task Data (en) & 500 & 56.8 & 60.2 & 51.1 & 63.3 & 45.8 & 56.0 & 57.7 & 55.8 \\\\ \\hline \\multicolumn{10}{l}{_Word translation_} \\\\ \\hline Existing Task Data (\\(\\mathsf{\\mathsf{\\mathsf{\\mathsf{\\mathsf{\\mathsf{\\mathsf{\\mathsf{\\mathsf{\\mathsf{ \\mathsf{\\mathsf{\\mathsf{\\mathsf{\\mathsf{\\mathsf{\\mathsfmathsf{\\mathsfmathsf{ }}}}}}}}}}}}}}}}\\) & \\multicolumn{1}{c}{} & \\multicolumn{1}{c}{} & \\multicolumn{1}{c}{} & \\multicolumn{1}{c}{} & \\multicolumn{1}{c}{} & \\multicolumn{1}{c}{} & \\multicolumn{1}{c}{} \\\\ \\multicolumn{10}{l}{+ Existing Task Data (en)} & 500 & 63.6 & 58.3 & 55.8 & 66.4 & 57.7 & 59.3 & 71.6 & 61.8 \\\\ \\multicolumn{10}{l}{+ Existing Task Data (en)} & 1000 & 67.8 & 62.4 & 60.4 & 66.3 & 56.7 & 62.4 & 75.1 & 64.4 \\\\ \\multicolumn{10}{l}{+ Label Distillation} \\\\ Wang et al. (2022) & 1000 & 58.8 & 52.9 & 45.7 & 58.8 & 43.9 & 56.8 & 68.7 & 55.1 \\\\ \\multicolumn{10}{l}{+ Existing Task Data (en)} & \\multicolumn{1}{c}{} & \\multicolumn{1}{c}{} & \\multicolumn{1}{c}{} & \\multicolumn{1}{c}{} & \\multicolumn{1}{c}{} & \\multicolumn{1}{c}{} & \\multicolumn{1}{c}{} & \\multicolumn{1}{c}{} \\\\ \\multicolumn{10}{l}{+ Label Distillation} \\\\ Wang et al. (2022) & 1000 & 58.8 & 52.9 & 45.7 & 58.8 & 43.9 & 56.8 & 68.7 & 55.1 \\\\ \\multicolumn{10}{l}{+ Basic C-Gen-1K (\\(\\mathsf{\\mathsf{\\mathsf{\\mathsf{\\mathsf{\\mathsf{\\mathsf{\\mathsf{\\mathsf{\\mathsf{\\mathsf{ \\mathsf{\\mathsf{\\mathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsf{       \\mathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsf{   \\mathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsf{    \\mathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsf{   \\mathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsf{   \\mathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsf{   \\mathsfmathsfmathsfmathsfmathsfmathsfmathsf{   \\mathsfmathsfmathsfmathsfmathsfmathsfmathsfmathsf{   \\mathsfmathsfmathsfmathsfmathsfmathsfmathsf{  \\mathsfspeakers or professional translators. Detailed information for the tasks and languages can be found in Appendix B.\n' +
+      '\n' +
+      '감성 분석은 인도네시아 저자원 언어를 대상으로 개발된 NusaX 감성 분석 데이터셋 Winata et al.(2023)을 이용한다. 데이터 세트에는 긍정, 중립 및 부정의 세 가지 감정 레이블이 있습니다. 설정에서 우리는 가티토스 사전에도 존재하는 7개 언어에 대해 **LexC-Gen**를 평가한다.\n' +
+      '\n' +
+      '토픽 분류 SIB-200 Adelani et al.(2023)은 200개의 언어와 7개의 토픽 카테고리를 포괄하는 토픽 분류 벤치마크이다. We evaluate **LexC-Gen** on the _10 worst-performance languages_ we found the largest performance gap between gold translation and the word translation baseline Wang et al. (2022).\n' +
+      '\n' +
+      '### LexC-Gen Instantiation\n' +
+      '\n' +
+      'LlmWe는 BLOOMZ 모델 Muenighoff et al.(2023)과 71억 개의 파라미터(BLOOMZ-7.1B)를 초기 명령어 조정 LLM으로 사용한다. 이를 통해 제로샷 프롬프트와 LexC-Gen과의 사용 간의 성능을 비교할 수 있다.\n' +
+      '\n' +
+      'Bilingual lexiconsWe choose Gatitos bilingual lexicons Jones et al.(2023) to translate the generated English data to low-resource languages. 가티토에는 빈번한 영어 단어, 숫자, 시간과 같은 영어 항목이 포함되어 있으며 170개의 극히 낮은 자원 언어로 번역된다. Gatitos는 수동으로 검토되었으므로, 그 엔트리는 Panlex Kamholz et al. (2014)과 같은 다른 이중 언어 사전보다 더 높은 품질을 갖는다.\n' +
+      '\n' +
+      '생성된 작업 데이터는 먼저 LexC-Gen을 사용하여 1K, 10K 및 100K 인스턴스를 가진 영어 데이터 세트를 생성하며, 여기서 **LexC-Gen**-1K, -10K 및 -100K라고 하며 일치하지 않는 입력 레이블 쌍을 필터링한다. 입력 레이블 일관성 검사로 필터링한 후 유효 데이터 크기는 생성된 작업 데이터의 20%에서 40% 사이이다. 그런 다음 Gatitos lexicons Jones et al.(2023)을 사용하여 저자원 언어로 번역한다.\n' +
+      '\n' +
+      'LLM으로 학습 및 데이터 생성은 부록 C에서 **LexC-Gen**의 추가 학습 및 추론 세부 정보를 제공한다. 또한 부록 E에서 생성된 데이터의 예를 보여준다.\n' +
+      '\n' +
+      'Task finetuningWe finetune prerained mBERT2 with classification head on **LexC-Gen** generated low-resource-language data for sentiment analysis and topic classification task evaluation (further details is in Appendix D).\n' +
+      '\n' +
+      '각주 2: 버트-베이스-다국어-케이싱 모델.\n' +
+      '\n' +
+      '### Baselines\n' +
+      '\n' +
+      '우리는 **LexC-Gen**과 (1) **zero-shot prompting**을 BLOOMZ-7.1B 및 GPT-4;3 (2) **cross-lingual zero-shot transfer**와 비교하며, mBERT\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c c c c c c c} \\hline \\hline\n' +
+      '**Methods** & **\\#data** & **bam** & **ewe** & **fij** & **grn** & **lin** & **lus** & **sag** & **tso** & **tum** & **twi** & **Avg** \\\\ \\hline \\multicolumn{10}{l}{_Zero-shot prompting_} \\\\ \\hline BLOOMZ-7.1.B & 0 & 41.7 & 34.3 & 35.3 & 41.7 & 42.2 & 38.7 & 36.8 & 41.7 & 40.2 & 41.7 & 39.4 \\\\ GPT-4 & 0 & 34.3 & 33.3 & 52.9 & 53.9 & 53.4 & 46.1 & 32.4 & **54.9** & **53.4** & 40.7 & 45.5 \\\\ \\hline \\multicolumn{10}{l}{_Cross-lingual zero-shot_} \\\\ \\hline Existing Task Data (en) & 701 & 29.6 & 32.5 & 42.5 & 57.7 & 42.0 & 49.9 & 37.6 & 39.6 & 40.3 & 40.7 & 41.2 \\\\ \\hline \\multicolumn{10}{l}{_Word translation_} \\\\ \\hline Existing Task Data (T) & 701 & 40.2 & 41.4 & 49.1 & 63.9 & 52.3 & 61.8 & 46.7 & 39.1 & 42.5 & 54.9 & 49.2 \\\\ + Existing Task Data (en) & 1402 & 42.5 & 41.4 & 47.8 & 67.2 & 55.9 & 63.4 & 47.9 & 40.0 & 43.4 & 56.4 & 50.6 \\\\ + Label Distillation & 1402 & 37.5 & 33.1 & 41.9 & 59.0 & 37.8 & 56.5 & 38.5 & 42.1 & 41.2 & 35.0 & 42.3 \\\\ \\multicolumn{10}{l}{_\\begin{tabular}{l} **LexC-Gen**-1K (T) \\\\ \\end{tabular} } \\\\ \\hline \\(\\sim 220\\) & 22.9 & 37.8 & 40.2 & 50.1 & 45.0 & 52.5 & 40.9 & 29.2 & 37.6 & 42.1 & 39.8 \\\\ + Existing Task Data (en) & \\(\\sim 920\\) & 36.5 & 41.2 & 45.3 & 68.3 & 53.0 & 61.9 & 49.1 & 37.1 & 39.0 & 53.7 & 48.5 \\\\ \\multicolumn{10}{l}{_\\begin{tabular}{l} **LexC-Gen**-10K (T) \\\\ \\end{tabular} } \\\\ \\hline \\(\\sim 2.2\\)K & 38.5 & 40.5 & 51.4 & 67.1 & 57.6 & 64.1 & 55.3 & 41.1 & 42.6 & 55.1 & 51.3 \\\\ + Existing Task Data (en) & \\(\\sim 2.9\\)K & 33.8 & 42.6 & 51.3 & 67.1 & 59.3 & 64.8 & 53.8 & 43.8 & 43.2 & 54.3 & 51.4 \\\\ \\multicolumn{10}{l}{_\n' +
+      '\\begin{tabular}{l} **LexC-Gen**-**100K (T) \\\\ \\end{tabular} } \\\\ \\hline \\(\\sim 22\\)K & 44.0 & **51.1** & **70.2** & **74.3** & **67.4** & **69.3** & **61.0** & 42.2 & 50.9 & 64.9 & **59.5** \\\\ + Existing Task Data (en) & \\(\\sim 23\\)K & **46.2** & 47.6 & 68.0 & 73.0 & 67.2 & 68.9 & 57.0 & 42.6 & 53.0 & **65.8** & 58.9 \\\\ \\hline \\hline \\multicolumn{10}{l}{_Gold Translations_} & 701 & 54.9 & 53.0 & 61.7 & 71.2 & 64.6 & 68.4 & 60.7 & 55.9 & 63.4 & 62.2 & 61.6 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 2: SIB-200 데이터세트 Adelani et al.(2023)에서 10개의 최악-수행 언어에 대한 토픽 분류 정확도. 우리는 표 1에 정의된 스키마를 따른다.\n' +
+      '\n' +
+      '(3) **단어 번역**Wang et al. (2022) 여기서 mBERT는 동일한 이중언어 어휘인 Gatitos Jones et al. (2023)으로 단어 대체를 통해 영어 훈련 데이터로부터 번역되는 데이터에 대해 미세 조정되고, (4) **골드 번역** 여기서 mBERT는 목표 저자원 언어로 전문가 번역된 과제 훈련 데이터에 대해 미세 조정된다(4.1절 참조).\n' +
+      '\n' +
+      '최첨단 방법 Wang et al.(2022)을 참고하여 단어 번역 기준선을 구현한다. 여기서는 공정한 비교를 위해 작업 미세 조정 전에 미리 훈련된 mBERT를 적용하지 않는다. 우리는 Wang et al.(2022)의 프로토콜을 따르고, 또한 단어 번역된 데이터와 영어 훈련 데이터("+ Existing Task Data(en))를 결합한 결과를 보고하고, 번역된 데이터를 다시 라벨링하기 위해 기존의 작업 데이터에 대해 훈련된 분류기(mBERT in our case)를 사용하는 _label distillation_--a 기법을 수행한다.\n' +
+      '\n' +
+      '##5 결과 및 분석\n' +
+      '\n' +
+      '### LexC-Gen이 모든 베이스라인보다 뛰어나다\n' +
+      '\n' +
+      '**LexC-Gen**는 감성 분석(표 1)과 토픽 분류 과제(표 2) 모두에서 모든 기준선을 능가한다. 감성 분석에서, **LexC-Gen**-100K(100K generated data instances of filtered down to 약 37K instances)와 기존 영어 과제 데이터의 혼합에 대한 미세 조정 분류기는 언어 간 제로 샷 기준선보다 15.2% 포인트, 단어 번역 기준선보다 6.6 포인트 개선된다. 주제 분류에서 **LexC-Gen**-100K는 교차 언어 제로 샷 기준선보다 18.3점, 단어 번역 기준선보다 8.9점의 개선을 보인다.\n' +
+      '\n' +
+      '**LexC-Gen**-100K는 우선, 데이터 인스턴스의 단어 번역 커버리지를 향상시키기 때문에(그림 0(b) 왼쪽) 높은 자원 언어에서 번역되지 않은 단어의 바람직하지 않은 아티팩트가 적다. 둘째, 어휘 활용률을 크게 증가시키는데(그림 0(b) 오른쪽 및 섹션 5.5), 이는 어휘로부터의 더 많은 저자원-언어 단어들이 태스크 데이터에 존재할 수 있게 하여 태스크 분류기가 이러한 단어들에 의해 운반되는 의미 정보와 태스크 레이블들을 연관시킬 수 있게 한다.\n' +
+      '\n' +
+      '### LexC-Gen은 금 번역에 경쟁력이 있다.\n' +
+      '\n' +
+      '표 1 및 표 2는 **LexC-Gen**-100K에서 생성된 교차 언어 데이터에 대한 미세 조정 분류기가 많은 저자원 언어에 대한 전문가 번역 데이터에 대한 훈련과 경쟁력이 있음을 보여준다. 우리의 연구 결과는 또한 XLMR-base 및 XLMR-large Conneau et al.(2020)과 같은 더 큰 태스크 분류기들에 일반화된다(부록 J의 그림 10 참조). **LexC-Gen** 생성 데이터는 여전히 SVO 어순이 있는 영어 구문을 사용하기 때문에 우리의 결과는 놀랍다. 그러나, **LexC-Gen**는 여전히 OSV 어순을 갖는 발리(반) 및 미조(루스) 및 VOS 어순을 갖는 토바 바탁(bbc)과 같은 상이한 어순을 갖는 언어들에 대해 작동한다.\n' +
+      '\n' +
+      '한 가지 가능한 설명은 감성 분석과 주제 분류 과제를 해결하는 것이 구문 정보보다 의미 정보에 더 많이 의존한다는 것이다. 더 큰 단어 번역 커버리지와 극도로 높은 어휘 활용률 때문에(그림 0(b)), **LexC-Gen** 생성 데이터는 분류기가 작업을 학습하기 위해 낮은 자원 언어로 충분한 의미 정보를 포함한다. 그럼에도 불구하고 금 번역 성능과 일치하려면 훨씬 더 큰 **LexC-Gen** 데이터 세트가 필요하다. **LexC-Gen** 데이터(필터링 후)는 감성 분석 및 토픽 분류 작업에 대해 각각 표 1 및 표 2와 같이 골드 번역의 크기가 75\\(\\times\\) 및 30\\(\\times\\) 정도이다.\n' +
+      '\n' +
+      '### 영어 과제 데이터의 혼합은 소규모 번역 데이터에 도움이 된다.\n' +
+      '\n' +
+      '단어 번역 기준선(기존 Task Data(T))과 작은 규모의 **LexC-Gen**-1K에서 모두\n' +
+      '\n' +
+      '그림 4: 감성 분석에 대한 LexC-Gen-100K의 어휘-조건화 절제 연구. "Gen w/o 필터"는 사전의 단어를 사용하지 않고 입력 레이블 일관성 필터링 없이 데이터를 생성한다. "Gen"은 "Gen w/o 필터"이지만 필터링이 있습니다. 우리는 금 번역(녹색 점선)으로 미세 조정에 대한 정확도 차이를 표시한다. 우리는 "Gen w/o 필터" 및 "Gen"에 대한 훈련 데이터 크기를 **LexC-Gen**-100K와 동일하도록 제어하고 Wang et al.(2022)을 베이스라인으로 포함한다.\n' +
+      '\n' +
+      '분류기 미세 조정 동안 기존의 영어 태스크 데이터를 포함하는 번역된 데이터는 태스크 성능을 실질적으로 향상시킨다. 예를 들어, 감성 분석에서는 **LexC-Gen-1**K에 대해 18.2포인트 성능 증가를 산출합니다. 그러나, **LexC-Gen-100K**와 같은 더 큰 규모의 데이터에서 영어 과제 데이터에서의 혼합은 한계 성능 이득, 예를 들어 감성 분석 과제에서의 1점 평균 이득을 제공한다. LexC-Gen-100K는 약 37K 훈련 예제(입력-라벨 일관성 필터링 후)를 가지고 있으며, 이는 500개의 예제로 기존의 소규모 영어 과제 데이터보다 우세하기 때문이다. 4\n' +
+      '\n' +
+      '각주 4: 다음 하위 섹션에서 LexC-Gen의 분석은 영어 기존 과제 데이터를 포함하지 않는다.\n' +
+      '\n' +
+      '강력한 과제 수행을 위해### 어휘 조절은 매우 중요하다.\n' +
+      '\n' +
+      '그림 4는 골드 번역 성능을 맞추기 위해 사전의 단어를 사용하여 작업 데이터(즉, 사전 조건화)를 생성하는 것이 필요함을 보여준다. 사전-컨디셔닝 및 품질 관리("Gen w/o 필터")를 제거하는 것은 최악의 성능을 가지며, 감성 분석을 위해 500개의 기존 태스크 데이터 샘플에서 단어 번역 기준[22]보다 성능이 낮다. 섹션 3.4로부터의 품질 관리에도 불구하고, 사전 컨디셔닝("Gen")이 없는 스케일링 데이터 생성은 여전히 **LexC-Gen-100K**보다 더 나쁜 성능을 수행한다. 이는 데이터와 이중언어 어휘 사이의 어휘 중복이 적기 때문이다. "Gen" 데이터는 이중 언어 어휘에서 저자원 언어 단어의 62.5%만 다루고 있기 때문에 어휘 활용률이 더 낮다. 대조적으로, LexC-Gen-100K는 92.8% 단어를 포함한다. 절제 연구에 대한 자세한 내용은 독자들에게 부록 G를 참조한다.\n' +
+      '\n' +
+      '### 생성된 데이터를 스케일링하면 사전 이용률이 증가함\n' +
+      '\n' +
+      '그림 5는 **LexC-Gen**가 사전에서 더 많은 단어를 사용하여 작업 데이터를 생성하기 때문에 데이터 생성 프로세스를 확장하면 번역된 데이터 세트에 나타나는 이중 언어 사전에서 저자원 언어 단어의 총 비율인 이중 언어 사전의 활용률이 향상됨을 보여준다. 우리는 어휘 활용률이 향상됨에 따라 감성 분석 정확도가 증가하는 것을 관찰한다. 분류기가 목표 언어에서 다운스트림 작업을 학습할 수 있는 의미 정보가 더 많기 때문이다. 우리는 또한 주제 분류 과제와 유사한 그래프를 얻는다(부록 그림 9 참조). 스케일링은 높은 리소스 언어로 레이블이 지정된 작업 데이터의 양에 제한된 이전 접근법과 달리 **LexC-Gen**의 생성 특성에 의해 활성화된다.\n' +
+      '\n' +
+      '### 품질 관리는 훈련 데이터 크기를 줄이고 성능을 향상시킵니다.\n' +
+      '\n' +
+      '도 6은 데이터 품질 관리로서 입력-라벨 일관성 필터를 적용하는 것이 생성된 트레이닝 데이터의 크기를 2/3만큼 감소시켜 태스크 분류기의 3배 더 빠른 미세 조정을 초래할 뿐만 아니라, 태스크 성능을 56.2 포인트(100K 생성 데이터에서의 품질 관리 설정)에서 70.0 포인트(품질 관리 필터링 후 37K 생성 데이터)로 증가시키며, 이는 심지어 금 번역에 대한 미세 조정 성능과 일치한다는 것을 보여준다. 우리의 연구 결과는 데이터 품질을 최적화하면 단순히 데이터 양을 늘리는 것보다 더 큰 이득을 얻는다는 것을 보여주는 영어 데이터[23]와의 이전 작업과 일치한다.\n' +
+      '\n' +
+      '존재하도록 훈련된 분류기를 이용한 품질 관리\n' +
+      '\n' +
+      '도 5: 로그10 스케일의 **LexC-Gen** 훈련 과제 데이터의 크기에 대한 감성 분석 정확도(빨간색 실선, 왼쪽 y축) 및 어휘 활용률(파란색 점선, 오른쪽 y축)\n' +
+      '\n' +
+      '그림 6: **LexC-Gen** 상의 입력-라벨 일관성 필터의 삭제는 감성 분석을 위한 데이터를 생성하였다.\n' +
+      '\n' +
+      '작업 데이터는 **LexC-Gen**에 대해 효과적이지만, Wang 등의 Wang 등(2022)의 단어 번역 기준선(표 1 및 표 2)에서 라벨 증류에 대해서는 효과적이지 않다. 두 가지 가능한 이유가 있습니다. 먼저, 라벨 증류는 고자원 언어 데이터에 대해 훈련된 분류기를 사용하여 번역된 데이터를 저자원 언어로 다시 라벨링한다. 이 교차 언어 전달은 동일한 고자원 언어로 **LexC-Gen\'s** 재라벨링과 달리 분류기의 예측에 오류를 도입할 수 있다. 둘째, **LexC-Gen**는 분류기와 LLMs 사이의 라벨이 일치하지 않는 모든 인스턴스를 폐기함으로써 _stricter_ 품질 관리를 제공하며, 따라서 태스크 성능을 향상시킨다(부록 M의 도 12 참조).\n' +
+      '\n' +
+      '#### LLM은 제로 샷 프롬프트보다 데이터 생성에 더 잘 사용된다.\n' +
+      '\n' +
+      'BLOOMZ-7.1B를 사용한 제로샷 프롬프트는 가장 약한 베이스라인이지만(표 1 및 표 2), **LexC-Gen**에서 이를 사용하여 태스크 데이터를 생성하여 더 작은 태스크 분류기를 미세 조정함으로써 최첨단 성능을 달성하고 골드 번역을 일치시킨다. 본 연구 결과는 매우 낮은 자원 언어에 대해 LLMs(부록 H와 같이 GPT-4 포함)를 활용하여 제로 샷 프롬프트에 의해 즉흥적으로 사용하는 대신 대규모로 훈련 데이터를 생성하는 것이 가장 효과적임을 시사한다.5 이 발견은 LLMs를 자체 생성된 작업 데이터로 미세 조정하는 것이 다운스트림 작업 성능 Wang 등(2023)을 향상시킨다는 것을 보여주는 최근 작업과 일치한다.\n' +
+      '\n' +
+      '각주 5: GPT-4를 프롬프트하는 적은 샷으로도 골드 번역으로 성능 격차를 좁힐 수 없습니다. 부록 K를 참조하십시오.\n' +
+      '\n' +
+      '## 6 Discussion\n' +
+      '\n' +
+      '본 연구는 가티토스 존스 등(2023)과 같은 과업 진단형 이중언어 사전이 매우 낮은 자원 언어에서 감성 분석 및 주제 분류를 위한 _sufficient_ 의미 정보를 포함하고 있음을 보여준다. 그러나 번역된 데이터에 해당 정보를 포함하기 위해서는 작업 데이터와 사전 간의 높은 수준의 어휘 중복이 필요하다(그림 0(a)). 또한 사전의 크기와 품질이 중요하다는 것을 발견했습니다. Gatitos lexicons Jones et al. (2023) for **LexC-Gen**를 사용하는 것은 Panlex Kamholz et al. (2014)를 사용하는 것보다 우수한데, 그 이유는 전자가 더 많은 엔트리를 포함하고 극도로 낮은 자원 언어에 대해 품질이 더 높기 때문이다(부록 I 참조).\n' +
+      '\n' +
+      '학습 데이터 병목현상(BottleneckLexC-Gen)을 해결하는 것은 매우 낮은 자원 언어인 Joshi et al.(2020)의 레이블링된 데이터 희소성 문제를 직접적으로 해결한다. 고품질 태스크 특정 어휘를 구성하거나 이중언어 어휘와 잘 일치하는 레이블이 지정된 태스크 데이터를 수집하는 것이 어렵기 때문에, **LexC-Gen**은 저자원 언어에 대한 규모에서 태스크 트레이닝 데이터를 자동으로 생성하는 실용적인 솔루션 역할을 한다.\n' +
+      '\n' +
+      '낮은 LLM 훈련 비용LexC-Gen은 주어진 단어 세트를 사용하여 작업 데이터를 생성하는 신속한 지시를 따르는 CTG 훈련 LLM에 의존한다. 우리의 CTG 교육은 고자원 언어 작업 데이터에만 의존하며 저자원 언어 및 이중 언어 사전과 무관합니다. 즉, LLM이 CTG-훈련되면, 연구자는 동일한 태스크에서 다양한 저자원 언어에 대한 데이터를 생성하기 위해 다른 이중 언어 어휘로 _reuse__을 사용할 수 있으며, 따라서 최소 LLM 훈련 비용이 발생한다.\n' +
+      '\n' +
+      '낮은 LLM 생성 비용LexC-Gen은 종종 자원 제약에 직면한 낮은 자원 언어 NLP 실무자에게 혜택을 준다. **LexC-Gen**는 _single_Tesla V100 GPU에서 70억 매개 변수 LLM으로 CTG 훈련과 100K 데이터 샘플 생성을 모두 완료하는 데 총 36시간 미만이 소요된다. 전체적으로 $100.6 미만의 비용이 든다. 이것은 최첨단 GPT-4 기반 다국어 데이터 생성 방법 Whitehouse et al.(2023)을 사용하는 비용의 5분의 1이다(부록 H 참조).\n' +
+      '\n' +
+      '각주 6: 테슬라 V100 GPU는 구글 클라우드에서 주문형 VM의 경우 시간당 약 2.48달러이다.\n' +
+      '\n' +
+      '유통 친화적인 합성 데이터는 LexC-Gen이 BLOOMZ와 같은 허용 라이선스가 있는 오픈 액세스 모델과 잘 작동한다는 것을 보여준다. 따라서 생성된 데이터는 독점 또는 공공 연구에 사용할 수 있다. 데이터는 또한 광범위한 다국어 응용 프로그램을 위해 배포될 수 있다.\n' +
+      '\n' +
+      '## 7 Conclusion\n' +
+      '\n' +
+      '본 논문에서는 LLM을 이용하여 저자원 언어 태스크 데이터를 생성하는 LexC-Gen을 제안한다. LexC-Gen은 이중언어 어휘를 가진 저자원 언어로 더 잘 번역되는 어휘 호환 태스크 데이터를 생성한다. 감성 분석 및 주제 분류 작업을 위해 생성된 데이터를 미세 조정하면 수집하기 어려운 골드 데이터와 일치할 수 있음을 보여준다. **LexC-Gen**가 실용적인 솔루션이라는 점을 감안할 때 저자원 언어의 심각한 데이터 부족 문제를 완화하고 이러한 롱테일 언어의 NLP 진행을 가속화하기를 바란다.\n' +
+      '\n' +
+      '### Limitations\n' +
+      '\n' +
+      '우리의 단어 대 단어 번역에서 단어 모호성은 사전 작업 Wang et al.(2022)의 프로토콜을 따르고 특정 단어가 여러 번역에 매핑되면 단어 번역을 무작위로 선택한다. 즉, 어휘에 존재하는 저자원 언어 단어는 단어 의미 중의성 해소에 필요한 언어 정보(품사 태그 등)나 문맥(예문 등)과 함께 제공되지 않기 때문에 저자원 언어로 단어 번역을 명확하게 하지 않는다(2009). 따라서, 우리의 단어 번역은 번역된 작업 데이터에 오류를 도입할 수 있다. 향후 작업은 이중 언어 어휘의 항목을 확장하여 언어 또는 상황 정보를 통합하여 단어 의미 명확화를 가능하게 하고 저자원 언어로 번역된 데이터의 품질을 향상시킬 수 있다.\n' +
+      '\n' +
+      '구문 불일치는 LexC-Gen이 단어 간 번역에 기반하기 때문에 생성된 단어 번역 문장의 구문이 변경되지 않고 저자원 언어의 구문과 일치하지 않을 수 있다는 본질적인 한계를 가지고 있다. 그럼에도 불구하고, 우리는 LexC-Gen이 단어 순서가 다른 언어에 대한 감정 분석 및 주제 분류와 같은 의미적 작업에서 여전히 성능을 크게 향상시킨다는 것을 보여주었다. 이는 LexC-Gen이 저자원 언어에 대한 언어 학습 데이터 수집이 매우 어려울 때 의미적 작업에 대한 실행 가능한 솔루션임을 시사한다. 향후 연구에서는 구문 정보에 크게 의존하는 기계 번역 및 명명된 개체 인식과 같은 작업에 대한 저자원 언어와 더 잘 정렬하기 위해 LexC-Gen의 합성 데이터의 구문 변환을 탐구해야 한다.\n' +
+      '\n' +
+      '감성 분석 및 토픽 분류 작업에 대해 LexC-Gen을 실험했는데, 두 작업 모두 낮은 자원 언어들이 여전히 높은 자원 언어인 Winata et al.(2023); Adelani et al.(2023)에 뒤쳐져 있는 NLU 작업들이다. 우리는 (1) 상식 추론 및 자연 언어 추론과 같은 문장 수준에서 의미 복잡성에 대한 민감성을 요구하거나 (2) 명명된 개체 인식 및 정보 검색과 같은 구문 정보에 대한 LexC-Gen의 잠재력과 한계를 탐구하기 위한 향후 작업이 보장된다는 것을 인정한다.\n' +
+      '\n' +
+      '우리의 실험에서, 사전 작업 Jones et al.(2023); Wang et al.(2022)을 따르고, 영어-기반 Gatitos 이중언어 어휘 Jones et al.(2023)을 사용하여 영어 태스크 데이터로부터 저-자원-언어 태스크 데이터를 생성한다. 향후 연구에서는 영어를 넘어 LexC-Gen을 확장하고 영어보다 저자원 언어와 더 관련이 있는 고자원 언어로 작업 데이터를 생성하는 것을 탐구해야 한다. BLOOMZ 또는 기타 오픈 액세스 LLM이 비영어 언어에 대한 제어 텍스트 생성 능력 측면에서 가능한지 탐구하는 것도 흥미로울 것이다.\n' +
+      '\n' +
+      '광범위한 영향과 윤리적 고려사항\n' +
+      '\n' +
+      '우리의 연구는 매우 낮은 자원 언어인 Joshi et al. (2020); Yong et al. (2023); Singh et al. (2024), 특히, 우리는 다른 NLU 시맨틱 태스크들을 다루기 위한 NLP 실무자들에 의한 우리의 방법들의 채택 및 추가 연구를 예측한다. 우리의 접근 방식은 허용 라이센스가 있는 LLM과 잘 작동하기 때문에 생성된 작업 데이터가 다양한 저자원 언어로 NLP 응용 프로그램에 널리 배포될 수 있다.\n' +
+      '\n' +
+      '합성 데이터의 잠재적인 위험 중 하나는 합성 데이터가 원본 데이터 분포의 꼬리를 사라지게 하는 모델 붕괴 슈마일로프 외(2023)이다. 여기에서 우리의 작업은 긴 꼬리 언어의 합성 데이터에 중점을 둡니다. 우리는 LexC-Gen이 생성한 언어 간 학습 데이터가 자연 언어 데이터를 대체하지 않는다는 점을 강조하고 싶다. 우리의 작업은 실제로 사전 큐레이션 및 작업 데이터 수집 측면에서 자원이 부족한 언어에 대한 더 많은 인적 투자를 장려합니다. 우리는 고품질 이중언어 어휘가 의미적 과제 수행 능력 향상에 효과적임을 입증할 뿐만 아니라, 목표 저자원 언어의 금 번역은 강력한 과제 수행을 달성하기 위해 더 적은 데이터를 필요로 한다는 것을 보여준다.\n' +
+      '\n' +
+      '## Acknowledgements\n' +
+      '\n' +
+      '줄리아 크로이처, 젠타 인드라 위나타, 알함 피크리 아지, 데이비드 이페올루와 아델라니, 루오첸 장, 브라운 대학 슈퍼랩에 도움이 되는 피드백을 주셔서 감사합니다. 우리는 시스코의 지지를 기쁘게 인정한다.\n' +
+      '\n' +
+      '공개: 스티븐 바흐는 데이터 중심 인공지능을 위한 소프트웨어와 서비스를 제공하는 회사인 스노클 AI의 고문이다.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* D. H. Adelani, H. Liu, X. 신남 바실예프, J. O. 알라비, Y. Mao, H. Gao, and A. E. Lee(2023)Sib-200: 200개 이상의 언어와 사투리로 주제 분류를 위한 단순하고 포괄적이며 큰 평가 데이터 세트. 외부 링크: 인용된 링크: SS1입니다.\n' +
+      '*W. 알리남 알리영 다이준구마르 투프라니, Z Xu(2021) 저자원 언어로 감성 분석을 위한 자원을 생성하고 평가하는 것: 신디. In Proceedings of the Eleventh Workshop on Computational Approaches to Subjectivity, Sentiment and Social Media Analysis, Online, pp. 188-194. External Links: Link, Document Cited by: SS1.\n' +
+      '*Y. 방승 N. 카야와야야 이원 대동수, B.와일, H.L., Z. 지태 유원 정규배 Xu and P. Fung (2023) A multitask, multiilingual, multimodal evaluation of chatgpt on reasoning, hallucination and interactivity. ArXiv:2302.04023. 인용: SS1.\n' +
+      '* A. Bapna, I. Caswell, J. Kreutzer, O. Firat, D. van Esch, A. Siddhant, M. Niu, P. Baljekar, X. 가르시아 Macherey, et al.(2022) building machine translation systems for the next000 languages. ArXiv:2205.03983. 인용: SS1.\n' +
+      '* S. Buechel, J. Hellrich, U. 한(2016) 과거 감정 - 역사적 감정 분석을 위한 정의적 어휘 적응. In Proceedings of the Workshop on Language Technology Resources and Tools for Digital Humanities (LT4DH), Osaka, Japan, pp. 54-61. External Links: Link, Document Cited by: SS1.\n' +
+      '* A. Conneau, K. N. 칸델왈 충성, V. Chaudhary, G. Wenzek, F. Guzman, E. Grave, M. 오트 L. 제틀모이어와 V Stoyanov (2020) Unsupervised cross-lingual representation learning in scale. In Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics, Online, pp. 8440-8451. External Links: Link, Document Cited by: SS1.\n' +
+      '* M. R. Costa-jussa, J. Cross, O. 유명비 엘바야드 하필드, K Heffernan, E. Kalbassi, J. Lam, D. Licht, J. Maillard, et al.(2022)No language left: scaling human-centered machine translation. ArXiv:2207.04672. 인용: SS1.\n' +
+      '* A. Das and S. Bandyopadhyay (2010)Sentiwordnet for bangla. Knowledge Sharing Event-4: Task2, pp. 1-8. Cited by: SS1.\n' +
+      '*T. Dettmers, A. Pagnoni, A. Holtzman, L. Zettlemoyer (2023)Qlora: 양자화된 llms의 효율적인 미세조정. ArXiv:2305.14314. 인용: SS1.\n' +
+      '* J. 데블린, M. 장경 이경호 Toutanova (2019)BERT: 언어 이해를 위한 심층 양방향 변압기의 사전 훈련. In Proceedings of the 2019 Conference of the North American chapter of the Computational Linguistics: Human Language Technologies, Volume 1(Long and Short Papers), Minneapolis, Minnesota, pp. 4171-4186. External Links: Link, Document Cited by: SS1.\n' +
+      '* C. Hokamp and Q. Liu (2017)Lexically constrained decoding for sequence generation using grid beam search. In Proceedings of the 55th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers), Vancouver, Canada, pp. 1535-1546. External Links: Link, Document Cited by: SS1.\n' +
+      '*O. 호노비치, T. 사이알롬, 오 레비랑 T Schick(2023) 부자연스러운 지시: 인간 노동력이 거의 없는 언어 모델을 조율하는 것. In Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers), Canada, Toronto, pp. 14409-14428. External Links: Link, Document Cited by: SS1.\n' +
+      '* J. H. Hu, H. Khayrallah, R. 컬킨, P.샤, T. 천민 Post, and B. Van Durme(2019)은 번역 및 단일 언어 재작성을 위해 어휘 제약 디코딩을 개선했다. In Proceedings of the 2019 Conference of the North American chapter of the Computational Linguistics: Human Language Technologies, Volume 1(Long and Short Papers), Minneapolis, Minnesota, pp. 839-850. External Links: Link, Document Cited by: SS1.\n' +
+      '* A. Jones, I. Caswell, O. Firat, and I. Saxena (2023)GATTOS: low-resource machine translation을 위해 새로운 다국어 어휘를 사용한다. In Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing, Singapore, pp. 371-405. External Links: Link, Document Cited by: SS1.\n' +
+      '* P. Joshi, S. 산티, 부디라자, K. 발리, M. Choudhury(2020)는 언어적 다양성과 NLP 세계에서의 포함의 상태와 운명이다. In Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics, Online, pp. 6282-6293. External Links: Link, Document Cited by: SS1.\n' +
+      '* D. Kamholz, J. Pool, and S. M. Colowick (2014)Panlex: building a resource for panlingual lexical translation. LREC, pp. 3145-3150. External Links: Link, Document Cited by: SS1.\n' +
+      '* F. Koto, T. 벡지 Talat, I. Gurevych, T. 볼드윈(2024) 다국어 감성 어휘를 이용한 저자원 언어의 제로샷 감성 분석. 외부 링크: 링크, 인용 문서: SS1입니다.\n' +
+      '* J. F. Kroll and F. Ma(2017) the bilingual lexicon. The Handbook of psycholinguistics, pp. 294-319. External Links: Link, Document Cited by: SS1.\n' +
+      '*N. 쿠마르, D. 쿠마르, S. Mishra(2022)Dict-nmt: 이중언어 사전 기반 nmt 전극히 낮은 자원 언어 _ arXiv preprint arXiv:2206.04439_.\n' +
+      '* Mabokela et al. (2022) Koena Ronny Mabokela, Turgay Celik, and Mpho Raborife. 2022. 과소원 언어에 대한 다국어 감성 분석: 경관에 대한 체계적 고찰 _ IEEE Access_.\n' +
+      '* Mayhew et al.(2017) Stephen Mayhew, Chen-Tse Tsai, and Dan Roth. 2017. 교차 언어명 개체 인식을 위한 저렴한 번역. _Proceedings of the 2017 Conference on Empirical Methods in Natural Language Processing_, pages 2536-2545, Copenhagen, Denmark. 컴퓨터 언어학과의 연관성\n' +
+      '* 미아라(1993) 폴 미아라. 1993. The bilingual lexicon and teaching of vocabulary. _ 2개국어 어휘사전 279-297쪽\n' +
+      '*모하메드와 프라사드(2023) 이디 모하메드와 라제쉬 프라사드. 2023. 저자원 언어에 대한 어휘 기반 감성 분석 모델 구축. _ MethodsX_, 11:102460.\n' +
+      '* Muennighoff et al. (2023) Niklas Muennighoff, Thomas Wang, Lintang Sutawika, Adam Roberts, Stella Biderman, Teven Le Scao, M Saiful Bari, Sheng Shen, Zheng Xin Yong, Hailey Schoelkopf, Xiangru Tang, Dragomir Radev, Alham Fikri Aji, Khalid Almubarak, Samuel Albanie, Zaid Alyafeai, Albert Webson, Edward Raff, and Colin Raffel. 2023. 멀티태스크 미세조정을 통한 교차언어 일반화. _Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)_, pages 15991-16111, Canada, Toronto. 컴퓨터 언어학과의 연관성\n' +
+      '* Navigli (2009) Roberto Navigli. 2009. Word sense disambiguation: A survey. _ ACM 컴퓨팅 조사(CSUR)_, 41(2):1-69.\n' +
+      '* Nayak et al. (2023) Nihal Nayak, Yiyang Nan, Avi Trost, and Stephen Bach. 2023. 언어 모델을 새로운 작업에 적응시키기 위한 명령어를 생성하는 학습. In _NeurIPS 2023 Workshop on Instruction Tuning and Instruction Following_.\n' +
+      '* OpenAI(2024) OpenAI. 2024년, 가격\n' +
+      '* Post and Vilar (2018) Matt Post and David Vilar. 2018. Fast lexically constrained decoding with dynamic beam allocation for neural machine translation. [Proceedings of the 2018 Conference of the North American chapter of the Computational Linguistics Association for Human Language Technologies, Volume 1(Long Papers)_, pages 1314-1324, New Orleans, Louisiana. 컴퓨터 언어학과의 연관성\n' +
+      '* Purwarianti and Cristayanti (2019) Ayu Purwarianti and Ida Ayu Putu Ari Cristayanti. 2019. paragraph vector를 이용한 인도네시아 감성 분석을 위한 bi-lstm 성능 개선. In _2019 International Conference of Advanced Informatics: Concepts, Theory and Applications(ICAICTA)_, pages 1-5. IEEE.\n' +
+      '* Qi et al.(2020) Peng Qi, Yuhao Zhang, Yuhui Zhang, Jason Bolton, and Christopher D. Manning. 2020. Stanza: A Python natural language processing toolkit for many human languages. _Proceedings of the 58th Annual Meeting of the Computational Linguistics: System Demonstrations_.\n' +
+      '* Radharapu et al. (2023) Bhaktipriya Radharapu, Kevin Robinson, Lora Aroyo, and Preethi Lahoti. 2023. Aart: Ai-assisted red-teaming with various data generation for new llm-powered applications. _ arXiv preprint arXiv:2311.08592_.\n' +
+      '*Ramesh and Sankaranarayanan (2018) Sree Harsha Ramesh and Krishna Prasad Sankaranarayanan. 2018. Neural machine translation for low resource languages using bilingual lexicon induced from comparable corpora. [Proceedings of the 2018 Conference of the North American chapter of the Computational Linguistics Association for Computational Linguistics: Student Research Workshop_, pages 112-119, New Orleans, Louisiana, USA. 컴퓨터 언어학과의 연관성\n' +
+      '* Rasooli et al. (2018) Mohammad Sadegh Rasooli, Noura Farra, Axinia Radeva, Tao Yu, and Kathleen McKeown. 2018. cross-lingual sentiment transfer with limited resources. _ 기계 번역_, 32:143-165.\n' +
+      '* Robinson et al. (2023) Nathaniel Robinson, Perez Ogayo, David R. 모텐슨과 그레이엄 노윅 2023. ChatGPT MT: 고-(그러나 저-는 아님) 자원 언어에 대한 경쟁. _Proceedings of the E8h Conference on Machine Translation_, pages 392-418, Singapore. 컴퓨터 언어학과의 연관성\n' +
+      '* Sherrer and Sagot (2013) Yves Scherrer and Benoit Sagot. 2013. Lexicon induction and part-of-speech tagging of non-resourced languages without any bilingual resources. _RANLP Workshop on Adaptation on language resources and tools for closely related languages and language variants_.\n' +
+      '* Schreuder and Weltens (1993) Robert Schreuder and Bert Weltens. 1993. _The bilingual lexicon_, volume 6. John Benjamins Publishing.\n' +
+      '* Shumailov et al. (2023) Ilia Shumailov, Zakhar Shumaylov, Yiren Zhao, Yarin Gal, Nicolas Papernot, and Ross Anderson. 2023. 모델 치매: 생성된 데이터는 모델을 잊게 한다. _ arXiv e-prints_, pages arXiv-2305.\n' +
+      '* 실바(2021) 에두아르도 마린 실바. 2021. 1978년 버전의 아프리카 참조 알파벳.\n' +
+      '* Singh et al. (2024) Shivalika Singh, Freddie Vargus, Daniel Dsouza, Borje F. Karlsson, Abinaya Mahendiran, Wei-Yin Ko, Herumb Shandilya, Jay Patel, Deviidas Mataciunas, Laura OMahony, Mike Zhang, Ramith Hettiarachchi, Joseph Wilson, Marina Machado, Luisa Souza Moura, Dominik Krzeminski, Hakimeh Fadaei, Irem Ergun, Ifeoma Okoh, Aisha Alaagib, Oshan Mudannayake, Zaid Alyafeai, Vu Minh Chien, Sebastian Ruder, Surya Guthikonda, Emad A. Alghamdi, Max Bartolo, Julia Kreutzer, Ahmet Ustun, Marzieh Fadaei, Sara Hooker. 2024. Aya dataset: 다국어 명령어 튜닝을 위한 오픈액세스 컬렉션.\n' +
+      '\n' +
+      '송양추, 우파드하이, 하오펭, 스티븐 메이휴, 그리고 댄 로스. 2019. Toward for a any-language zero-shot topic classification of textual documents. _ 인공지능_, 274:133-150.\n' +
+      '* Streiter and Iomdin (2000) Oliver Streiter and Leonid L Iomdin. 2000. 이중언어 말뭉치로부터의 학습: 기계 번역의 이점. _ International journal of corpus linguistics_, 5(2):199-230.\n' +
+      '* Thompson et al. (2019) Brian Thompson, Rebecca Knowles, Xuan Zhang, Huda Khayrallah, Kevin Duh, and Philipp Koehn. 2019. HABLex: Human annotated twoilingual lexicons for experiments in machine translation. _Proceedings of the 2019 Conference on Empirical Methods in Natural Language Processing and the 9th International Joint Conference on Natural Language Processing (EMNLP-IJCNLP)_, pages 1382-1387, Hong Kong, China. 컴퓨터 언어학과의 연관성\n' +
+      '* Wang et al. (2022) Xinyi Wang, Sebastian Ruder, and Graham Neubig. 2022. 사전 훈련된 모델을 어휘 기반 적응을 통해 수천 개의 더 많은 언어로 확장. _Proceedings of the 60th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)_, pages 863-877, Dublin, Ireland. 컴퓨터 언어학과의 연관성\n' +
+      '* Wang et al. (2023) Yizhong Wang, Yeganeh Kordi, Swaroop Mishra, Alisa Liu, Noah A. Smith, Daniel Khashabi, and Hannaneh Hajishirzi. 2023. 자가 명령어: 언어 모델을 자가 생성된 명령어와 정렬하기. _Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)_, pages 13484-13508, Canada, Toronto. 컴퓨터 언어학과의 연관성\n' +
+      '* Whitehouse et al. (2023) Chenxi Whitehouse, Monojit Choudhury, and Alham Aji. 2023. LLM-powered data augmentation for enhanced cross-lingual performance. _Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing_, pages 671-686, Singapore. 컴퓨터 언어학과의 연관성\n' +
+      '* Wilie et al. (2020) Bryan Wilie, Karissa Vincentio, Genta Indra Winata, Samuel Cahyawijaya, Xiaohong Li, Zhi Yuan Lim, Sidik Soleman, Rahmad Mahendra, Pascale Fung, Syafri Bahar, and Ayu Purwarianti. 2020. IndoNLU: Benchmark and resources for evaluating Indonesian natural language understanding. _Proceedings of the first Asian-Pacific chapter of the Association of Computational Linguistics and the 10th International Joint Conference on Natural Language Processing_, pages 843-857, Suzhou, China. 컴퓨터 언어학과의 연관성\n' +
+      '* Winata et al. (2023a) Genta Winata, Lingjue Xie, Karthik Radhakrishnan, Yifan Gao, and Daniel Preotiuc-Pietro. 2023a. 검색을 통한 효율적인 제로샷 교차 언어 추론 _Proceedings of the 13th International Joint Conference on Natural Language Processing and the 3th Conference of the Asia-Pacific Chapter of the Association for Computational Linguistics(Volume 2: Short Papers)_, pages 93-104, Nusa Dua, Bali. 컴퓨터 언어학과의 연관성\n' +
+      '* 위나타 등 (2020) Genta Indra Winata, Alham Fikri Aji, Samuel Cahyawijaya, Rahmad Mahendra, Fajri Koto, Ade Romadbony, Kemal Kurniawawan, David Moeljadi, Radityo Eko Prasojo, Pascale Fung, Timothy Baldwin, Jey Han Lau, Rico Sennrich, and Sebastian Ruder. 2023b. NusaX: 인도네시아 현지 언어 10개에 대한 다국어 병렬 감성 데이터세트. _Proceedings of the 17th Conference of the European chapter of the Computational Linguistics_, pages 815-834, Dubrovnik, Croatia. 컴퓨터 언어학과의 연관성\n' +
+      '* Yehudai et al. (2024) Asaf Yehudai, Boaz Carmeli, Yosi Mass, Ofir Arviv, Nathaniel Mills, Assaf Toledo, Eyal Shnarch, and Leshem Choshen. 2024. 지니: 콘텐츠-접지 데이터세트 생성에서 인간 패리티 달성. _ arXiv preprint arXiv:2401.14367_.\n' +
+      '* Yong et al. (2023) Zheng Xin Yong, Cristina Menghini, and Stephen Bach. 2023a. 저자원 언어 탈옥 GPT-4. 사회 책임 언어 모델링 연구.\n' +
+      '* Yong et al. (2023b) Zheng Xin Yong, Hailey Schoelkopf, Niklas Muennighoff, Alham Fikri Aji, David Ifeoluwa Adelani, Khalil Almubarak, M Saiful Bari, Lintang Sutawika, Jungo Kasai, Ahmed Baruwa, Genta Winata, Stella Biderman, Edward Raff, Dragomir Radev, and Vassilina Nikoulina. 2023b. BLOOM+1: 제로 샷 프롬프트를 위해 BLOOM에 언어 지원을 추가하는 것. _Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)_, pages 11682-11703, Canada, Toronto. 컴퓨터 언어학과의 연관성\n' +
+      '* Zhang et al. (2023) Hanqing Zhang, Haolin Song, Shaoyu Li, Ming Zhou, and Dawei Song. 2023. 변압기 기반 사전 훈련 언어 모델을 이용한 제어 가능한 텍스트 생성에 대한 조사. _ ACM Computing Surveys_, 56(3):1-37.\n' +
+      '* Zhou et al. (2023a) Chunting Zhou, Pengfei Liu, Puxin Xu, Srini Iyer, Jiao Sun, Yuning Mao, Xuezhe Ma, Avia Efrat, Ping Yu, LILI YU, Susan Zhang, Gargi Ghosh, Mike Lewis, Luke Zettlemoyer, and Omer Levy. 2023a. 정렬이 더 적습니다. IMT-2000 3GPP-신경정보처리시스템에 관한 제37차 회의\n' +
+      '* Zhou et al. (2023b) Wangchunshu Zhou, Yuchen Eleanor Jiang, Ethan Wilcox, Ryan Cotterell, and Mrinmaya Sachan. 2023b. 자연어 명령어를 사용하여 텍스트 생성을 제어합니다. 제40회 머신러닝 국제회의_Proceedings of the 40th International Conference on Machine Learning_, Volume 202 of Machine Learning Research_, pages 42602-42613. PMLR.\n' +
+      '* Ustun et al. (2024) Ahmet Ustun, Viraat Aryabumi, Zheng-Xin Yong, Wei-Yin Ko, Daniel D\'souza, Ghemileke Onilude, Neel Bhandari, Shivalika Singh, Hui-Lee Ooi, Amr Kayid, Freddie Vargus, Phil Blunsom, Shayne Longpre, Niklas Muennighoff, Marzich Fadaee, Julia Kreutzer, and Sara Hooker. 2024. Aya 모델: 명령어 finetuned open-access 다국어 언어 모델.\n' +
+      '\n' +
+      'Public Release\n' +
+      '\n' +
+      'LexC-Gen에 대한 **프로젝트 페이지**는 [https://batsresearch.github.io/lexcgen/](https://batsresearch.github.io/lexcgen/]에 있다. *LexC-Gen**에 대한 **코드** 저장소는 [https://github.com/BatsResearch/LexC-Gen](https://github.com/BatsResearch/LexC-Gen)이다. 모든 **데이터** 아티팩트는 [https://github.com/BatsResearch/LexC-Gen-Data-Archive](https://github.com/BatsResearch/LexC-Gen-Data-Archive)에 있다.\n' +
+      '\n' +
+      '## 부록 B 과제 및 언어\n' +
+      '\n' +
+      '우리는 17개의 극히 낮은 자원 언어에 걸쳐 감성 분석 및 주제 분류 작업에 대해 LexC-Gen을 평가했다. 조시 등의 조시 등(2020) 분류에서는 모두 0 또는 1로 분류된다. 부록 B는 우리의 평가 과제에서 다루는 모든 언어의 언어 정보를 보여준다. 여기에서 사용하는 데이터 세트는 연구 목적을 위한 것입니다.\n' +
+      '\n' +
+      'NusaX 감성 분석 데이터셋 Winata et al.(2023)의 경우, 저자들은 인도네시아 감성 분석 데이터셋 Purwarianti와 Crisdayanti(2019)에서 텍스트를 번역하기 위해 각 지역 언어의 원어민인 전문가 주석자 2명을 고용하고, Wilie et al.(2020)은 문장의 감성 극성을 유지하고, 개체를 보존하며, 원문의 완전한 정보 내용을 유지한다. 데이터 세트에는 각 언어에 대해 500개의 트레인, 100개의 유효성 검사 및 400개의 테스트 예가 있다.\n' +
+      '\n' +
+      '우리의 기준선 BLOOMZ는 밤바라, 링갈라, 톤가, 텀부카, 트위 등 17개 언어 중 5개 언어에만 노출되었다. 이러한 언어는 주제 분류 작업에 있습니다.\n' +
+      '\n' +
+      'SIB-200 토픽 분류 데이터세트 아델라니 외(2023)의 경우, 전문 번역가들과 큐레이션되는 다중-웨이 병렬 코퍼스인 FLORES-200 Costa-jussa 외(2022)의 번역들을 이용하여 구축된다. 저자들은 플로레스-200 데이터세트의 영어 부분에 주석을 달았고 토픽 분류 라벨을 FLORES-200에서 다루는 나머지 204개 언어로 확장했다. 데이터세트는 각 언어에 대해 701개의 훈련 예제, 99개의 검증 예제 및 204개의 테스트 예제를 포함한다.\n' +
+      '\n' +
+      '## 부록 CCTG 훈련 및 데이터 생성 세부사항\n' +
+      '\n' +
+      'LLMs의 CTG 트레이닝은 섹션 3.2의 CTG 트레이닝 부분에 이어 감성 분석 및 토픽 분류를 위해 각각 500개 및 701개의 영어 인스턴스를 갖는 CTG 트레이닝 데이터세트를 구성하고, 4비트 QLoRA 파라미터-효율적인 Finetuning Dettmers 등을 위한 트랜스포머 라이브러리로부터 BitsAndBytesConfig 및 LoraConfig를 사용하여 단일 V100 GPU 상에서 BLOOMZ-7.1B 모델(허용 RAILS 라이센스를 갖는)을 Finetune한다(2023). 4비트 QLoRA를 사용하여, 현재 상용 GPU에서 특별한 설정 없이 70억 개의 파라미터 LLMs를 조정할 수 있다(그렇지 않으면 A100 40GB GPU와 같은 GPU 메모리가 더 큰 GPU로 제한되기 때문에 어려울 것이다). 페이지된 AdamW 최적화기를 사용하여 학습률을 \\(2e^{-4}\\), 시퀀스 길이를 1024, 총 유효 학습 배치 크기를 1로 설정한다. QLoRA 어댑터에 대해 다음과 같은 하이퍼파라미터를 사용한다(표 4).\n' +
+      '\n' +
+      '우리는 10개의 에폭에 대한 CTG 훈련을 수행하고 500단계마다 체크포인트를 저장한다. 전체 CTG 훈련은 단일 GPU에서 1시간 이내에 완료될 수 있다.\n' +
+      '\n' +
+      'CTG 훈련 후 CTG 훈련된 LLM 체크포인트의 선택은 태스크 데이터를 생성할 때 제공된 영어 단어 토큰의 사용을 최대화할 수 있는 최상의 모델 체크포인트를 선택하여 태스크 데이터가 이중 언어 어휘로 더 많은 어휘 범위를 가질 수 있도록 한다. 섹션 3.4. 구체적으로, 모델에 \\(\\widetilde{T}_{X}\\) 입력 텍스트를 생성하도록 프롬프트하고, 텍스트를 생성하기 위해 \\(L_{w_{X}\\sim D_{X}^{\\vee}\\)의 토큰을 얼마나 잘 사용하는지를 측정한다. 가장 좋은 체크포인트는 가장 많은 토큰을 사용하는 것입니다. 실무상 검문소 1개당 200세대만을 평가하여 최적의 검문소를 선정하는 것은 이미 충분하다.\n' +
+      '\n' +
+      '가장 좋은 생성 하이퍼파라미터를 찾기 위해 낮은 \\(p\\) 또는 낮은 온도(그러나 동시에 둘 다는 아님)가 텍스트를 생성하기 위해 제공된 토큰의 사용을 최대화하는 모델에 가장 적합하다는 것을 발견했다.\n' +
+      '\n' +
+      '각 데이터 인스턴스 생성에 대한 데이터 생성은 그림 3의 프롬프트 템플릿을 사용하여 CTG 훈련된 LLM에 프롬프트하기 위해 이중 언어 사전과 클래스 레이블에서 10개의 고자원 언어(영어) 단어를 무작위로 샘플링하여 최대 256개의 토큰을 생성한다. 사전에서 샘플링된 모든 단어는 언어 정보(예: 품사 태그 정보) 또는 작업 관련 정보(예: 단어가 주제인지 감정 관련인지 여부)와 함께 제공된다. 이전 연구 결과에 따라 데이터 생성을 위해 \\(p=0.1\\) 및 온도 1을 사용하여 Top-p 샘플링을 수행한다.\n' +
+      '\n' +
+      '입력 레이블 일관성 필터는 부록 D에 기술된 설정에 따라 기존의 고자원 언어(영어)의 영어 과제 데이터에 mBERT 분류기를 미세화한다. 영어 검증 세트(기존 과제 데이터)에는 감성 분석과 주제 분류에 각각 \\(84.6\\pm 0.7\\)과 \\(86.6\\pm 2.9\\)의 정확도 포인트가 있다. 그런 다음 분류기를 사용하여 생성된 데이터에 라벨을 다시 지정하고 분류기의 라벨이 **LexC-Gen**에서 데이터를 생성하도록 LLMs를 프롬프트하는 데 사용되는 원래 제공된 라벨과 일치하지 않는 인스턴스를 필터링한다.\n' +
+      '\n' +
+      '생성된 데이터를 필터링한 후, English Stanza tokenizer Qi et al.(2020)을 이용하여 단어를 토큰화한 후, 섹션 3.4에 기술된 바와 같이 이중 언어 어휘로 단어 대 단어 서브시턴을 수행한다. Wang et al.(2022)을 따르며, 사전 실험을 통해 잡음이 유입되고 작업 수행에 해를 끼치는 것으로 밝혀짐에 따라 단어 번역 전에 어떠한 lemmatization 또는 stemming도 수행하지 않는다.\n' +
+      '\n' +
+      '## 부록 D 피네토닝 작업 분류기\n' +
+      '\n' +
+      '감성 분석 및 주제 분류 작업을 위한 작업 분류기는 모든 설정에서 100개의 에폭에 대해 mBERT 분류기를 미세 조정하며 작업 검증 세트에 대해 3개의 인내가 평가되었다. 모든 미세 조정 실행은 조기 중단으로 인해 완료하는 데 5~20시간이 걸렸고, 단일 V100 GPU에서 24시간 이내에 각 실행(**LexC-Gen의 대규모 생성 작업 데이터 세트에서도)을 완료할 수 있었다. 분류기 미세조정은 배치 크기 32, 학습률 \\(1e^{-5}\\) 및 AdamW 최적화기를 사용한다.\n' +
+      '\n' +
+      '작업 유효성 검사 세트 **LexC-Gen** 생성 학습 데이터에 대해 미세 조정 후 평가를 위한 최상의 작업 분류기를 선택하기 위해 작업과 함께 쉽게 제공되는(**LexC-Gen** 생성 데이터를 트레인 검증 데이터 분할 대신) 검증 세트를 사용하여 단어 번역한다. 구체적으로, 이중언어 어휘를 사용하여 단어 대체로 영어 검증 데이터셋을 번역하고, 단어 번역된 검증 집합에서 가장 높은 F1 점수를 사용하여 최상의 분류기를 선택한다. 우리는 또한 이 단어 번역 검증 세트를 우리의 단어 번역 기준선 Wang et al.(2022)에 사용한다. 교차 언어 제로 샷 기준선의 경우 쉽게 사용할 수 있는 영어 작업 유효성 검사 데이터를 사용합니다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l l} \\hline \\hline\n' +
+      '**Hyperparameters** & **Values** \\\\ \\hline Dropout & 0.1 \\\\ \\(\\alpha\\) & 16 \\\\ \\(r\\) & 64 \\\\ Layers & query\\_key\\_value, \\\\  & dense, \\\\  & dense\\_h\\_to\\_4h, \\\\  & dense\\_4h\\_to\\_h \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 4: LLMs들의 제어된 텍스트 생성(CTG) 트레이닝을 위한 QLoRA Dettmers et al.(2023) finetuning을 위한 하이퍼파라미터들.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l l l l l l l l} \\hline \\hline Languages & ISO Code & Task & Is seen? & Language Family & Subgrouping & Script & Word Order \\\\ \\hline Acehnese & ace & SA & ✗ & Austronesian & Malayo-Polynesian & Latin & SOV \\\\ Balinese & ban & SA & ✗ & Austronesian & Malayo-Polynesian & Latin & OVS \\\\ Toba batak & bbc & SA & ✗ & Austronesian & Malayo-Polynesian & Latin & VOS \\\\ Banjarese & bjn & SA & ✗ & Austronesian & Malayo-Polynesian & Latin & SVO \\\\ Buginese & bug & SA & ✗ & Austronesian & Malayo-Polynesian & Latin & VOS \\\\ Madurese & bug & SA & ✗ & Austronesian & Malayo-Polynesian & Latin & SVO \\\\ Minangkabau & min & SA & ✓ & Austronesian & Malayo-Polynesian & Latin & SVO \\\\ \\hline Bambara & ban & TC & ✗ & Niger-Congo & Mande & Latin & SOV \\\\ Ewe & ewe & TC & ✗ & Atlantic-Congo & Volta-Congo & Latin & SVO \\\\ Fijian & fij & TC & ✗ & Austronesian & Malayo-Polynesian & Latin & VOS \\\\ Guarani & grn & TC & ✗ & Tupian & Tupi-Guran & Latin & SVO \\\\ Lingala & lin & TC & ✗ & Atlantic-Congo & Benue-Congo & Latin & SVO \\\\ Mizo & lus & TC & ✗ & Sino-Tibetan & Tibeto-Burman & Latin & OSV \\\\ Sango & sag & TC & ✗ & Atlantic-Congo & Ngbandi-based creole & Latin & SVO \\\\ Tsonga & tso & TC & ✗ & Atlantic-Congo & Volta-Congo & Latin & SVO \\\\ Tumbuka & tum & TC & ✗ & Atlantic-Congo & Volta-Congo & Latin & SVO \\\\ Twi & twi & TC & ✗ & Atlantic-Congo & Kwa & Latin & SVO \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 3: 우리의 정서 분석(SA)과 주제 분류(TC) 평가 과제에서 다루는 언어. “보여?”는 우리의 mBERT 태스크 분류기의 사전 훈련에서 언어가 보여졌는지를 나타낸다. 구아라니 언어뿐만 아니라 많은 아프리카 언어들이 라틴어 기반 스크립트를 사용하지만, 그들은 아프리카 참조 알파벳인 Silva(2021)와 구아라니 알파벳(예를 들어, \\(\\tilde{\\text{G}}/\\tilde{\\text{g}}\\)과 같은 언어-특정 알파벳을 가지고 있음에 유의한다.\n' +
+      '\n' +
+      '## 생성 작업 데이터의 부록 E 샘플\n' +
+      '\n' +
+      '<표 6>과 <표 7>은 각각 감성 분석 및 토픽 분류 과제에서 클래스 레이블별 LexC-Gen 생성 텍스트 샘플을 보여준다.\n' +
+      '\n' +
+      '## 부록 F Zero-Shot 프롬프트\n' +
+      '\n' +
+      'BLOOMZ-7B1For BLOOMZ 제로샷 프롬프트는 xP3(Muennighoff et al., 2023)에서 감성 분석 및 토픽 분류 작업을 위해 생성된 프롬프트를 사용하고 평균 정확도 점수를 취한다.\n' +
+      '\n' +
+      'Gpt-4 대규모 평가에 더 저렴하고 GPT-4(OpenAI, 2024)보다 더 강력한 것으로 문서화되어 있기 때문에 gpt-4-0125-터보를 사용한다. 우리는 주제 분류 과제에 대한 그들의 제로-샷 프롬프트 템플릿에 대해 Adelani et al. (2023)을 따른다: "이것이 {{\'과학, 기술, 여행, 정치, 스포츠, 건강, 엔터테인먼트, 또는 지리\'}}에 관한 한 편의 뉴스인가?" {{INPUT}}}" 감정 분석을 위해, 우리는 "이 문장이 {{\'긍정, 부정, 중립\'}}의 감정? {{INPUT}}}"이 되도록 프롬프트를 적응시킨다.\n' +
+      '\n' +
+      '## 렉시콘컨디셔닝의 부록 G Ablation\n' +
+      '\n' +
+      '어휘 조건 생성은 어휘의 단어를 이용하여 데이터를 생성하는 것을 말한다. 섹션 5.4의 절제 연구에서 입력 라벨 일관성 필터를 사용하여 어휘 조절 및 품질 관리의 두 가지 구성 요소를 절제한다.\n' +
+      '\n' +
+      'Gen w/o filter이는 CTG에서 태스크 데이터 생성만을 학습하는 LLM으로 데이터를 생성하는 것을 의미한다. 즉, CTG-훈련을 수행할 때 그림 3의 프롬프트에서 제공된 단어 집합을 제거한다. 데이터 생성에서는 어휘의 단어를 제공하지 않으며, CTG 훈련된 LLM이 다양한 태스크 데이터를 생성할 수 있도록 Top-\\(p\\) 샘플링에서 고온과 고온(\\(p=0.9\\))을 사용한다. 데이터 생성 후 품질 관리 필터링을 수행하지 않았다. 이 절제 설정은 사전 조건 생성 및 입력 라벨 일관성 필터 모두의 중요성을 측정한다.\n' +
+      '\n' +
+      'GenThis는 위의 **Gen w/o 필터**를 따르지만, 생성된 태스크 데이터가 매칭 라벨 및 입력 텍스트를 갖는 것을 보장하기 위한 필터링과 함께 수행된다. 이 절제 설정은 사전 조건 생성의 중요성을 측정한다.\n' +
+      '\n' +
+      '**Gen** 및 **Gen w/o 필터** 모두에서 제어된 변수는 입력 레이블 일관성 필터링 후 **LexC-Gen**-100K의 효과적인 훈련 데이터 세트 크기와 일치하도록 데이터의 하위 집합을 무작위로 샘플링하여 훈련 데이터 크기를 제어한다. 전술한 바와 같은 사전-조건화 프롬프트 및 샘플링을 위한 높은 \\(p\\)의 제거 외에도, **Gen** 및 **Gen w/o 필터**에 사용되는 CTG 훈련 및 데이터 생성 설정은 LexC-Gen-100K와 동일하다.\n' +
+      '\n' +
+      '## 부록 H LexC-Gen과 GPT-4의 비교\n' +
+      '\n' +
+      '우리는 GPT-4 기반 다국어 데이터 생성 방법(Whitehouse et al., 2023)의 수-샷 프롬프트 템플릿(그림 14)을 섹션 3.2에서 **LexC-Gen**의 절차에 따라 사전-조건화 명령어를 포함하도록 조정한다. 우리는 Whitehouse et al.(2023)을 따르고 기존 작업 데이터에서 5개의 무작위 수-샷 샘플을 사용한다. 하지만\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c} \\hline \\hline\n' +
+      '**Methods** & **\\#data** & **ace** & **bbc** & **bug** & **mad** \\\\ \\hline \\multicolumn{6}{l}{_Zero-shot prompting_} \\\\ \\hline GPT-4 & 0 & 60.8 & 47.8 & 30.8 & 58.3 \\\\ \\hline \\multicolumn{6}{l}{_Few-shot prompting_} \\\\ \\hline GPT-4 (5-shot) & 5 & 60.8 & 50.0 & 36.0 & 61.8 \\\\ \\hline \\multicolumn{6}{l}{_Word translation_} \\\\ \\hline Existing Task Data (T) & 701 & 63.6 & 55.8 & 57.7 & 59.3 \\\\ + Existing Task Data (en) & 1402 & 67.8 & 60.4 & 56.7 & 62.4 \\\\\n' +
+      '**LexC-Gen-100K (T)** & \\(\\sim 22\\)K & **70.0** & **65.1** & **63.7** & **69.9** \\\\ \\multicolumn{6}{l}{_Gold Translations_} & 701 & 72.1 & 68.6 & 68.1 & 66.7 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 5: 0-shot GPT4가 금 번역과 상당한 격차를 갖는 언어에 대한 5-shot GPT4를 사용한 감정 분석.\n' +
+      '\n' +
+      'GPT-4가 10개의 작업 데이터 인스턴스의 목록을 생성하도록 프롬프트하는 대신 GPT-4가 단일 작업 데이터 인스턴스를 생성하도록 프롬프트하며, 예비 실험에서 GPT-4가 그렇지 않으면 여러 작업 인스턴스에 걸쳐 어휘 조절 단어를 배포한다는 것을 발견했기 때문이다.\n' +
+      '\n' +
+      '우리는 gpt-4-turbo-0125(최신 버전의 GPT-4-Turbo)를 선택하는데, 이는 OpenAI의 문서(OpenAI, 2024)에 따르면 gpt-4보다 강력하고 저렴하기 때문이다. 1K 입력 토큰당 0.01달러, 1K 출력 토큰당 0.03달러이다. 섹션 3.2 및 부록 C에 설명된 설정에 따라 GPT-4로 데이터를 생성한 후 섹션 3.3에서 입력 라벨 일관성 검사를 수행하고 LexC-Gen과의 공정한 비교를 위해 GPT-4 필터링된 데이터와 LexC-Gen 필터링된 데이터의 크기를 일치시킨다.\n' +
+      '\n' +
+      '그림 7은 LexC-Gen과 GPT-4 생성 데이터 간에 유사한 성능을 대규모로 얻을 수 있음을 보여준다. 백악관 등(2023)에 따른 우리의 GPT-4 기반 데이터 생성은 이러한 설정에서 _only_ a 언어에 대한 감성 분석 데이터를 생성하기 위해 약 $580의 비용이 든다. 이것은 단일 V100 GPU에서 LexC-Gen으로 작업 데이터를 생성하는 것보다 약 5배 더 비싸다.\n' +
+      '\n' +
+      '우리는 GPT-4로 작업 데이터를 생성하기 위해 5샷의 상황 내 학습을 사용하면 그림 7에서 금 번역 성능과 일치할 수 있지만 감정 분석을 해결하기 위한 5샷 프롬프트는 표 5와 같이 단어 번역 기준선보다 더 나쁜 실망스러운 성능을 산출한다는 점을 강조하고 싶다.\n' +
+      '\n' +
+      '## 부록 I 어휘: 가티토스 대 판렉스\n' +
+      '\n' +
+      'Gatitos(Jones et al., 2023)는 170개의 극히 저자원 언어로 번역된 약 4000개의 짧은 영어 세그먼트로 구성된 오픈 소스 이중 언어 어휘 데이터세트이다. Gatitos의 93%는 단일 단어 토큰으로 구성되어 있으며, 모든 엔트리는 Jones 등(2023)에 의해 검토되었다. 한편, Panlex(Kamholz et al., 2014)는 5000개 이상의 언어에 대한 단어 및 구문 번역으로 구성된 오픈액세스 대규모 데이터베이스이다. 이 데이터는 2500개 이상의 개별 사전에서 제공되며 모든 언어 쌍에 걸쳐 총 10억 개 이상의 번역을 포함한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l l l} \\hline \\hline\n' +
+      '**Generated Text** & **Sentiment** \\\\ \\hline \\hline \\multicolumn{1}{l}{ulon ’m reusam leumeeh ngeun hek, ulee sikula papeun tuleh member. Hike trails, ta’jub jamek let man keun keun lon.} & \\multicolumn{1}{l}{Negative} \\\\ \\hline \\multicolumn{1}{l}{(I’m feeling weak and tired, principal board member. Hike trails, wonderful plural pursuit but not for me.)} & \\multicolumn{1}{l}{} \\\\ \\hline \\hline \\multicolumn{1}{l}{Please, peutamah nyan pre uteun handbook jadwal keulayi keu umum ureung} & Neutral \\\\ \\multicolumn{1}{l}{umum, nyan ’s jareung hadiah lam nyan areusip} & \\multicolumn{1}{l}{} \\\\ \\multicolumn{1}{l}{(Please, extend the free forest handbook schedule for general public, it’s hardly present in the archive)} & \\multicolumn{1}{l}{} \\\\ \\hline \\multicolumn{1}{l}{Wonderful, trang ngeun mangat, superior guna, tajam ngeun carong, ngeun nyan barang nakeuh superb. ulon nasihat meujuang toke ’s ho jak keu nyan, nyan ’s saboh konfiden peunigkat.} & \\multicolumn{1}{l}{} \\\\ \\multicolumn{1}{l}{(Wonderful, bright and comfortable, superior service, sharp and smart, and the package is superb. I advise struggling entrepreneur’s to go for it, it’s a confidence booster.)} & \\multicolumn{1}{l}{} \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 6: LexC-Gen에 의한 Aechnese 언어로 생성된 감성 분석 데이터의 텍스트 샘플. 번역되지 않은 채로 남아 있는 영어 단어들은 밑줄이 그어져 있다. 괄호화된 영어 텍스트는 섹션 3.4의 이중 언어 어휘로 토큰화되고 번역되기 전에 섹션 3.2에서 LexC-Gen에 의해 원래 생성된 텍스트이다.\n' +
+      '\n' +
+      '그림 7: LexC-Gen과 GPT-4를 이용한 Madurese 언어에 대한 감성분석이 생성된 데이터이다.\n' +
+      '\n' +
+      '그림 8은 LexC-Gen 생성 데이터를 Gatitos로 번역하는 것이 NusaX 감성 분석 데이터 세트에서 Panlex로 번역하는 것보다 우수하다는 것을 보여준다. 한 가지 이유는 누사엑스에 있는 7개의 극히 낮은 자원 언어에 대해 판렉스는 가티토스보다 어휘 크기가 작기 때문인데, 판렉스는 840개 정도의 항목만 있지만 가티토스는 4271개 정도의 항목을 가지고 있다. 따라서, 태스크 데이터는 Panlex와의 단어 번역 커버리지가 더 나쁘다. 또한, Gatitos의 데이터 소스는 Google의 Jones et al.(2023)에 의해 상세화되지 않은 반면, 저자들은 Gatitos 어휘가 수동으로 검토되고 Panlex에 비해 덜 시끄럽다고 설명한다. 즉, 가티토스를 사용한 단어 번역은 더 높은 품질입니다.\n' +
+      '\n' +
+      '## 큰 태스크 분류기를 위한 부록 J 데이터 요구사항\n' +
+      '\n' +
+      '그림 10은 서로 다른 크기의 태스크 분류기에 필요한 LexC-Gen 생성 데이터 크기를 분해한다. mBERT Devlin et al.(2019)은 1억 7,200만 개의 파라미터를 가지고, XLMR-base Conneau et al.(2020)은 2억 7,000만 개의 파라미터를 가지고, XLMR-large는 5억 5,000만 개의 파라미터를 가지고, 금 번역 성능을 일치시킨다. 먼저, LexC-Gen이 태스크 분류기를 사용하여 데이터 스케일을 생성함을 관찰한다. LexC-Gen 데이터에 대해 훈련된 대형 태스크 분류기는 여전히 골드 번역 성능과 일치할 수 있다. 또한, 태스크 분류기의 크기가 클수록, _less data_도 동일한 정확도를 얻을 필요가 있다. 예를 들어, XLMR-대량은 이미 5K LexC-Gen 데이터로 70점의 정확도를 초과하지만 mBERT는 동일한 정확도에 도달하기 위해 35K LexC-Gen 데이터가 필요하다.\n' +
+      '\n' +
+      '둘째, XLMR-base는 약 35K에서 mBERT와 달리 약 15K에서 금의 성능과 일치하지만 XLMR-large는 XLMR-base보다 약 10K 더 많은 LexC-Gen 데이터가 금 번역만큼 경쟁력이 있어야 한다는 것을 발견했다. 이 결과는 과제 분류기의 크기가 증가함에 따라 금 번역 성능과 일치하기 위해 필요한 합성 데이터 크기가 반드시 감소하는 것은 아님을 시사한다.\n' +
+      '\n' +
+      '## 부록 K Few-Shot Prompting with GPT-4\n' +
+      '\n' +
+      '4가지 언어에 대해 GPT-4를 사용한 5-shot prompting을 탐색하여 감성 분석 과제에 대해 zero-shot prompting으로 성능이 떨어지는 것을 확인하였다. 우리는 문맥 내 학습을 위해 5가지 다른 훈련 데이터 인스턴스의 무작위 선택을 사용하고 부록 F에 설명된 대로 GPT-4에 대한 프롬프트 전에 추가한다.\n' +
+      '\n' +
+      '표 5는 GPT-4의 5-샷 프롬프트가 0-샷 프롬프트에 비해 감성 분석 정확도를 향상시키지만, 미세하다는 것은 여전히 더 나쁘다는 것을 보여준다.\n' +
+      '\n' +
+      '도 8: Gatitos Jones et al.(2023) 및 Panlex Kamholz et al.(2014)과 함께 LexC-Gen 생성 데이터의 단어 번역간 NusaX 데이터셋에 대한 감성 분석 정확도.\n' +
+      '\n' +
+      '도 10: 상이한 태스크 분류기를 갖는 NusaX 데이터세트(7개 언어 모두에 걸쳐 평균화됨)에 대한 감정 분석 정확도. 점선 (1), (2), (3)은 각각 금 번역에 대해 훈련될 때 mBERT, XLMR-베이스 및 XLMR-대분류기에 대한 정확도를 나타낸다.\n' +
+      '\n' +
+      '그림 9: 로그10 스케일의 LexC-Gen 태스크 데이터의 크기에 대한 토픽 분류 정확도(빨간색, 왼쪽 y축)와 어휘 활용률(파란색, 오른쪽 y축)이다.\n' +
+      '\n' +
+      '기존의 영어 과제 데이터 및 LexC-Gen 데이터와 혼합된 단어 번역 기준선에서 mBERT 분류기를 튜닝한다.\n' +
+      '\n' +
+      '## 부록 L 어휘 제한 디코딩\n' +
+      '\n' +
+      '렉서 제약 디코딩은 특정 단어 및 구문이 출력 스트링에 나타나도록 생성(Hokamp and Liu, 2017; Post and Vilar, 2018; Hu et al., 2019)에서 명시적인 단어-/구 기반 제약을 강제하는 추론-시간 기법이다. LexC-Gen과 같은 어휘 호환 작업 데이터도 만들 수 있는지 궁금합니다. 본 논문에서는 HuggingFace의 생성 함수에서 force_words_ids로 구현된 out-of-the-box 어휘 제약 디코딩 방법을 사용하여 클래스 레이블 \\(c\\)(섹션 5.4의 "Gen" 모델)이 5인 제어 텍스트 생성 태스크에서만 핀테닝된 BLOOMZ-7.1B 모델로부터 생성한다. 본 논문에서는 클래스 레이블이 주어진 태스크 입력들의 모델에서 2개 언어 어휘 사전으로부터 10개의 단어 토큰들의 랜덤 서브세트가 나타날 수 있도록 어휘 제약 조건을 적용한다. 우리는 어휘 제약된 디코딩으로부터 100K개의 샘플을 생성하고 동일한 입력-라벨 일관성 필터를 적용한다.\n' +
+      '\n' +
+      '도 11은 어휘적으로 제약된 디코딩이 LexC-Gen을 저성능으로 수행함을 보여준다. 생성된 인스턴스들을 비철저적으로 검사한 결과, 어휘 제약된 디코딩이 높은 어휘 이용률을 갖는 태스크 데이터를 산출하지만, 많은 경우 어휘 제약 조건을 만족시키기 위해 일부 어휘 토큰들을 단순히 결합하여 문법적으로 부정확하고 부자연스러운 문장들을 형성한다는 것을 발견한다. 이는 추론 시간에 무작위적이고 독립적인 단어 토큰을 이용하여 자연스러운 문장을 생성하는 것이 자명하지 않음을 시사한다.\n' +
+      '\n' +
+      '## LexC-Gen 생성 데이터를 위한 부록 M 라벨 증류\n' +
+      '\n' +
+      '섹션 5.6에서 품질 관리 연구를 확장하고 LexC-Gen(Wang et al., 2022)에 대한 라벨 증류와 **LexC-Gen**의 입력 라벨 일관성 필터를 비교하며, 여기서 기존 영어 과제 데이터에 대해 훈련된 mBERT 분류기를 사용하여 _relabel_ 모든 **LexC-Gen** 생성 데이터를 사용한다. 라벨 증류는 품질이 좋지 않은 데이터 인스턴스를 걸러내지 않기 때문에 LexC-Gen-1K, -10K 및 -100K에서 생성된 데이터는 동일하게 유지된다. 따라서, 우리의 최첨단 **LexC-Gen**-100K 성능과 공정한 비교를 위해 37K 샘플에서 필터링된 **LexC-Gen**-100K 훈련 데이터의 크기와 일치하도록 다시 라벨링된 100K 데이터에서 데이터 하위 집합을 무작위로 샘플링한다.\n' +
+      '\n' +
+      '도 12는 생성된 데이터(파란색 라인)를 단순히 재라벨링하는 것이 37K의 트레이닝 데이터 크기에서 입력-라벨 일관성 필터(빨간색 라인)에 의해 저성능임을 보여준다. 성능에 맞는 라벨 증류를 위해서는 100K 재라벨 데이터가 필요하며, 이는 필터링된 **LexC-Gen** 데이터보다 훨씬 더 많기 때문에 상당한 작업 미세화 비용이 발생한다. 따라서 입력-라벨 일관성 필터는 훈련 데이터 크기를 줄이면서 더 나은 작업 성능을 제공하기 때문에 더 나은 품질 관리 방법이다.\n' +
+      '\n' +
+      '## 부록 N Do 생성 데이터 도움말\n' +
+      '\n' +
+      'High-Resource Languages?\n' +
+      '\n' +
+      '우리의 작업은 저자원 언어에 초점을 맞추고 있지만, 우리는 우리의 **LexC-Gen** 생성 데이터가 영어로 된 영어 작업에도 도움이 될 수 있는지 관심이 있다(**LexC-Gen**가 CTG로 훈련된 것). 필터링된 **LexC-Gen**-100K 데이터와 기존 영어 데이터(골드 태스크 데이터임)를 비교하였다.\n' +
+      '\n' +
+      '도 11: 어휘 제약 디코딩(Post and Vilar, 2018; Hu et al., 2019)과 **LexC-Gen** 사이의 NusaX 데이터셋에 대한 감성 분석 정확도.\n' +
+      '\n' +
+      '도 12: 감성 분석에 대한 LexC-Gen에 대한 입력-라벨 일관성 필터와 대조적으로 생성된 데이터에 대한 모든 라벨(즉, 라벨 증류(Wang et al., 2022))을 다시 라벨링한다.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:19]\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l l l} \\hline \\hline\n' +
+      '**Generated Text** & **Topic** \\\\ \\hline Badminton y bi agodie mu de w he players fa di dwuma badges ( fr rackets mu tennis ) k b balls k mu bi sap. & Sports \\\\ (Badminton is a game in which players use badges (called rackets in tennis) to & \\\\ hit balls into a net.) & \\\\ \\hline The mptam mfikyifuo y located so no koko boro so no refugee camp ne serves & Travel \\\\ s bi airnsnode firi no camp ’s pere k kora no nkae firi no tragedy te ase ber a & \\\\ moving so. & \\\\ (The community garden is located on the hill above the refugee camp and serves & \\\\ as a symbol of the camp’s struggle to keep the memory of the tragedy alive & \\\\ while moving on.) & \\\\ \\hline Information visualization enne becomes bi akade k boa users te ase kuntann & Science/ \\\\ asm. & \\\\ (Information visualization then becomes a tool to help users understand complex & \\\\ information.) & \\\\ \\hline Voters mu France b si gyinae mu bi referendum so June 15 s k ma kwan saa ara & Politics \\\\ - sex civil unions. & \\\\ (Voters in France will decide in a referendum on June 15 whether to allow & \\\\ same-sex civil unions.) & \\\\ \\hline aane, no awia aduane bu y ber bn nnipa k firi mu firi wn kwan k w bi ny nkmmdie, k y anigye firi, anaas embarrass obi. & Entertainment \\\\ (Yeah, the lunch break is when people go out of their way to have a bad & \\\\ conversation, to make fun of, or embarrass someone.) & \\\\ \\hline Benada ’s nkaeb na y wie a bi ayarehw agyinatukuo firi nhwehwmu concluded & Health \\\\ a Mr. Garfield ’s owuo na n aso k akwanhytia. & \\\\ (Tuesday’s announcement was made after a medical board of inquiry concluded & \\\\ that Mr. Garfield’s death was not due to accident.) & \\\\ \\hline Rarely y ahum surges, de w he y no san tene firi waves breaking adum no & Geography \\\\ mpoano, duru no mpoano. & \\\\ (Rarely do storm surges, which are the return flow from waves breaking off the & \\\\ shore, reach the beach.) & \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 7: LexC-Gen에 의한 Twi 언어로 생성된 토픽 분류 데이터의 텍스트 샘플. 번역되지 않은 채로 남아 있는 영어 단어들은 밑줄이 그어져 있다. 괄호화된 영어 텍스트는 섹션 3.4의 이중 언어 어휘로 토큰화되고 번역되기 전에 섹션 3.2에서 LexC-Gen에 의해 원래 생성된 텍스트이다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c c c c c} \\hline \\hline\n' +
+      '**Methods** & **\\#data** & **ace** & **ban** & **bbc** & **bjn** & **bug** & **mad** & **min** & **Avg** \\\\ \\hline \\hline \\multicolumn{10}{l}{_Zero-shot prompting_} \\\\ \\hline BLOOMZ-7.1.B & 0 & 47.0 & 50.5 & 43.0 & 49.5 & 38.5 & 48.0 & 52.5 & 47.0 \\\\ GPT-4 & 0 & 60.8 & 71.3 & 47.8 & 79.8 & 30.8 & 58.3 & 80.3 & 61.3 \\\\ \\hline \\multicolumn{10}{l}{_Cross-lingual zero-shot_} \\\\ \\hline Existing Task Data (en) & 500 & 54.3 & 55.4 & 40.0 & 66.1 & 38.0 & 50.0 & 68.9 & 53.2 \\\\ DistFuse (Winata et al., 2023a) & 500 & 65.5 & 70.5 & 65.3 & 75.3 & 58.0 & 67.3 & 73.5 & 67.9 \\\\ \\hline \\multicolumn{10}{l}{_Word translation_} \\\\ \\hline Existing Task Data (T) & 500 & 69.0 & 62.4 & 65.5 & 76.9 & 59.8 & 64.4 & 70.7 & 67.0 \\\\ \\multicolumn{10}{l}{+ Existing Task Data (en)} & 1000 & 68.0 & 72.7 & 63.4 & 80.5 & 59.1 & 73.8 & 81.2 & 71.2 \\\\ \\multicolumn{10}{l}{+ Label Distillation} & 1000 & 63.1 & 66.4 & 58.4 & 73.0 & 44.2 & 67.8 & 80.1 & 64.7 \\\\ \\multicolumn{10}{l}{(Wang et al., 2022)} \\\\ \\hline \\multicolumn{10}{l}{**LexC-Gen-1K (T)**} & \\(\\sim 370\\) & 38.4 & 38.0 & 38.3 & 38.9 & 38.3 & 38.2 & 39.2 & 38.5 \\\\ \\multicolumn{10}{l}{+ Existing Task Data (en)} & \\(\\sim 870\\) & 70.1 & 70.2 & 56.5 & 78.2 & 43.3 & 60.2 & 73.0 & 64.5 \\\\ \\multicolumn{10}{l}{**LexC-Gen-10K (T)**} & \\(\\sim 3.7\\)K & 70.4 & 70.0 & 59.8 & 78.2 & 61.7 & 67.8 & 79.0 & 69.6 \\\\ \\multicolumn{10}{l}{+ Existing Task Data (en)} & \\(\\sim 4.2\\)K & 70.6 & 71.2 & 61.9 & 79.3 & 62.7 & 68.0 & 79.3 & 70.4 \\\\ \\multicolumn{10}{l}{**LexC-Gen-100K (T)**} & \\(\\sim 37\\)K & 75.3 & **77.7** & 71.2 & 81.7 & **68.3** & 73.3 & **81.8** & 75.6 \\\\ \\multicolumn{10}{l}{**+ Existing Task Data (en)**} & \\(\\sim 38\\)K & **75.6** & 77.0 & **73.0** & **81.8** & 66.1 & **75.2** & 81.5 & **75.7** \\\\ \\hline \\hline \\multicolumn{10}{l}{_Gold Translations_} \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 8: XLMR-베이스 분류기(Conneau et al., 2020)를 갖는 NusaX 데이터세트(Winata et al., 2023b)에서 7개의 인도네시아 극저자원 지역 언어에 대한 감정 분석 정확도. 우리는 표 1에 정의된 스키마를 따르며, 또한 NusaX 태스크 성능을 향상시키기 위해 교차 언어 검색을 사용하는 다른 베이스라인 디스퓨즈(Winata et al., 2023a)의 보고된 점수를 포함한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c c c c c} \\hline \\hline\n' +
+      '**Methods** & **\\#data** & **ace** & **ban** & **bbc** & **bjn** & **bug** & **mad** & **min** & **Avg** \\\\ \\hline \\hline \\multicolumn{10}{l}{_Zero-shot prompting_} \\\\ \\hline BLOOMZ-7.1.B & 0 & 47.0 & 50.5 & 43.0 & 49.5 & 38.5 & 48.0 & 52.5 & 47.0 \\\\ GPT-4 & 0 & 60.8 & 71.3 & 47.8 & 79.8 & 30.8 & 58.3 & 80.3 & 61.3 \\\\ \\hline \\multicolumn{10}{l}{_Cross-lingual zero-shot_} \\\\ \\hline Existing Task Data (en) & 500 & 65.8 & 71.4 & 39.6 & 78.4 & 35.2 & 61.5 & 81.8 & 62.0 \\\\ \\hline \\multicolumn{10}{l}{_Word translation_} \\\\ \\hline Existing Task Data (T) & 500 & 71.0 & 60.8 & 64.9 & 74.4 & 58.1 & 69.1 & 82.3 & 68.7 \\\\ \\multicolumn{10}{l}{+ Existing Task Data (en)} & 1000 & 73.1 & 78.2 & 67.2 & 82.7 & 58.1 & 67.8 & 80.1 & 72.5 \\\\ \\multicolumn{10}{l}{+ Label Distillation} & 1000 & 65.4 & 70.9 & 70.9 & 73.4 & 45.6 & 71.1 & 77.8 & 67.9 \\\\ \\multicolumn{10}{l}{**LexC-Gen-1K (T)**} & \\(\\sim 370\\) & 38.2 & 38.5 & 43.1 & 40.4 & 39.0 & 38.2 & 42.6 & 40.0 \\\\ \\multicolumn{10}{l}{+ Existing Task Data (en)} & \\(\\sim 870\\) & 71.5 & 74.3 & 59.5 & 82.5 & 54.5 & 70.1 & 79.9 & 70.3 \\\\ \\multicolumn{10}{l}{**LexC-Gen-100K (T)**} & \\(\\sim 37\\)K & 68.0 & 69.9 & 68.3 & 81.8 & 61.8 & 67.3 & 83.2 & 71.5 \\\\ \\multicolumn{10}{l}{+ Existing Task Data (en)} & \\(\\sim 4.2\\)K & 68.3 & 77.2 & 63.9 & 83.9 & 60.3 & 70.3 & **85.3** & 72.7 \\\\ \\multicolumn{10}{l}{**LexC-Gen-100K (T)**} & \\(\\sim 37\\)K & 74.6 & 78.8 & **73.2** & 83.5 & **68.3** & 75.1 & 82.2 & 76.5 \\\\ \\multicolumn{10}{l}{**+ Existing Task Data (en)**} & \\(\\sim 38\\)K & **75.9** & **79.1** & 72.3 & **84.7** & 67.1 & **76.7** & 84.2 & **77.1** \\\\ \\hline \\hline \\multicolumn{10}{l}{_Gold Translations_} \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 9: XLMR-대분류기(Conneau et al., 2020)를 갖는 NusaX 데이터세트(Winata et al., 2023b)에서 7개의 인도네시아 극저자원 지역언어에 대한 감성분석 정확도. 우리는 표 1에 정의된 스키마를 따른다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c c c c c c c c} \\hline \\hline\n' +
+      '**Methods** & **\\#data** & **bam** & **ewe** & **fij** & **grn** & **lin** & **lus** & **sag** & **tso** & **tum** & **twi** & **Avg** \\\\ \\hline \\multicolumn{13}{l}{_Zero-shot prompting_} \\\\ \\hline BLOOMZ-7.1.B & 0 & 41.7 & 34.3 & 35.3 & 41.7 & 42.2 & 38.7 & 36.8 & 41.7 & 40.2 & 41.7 & 39.4 \\\\ GPT-4 & 0 & 34.3 & 33.3 & 52.9 & 53.9 & 53.4 & 46.1 & 32.4 & **54.9** & 53.4 & 40.7 & 45.5 \\\\ \\hline \\multicolumn{13}{l}{_Cross-lingual zero-shot_} \\\\ \\hline Existing Task Data (en) & 701 & 33.1 & 38.4 & 35.6 & 57.2 & 42.1 & 59.3 & 42.0 & 36.7 & 35.2 & 43.1 & 42.3 \\\\ \\hline \\multicolumn{13}{l}{_Word translation_} \\\\ \\hline Existing Task Data (T) & 701 & 37.5 & 36.9 & 44.8 & 66.5 & 51.3 & 63.5 & 47.5 & 39.6 & 42.3 & 50.6 & 48.1 \\\\ \\multicolumn{13}{l}{_+ Existing Task Data (en)_} & 1402 & 40.0 & 36.8 & 45.9 & 66.3 & 48.2 & 62.5 & 47.7 & 41.5 & 44.4 & 51.8 & 48.5 \\\\ \\multicolumn{13}{l}{_+ Label Distillation_} \\\\ \\hline \\multicolumn{13}{l}{_(Wang et al., 2022)_} \\\\ \\hline LexC-Gen-1k (T) & \\(\\sim 220\\) & 17.8 & 27.9 & 29.4 & 34.8 & 31.0 & 24.9 & 29.8 & 28.6 & 29.2 & 29.8 & 28.3 \\\\ \\multicolumn{13}{l}{_+ Existing Task Data (en)_} & \\(\\sim 920\\) & 31.8 & 37.8 & 37.3 & 65.0 & 50.0 & 59.7 & 46.8 & 35.9 & 37.9 & 48.1 & 45.0 \\\\ LexC-Gen-10k (T) & \\(\\sim 2.2\\)K & 39.3 & 40.3 & 50.0 & 64.2 & 55.9 & 66.5 & 55.0 & 41.4 & 46.5 & 54.9 & 51.4 \\\\ \\multicolumn{13}{l}{_+ Existing Task Data (en)_} & \\(\\sim 2.9\\)K & 36.9 & 42.4 & 50.6 & 67.2 & 55.9 & 64.8 & 54.6 & 39.8 & 46.4 & 53.9 & 51.2 \\\\ \\multicolumn{13}{l}{_+ LexC-Gen-100K_ (T)} \\\\ \\hline \\multicolumn{13}{l}{_+ Existing Task Data (en)_} \\\\ \\hline Existing Task Data (en) & 701 & 29.6 & 27.2 & 32.1 & 63.6 & 39.9 & 56.0 & 41.6 & 38.3 & 41.6 & 43.1 & 41.3 \\\\ \\multicolumn{13}{l}{_Word translation_} \\\\ \\hline Existing Task Data (T) & 701 & 42.4 & 43.1 & 48.5 & 70.6 & 52.9 & 66.4 & 43.4 & 43.5 & 47.7 & 52.9 & 51.1 \\\\ \\multicolumn{13}{l}{_+ Existing Task Data (en)_} & 1402 & 43.1 & 45.2 & 45.2 & 71.7 & 54.8 & 65.7 & 49.9 & 43.1 & 50.9 & 54.3 & 52.4 \\\\ \\multicolumn{13}{l}{_+ Label Distillation_} \\\\ \\hline \\multicolumn{13}{l}{_+_ Existing Task Data (en)_} \\\\ \\hline Existing Task Data (en) & 1402 & 37.9 & 27.8 & 42.9 & 64.6 & 43.5 & 58.9 & 48.3 & 42.6 & 48.8 & 39.5 & 45.5 \\\\ \\multicolumn{13}{l}{_+ Existing Task Data (en)_} \\\\ \\hline \\multicolumn{13}{l}{_+ Existing Task Data (en)_} \\\\ \\hline \\multicolumn{13}{l}{_+ Existing Task Data (en)_} \\\\ \\hline Existing Task Data (en) & 701 & 50.6 & 60.9 & 58.3 & 73.1 & 64.1 & 68.2 & 62.5 & 48.4 & 60.0 & 65.8 & 61.2 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 11: XLMR-대분류기(Conneau et al., 2020)를 갖는 SIB-200 데이터세트(Adelani et al., 2023)에서 10개의 최악-수행 언어들에 대한 토픽 분류 정확도. 우리는 표 11에 정의된 스키마를 따른다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c c c c c c c} \\hline \\hline\n' +
+      '**Methods** & **\\#data** & **bam** & **ewe** & **fij** & **grn** & **lin** & **lus** & **sag** & **tso** & **tum** & **twi** & **Avg** \\\\ \\hline \\multicolumn{13}{l}{_Zero-shot prompting_} \\\\ \\hline BLOOMZ-7.1.B & 0 & 41.7 & 34.3 & 35.3 & 41.7 & 42.2 & 38.7 & 36.8 & 41.7 & 40.2 & 41.7 & 39.4 \\\\ GPT-4 & 0 & 34.3 & 33.3 & 52.9 & 53.9 & 53.4 & 46.1 & 32.4 & **54.9** & 53.4 & 40.7 & 45.5 \\\\ \\hline \\multicolumn{13}{l}{_Cross-lingual zero-shot_} \\\\ \\hline Existing Task Data (en) & 701 & 29.6 & 27.2 & 32.1 & 63.6 & 39.9 & 56.0 & 41.6 & 38.3 & 41.6 & 43.1 & 41.3 \\\\ \\hline \\multicolumn{13}{l}{_Word translation_} \\\\ \\hline Existing Task Data (T) & 701 & 42.4 & 43.1 & 48.5 & 70.6 & 52.9 & 66.4 & 43.4 & 43.5 & 47.7 & 52.9 & 51.1 \\\\ \\multicolumn{13}{l}{_+ Existing Task Data (en)_} \\\\ \\hline Existing Task Data (en) & 1402 & 43.1 & 45.2 & 45.2 & 71.7 & 54.8 & 65.7 & 49.9 & 43.1 & 50.9 & 54.3 & 52.4 \\\\ \\multicolumn{13}{l}{_+ Label Distillation_} \\\\ \\hline \\multicolumn{13}{l}{_+_ Existing Task Data (en)_} \\\\ \\hline \\multicolumn{13}{l}{_+_ Existing Task Data (en)_} \\\\ \\hline \\multicolumn{13}{l}{_+ Existing Task Data (en)_} \\\\ \\hline \\multicolumn{13}{l}{_+_ Existing Task Data (en)\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>

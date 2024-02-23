@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '#Beyond \\(A^{*}\\): Search Dynamics Bootstrapping을 통한 트랜스포머와의 개선된 계획\n' +
+      '\n' +
+      'Lucas Lehnert\n' +
+      '\n' +
+      '메타에서의 공정성\n' +
+      '\n' +
+      'Sainbayar Sukhbaatar\n' +
+      '\n' +
+      '메타에서의 공정성\n' +
+      '\n' +
+      'Paul Mcvay\n' +
+      '\n' +
+      '메타에서의 공정성\n' +
+      '\n' +
+      'Michael Rabbat\n' +
+      '\n' +
+      '메타에서의 공정성\n' +
+      '\n' +
+      'Yuandong Tian\n' +
+      '\n' +
+      '메타에서의 공정성\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      '트랜스포머는 다양한 애플리케이션 환경에서 엄청난 발전을 가능하게 했지만, 이러한 아키텍처는 여전히 복잡한 의사 결정 작업을 해결하기 위한 전통적인 상징적 설계자에 뒤쳐져 있다. 본 연구에서는 복잡한 계획 작업을 해결하기 위해 트랜스포머를 훈련하는 방법을 시연하고, 기존에 보이지 않았던 소코반 퍼즐을 93.7%의 시간 동안 최적으로 해결하는 트랜스포머 모델인 **Searchformer**를 제시하며, 표준 \\(A^{*}\\) 검색보다 최대 26.8% 적은 검색 단계를 사용한다. 서치포머는 \\(A^{*}\\)의 _search dynamics_를 예측하도록 훈련된 인코더-디코더 트랜스포머 모델이다. 이 모델은 전문가 반복을 통해 미세 조정되어 여전히 최적의 계획을 생성하면서 \\(A^{*}\\) 검색보다 적은 검색 단계를 수행한다. 본 논문에서 제안하는 학습 방법은 기호 계획 과정에서 태스크 상태들이 검색 트리에 추가되고 제거될 때, \\(A^{*}\\)의 검색 역학은 토큰 시퀀스로 표현된다. 미로 탐색에 대한 절제 연구에서, 탐색포머는 5-10\\(\\times\\)의 작은 모델 크기와 10\\(\\times\\)의 작은 훈련 데이터 세트에서 최적 계획을 직접 예측하는 기준선보다 훨씬 우수하다는 것을 발견했다. 또한 서치포머가 소코반과 같은 더 크고 복잡한 의사 결정 작업으로 확장되는 방법과 해결된 작업의 비율이 향상되고 검색 역학이 단축되는 방법을 보여준다.\n' +
+      '\n' +
+      '[tucaslehnert, yuandong]@meta.com\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      '지난 몇 년 동안 트랜스포머 기반 아키텍처(Vaswani et al., 2017)는 인간 수준에서 대화를 유지하는 것(Shuster et al., 2022; OpenAI, 2022, 2023; Touvron et al., 2023), 고품질 이미지 이해(Caron et al., 2021; Oquab et al., 2024; Assran et al., 2023) 및 비디오 생성(Singer et al., 2023), 멀티모달 생성(Girdhar et al., 2023; Radford et al., 2021), 및 코드 완성(Roziere et al., 2023; OpenAI, 2021)을 포함하는 다양한 작업에서 인상적인 성능을 입증했다. 이러한 아키텍처를 엄청난 양의 데이터로 훈련시킴으로써, LLM(Large Language Models)과 같은 결과적인 모델들은 실제 사용 사례들에서 잘 일반화될 수 있다.\n' +
+      '\n' +
+      '이러한 성공에도 불구하고 트랜스포머 기반 아키텍처와 LLM은 계획 및 추론 작업을 해결하는 데 여전히 어려움을 겪고 있다. 선행 연구들(Momennejad et al., 2023; Valmeekam et al., 2023, 2023)은 LLM들이 다단계 계획 태스크들(Valmeekam et al., 2023) 또는 고차 추론을 수행할 때 부족함을 입증한다(Momennejad et al., 2023; Fan et al., 2020).\n' +
+      '\n' +
+      '최근에는 추론 및 계획 작업에서 트랜스포머의 성능을 향상시키기 위한 다양한 방법들이 제안되고 있다. 한 가지 공통적이고 효과적인 접근법은 반응을 출력하기 전에 인간의 사고 과정을 시뮬레이션하고 중간 "생각"을 생성하는 것이다. CoT(Chain-of-Thought) 프롬프트(Wei et al., 2022)는 모델이 중간 단계를 예측하고 단계적으로 "생각"하도록 권장한다. Tree-of-thoughts(ToT)는 분기 전략과 비평가들을 사용하여 최상의 것을 선택하기 전에 상이한 사고 경로들을 생성한다(Yao et al., 2023). 이러한 기법들이 종종 효과적이지만, 많은 경우, 예를 들어 자기-강제(Huang et al., 2023)로 인해 더 나쁜 성능을 초래할 수 있다는 것을 보여주는 연구들이 있다. 또한, 하나의 데이터 세트에 효과적인 기술은 관련된 추론 유형(예: 공간 추론 대 수학적 추론 대 상식 추론)의 변화로 인해 다른 데이터 세트에 잘 작동하지 않을 수 있다. 트랜스포머 또는 LLM이 다단계 의사 결정 작업을 계획하고 해결하며 다양한 유형의 추론을 수행할 수 있도록 하는 방법은 여전히 파악하기 어렵고 활발한 연구 영역으로 남아 있다.\n' +
+      '\n' +
+      '이러한 방법은 전통적인 상징적 계획 및 검색 기법과 뚜렷한 대조를 이룬다. 그러한 기법들은 인터넷-스케일 데이터세트들에 트레이닝된 LLM들의 언어 이해 능력들을 나타내지 않을 수 있지만, 그것들은 잘 정의되고, 최신 LLM들이 해결할 수 있는 태스크들보다 훨씬 더 복잡한 계획 태스크들을 해결할 수 있다(Momennejad et al., 2023; Valmeekam et al., 2023a). 또한, 심볼 계획 알고리즘은 규칙 기반 검색 절차를 잘 따르기 때문에 이러한 전통적인 방법에 의해 계산된 솔루션에 대한 공식적인 보장이 종종 존재한다.\n' +
+      '\n' +
+      '#### Our work\n' +
+      '\n' +
+      '본 논문에서는 복잡한 계획 작업을 해결하기 위해 트랜스포머를 훈련하는 방법을 제시하고, 미로 탐색과 소코반 퍼즐 풀이와 같은 다단계 계획 작업에서 \\(A^{*}\\) 탐색(Russell and Norvig, 2021, Chapter 3)과 같은 상징적 계획 알고리즘보다 적은 탐색 단계에서 최적의 계획을 계산하는 트랜스포머 모델인 _Searchformer_를 제시한다. 이를 위해 먼저 트랜스포머 모델을 학습하여 \\(A^{*}\\)의 탐색 절차를 모방한 후, 탐색 단계가 적은 최적의 계획을 찾기 위해 모델을 미세 조정하는 방법인 _search dynamics bootstrapping_을 소개한다.\n' +
+      '\n' +
+      '첫 번째 단계에서 트랜스포머 모델은 (A^{*}\\) 검색을 모방하도록 훈련된다. 여기서, 우리는 무작위로 생성된 계획 작업 인스턴스에서 \\(A^{*}\\) 검색을 실행하여 합성 데이터 세트를 생성한다. [\\(A^{*}\\)이 실행되는 동안, 수행된 계산 및 최적 계획을 _tokens_라고 하는 단어들의 시퀀스로 기록한다. 그 후 학습 데이터셋은 \\(A^{*}\\)의 실행 궤적을 포함하고, \\(A^{*}\\) 자체의 _search dynamics_에 대한 정보를 인코딩한다. 그런 다음 트랜스포머 모델은 주어진 계획 작업에 대한 최적의 계획과 함께 이러한 토큰 시퀀스를 생성하도록 훈련된다.\n' +
+      '\n' +
+      '두 번째 단계에서, 우리는 탐색-증강 시퀀스-(A^{*}\\)의 실행 트레이스를 포함하는 시퀀스-로 훈련된 우리의 _Searchformer_가 전문가 반복(Gulcehre et al., 2023)을 통해 더 개선될 수 있음을 보여준다. 이 과정은 트랜스포머의 네트워크 가중치에 암묵적으로 부호화되는 신경망 계획 알고리즘으로 이어지며, 표준 \\(A^{*}\\) 탐색보다 적은 탐색 단계에서 높은 확률로 최적의 계획을 찾는다. 구체적으로, 소코반 퍼즐을 풀 때, 우리의 모델은 \\(A^{*}\\) 검색보다 평균 26.8% 짧은 검색 단계를 수행하면서 전체 테스트 작업의 93.7%를 해결한다. 이를 통해 트랜스포머를 사용하여 전통적인 상징 계획 알고리즘을 넘어 이동할 수 있습니다.\n' +
+      '\n' +
+      '사용된 학습 데이터와 모델 매개변수 수가 결과 모델의 성능에 어떻게 영향을 미치는지 더 잘 이해하기 위해 절제 연구 세트를 제시한다. 우리는 _solution-only sequences_(token sequences including task description and final plan)와 _search-augmented sequences_(token sequences including task description, search tree dynamics and final plan)에 대한 모델을 학습하고 성능을 비교한다. 검색-증강 시퀀스가 수천 토큰의 긴 토큰이라는 사실에도 불구하고, (검색-증강 시퀀스에 대해 트레이닝되는) 검색-증강 모델은 여전히 높은 확률로 정확한 검색 역학 및 최적 계획을 생성하는 것을 학습할 수 있다. 또한, 검색-증강 모델들은 솔루션-전용 시퀀스들에 대해 트레이닝되는 솔루션-전용 모델들에 비해, 10배 더 적은 트레이닝 시퀀스들로 보이지 않는 태스크들에 대해 더 자주 최적의 계획을 생성함으로써, 트랜스포머 모델들의 트레이닝 프로세스에 \\(A^{*}\\)의 검색 역학을 포함시키는 힘을 강조한다. 합성 학습 시퀀스를 생성할 때 단순히 로깅을 통해 검색 동역학을 학습 데이터에 포함시킬 수 있기 때문에, 본 연구는 트랜스포머 모델의 추론력을 향상시킬 수 있는 데이터 효율적인 방법을 제공한다. 또한 솔루션 전용 모델이 더 많은 매개변수로 개선되지 않는다는 것을 발견하여 사용된 학습 데이터 유형이 이 설정에서 중요한 역할을 한다는 것을 보여준다.\n' +
+      '\n' +
+      '##2 관련 업무\n' +
+      '\n' +
+      '기존 작업(Trinh et al., 2024; Ruoss et al., 2024)은 추론에 대한 강력한 정책을 학습하기 위해 합성 데이터 세트를 활용하는 반면, 본 연구는 이와 관련하여 근본적으로 다르다. 본 논문에서는 AlphaZero(Silver et al., 2018), MuZero(Schrittwieser et al., 2020) 및 AlphaGeometry(Trinh et al., 2024)와 같은 알고리즘이 일반적인 신경망 모델(Transformers 포함)을 블랙박스로 취급하고, 신경망 자체를 개선하기 위해 기존의 상징적 계획 기법을 사용한다. 예를 들어, Silver et al.(2017)은 신경망의 가중치를 갱신하기 위해 MCTS를 정책 개선 연산자로 사용한다. 이에 반해 본 연구에서는 Transformer 모델을 이용하여 보다 효율적인 검색 패턴을 일반화하고 모델 자체를 개선하였다. 계획 알고리즘은 트랜스포머 모델을 초기에 훈련시키는 데만 사용됩니다.\n' +
+      '\n' +
+      'ScratchPad(Nye et al., 2021) train neural networks on execution trace of reasoning tasks, Yang et al. (2022), Pallagani et al. (2022), and Ruoss et al. (2024) train models to predict optimal solution or optimal action directly. 이와는 대조적으로, 우리는 해결자가 최적의 의사 결정 전략을 예측하는 것보다 어려운 문제인 최적 해를 찾으려고 할 때 실행 추적인 계획 알고리즘의 탐색 동역학을 예측함으로써 보다 효율적인 LLM 기반 계획 알고리즘을 찾는다.\n' +
+      '\n' +
+      '우리의 작업은 또한 기존의 상징 시스템의 기능을 모방하기 위해 미분 가능한 아키텍처를 구축하는 신경상징 시스템(예: 신경 튜링 머신(Graves et al., 2014), 신경 프로그래밍 아키텍처(Cai et al., 2017))과 약간의 유사성을 가지고 있다. 그러나, 이러한 방법들은 전용 컴포넌트들(예를 들어, 명시적 메모리 컴포넌트들, 내장된 재귀)을 사용하는 반면, 서치포머는 일반적인 트랜스포머 아키텍처를 사용한다. 최적의 계획을 예측하기 위해 긴 컨텍스트 및 위치 임베딩(Chen et al., 2023; Peng et al., 2023)을 사용함으로써, 서치포머는 상이한 복잡한 계획 태스크들을 해결하는 데 있어서 잘 수행한다. 궁극적으로 우리의 작업은 인간의 사전 지식 없이 추론 및 계획 메커니즘을 자동으로 학습하는 보다 일반적인 신경 아키텍처를 구축하는 단계이다.\n' +
+      '\n' +
+      '트랜스포머 아키텍처를 사용하여 복잡한 순차적 의사 결정을 해결하는 것이 강화 학습(RL) 설정에서 선행 연구에서 연구되었다(Chen et al., 2021; Janner et al., 2021; Laskin et al., 2023). 의사결정 트랜스포머(Chen et al., 2021)는 총 반환 값으로 주석이 달린 궤적 세그먼트가 주어지면 다음 최적 행동을 예측하는 반면, 궤적 트랜스포머(Janner et al., 2021)는 미래 상태, 행동 및 보상을 예측하는 세계 모델을 학습하는 데 중점을 둔다. 유사하게, 알고리즘 증류(Laskin et al., 2023)에서 트랜스포머 아키텍처는 상황으로서 시행착오 상호작용의 궤적 세그먼트가 주어진 다음 동작을 예측하도록 훈련된다. 대조적으로, 우리는 계획 알고리즘이 최종 결과에 도달하는 방법을 통합한다.\n' +
+      '\n' +
+      '도 1: **계획 작업을 토큰 시퀀스로 표현하는**(a): 에이전트가 벽 셀에 들어가지 않고 시작 셀에서 목표 셀로 내비게이팅해야 하는 \\(3\\times 3\\) 미로 탐색 작업. 각 전환에 대해 1의 비용이 주어지고 최적 계획은 시작부터 목표까지의 최단 경로이다. (b) : \\(3\\times 3\\) 미로 탐색 작업은 프롬프트 토큰 시퀀스(왼쪽 패널)로 표현되고 최적 계획은 응답 토큰 시퀀스(오른쪽 패널)로 표현된다. 반응 시퀀스의 시작과 끝은 시퀀스 시작 토큰 \\(\\mathtt{bos}\\)과 시퀀스 끝 토큰 \\(\\mathtt{eos}\\)으로 표시된다. 숫자는 \\(x,y\\) 좌표를 나타낸다. (c): \\(A^{*}\\) 알고리즘(좌측 패널)의 탐색 역학은 토큰 시퀀스(우측 패널)로 표현되는 실행 트레이스에 로그인된다. 미로 작업의 경우 좌표는 정수 토큰으로 인코딩됩니다. 그 노드와 관련된 다음 두 숫자 비용(좌표 번호와 구별하기 위해 문자 "c"가 추가됨)이 추가됩니다. 각각의 토큰은 고유한 음이 아닌 정수에 매핑되고 이 정수는 신경망에서 처리된다.\n' +
+      '\n' +
+      '트랜스포머 모델 MCTSNet(Guez et al., 2018)은 또한 검색 절차 자체를 학습하려고 시도하지만, 여전히 MCTS 검색 절차를 신경망으로 하드 코딩하여 2차 역전파 오버헤드를 초래하고 최대 500개의 롤아웃만을 처리할 수 있는 반면, 우리의 접근법은 훨씬 더 긴 검색 실행 추적을 처리할 수 있다. 트랜스포머는 상징적 계획 알고리즘을 모방할 수 있을 뿐만 아니라 미세 조정을 통해 처음 훈련된 알고리즘보다 개선할 수 있음을 보인다.\n' +
+      '\n' +
+      '## 3 문제 설정\n' +
+      '\n' +
+      '우리는 미로 탐색 작업(그림 1(a))과 소코반 퍼즐 풀기(그림 2)의 두 가지 영역을 고려한다. 미로 탐색에서는 벽 셀을 통과하지 않고 시작 위치와 목표 위치 사이의 \\(n\\)-by-\\(n\\) 미로에서 최단 경로를 찾는 것이 목표이다. 그림 2는 작업자가 상, 하, 좌, 우로 이동하여 각 상자를 도크(교차 그리드 셀)에 밀어 넣을 수 있는 소코반 퍼즐을 묘사한다. 작업자는 벽 셀에서 상자를 꺼낼 수 없습니다. 퍼즐을 풀기 위해서는 각 상자를 가능한 한 몇 단계씩 도크로 옮겨야 한다. 잘못된 움직임은 즉시 막다른 골목으로 이어질 수 있으므로 작업을 해결하기 위해 신중한 계획이 필요하다. 또한 소코반 퍼즐의 각 상태는 상자와 작업자 위치의 가능한 모든 조합으로 구성된다. 결과적으로, 상태 공간은 소코반 퍼즐을 \\(A^{*}\\) 탐색과 같은 알고리즘에 대해 계산적으로 해결하기 더 어렵게 만든다.\n' +
+      '\n' +
+      '### \\(A^{*}\\) 검색의 실행 흔적 생성.\n' +
+      '\n' +
+      '\\(A^{*}\\) 알고리즘은 두 개의 노드 집합을 조작하여 최적의 계획을 계산한다:\n' +
+      '\n' +
+      '* 상기 현재 탐색 프론티어들을 포함하는 프론티어 세트;\n' +
+      '* 검색된 모든 노드를 포함하는 닫힌 집합.\n' +
+      '\n' +
+      '그림 1(a)의 미로 예시에서 각 노드는 빈(비벽) 그리드 셀에 해당한다. 각 노드에 대해, 알고리즘은 휴리스틱 값과 시작 값으로부터의 비용을 계산한다. 임의의 주어진 반복에서, 어떤 노드가 다음에 탐색되는지는 프런티어 및 폐쇄 세트의 내용뿐만 아니라 시작 값으로부터의 휴리스틱 및 비용에 의해 결정된다(도 1(c), 좌측 패널). 실행 추적은 시작 값으로부터 휴리스틱과 비용과 함께 프론티어 및 클로즈드 집합으로의 모든 삽입 동작을 추적하여 수집된다. 도 1(c)의 우측 패널은 도 1(b)에 도시된 미로 예제에 대한 결과적인 궤적을 예시한다. 각 행은 생성 토큰에 의해 지시되는 프런티어로의 노드의 삽입 또는 클로즈 토큰에 의해 지시되는 클로즈드 집합으로의 노드의 이동에 대응한다. 각 노드는 미로 내의 \\((x,y)\\) 위치와 두 개의 비용 토큰으로 표현된다. 그런 다음 결과 평면이 이 추적에 추가됩니다. 이 트레이스는 이 트레이스의 임의의 프리픽스가 주어지면 다음 토큰이 정확하게 예측될 수 있도록 구성된다. 미로 데이터 셋의 경우, \\(A^{*}\\)은 맨해튼에서 목표 위치까지의 거리를 휴리스틱으로 사용한다. 소코반에서 \\(A^{*}\\)은 먼저 모든 상자와 가장 가까운 도크를 일치시킨 다음 각 상자와 도크 쌍 사이의 모든 맨해튼 거리의 합을 계산한다.\n' +
+      '\n' +
+      '각 실험에 대해 그림 1과 같이 두 개의 토큰 서열 변형을 생성한다.\n' +
+      '\n' +
+      '* _Search-augmented sequence_. 이 변형은 <prompt><trace><plan> 포맷의 시퀀스를 포함하며, 여기서 <trace> 부분은 \\(A^{*}\\) 실행 트레이스를 인코딩하고 <plan>은 최적 플랜을 인코딩한다.\n' +
+      '* _Solution-only sequence_. 이 변형은 \\(A^{*}\\)의 배출 추적을 생략하고 <prompt><plan> 형식의 시퀀스만 포함한다.\n' +
+      '\n' +
+      '예를 들어, \\(3\\times 3\\) 미로 내비게이션 태스크(도 1(a))는 프롬프트 및 평면 시퀀스로 매핑될 수 있다(도 1(b)). <trace> 부분은 각 계획 작업에서 \\(A^{*}\\)을 실행하고 수행된 계산을 토큰 시퀀스로 기록함으로써 구성된다(그림 1(c)). 두 경우 모두 최적의 계획은 상당히 짧을 수 있지만\n' +
+      '\n' +
+      '그림 2: 예제 소코반 퍼즐1. 이 작업에 대한 프롬프트, \\(A^{*}\\) 실행 추적 및 최적 계획은 부록 A.3의 그림 10에 나와 있다. 소코반의 경우 비결정론적 \\(A^{*}\\) 구현만을 사용한다.\n' +
+      '\n' +
+      '특히 \\(A^{*}\\)의 휴리스틱이 목표 상태에 도달하기 위한 비용을 과소평가하고 종종 불가능한 경로를 탐색하기 위해 탐색을 오도할 때 대응하는 실행 추적은 상당히 길 수 있다.\n' +
+      '\n' +
+      '그림 1에 예시된 바와 같이, 모든 토큰 시퀀스는 합성적으로 생성되어 특별한 어휘를 사용한다. 또한 모든 모델은 처음부터 학습되며 자연 언어 데이터 세트는 학습에 사용되지 않는다. 결과적으로, 결과 모델들은 상이한 계획 태스크들의 세트에 대한 최적의 계획들을 개요화하는 시퀀스들만을 예측하도록 특별히 트레이닝된다. 학습 후 모델의 출력을 파싱하여 정확하고 최적의 솔루션 계획이 포함되어 있는지 평가한다.\n' +
+      '\n' +
+      '트랜스포머 모델 훈련\n' +
+      '\n' +
+      '트랜스포머 모델을 학습하기 위해, 해당 토큰 시퀀스와 함께 계획 태스크 세트를 랜덤하게 생성한다. 각각의 데이터세트에서, 각각의 태스크는 고유하고 테스트 세트는 트레이닝 세트의 임의의 중복을 포함하지 않도록 구성된다. 예를 들어, 트레이닝 데이터셋에서 발생하는 미로 태스크는 테스트 데이터셋에서 발생하지 않고 어떠한 태스크도 반복되지 않는다. 이 실험 설계를 통해 트랜스포머가 계획 작업을 해결하는 데 어떻게 사용될 수 있는지에 대한 통찰력을 얻을 수 있기를 바랍니다.\n' +
+      '\n' +
+      '중간 계산 단계를 포함함으로써, 트랜스포머 모델은 \\(A^{*}\\) 알고리즘에 의해 수행되는 계산을 효과적으로 모방하도록 트레이닝된다. 뉴럴 네트워크를 트레이닝하기 위한 이러한 접근법은, 뉴럴 네트워크가 입력-출력 쌍들(우리의 경우 태스크 프롬프트들 및 최적 계획들)로 제시될 뿐만 아니라, 특정 태스크에 대해 "생각"하는 방법의 예들과 함께 제시되는 프로시저 클로닝(Yang et al., 2022)과 유사하다.\n' +
+      '\n' +
+      '실험에서는 인코더-디코더 T5 아키텍처의 적응을 훈련하고(Raffel et al., 2020), Rotary Position Embeddings (RoPE)를 사용한다(Su et al., 2023). 우리가 사용하는 모델들에 대한 더 상세한 내용과 하이퍼-파라미터들은 부록 A.2에서 찾을 수 있다. 인코더는 트레이닝 시퀀스의 <prompt> 부분을 처리하고, 디코더는 솔루션 전용 모델을 트레이닝할 때 검색-증강된 모델을 트레이닝하기 위해 <trace><plan> 포맷된 시퀀스 또는 <plan> 포맷된 시퀀스만을 처리한다. 모델 변형에 따라, 각각의 네트워크는 디코더 세대들의 분포와 트레이닝 데이터세트로부터 대응하는 시퀀스를 샘플링하는 분포 사이의 교차-엔트로피(cross-entropy)를 최대화하도록 트레이닝된다. 경사 업데이트는 교사 강제력을 사용하여 계산됩니다. 부록 A.1은 최적화 설정에 대해 자세히 설명합니다.\n' +
+      '\n' +
+      '검색 동역학 부트스트래핑을 통한 과거 알고리즘 모방 이동\n' +
+      '\n' +
+      '추론 과정에서 탐색-증강 모델에 의해 생성되는 탐색 단계들의 수를 줄이기 위해, 디코더가 실행 트레이스들을 생성하는 분포를 이동시키는 방법을 구현한다. 먼저, 탐색-증강 모델은 비결정론적 \\(A^{*}\\) 구현의 탐색 동학을 모방하도록 훈련된다. 이러한 비결정적 \\(A^{*}\\) 구현은 비용 유대를 랜덤하게 끊고 자식 노드가 확장되는 순서를 랜덤화한다. 이렇게 함으로써 탐색 자체의 효율성을 떨어뜨리지 않고, 여전히 휴리스틱과 비용 계산을 존중하면서 서로 다른 노드가 탐색되는 순서를 변경할 뿐이다.\n' +
+      '\n' +
+      '비결정적 구현을 사용하여 시퀀스 생성 프로세스를 랜덤화하고 각 실행 트레이스의 길이에 추가 분산을 유도한다. 그 후, 결과적인 검색-증강 모델은 트레이닝 시퀀스들이 생성된 확률 분포를 근사화할 것이다.\n' +
+      '\n' +
+      '일단 모델이 비결정론적 \\(A^{*}\\) 탐색의 탐색 역학을 모방하도록 훈련되면, 더 짧은 토큰 시퀀스로 구성된 _new_ 훈련 데이터세트를 생성하는 데 사용된다. 이 새로운 데이터세트는 트레이닝된 검색-증강 모델을 사용하여 각각의 트레이닝 프롬프트에 대한 다수의 토큰 시퀀스를 생성함으로써 구성된다. 이 단계에서는 테스트 데이터셋이 아닌 부트스트래핑을 위한 훈련 데이터셋만을 사용한다. 생성된 각 시퀀스를 파싱하여 최적의 계획으로 끝나는지 확인한다. 이것이 경우이고 시퀀스가 또한 원래의 트레이닝 데이터세트에 포함된 대응하는 시퀀스보다 짧다면, 이 단축된 시퀀스는 새로운 짧은 시퀀스 트레이닝 데이터세트에 포함된다. 생성된 시퀀스가 최적의 계획으로 끝나지 않거나 더 긴 경우, 원래의 트레이닝 데이터세트로부터의 시퀀스가 재사용된다.\n' +
+      '\n' +
+      '이어서, 검색-증강 모델은 새로운 짧은 시퀀스 트레이닝 데이터세트 상에서 미세 조정된다. 원래 데이터 세트에 대해 훈련된 검색 증강 모델과 구별하기 위해 우리는 이 새로운 모델을 _Searchformer_라고 부른다. 그런 다음 결과적인 미세 조정 모델을 사용하여 다음 더 짧은 서열 데이터 세트를 생성한 다음 이 데이터 세트를 사용하여 서치포머 모델을 추가로 미세 조정함으로써 이 절차를 반복할 수 있다. 섹션 4.4에서 우리는 이 절차가 실제로 추론 동안 수행된 검색 단계의 수를 줄이는 동시에 성능을 더욱 향상시킨다는 것을 보여준다. 이 때, Searchformer 모델은 더 이상 \\(A^{*}\\) 검색을 모방하지 않고, 더 적은 검색 단계를 사용하여 계획 문제를 해결하는 새로운 방법을 발견했다.\n' +
+      '\n' +
+      '## 4 Experiments\n' +
+      '\n' +
+      '실험에서는 각 시퀀스 데이터 세트를 생성하기 위해 결정론적 및 비결정론적 \\(A^{*}\\) 검색의 변형을 사용한다.\n' +
+      '\n' +
+      '### 결정론적 \\(A^{*}\\) 데이터세트\n' +
+      '\n' +
+      '첫 번째 경우, 결정론적 방식으로 \\(A^{*}\\)을 실행하여 시퀀스를 생성한다. (자식 노드를 순서화하고 프런티어 집합에서 동일한 비용 관계를 결정적으로 끊음으로써). 결과적으로, 태스크 프롬프트가 주어지면, 최적 계획 및 \\(A^{*}\\) 실행 추적은 유일하다. 이 데이터에 대해 학습된 트랜스포머 모델은 다음을 예측할 토큰만 학습하면 됩니다. 이러한 모델을 평가하는 것은 간단하다. 왜냐하면 생성된 토큰 시퀀스는 \\(A^{*}\\)에 의해 생성된 토큰 시퀀스와 정확히 일치해야 하기 때문이다.\n' +
+      '\n' +
+      '###### Non-deterministic \\(A^{*}\\) dataset\n' +
+      '\n' +
+      '실제로 동일한 작업을 최적으로 해결하는 여러 가지 계획이 있을 수 있으며 \\(A^{*}\\) 검색의 결정론적 구현은 하나의 최적 솔루션만 계산할 수 있다. 데이터 세트를 다양화하고 서로 다른 검색 시퀀스를 포함하기 위해 비결정적 방식으로 \\(A^{*}\\) 검색을 실행하여 시퀀스를 생성한다. 각 실행에서 자식 노드가 확장되는 순서를 랜덤하게 섞고 동일한 비용 관계를 랜덤하게 끊는다. 결과적으로, 생성된 <trace><plan>-formatted 시퀀스들은 상이한 실행들 사이에서 변화한다. 결과 계획도 다를 수 있지만 여전히 최적입니다. 이 수정은 \\(A^{*}\\) 검색의 효율성을 감소시키지 않고, 단지 우리의 구현이 그림 1(c)에 열거된 의사-코드를 실행하는 것에 여전히 대응하는 상이한 검색 시퀀스를 사용하도록 강제한다. \\(A^{*}\\)의 효율성에 영향을 미치는 다른 무작위화 전략(예: 각 단계에서 비용 값을 무작위화하는 것)도 가능하며 향후 작업에 남겨진다.\n' +
+      '\n' +
+      '#### Statistics\n' +
+      '\n' +
+      '그림 3은 소코반 데이터세트와 각 미로 데이터세트에 대한 각 모델 유형에 사용된 토큰 시퀀스 길이의 개요를 보여준다. 생성된 \\(A^{*}\\) 실행 궤적의 길이는 각 미로의 격자 크기에 따라 증가한다. 국가 공간이 가장 큰 작업인 소코반에서는 실행 흔적이 가장 길다. 그러나 소코반의 해결책은 가장 짧다.\n' +
+      '\n' +
+      '### Evaluation Criteria\n' +
+      '\n' +
+      '각 태스크에 대해, 하나의 모델은 최적 계획, 정확하지만 차선책 계획 또는 유효하지 않은 계획에서 끝나는 검색 시퀀스를 생성할 수 있다. 계획이 유효하기 위해 최종 솔루션 시퀀스가 실현 가능한지 확인할 뿐만 아니라 출력 형식도 확인한다. 검색-증강 모델들은 포맷 <trace><plan>의 토큰 시퀀스를 생성해야 하는 반면, 솔루션-전용 모델들은 포맷 <plan>만의 토큰 시퀀스를 생성해야 한다. 시퀀스 종료 토큰 <<os를 예측하지 않는 시퀀스를 포함하여 이러한 제약을 위반하는 생성된 시퀀스는 생략된다.\n' +
+      '\n' +
+      '도 3: 훈련 시퀀스 길이 비교. 왼쪽 패널은 솔루션 전용 시퀀스의 길이를 표시하고 오른쪽 패널은 시퀀스 토큰 <<bos>> 및 <<os>>의 시작과 끝을 제외하고 검색 증강 시퀀스의 길이를 표시한다. 수염은 모든 서열 길이의 범위를 나타내고 상자 그림은 25%, 50% 및 75% 분위수를 나타낸다. 복잡한 순차 의사 결정 작업을 계획하는 데 중점을 두기 때문에, 토큰 시퀀스는 LLM을 훈련하기 위해 사용되는 일반적인 토큰 시퀀스보다 수십 배 더 길며, 특히 \\(A^{*}\\) 실행 흔적이 응답에 포함될 때 더욱 그렇다. 예를 들어, 인간 선호도 데이터에 대한 LLama 2 모델의 미세 조정은 평균적으로 600 토큰 길이의 시퀀스들로 수행된다(Touvron et al., 2023).\n' +
+      '\n' +
+      '측정계획 최적성\n' +
+      '\n' +
+      '세 가지 기준 중 하나를 사용하여 출력 계획이 최적인지 여부를 평가한다.\n' +
+      '\n' +
+      '* _Exact-match criterion._ 각 태스크에 대해, 훈련된 모델로부터 생성된 시퀀스가 결정론적 \\(A^{*}\\)의 출력과 정확히 일치하면, 그것은 정확하다고 라벨링되고, 그렇지 않으면 부정확하다고 라벨링된다. 이것은 결정론적 \\(A^{*}\\)의 감독 복제를 평가하기 위해만 사용된다.\n' +
+      '* _Any-optimal-64 criterion._ 각 작업에 대해 훈련된 모델에서 64개의 응답을 샘플링한다. 그들은 생성된 <추적> 부분에 관계없이 최종 계획이 실현 가능하고 최적의지 테스트하기 위해 파싱된 다음 평가된다. 64개의 계획 중 어느 것이 실현 가능하고 최적이라면, 그 작업은 올바른 것으로 라벨링된다.\n' +
+      '* _SWC score._ 결과 계획의 하위 최적성을 추가로 측정하기 위해, 우리는 또한 비용(SWC)_(Wu et al., 2019)에 의해 가중된 _Success Weighted by Cost(SWC)_(Wu et al., 2019)를 보고하며, 64회에 걸쳐 가장 잘 예측된 올바른 계획의 비용\\(l_{i}^{*}\\)이 최적 계획 비용\\(l_{i}^{*}\\)에 얼마나 근접하는지의 요인이 모든 실험 작업에 걸쳐 평균화되고 이진 변수 \\(c_{i}\\in\\{0,1\\}\\): \\[\\text{SWC:=\\frac{1}{n}sum_{i}}c_{i}^{i}^{i}}^{i}^{i}}^{i}^{i}}}{max\\{l_{i},l_{i}^{*}}}에 의해 가중된다는 통계치이다. SWC 점수를 계산할 때, 이진 변수 \\(c_{i}\\)는 올바른 계획이 발견되면 1로 설정되고 그렇지 않으면 0으로 설정된다. 이 SWC 점수는 0과 1 사이에 있습니다. 생성된 모든 시퀀스가 최적 계획으로 끝나는 경우 이 값은 1입니다.\n' +
+      '\n' +
+      '검색 다이내믹스 길이 측정\n' +
+      '\n' +
+      '계획이 정확하거나 최적임을 감안할 때, 우리는 두 가지 기준 중 하나를 사용하여 토큰 수 측면에서 시퀀스 다이내믹의 길이를 평가한다:\n' +
+      '\n' +
+      '* _Average-on-optimal length._ 각 작업에 대해 훈련된 모델에서 64개의 응답을 샘플링하고 최적의 계획으로 이어지는 시퀀스에 대한 평균 검색 역학 길이를 계산한다.\n' +
+      '* _ILR score._ 모델 생성 검색 동역학이 \\(A^{*}\\) 계획에 대해 얼마나 개선되었는지 추가로 측정하기 위해, 우리는 _개선된 검색 동역학 길이 비율(ILR) 점수를 보고한다. 구체적으로, 각 테스트 태스크에 대해 최단 생성 탐색 동역학 시퀀스의 길이\\(t_{i}\\)와 토큰 시퀀스의 길이\\(t_{i}^{*}\\) 사이의 비율을 계산한다. 그런 다음 이진 변수 \\(c_{i}\\)에 의해 지정된 대로 최적 또는 올바른(잠재적 하위 최적) 계획이 발견된 작업에 대한 비율만 포함하면서 모든 테스트 작업에 대해 평균을 낸다. 해당 조치들은 따라서 _ILR-on-optimal_ 및 _ILR-on-solved._ ILR은 \\[\\text{ILR}:=\\frac{1}{n}\\sum_{i=1}^{n}c_{i}\\frac{t_{i}^{*}}{t_{i}}}{t_{i}}}.\\]로 정의된다. ILR 측정은 음이 아닌 값을 취할 수 있으며 1 이상의 값은 모델이 \\(A^{*}\\) 참조보다 더 짧은 검색 역학을 생성함을 나타낸다. 결과적으로, 숫자가 1보다 상당히 위에 있다면, 모델은 최적의 계획을 계산하기 위해 태스크의 상태 공간을 탐색하는 더 효율적인 방법을 찾았다.\n' +
+      '\n' +
+      '달리 명시되지 않는 한, 각 실험은 5회 반복되고 각 그림은 모든 반복에 걸쳐 평균을 표시한다. 오차 막대는 표준 측정 오차(SEM)를 나타내는 데 사용된다.\n' +
+      '\n' +
+      '### Maze Navigation\n' +
+      '\n' +
+      '첫 번째 실험 세트에서, 우리는 \\(30\\times 30\\) 미로에 대한 최적의 계획을 예측하기 위해 인코더-디코더 트랜스포머 모델 세트를 훈련한다. 서로 다른 학습 실행 간에 학습 데이터 세트 크기와 모델 크기(최적화된 매개 변수 수)를 가변하고 동일한 하이퍼 매개 변수(예: 미로 크기)를 사용하여 생성된 테스트 작업에 대해 각 모델을 평가한다.\n' +
+      '\n' +
+      '정확한 일치 기준에 의한 평가\n' +
+      '\n' +
+      '그림 4(a)는 정확한 응답이 생성된 테스트 작업의 수에 대한 그림이다. 결정론적 \\(A^{*}\\) 데이터 집합에 대해 솔루션 전용 모델과 검색 증강 모델을 학습하고 정확한 일치 기준을 따른다. 오네칸은 솔루션 전용 모델이 대부분의 검색 증강 모델에 비해 성능이 우수하다는 것을 관찰한다. 충분히 큰 트레이닝 데이터 세트에 대해서만, 솔루션 전용 모델은 최악의 검색 증강 모델의 성능과 일치한다. 낮은 학습 데이터 레짐(100,000개 이하의 학습 시퀀스)에서는 솔루션 전용 모델의 성능이 크게 저하되는 반면, 각 검색 증강 모델의 성능은 상대적으로 높게 유지된다.\n' +
+      '\n' +
+      '이 결과는 놀라운데, 왜냐하면 검색-증강 모델들은 솔루션-전용 모델들에 의해 생성된 포맷 <plan>의 대응하는 시퀀스보다 평균적으로 10배 이상 긴 포맷 <trace><plan>의 시퀀스를 생성해야 하기 때문이다. 또한 1,500만(15M) 매개 변수를 가진 가장 작은 검색 증강 모델도 1억 7,500만(175M) 매개 변수를 가진 훨씬 더 큰 솔루션 전용 모델을 훨씬 능가한다.\n' +
+      '\n' +
+      'Any-optimal-64 기준에 의한### 평가\n' +
+      '\n' +
+      '비결정론적 \\(A^{*}\\) 데이터에 대해 훈련될 때, 하나의 작업에 대해 다수의 상이한 최적 경로들이 있을 수 있고, 실제로 어떤 계획을 계산하기 위해 오직 모델을 사용할 때, 임의의-최적-64 메트릭이 더 적절하다. 임의의-최적-64 기준을 사용하는 것은 정확한-매치에 비해 더 높은 절대 수를 초래하는데, 왜냐하면 이 기준 하에서 하나의 포인트를 스코어링하기 위해서는 단지 하나의 생성된 응답만이 정확할 필요가 있기 때문이다.\n' +
+      '\n' +
+      '그림 4(b)는 비결정적 \\(A^{*}\\) 훈련 시퀀스의 수의 함수로 테스트 세트에 대한 임의의 최적-64 기준을 보여준다. 우리는 유사한 패턴을 관찰할 수 있다: 심지어 가장 작은 검색-증강 모델들조차도 특히 작은 트레이닝 세트에 대해 솔루션-전용 모델을 능가한다. 또한, 매우 작은 학습 데이터 세트(50,000개의 학습 시퀀스)를 사용할 때 모델 크기가 검색 증강 모델 각각의 성능에만 영향을 미친다는 것을 발견했다. 더 큰 훈련 데이터세트 크기의 경우 유의미한 차이가 발견되지 않는다. 솔루션 전용 모델의 매개변수 수를 증가시키면 낮은 데이터 체제에서 성능이 크게 개선되지 않는다(그림 5).\n' +
+      '\n' +
+      '그림 6은 과제의 난이도가 각 모델의 성과에 어떤 영향을 미치는지 보여준다. 여기서는 비결정론적 \\(A^{*}\\)에 의해 생성된 데이터 세트에 다시 초점을 맞추고, 미로 크기의 함수로 올바르게 해결된 테스트 작업의 수를 고려한다. 미로(maze)가 클수록 태스크의 상태 공간이 커지고 최적의 해결 방안을 찾기 위해서는 더 많은 연산이 필요하다. 솔루션 전용 모델은 작은 \\(10\\times 10\\) 미로에 대한 검색 증강 모델의 성능에 근접하지만, 작업이 더 어려워짐에 따라 성능이 급격히 떨어진다. 대조적으로, 검색 증강 모델은 가장 작은 모델 크기에 대해서도 작업이 더 어려워짐에 따라 높은 정확도를 유지한다. 부록 A.5는 모든 미로 크기에 대한 전체 비교를 제시한다.\n' +
+      '\n' +
+      '전반적으로, 솔루션 전용 모델은 사용된 훈련 데이터 세트가 충분히 크고 다양하다면 최적의 계획을 예측하는 것을 학습하지만, 검색 증강 모델은 낮은 데이터 체제에서 훨씬 더 나은 성능을 보이고 더 어려운 작업에서 더 나은 규모로 더 나은 성능을 보인다. 검색 증강 모델은 추론 중에 주문형 계산을 수행할 수 있기 때문에 더 높은 성능에 도달한다. 보다 구체적으로, 검색-증강 모델들은 최적 계획으로 이어지는 근거 추론 체인에 대한 검색 역학을 제어할 수 있는 반면, 솔루션-전용 모델들은 테스트 시간에서 많은 상관 관계가 거짓되고 신뢰할 수 없는 지도 학습을 통해 태스크 설명과 최적 계획 사이의 직접적인 상관 관계를 추론해야 한다.\n' +
+      '\n' +
+      '소코바 퍼즐 풀기\n' +
+      '\n' +
+      '토큰화 패턴이 다른 다양하고 복잡한 작업에서 유사한 결과를 얻을 수 있는지 테스트하기 위해 소코반 퍼즐에 대한 계획 데이터 세트를 생성한다. 여기서 \\(A^{*}\\)의 실행 흔적은 비결정적으로 생성되어 그림 10에 요약된 바와 같이 토큰 시퀀스로 표현된다.\n' +
+      '\n' +
+      '그림 7은 각 모델이 각 테스트 작업에 대해 올바른 최적 계획을 생성하는 빈도를 보여줍니다. 이전과 같이 실행 추적에 대한 교육을 통해 검색 증강 모델이 솔루션 전용 모델을 능가한다. 솔루션 전용 모델의 모수화를 7억 4700만 모수로 증가시키더라도 한계 성능 개선만 가져온다. 평균적으로 이 7억 4700만 매개 변수 솔루션 전용 모델은 여전히 더 작은 1억 7500만 매개 변수 검색 증강 모델에 비해 약간 성능이 우수하다. 이 실험은 다른 토큰화 방법을 사용하는 더 복잡한 계획 작업을 가진 데이터 세트에서 미로에 대해 발견된 결과를 확인한다.\n' +
+      '\n' +
+      '### 서치포머: 부트스트래핑을 통한 서치 다이나믹스 개선\n' +
+      '\n' +
+      '본 연구에서는 검색 단계 수를 예측하면서 최적 계획을 계산하기 위해 검색 증강 모델이 어떻게 반복적으로 개선될 수 있는지 조사한다. 여기서, 우리의 목표는 최적의 솔루션을 생산하면서 검색 추적의 길이를 단축하는 것이다.\n' +
+      '\n' +
+      '비결정론적 \\(A^{*}\\) 소코반 데이터셋에 대해 학습된 가장 작은 탐색증강모델부터 시작하여 Sec. 3.3에 요약된 새로운 더 짧은 시퀀스 학습 데이터셋을 생성하는 데 사용한다. 학습 데이터에서 각 소코반 퍼즐에 대해 트랜스포머의 출력 분포로부터 토큰을 샘플링하여 32개의 다른 <trace><plan> 시퀀스를 생성하고, 최적의 계획이 포함된 경우 가장 짧은 생성(token에서 측정)을 포함한다.\n' +
+      '\n' +
+      '그 후, 새로 생성된 학습 데이터에 대해 탐색 증강 모델을 미세 조정(추가 10,000개의 학습 단계를 실행하여)하여 첫 번째 탐색 형성기 모델을 얻는다. 이 서치포머 모델을 사용하여 후속적으로 또 다른 짧은 시퀀스 데이터 세트를 생성하고 미세 조정 절차를 반복한다. 그런 다음 새로 생성된 데이터 세트는 다른 10,000개의 훈련 단계에 대해 이전에 얻은 서치포머 모델을 추가로 미세 조정하는 데 사용된다. 전체적으로 이 개선 단계를 세 번 반복합니다.\n' +
+      '\n' +
+      '그림 8은 서치포머 모델에 의해 생성된 시퀀스 길이가 부트스트래핑 방법에 의해 반복적으로 단축되는 방법을 보여준다. 개선 단계마다 생성된 자취의 길이-숫자\n' +
+      '\n' +
+      '그림 7: 소코반 데이터셋과의 성능 비교. 각 모델 크기에 대한 올바른 응답 테스트 프롬프트의 백분율입니다. 모든 모델에는 100,000개의 훈련 시퀀스가 표시됩니다. 플롯은 세 가지 다른 종자에 걸쳐 백분율 값을 평균하고 동일한 200개의 테스트 작업에서 각 모델을 평가한다. 테스트 작업은 훈련 데이터 세트에 포함되지 않습니다.\n' +
+      '\n' +
+      '단계, 탐색포머 모델은 생성된 탐색 동역학 토큰 길이를 평균 3094로 줄였으며, 평균 탐색 길이인 4222에서 총 26.8% 감소했다. 각 개선 단계를 통해 서치포머 모델은 최적의 계획을 계산할 때 더 짧고 짧은 토큰 시퀀스를 생성했다. (a): 탐색 동역학 길이(토큰 수 측면에서)의 비교\\(A^{*}\\) 탐색과 우리의 모델(파란색으로 탐색-증강, 주황색으로 탐색형성기 단계 1-3)의 비교: 우리의 모델이 최적의 계획을 산출하는 테스트 서브셋에서. 여기에서 각 테스트 작업에 대해 64개의 시도 중 최적의 계획으로 끝나는 시퀀스의 길이(즉, 평균-최적 길이(Sec. 4.1.2))를 평균화한다. 상자 그림은 왼쪽 경계, 중간 실선, 오른쪽 경계가 25%, 50% 및 75% 분위수를 나타내는 평균 온 최적 길이의 분포를 보여준다. 점선은 평균이고 수염은 범위를 나타낸다. (b) : 평균-온-최적 길이의 히스토그램. (c): 최적 계획으로 이어지는 개별 시퀀스의 길이의 히스토그램. 각 모델이 검색 단계가 적은 쉬운 작업을 위한 최적의 계획을 생성할 가능성이 더 높기 때문에 분포가 더 짧은 시퀀스 길이를 향해 왼쪽 방향으로 치우쳐 있다. 이 그림에 표시된 데이터는 세 가지 실험 반복에 걸쳐 서열 길이를 집계한다.\n' +
+      '\n' +
+      '그림 8: 소코반의 부트스트래핑을 통한 최적 계획에 대한 검색 동역학의 길이 개선. 세 가지 개선 단계 후에, 서치포머 모델은 생성된 서치 다이내믹 토큰 길이를 평균 3094로 줄였으며, 평균 \\(A^{*}\\) 서치 길이인 4222에서 총 26.8% 감소했다. 각 개선 단계를 통해 서치포머 모델은 최적의 계획을 계산할 때 더 짧고 짧은 토큰 시퀀스를 생성했다. (a): 탐색 동역학 길이(토큰 수 측면에서)의 비교\\(A^{*}\\) 탐색과 우리의 모델(파란색으로 탐색-증강, 주황색으로 탐색형성기 단계 1-3)의 비교: 우리의 모델이 최적의 계획을 산출하는 테스트 서브셋에서. 여기에서 각 테스트 작업에 대해 64개의 시도 중 최적의 계획으로 끝나는 시퀀스의 길이(즉, 평균-최적 길이(Sec. 4.1.2))를 평균화한다. 상자 그림은 왼쪽 경계, 중간 실선, 오른쪽 경계가 25%, 50% 및 75% 분위수를 나타내는 평균 온 최적 길이의 분포를 보여준다. 점선은 평균이고 수염은 범위를 나타낸다. (b) : 평균-온-최적 길이의 히스토그램. (c): 최적 계획으로 이어지는 개별 시퀀스의 길이의 히스토그램. 각 모델이 검색 단계가 적은 쉬운 작업을 위한 최적의 계획을 생성할 가능성이 더 높기 때문에 분포가 더 짧은 서열 길이를 향해 왼쪽으로 치우쳐 있다. 이 그림에 표시된 데이터는 세 가지 실험 반복에 걸쳐 서열 길이를 집계한다.\n' +
+      '\n' +
+      '검색 단계 - 감소(그림 8(a)) 최적의 계획을 계산할 때, 최종 서치포머 모델은 \\(A^{*}\\) 서치로 생성된 시퀀스보다 평균적으로 26.8% 짧은 서치 다이내믹스 시퀀스를 생성한다. 결과적으로, 탐색포머 모델은 보이지 않는 테스트 퍼즐에 대해서도 복잡한 작업을 계획하고 \\(A^{*}\\)의 탐색을 넘어 더 효율적인 방법을 찾았다. 그림 8(b)에서 우리는 탐색 증강 모델이 길이가 \\(A^{*}\\) 탐색으로 생성된 서열과 평균적으로 일치하는 서열을 생성한다는 것을 관찰할 수 있다. 서치포머 모델은 더 짧은 서열을 생성하여 더 짧은 서열 길이로 치우친 분포를 생성한다.\n' +
+      '\n' +
+      '우리는 평균적으로 각 모델이 더 적은 검색 단계로 해결할 수 있는 작업에 대해 더 자주 최적의 계획을 생성한다는 것을 발견했다. 보다 복잡한 작업에 대한 최적의 계획을 생성하는 것은 각 모델에서 가능하지만 모델을 더 자주 프롬프트해야 합니다. 이것은 개별 서열에 대한 서열 길이 분포를 플롯하는 그림 8(c)에 설명되어 있다. 두 모델의 시퀀스 길이 분포는 더 짧은 시퀀스로 치우쳐 있고, 모델은 \\(A^{*}\\) 시퀀스 길이 분포와 일치하지 않는다.\n' +
+      '\n' +
+      '표 1에 보고된 바와 같이 모델을 미세 조정하면 성능이 크게 향상되어 잘못된 솔루션과 최적이 아닌 솔루션의 비율이 각각 40%와 30% 감소했다. 세 단계의 미세 조정 후 45M Searchformer는 계획(작업 솔루션)만 예측하도록 학습하는 757M 모델과 유사한 모습을 보인다. 차선의 계획도 고려하는 보다 세밀한 SWC 측정치를 사용한 비교도 유사한 경향을 보인다. 평가 조치에 대한 정의는 Sec.4.1을 참조하십시오.\n' +
+      '\n' +
+      '### Searchformer를 이용한 탐색역학의 길이 감소\n' +
+      '\n' +
+      '마지막으로, 검색-증강 및 검색포머 모델을 확장하여 올바른 계획을 계산하기 위해 생성된 검색 단계의 수를 감소시켰는지 평가한다. 이 분석은 그림 8에 제시된 결과와 다른데, 여기서는 개선된 길이 비율(ILR) 측정을 사용하여 각 모델로 생성된 트레이스와 \\(A^{*}\\) 검색으로 생성된 트레이스의 길이 비율을 계산하는 데 초점을 맞추고 있기 때문이다.\n' +
+      '\n' +
+      '이러한 개선은 각 서치포머 모델에 대해 표 1에서 관찰될 수 있으며, 여기서 모든 개선 단계에서 모델은 더 짧은 실행 트레이스를 생성하여 더 높은 ILR 점수로 이어진다. 또한, 두 개의 검색-증강 모델에 대한 점수는 1보다 약간 낮으며, 이는 검색-증강 모델이 \\(A^{*}\\) 검색보다 약간 더 많은 검색 단계를 수행하는 경향이 있는 반면, 미세 조정 모델은 1보다 더 높은 ILR 점수를 나타내어 특히 최적의 계획으로 이어지는 검색 역학에 대해 더 효율적인 검색 역학을 보여준다. 예를 들어, \\(A^{*}\\) 탐색 동역학은 세 번의 미세 조정 후에 서치포머에 의해 생성된 것보다 \\(\\sim 34.3\\%\\) 더 길다. 모델의 성능 특성에 대한 자세한 내용은 부록A.4에 나와 있다.\n' +
+      '\n' +
+      '##5 결론, 한계 및 향후 작업\n' +
+      '\n' +
+      '이전 작업(Momennejad et al., 2023; Valmeekam et al., 2023a)은 트랜스포머 모델을 기반으로 하는 LLMs가 복잡한 의사 결정 작업을 해결하는 데 어려움을 겪는다는 것을 발견했다. 검색포머는 적절한 훈련 데이터로 트랜스포머가 실제로 복잡한 계획 작업을 해결할 수 있음을 보여준다. 또한, 서치포머\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c l l c c c c} \\hline Params. & Model & Solved (\\%) & Optimal (\\%) & SWC & ILR-on-solved & ILR-on-optimal \\\\ \\hline \\hline \\multirow{4}{*}{45M} & Solution only & 90.3 \\(\\pm\\)1.0 & 86.8 \\(\\pm\\)0.3 & 0.890 \\(\\pm\\)0.009 & – & – \\\\  & Search augmented & 92.5 \\(\\pm\\)1.0 & 90.8 \\(\\pm\\)1.6 & 0.924 \\(\\pm\\)0.011 & 0.908 \\(\\pm\\)0.020 & 0.919 \\(\\pm\\)0.019 \\\\  & Searchformer, step 1 & 95.5 \\(\\pm\\)1.0 & 93.5 \\(\\pm\\)1.0 & 0.953 \\(\\pm\\)0.010 & 1.054 \\(\\pm\\)0.025 & 1.062 \\(\\pm\\)0.015 \\\\  & Searchformer, step 2 & 96.0 \\(\\pm\\)0.5 & 93.4 \\(\\pm\\)0.6 & 0.957 \\(\\pm\\)0.005 & 1.158 \\(\\pm\\)0.025 & 1.181 \\(\\pm\\)0.012 \\\\  & Searchformer, step 3 & 95.5 \\(\\pm\\)0.8 & 93.7 \\(\\pm\\)1.6 & 0.953 \\(\\pm\\)0.009 & 1.292 \\(\\pm\\)0.044 & 1.343 \\(\\pm\\)0.067 \\\\ \\hline \\multirow{2}{*}{175M} & Solution only & 95.7 \\(\\pm\\)0.2 & 90.0 \\(\\pm\\)0.8 & 0.949 \\(\\pm\\)0.003 & – & – \\\\  & Search augmented & 95.2 \\(\\pm\\)0.9 & 93.2 \\(\\pm\\)1.0 & 0.949 \\(\\pm\\)0.010 & 0.925 \\(\\pm\\)0.010 & 0.933 \\(\\pm\\)0.011 \\\\ \\hline \\multirow{2}{*}{757M} & Solution only & 96.5 \\(\\pm\\)0.1 & 92.2 \\(\\pm\\)1.2 & 0.958 \\(\\pm\\)0.002 & – & – \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 1: 소코반 과제에서의 테스트 세트 성능. 보이지 않는 200개 이상의 소코반 테스트 작업에서, 우리는 해결된 백분율, 최적 해의 백분율, 비용 가중치(SWC) 및 개선된 길이 비율(ILR) w.r.t\\(A^{*}\\) 참조, 최적/올바른 계획으로 끝나는 시퀀스에 대한 평균을 보고한다. 최적성 메트릭(Sec.4.1.1) 및 검색 길이 메트릭(Sec.4.1.2)에 대한 자세한 정의는 Sec.4.1을 확인하십시오. 그 결과 탐색포머를 계속 미세 조정하면 탐색 동역학의 길이가 짧아지고 동시에 해결/최적 해결 작업의 비율이 향상됨을 알 수 있다. 모든 값은 SEM을 나타내는 오류가 있는 평균이다.\n' +
+      '\n' +
+      '상징적인 계획가의 중간 단계(실행 추적)를 강력하게 따르고 처음에 훈련된 인간 조작 규칙 기반 계획 전략을 넘어 (추적 길이 측면에서) 개선한다. 솔루션을 직접 예측하는 솔루션 전용 모델에 비해 검색 증강 모델은 더 적은 훈련 시퀀스와 더 많은 난이도의 작업에 더 나은 척도를 필요로 한다.\n' +
+      '\n' +
+      '#### Limitations\n' +
+      '\n' +
+      '현재 서치포머는 복잡한 계획 전략을 학습하기 위해 \\(A^{*}\\)의 실행 궤적을 학습한다. 그러나, 트레이스 길이는 최적 계획의 길이에서 기하급수적으로 증가할 수 있고(도 3 참조), 결과적인 토큰 시퀀스 데이터에 대한 트레이닝은 계산적으로 매우 비싸진다. 사실, 제시된 실험은 Llama 2(Touvron et al., 2023.2)와 같은 LLM을 훈련시키는데 사용되는 서열보다 상당히 긴 토큰 서열을 사용한다.\n' +
+      '\n' +
+      '각주 2: 소코반 데이터셋에 훈련된 1억 7천 5백만 개의 파라미터 모델은 32GB의 메모리와 함께 64개의 GPU를 사용한다.\n' +
+      '\n' +
+      '#### Future work\n' +
+      '\n' +
+      '이 한계를 완화하기 위한 한 가지 방법은 교육과정 학습을 사용하는 것이다: 비교적 긴 실행 궤적을 가진 간단한 작업에서 시작하여 탐색기를 훈련하고 미세 조정하여 추적 길이를 줄인 다음 개선된 모델을 더 복잡한 작업에 적용하는 것이다. 또 다른 가능성은 몬테카를로 트리 탐색(MCTS)(Coulom, 2006)과 유사하게 더 나은 휴리스틱 또는 값 함수를 \\(A^{*}\\) 탐색에 통합하여 탐색 알고리즘이 탐색하는 최대 깊이를 제한하는 것이다. 계층적 계획 방법 및 시간적 추상화를 통합하는 것(Sutton et al., 2023, 1999; Dietterich, 2000; Hafner et al., 2022)은 또 다른 길이다. 이렇게 하면 결과 모델은 여러 시간 단계와 상태에 걸쳐 추상화하여 더 적은 계산 단계를 사용하여 최적의 계획을 찾을 수 있는 능력을 갖추게 된다.\n' +
+      '\n' +
+      '본 연구는 Momennejad et al. 및 Valmeekam et al.에 의해 이전에 설명된 한계를 완화하고 의사 결정 작업을 강력하게 해결할 수 있는 트랜스포머 기반 모델을 구축하는 방법에 대한 추가 연구를 알려 주길 바란다.\n' +
+      '\n' +
+      '##6 브로드캐스팅 효과\n' +
+      '\n' +
+      '우리의 작업은 상징적인 계획 작업에 초점을 맞추고 훈련을 위해 합성 데이터 세트를 사용한다. 본 논문에서 탐색한 태스크는 간단한 기호 해결기로 쉽게 풀 수 있지만, 이러한 태스크에 대한 신경망의 효과성에 대한 연구가 중요하다. 신경망 기반 대용량 언어 모델은 복잡한 자연어 명령어를 따르는 것과 같은 비상징적 작업에서 인상적인 성능을 보여주었지만 숫자 추가와 같은 비교적 단순한 상징적 작업에서는 여전히 실패한다. 이 논문의 결과는 고무적이지만, 여전히 상징적 해결사들과의 경쟁과는 거리가 멀다.\n' +
+      '\n' +
+      '#### Acknowledgment\n' +
+      '\n' +
+      '이 논문의 이전 버전에 대한 유용한 토론과 논평에 대해 진칭 정에게 감사드린다. 우리는 또한 이 작품에 대한 유익한 토론에 대해 Amy Zhang에게 감사하고 싶습니다.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* Assran et al. (2023) Mahmoud Assran, Quentin Duval, Ishan Misra, Piotr Bojanowski, Pascal Vincent, Michael Rabbat, Yann LeCun, and Nicolas Ballas. 공동 임베딩 예측 아키텍처를 가진 이미지로부터 자가 지도 학습. _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 15619-15629, 2023.\n' +
+      '* Cai et al. (2017) Jonathon Cai, Richard Shin, and Dawn Song. 신경 프로그래밍 아키텍처를 재귀화를 통해 일반화합니다. _ ArXiv:1704.06611_, 2017.\n' +
+      '* Caron et al. (2021) Mathilde Caron, Hugo Touvron, Ishan Misra, Herve Jegou, Julien Mairal, Piotr Bojanowski, and Armand Joulin. 자가 감독 비전 트랜스포머의 신흥 특성 In _Proceedings of the IEEE/CVF international conference on computer vision_, pages 9650-9660, 2021.\n' +
+      '* Chen et al. (2021) Lili Chen, Kevin Lu, Aravind Rajeswaran, Kimin Lee, Aditya Grover, Michael Laskin, Pieter Abbeel, Aravind Srinivas, and Igor Mordatch. 의사결정 트랜스포머: 시퀀스 모델링을 통한 강화학습, 2021.\n' +
+      '* Chen et al. (2023) Shouyuan Chen, Sherman Wong, Liangjian Chen, and Yuandong Tian. 위치 보간을 통해 대형 언어 모델의 컨텍스트 창을 확장합니다. _ arXiv preprint arXiv:2306.15595_, 2023.\n' +
+      '* 쿨롬(2006) Remi Coulom. 몬테카를로 트리 검색에서 효율적인 선택성 및 백업 연산자 컴퓨터와 게임에 관한 국제회의에서 72-83페이지. 스프링어, 2006.\n' +
+      '* Dietterich (2000) Thomas G Dietterich. Maxq 값 함수 분해를 갖는 계층적 강화 학습. _ Journal of artificial intelligence research_, 13:227-303, 2000.\n' +
+      '* Fan et al. (2020) Angela Fan, Thibaut Lavril, Edouard Grave, Armand Joulin, and Sainbayar Sukhbaatar. 피드백 메모리를 사용하여 순차 변압기에서 상위 레벨 표현에 액세스합니다. _ CoRR_, abs/2002.09402, 2020. [https://arxiv.org/abs/2002.09402](https://arxiv.org/abs/2002.09402).\n' +
+      '* Girdhar et al. (2023) Rohit Girdhar, Mannat Singh, Andrew Brown, Quentin Duval, Samaneh Azadi, Sai Saketh Rambhatla, Akbar Shah, Xi Yin, Devi Parikh, and Ishan Misra. Emu video: explicit image conditioning에 의해 text-to-video 생성을 Factorizing. _ arXiv preprint arXiv:2311.10709_, 2023.\n' +
+      '* Goodfellow et al. (2016) Ian Goodfellow, Yoshua Bengio, and Aaron Courville. _ 딥러닝. MIT 기자 2016년\n' +
+      '* Graves et al. (2014) Alex Graves, Greg Wayne, and Ivo Danihelka. 신경 튜링 기계요 arXiv preprint arXiv:1410.5401_, 2014.\n' +
+      '* Guez et al. (2018) Arthur Guez, Theophane Weber, Ioannis Antonoglou, Karen Simonyan, Oriol Vinyals, Daan Wierstra, Remi Munos, and David Silver. mctsnet으로 검색하는 법을 배웁니다. _International conference on machine learning_, pages 1822-1831. PMLR, 2018.\n' +
+      '*Gulcehre et al. (2022) Caglar Gulcehre, Tom Le Paine, Srivatsan Srinivasan, Ksenia Konyushkova, Lotte Weerts, Abhishek Sharma, Aditya Siddhant, Alex Ahern, Miaosen Wang, Chenjie Gu, Wolfgang Macherey, Arnaud Doucet, Orhan Firat, and Nando de Freitas. 언어 모델링을 위한 강화된 자체 훈련(휴식), 2023.\n' +
+      '* Hafner et al. (2022) Danijar Hafner, Kuang-Huei Lee, Ian Fischer, and Pieter Abbeel. 픽셀에서 심층 계층 계획 Alice H. Oh, Alekh Agarwal, Danielle Belgrave, and Kyungyun Cho, Editors, _Advances in Neural Information Processing Systems_, 2022. [https://openreview.net/forum?id=wZk69kj9_d](https://openreview.net/forum?id=wZk69kj9_d)에 있어서,\n' +
+      '* Huang et al. (2023) Jie Huang, Xinyun Chen, Swaroop Mishra, Huaixiu Steven Zheng, Adams Wei Yu, Xinying Song, and Denny Zhou. 대형 언어 모델은 아직 스스로 정확한 추론을 할 수 없다.\n' +
+      '* Janner et al. (2021) Michael Janner, Qiyang Li, and Sergey Levine. 하나의 큰 시퀀스 모델링 문제로서 오프라인 강화학습이 있다. In _Advances in Neural Information Processing Systems_, 2021.\n' +
+      '* Laskin et al. (2023) Michael Laskin, Luyu Wang, Junhyuk Oh, Emilio Parisotto, Stephen Spencer, Richie Steigerwald, DJ Strouse, Steven Stenberg Hansen, Angelos Filos, Ethan Brooks, maxime gazeau, Himanshu Sahni, Satinder Singh, and Volodymyr Mnih. 알고리즘 증류를 이용한 상황 내 강화 학습. _The Eleventh International Conference on Learning Representations_, 2023. [https://openreview.net/forum?id=hy0a5MMMPUv](https://openreview.net/forum?id=hy0a5MMMPUv).\n' +
+      '* Loshchilov and Hutter (2016) Ilya Loshchilov and Frank Hutter. SGDR: 재시작과 함께 확률적 경사 하강 CoRR_, abs/1608.03983, 2016. [http://arxiv.org/abs/1608.03983](http://arxiv.org/abs/1608.03983)\n' +
+      '* Loshchilov and Hutter (2019) Ilya Loshchilov and Frank Hutter. Decoupled Weight decay regularization, 2019.\n' +
+      '* Momennejad et al. (2023) Ida Momennejad, Hosein Hasanbeig, Felipe Vieira, Hiteshi Sharma, Robert Osazuwa Ness, Nebojsa Jojic, Hamid Palangi, and Jonathan Larson. Cogeval, 2023으로 인지 지도 및 계획을 대형 언어 모델로 평가한다.\n' +
+      '\n' +
+      '(주)몽고DB MongoDB. [https://www.monogodb.com/] (https://www.monogodb.com/). 접속: 2024-01-23\n' +
+      '* Nye et al. (2021) Maxwell Nye, Anders Johan Andreassen, Guy Gur-Ari, Henryk Michalewski, Jacob Austin, David Bieber, David Dohan, Aitor Lewkowycz, Maarten Bosma, David Luan, Charles Sutton, and Augustus Odena. 작업 표시: 2021년 언어 모델을 사용한 중간 계산을 위한 스크래치패드입니다.\n' +
+      '* OpenAI(2021) OpenAI. Openai codex, 2021. [https://openai.com/blog/openai-codex](https://openai.com/blog/openai-codex)\n' +
+      '* OpenAI(2022) OpenAI. Openai: Introducing chatgpt, 2022. [https://openai.com/blog/chatgpt](https://openai.com/blog/chatgpt)\n' +
+      '* OpenAI(2023) OpenAI. Gpt-4 기술 보고서, 2023\n' +
+      '* Oquab et al. (2024) Maxime Oquab, Timothee Darcet, Theo Moutakanni, Huy V. Vo, Marc Szafraniec, Vasil Khalidov, Pierre Fernandez, Daniel HAZIZA, Francisco Massa, Alaaeldin El-Nouby, Mido Assran, Nicolas Ballas, Wojciech Galuba, Russell Howes, Pojiech Galuba, Shang-Wen Li, Ishan Misra, Michael Rabbat, Vasu Sharma, Gabriel Synnaeve, Hu Xu, Herve Jegou, Julien Mairal, Patrick Labatut, Armand Joulin, Piotr Bojanowski. DINOv2: 감독 없이 강력한 시각적 특징을 학습합니다. _ Machine Learning Research_, 2024. ISSN 2835-8856. [https://openreview.net/forum?id=a68SUt6zFt](https://openreview.net/forum?id=a68SUt6zFt)\n' +
+      '* Pallagani et al. (2022) Vishal Pallagani, Bharath Muppasani, Keerthiram Murugesan, Francesca Rossi, Lior Horesh, Biplav Srivastava, Francesco Fabiano, Andrea Loreggia. 트랜스포머: 트랜스포머를 이용한 상징적 계획 생성, 2022년.\n' +
+      '* Paszke et al. (2019) Adam Paszke, Sam Gross, Francisco Massa, Adam Lerer, James Bradbury, Gregory Chanan, Trevor Killeen, Zeming Lin, Natalia Kimelshein, Luca Antiga, Alban Desmaison, Andreas Kopf, Edward Yang, Zach DeVito, Martin Raison, Alykhan Tejani, Sasank Chilamkurthy, Benoit Steiner, Lu Fang, Junjie Bai, and Soumith Chintala. 파이토치: 주문형, 고성능 딥러닝 라이브러리, 2019.\n' +
+      '* Peng et al. (2023) Bowen Peng, Jeffrey Quesnelle, Honglu Fan, and Enrico Shippole. Yarn: 대규모 언어 모델의 효율적인 컨텍스트 윈도우 확장. _ arXiv preprint arXiv:2309.00071_, 2023.\n' +
+      '* Radford et al. (2021) Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, Gretchen Krueger, and Ilya Sutskever. 자연어 감독에서 전이 가능한 시각적 모델을 학습합니다. Marina Meila and Tong Zhang, editors, _Proceedings of the 38th International Conference on Machine Learning_, volume 139 of _Proceedings of Machine Learning Research_, pages 8748-8763. PMLR, 18-24 Jul 2021. [https://proceedings.mlr.press/v139/radford21a.html](https://proceedings.mlr.press/v139/radford21a.html)\n' +
+      '* Raffel et al. (2020) Colin Raffel, Noam Shazeer, Adam Roberts, Katherine Lee, Sharan Narang, Michael Matena, Yanqi Zhou, Wei Li, and Peter J. Liu. 단일 텍스트-텍스트 변환기를 이용한 전이학습의 한계점 탐색 Journal of Machine Learning Research_, 21(140):1-67, 2020. [http://jmlr.org/papers/v21/20-074.html](http://jmlr.org/papers/v21/20-074.html).\n' +
+      '* Roziere et al. (2023) Baptiste Roziere, Jonas Gehring, Fabian Gloeckle, Sten Sootla, Itai Gat, Xiaoqing Ellen Tan, Yossi Adi, Jingyu Liu, Tal Remez, Jeremy Rapin, et al. Code llama: code에 대한 오픈 파운데이션 모델. _ arXiv preprint arXiv:2308.12950_, 2023.\n' +
+      '* Ruoss et al. (2024) Anian Ruoss, Gregoire Deletang, Sourabh Medapati, Jordi Grau-Moya, Li Kevin Wenliang, Elliot Catt, John Reid, and Tim Genewein. 수색 없는 그랜드마스터급 체스 2024년\n' +
+      '* Russell and Norvig(2021) Stuart J. Russell and Peter Norvig. _ 인공지능: 현대적 접근법. 피어슨 교육, 2021년 4판\n' +
+      '* Schrittwieser et al. (2020) Julian Schrittwieser, Ioannis Antonoglou, Thomas Hubert, Karen Simonyan, Laurent Sifre, Simon Schmitt, Arthur Guez, Edward Lockhart, Demis Hassabis, Thore Graepel, et al. Mastering atari, go, chess and shogi by planning with the learned model. _ Nature_, 588(7839):604-609, 2020.\n' +
+      '* Shuster et al. (2022) Kurt Shuster, Jing Xu, Mojtaba Komeili, Da Ju, Eric Michael Smith, Stephen Roller, Megan Ung, Moya Chen, Kushal Arora, Joshua Lane, Morteza Behrooz, W.K.F. Ngan, Spencer Poff, Naman Goyal, Arthur Szlam, Y-Lan Boureau, Melanie Kambadur, 및 Jason Weston. 블렌더봇 3: 책임감 있게 참여하도록 지속적으로 학습하는 전개된 대화 에이전트. _ ArXiv_, abs/2208.03188, 2022. [https://api.semanticscholar.org/CorpusID:251371589](https://api.semanticscholar.org/CorpusID:251371589)\n' +
+      '* Silver et al. (2017) David Silver, Julian Schrittwieser, Karen Simonyan, Ioannis Antonoglou, Aja Huang, Arthur Guez, Thomas Hubert, Lucas Baker, Matthew Lai, Adrian Bolton, et al. Mastering the game of go without human knowledge. _ nature_, 550(7676):354-359, 2017.\n' +
+      '* Silver et al. (2018) David Silver, Thomas Hubert, Julian Schrittwieser, Ioannis Antonoglou, Matthew Lai, Arthur Guez, Marc Lanctot, Laurent Sifre, Dharshan Kumaran, Thore Graepel, Timothy Lillicrap, Karen Simonyan, and Demis Hassabis. 체스, 쇼기, 자기놀이를 마스터하는 일반적인 강화학습 알고리즘. _ Science_, 362(6419):1140-1144, 2018. doi: 10.1126/science.aar6404. [https://www.science.org/doi/abs/10.1126/science.aar6404](https://www.science.org/doi/abs/10.1126/science.aar6404)를 포함할 수 있다.\n' +
+      '* Silver et al. (2019)Uriel Singer, Adam Polyak, Thomas Hayes, Xi Yin, Jie An, Songyang Zhang, Qiyuan Hu, Harry Yang, Oron Ashual, Oran Gafni, Devi Parikh, Sonal Gupta, and Yaniv Taigman. 메이크-어-비디오: 텍스트-비디오 데이터가 없는 텍스트-투-비디오 생성. _The Eleventh International Conference on Learning Representations_, 2023. [https://openreview.net/forum?id=mJfylDvgzlq](https://openreview.net/forum?id=mJfylDvgzlq).\n' +
+      '* Su et al. (2023) Jianlin Su, Yu Lu, Shengfeng Pan, Ahmed Murtadha, Bo Wen, and Yunfeng Liu. 로포머: 회전식 위치 임베딩이 있는 향상된 변압기, 2023.\n' +
+      '* Sutton et al. (1999) Richard S Sutton, Doina Precup, and Satinder Singh. mdps와 semi-mdps 사이에: 강화학습에서 시간적 추상화를 위한 프레임워크 _ 인공지능_, 112(1-2):181-211, 1999.\n' +
+      '* Sutton et al. (2023) Richard S Sutton, Marlos C Machado, G Zacharias Holland, David Szepesvari, Finbarr Timbers, Brian Tanner, and Adam White. 모델 기반 강화 학습을 위한 보상 존중 서브 태스크 _ 인공지능_, 324:104001, 2023.\n' +
+      '* Touvron et al. (2022) Hugo Touvron, Louis Martin, Kevin Stone, Peter Albert, Amjad Bhargava, Shruti Bhosale, Dan Bikel, Likas Blecher, Cristian Canton Ferrer, Moya Chen, Guillem Bucurull, David Esiobu, Jude Fernandes, Jeremy Fu, Wenyin Fu, Bynthia Kardas, Vedan Helun, Vedan Helun, Saghar Hosseini, Rui Hungbog, Yixin Nie, Andrew Poulton, Jeremy Reizenstein, Rashi Rungta, Kalyan Saladi, Alan Schelten, Ruan Silva, E. Michael Smith, R. J. J. J. J. J. J. J. J. J. J. J. J. J. J. J. J. J. J. J. J. J. J. J. J. J. J. J. J. J. J. J 라마 2: 오픈 파운데이션 및 미세 조정된 채팅 모델, 2023.\n' +
+      '* Trinh et al. (2024) Trieu H. Trinh, Yuhuai Wu, Quoc V. 르, 허, 탕룽 인적 증명 없이 올리미아드 기하학을 해결하는 거 Nature_, 625(7995):476-482, 2024. doi: 10.1038/s41586-023-06747-5. [https://doi.org/10.1038/s41586-023-06747-5](https://doi.org/10.1038/s41586-023-06747-5)\n' +
+      '* 중요한 조사, 2023a.\n' +
+      '* Valmeekam et al. (2023b) Karthik Valmeekam, Alberto Olmo, Sarath Sreedharan, and Subbarao Kambhampati. 대형 언어 모델은 여전히 계획(변화에 대한 계획 및 추론에 대한 llms의 벤치마크), 2023b를 계획할 수 없다.\n' +
+      '* Vaswani et al. (2017) Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N. 고메즈, 루카스 카이저 일리아 폴로수킨 주목해 주세요 CoRR_, abs/1706.03762, 2017. [http://arxiv.org/abs/1706.03762](http://arxiv.org/abs/1706.03762).\n' +
+      '* Wei et al. (2022) Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, brian ichter, Fei Xia, Ed Chi, Quoc V Le, and Denny Zhou. 생각 사슬은 큰 언어 모델에서 추론을 이끌어낸다. 인석 고예조 모하메드, A. 아가왈, D. 벨그레이브, K. Cho, and A. Oh, editors, _Advances in Neural Information Processing Systems_, volume 35, pages 24824-24837. Curran Associates, Inc., 2022.\n' +
+      '* Wu et al. (2019) Yi Wu, Yuxin Wu, Aviv Tamar, Stuart Russell, Georgia Gkioxari, and Yuandong Tian. 2019년 시맨틱 비주얼 내비게이션을 위한 베이지안 관계형 메모리.\n' +
+      '* Yang et al. (2022) Mengjiao (Sherry) Yang, Dale Schuurmans, Pieter Abbeel, and Ofir Nachum. 절차 복제와 함께 생각의 끈. 인석 고예조 모하메드, A. 아가왈, D. 벨그레이브, K. Cho, and A. Oh, editors, _Advances in Neural Information Processing Systems_, volume 35, pages 36366-36381. Curran Associates, Inc., 2022.\n' +
+      '* Yao et al. (2023) Shunyu Yao, Dian Yu, Jeffrey Zhao, Izhak Shafran, Thomas L. 그리피스, 원 카오, 카틱 나라심한 사고의 나무: 2023년, 큰 언어 모델로 문제 해결을 숙고하세요.\n' +
+      '\n' +
+      'Appendix\n' +
+      '\n' +
+      '### 훈련용 인코더-디코더 트랜스포머를 사용하여 최적의 계획을 예측\n' +
+      '\n' +
+      '이를 위해 인코더-디코더 트랜스포머(Raffel et al., 2020)를 고려하고, 각 프롬프트(작업 명세)를 인코더 네트워크로 처리하여 계획 작업의 임베딩을 획득한다. 디코더를 사용하여, 결과적인 임베딩은 그 후 포맷 <trace> <plan> 또는 포맷 <plan>의 응답으로서 디코딩된다. 우리는 포맷 <trace> <plan>의 시퀀스를 예측하는 모델을 _search-augmented_ 모델로, 포맷 <plan>의 시퀀스를 예측하는 모델을 솔루션 전용 모델로 지칭한다.\n' +
+      '\n' +
+      '####a.1.1 인코더-디코더 아키텍처\n' +
+      '\n' +
+      '토큰 시퀀스는 특정 데이터 세트에 포함된 모든 토큰들의 세트를 먼저 인덱싱함으로써 신경망에 의해 프로세싱된다. 이 인덱싱은 토큰 시퀀스를 정수 집합에 매핑하는 데 사용됩니다. 형식적으로 우리는 프롬프트를 정수 \\(x_{1:n}=(x_{1},...,x_{n})\\의 시퀀스로 나타낸다. 네트워크 가중치\\(\\mathbf{\\theta}_{\\text{enc}\\)를 갖는 인코더 트랜스포머 신경망은 임의의 길이의 토큰화된 프롬프트\\(x_{1:n}\\)을 실제 값 벡터의 시퀀스에 매핑하는 함수\\(f_{\\mathbf{\\theta}_{\\text{enc}\\)이다.\n' +
+      '\n' +
+      '\\[f_{\\mathbf{\\theta}_{\\text{enc}}}:x_{1:n}\\mapsto\\mathbf{z}_{1:n} \\tag{1}\\]\n' +
+      '\n' +
+      '이 일련의 벡터\\(\\mathbf{z}_{1:n}\\)에서 각 벡터\\(\\mathbf{z}_{i}\\)는 동일한 차원을 갖는다. 디코더 네트워크는 디코더를 큐하기 위해 특정 시퀀스 시작 토큰 \\(\\mathsf{bos}\\)으로 시작하고, 시작 토큰 \\(\\mathsf{bos}\\)을 다음 토큰에 대한 확률 분포에 먼저 매핑하여 시퀀스를 재귀적으로 구축한다. 이 확률분포는 차원이 어휘의 크기와 같은 벡터\\(\\mathbf{p}_{1}\\)로 저장된다. 다음 토큰은 이 분포로부터 샘플링에 의해 생성되고 샘플링된 토큰은 응답 시퀀스에 추가된다. 이후 2-토큰 응답 시퀀스를 다시 디코더에 공급하여 다음 확률 벡터 \\(\\mathbf{p}_{2}\\)를 계산하고 다음 토큰을 샘플링한다. 이 절차는 시퀀스 끝 토큰 \\(\\mathsf{eos}\\)이 샘플링될 때까지 반복된다. 다음 토큰을 샘플링하기 위해 마지막 계산된 확률 벡터만이 필요하지만, 디코더 네트워크는 입력 시퀀스\\(y_{1:m}\\)이 주어지면 다음 토큰 확률 벡터\\(\\mathbf{p}_{1:m}\\)의 시퀀스를 동시에 예측한다. 또한, 이 예측은 인코더 출력 \\(\\mathbf{z}_{1:n}\\)에서 조정된다. 따라서 가중치 파라미터\\(\\mathbf{\\theta}_{\\text{dec}\\)를 갖는 디코더 트랜스포머 신경망은 함수이다.\n' +
+      '\n' +
+      '\\[g_{\\mathbf{\\theta}_{\\text{dec}}}:\\mathbf{z}_{1:n},y_{1:m}\\mapsto\\mathbf{p}_{1:m}. \\tag{2}\\]\n' +
+      '\n' +
+      '인코더 네트워크\\(f_{\\mathbf{\\theta}_{\\text{enc}\\)와 디코더 네트워크\\(g_{\\mathbf{\\theta}_{\\text{dec}\\)은 내부적으로 다수의 적층된 인과 주의 계층을 사용하여 부록 A.2에 더 자세히 설명된 바와 같이 인코더-디코더 트랜스포머(Vaswani et al., 2017)를 형성한다. 우리는 모든 인코더 파라미터\\(\\mathbf{\\theta}_{\\text{enc}\\)와 디코더 파라미터\\(\\mathbf{\\theta}_{\\text{dec}\\)의 연접을 벡터\\(\\mathbf{\\theta}\\)와 함께 나타낸다.\n' +
+      '\n' +
+      '####a.1.2 교사 강제로 훈련\n' +
+      '\n' +
+      '인코더-디코더 구조는 학습 데이터 분포\\(p_{\\mathcal{D}}\\)와 학습 데이터 분포\\(x_{n},y_{m}) 사이의 교차 엔트로피(cross-entropy)를 최소화함으로써 학습 데이터 집합의 분포를 따르는 응답을 생성하기 위해 최적화된다. 이 교차 엔트로피 손실 목적\n' +
+      '\n' +
+      '[H(p_{\\mathcal{D}},p_{\\mathbf{\\theta} =\\mathbb{E}_{\\mathcal{D}}\\left[-\\log p_{\\mathbf{\\theta}}(y_{1:m}|x_{1:n})\\right] \\tag{3}\\[=\\mathbb{E}_{\\mathcal{D}}\\left[-\\sum_{i=1}^{m-1}\\log p_{\\mathbf{ \\theta}}(y_{i+1:m}|y_{1:i},x_{1:n}}\\right], \\tag{4}\\right] \\mathbb{E}_{\\mathcal{D}}\\left[-\\sum_{i=1}^{m-1}\\log p_{\\mathbf{ \\theta}}(y_{i+1:m}|y_{1:i},x_{1:n}}\\right], \\tag{4\n' +
+      '\n' +
+      '여기서 라인(4)은 앞서 설명한 자동 회귀 생성 절차로부터 따른다. 동일한 계획 데이터세트 내에서, 상이한 프롬프트-응답 쌍은 상이한 프롬프트 및 응답 길이를 가질 수 있다. 훈련 중 더 짧은 반응 시퀀스를 강조하기 위해 각 샘플의 무게를 재어 손실 목표를 생성한다.\n' +
+      '\n' +
+      '[L(\\mathbf{\\theta})=\\frac{1}{m_{d}\\frac{1}{m_{d}-1}\\sum_{i=1}^{m_{d}-1}\\sum_{i=1}^{m_{d}-1}\\log p_{\\mathbf{\\theta}(y_{i+1:m_{d}}^{d}|y_{1:i}^{d},x_{1:n_{d}}^{d}), \\tag{5}\\tag{5}}}\n' +
+      '\n' +
+      '여기서 첫 번째 합산은 훈련 데이터세트의 모든 \\(D\\) 프롬프트-응답 쌍에 대한 평균이다. 식 (5)에서 수퍼 스크립트 \\(d\\)는 훈련 데이터 세트에서 개별 프롬프트-응답 쌍을 인덱싱한다. 이 평균은 크기\\(D\\)의 유한 i.i.d 표본에 대한 식 (3)의 기대치에 대한 경험적 근사치이다. 이 손실 목표는 경사 하강법(Goodfellow et al., 2016, Chapter 10)을 사용하여 최적화된다.\n' +
+      '\n' +
+      '### 네트워크 구조 및 하이퍼 파라미터\n' +
+      '\n' +
+      '인코더-디코더 트랜스포머는 먼저 모든 토큰을 토큰 어휘 공간과 동일한 차원의 원-핫 벡터에 매핑한다. 그런 다음 이러한 원 핫 벡터는 선형 임베딩 레이어를 통해 벡터 집합으로 투영된다.\n' +
+      '\n' +
+      '이어서, 인코더는 다수의 피드-포워드 계층들로 구성되고 각각의 계층은 다수의 인코더 블록들로 구성된다(도 9의 좌측 부분). 그런 다음 이러한 레이어의 출력은 다른 선형 레이어를 통해 매핑되어 숨겨진 활성화를 올바른 모양의 텐서로 투영한다. 디코더는 또한 다수의 피드-포워드 계층들로 구성되고 각각의 계층은 또한 은닉 활성화들을 병렬로 처리하는 다수의 디코더 블록들(도 9의 우측 부분)로 구성된다. 도 9에 예시된 바와 같이, 디코더 네트워크는 인코더의 출력 텐서를 제2 어텐션 맵에서 직접 프로세싱함으로써 인코더 상에서 컨디셔닝된다. 나아가, 각 토큰 위치는 도 9에 나타낸 바와 같이 RoPE 임베딩(Su et al., 2023)을 적용하여 인코딩된다. 우리는 우리의 아키텍처에서 드롭아웃을 사용하지 않았다.\n' +
+      '\n' +
+      '표 2는 사용된 아키텍처 하이퍼-파라미터를 나열하고 표 3은 각 모델의 최적화에 사용된 하이퍼-파라미터를 나열한다. 모든 실험은 PyTorch 2.0(Paszke et al., 2019)에서 구현되었으며 여기에 달리 보고되지 않는 한 기본 매개변수가 사용되었다.\n' +
+      '\n' +
+      '도 9: **Attention block architecture in encoder-decoder Transformer architecture. 인코더 네트워크는 각 레이어가 인코더 어텐션 블록들의 세트와 병렬로 숨겨진 액티베이션들을 처리하는 피드-포워드 레이어들의 세트로 구성된다(좌측 다이어그램). 유사하게, 디코더 네트워크는 다수의 디코더 어텐션 블록(우측 다이어그램)으로 구성된 피드-포워드 계층들의 세트로 구성된다. 각 레이어의 블록의 수를 헤드 수라고 한다. 토큰 시퀀스는 먼저 룩업 사전을 사용하여 정수 시퀀스로 매핑된다. 그런 다음, 이들 시퀀스는 PyTorch(Paszke et al., 2019) torch.nn.Embedding layer를 통해 공급되어 정수 시퀀스를 숨겨진 활성화 벡터의 시퀀스로 매핑한다. 마지막 디코더 레이어 이후에, 숨겨진 활성화는 다음 토큰 확률 벡터 \\(\\mathbf{p}_{1:m}\\)을 계산하기 위해 선형 레이어를 통해 로짓 벡터의 시퀀스로 매핑된다.**\n' +
+      '\n' +
+      '### Dataset generation\n' +
+      '\n' +
+      '모든 데이터 세트는 먼저 작업을 무작위로 샘플링한 다음 최적의 계획을 얻기 위해 \\(A^{*}\\)을 실행하여 생성되었다. 메이즈 태스크는 벽 세포가 될 전체 세포의 30~50%를 무작위로 선택하여 먼저 생성하였다. 그런 다음 시작 위치와 목표 위치를 무작위로 선택하고 최적의 계획을 얻기 위해 \\(A^{*}\\)을 실행했다. 만약 그 계획이 적어도 미로의 폭이나 높이의 길이를 가졌다면(예를 들어, \\(10\\times 10\\) 그 최적 계획은 적어도 포함할 필요가 있다\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c} \\hline Parameter & 15M param. model & 46M param. model & 175M param. model & 747M param. model \\\\ \\hline Layers & 6 & 8 & 9 & 16 \\\\ Heads & 3 & 4 & 4 & 12 \\\\ Layer dim. & 64 & 96 & 192 & 96 \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 2: **Architecture Hyper-parameters.** 인코더 및 디코더 네트워크 모두에서 동일한 파라미터가 사용되었다. 헤드의 수는 하나의 레이어에서 얼마나 많은 주의 블록이 사용되는지를 나타낸다. 레이어 차원은 각 어텐션 블록을 통해 처리된 특징 벡터의 차원(그림 9의 \\(K\\), \\(V\\), \\(Q\\)의 차원)을 나타낸다. 모든 모델은 RoPE 빈도 10000을 사용했다.\n' +
+      '\n' +
+      '도 10: 소코반**에 대한 **토큰 시퀀스 예. 이 도면은 도 2에 묘사된 소코반 레벨에 대한 토큰 시퀀스를 나열한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c} \\hline Parameter & Model & Maze Tasks & Sokoban Puzzels \\\\ \\hline \\hline Learning rate & 15M & \\(2.5\\cdot 10^{-4}\\) & \\(2.5\\cdot 10^{-4}\\) \\\\  & 46M & \\(7.5\\cdot 10^{-5}\\) & \\(7.5\\cdot 10^{-5}\\) \\\\  & 175M & \\(5.0\\cdot 10^{-5}\\) & \\(5.0\\cdot 10^{-5}\\) \\\\  & 747M & – & \\(5.0\\cdot 10^{-5}\\) \\\\ \\hline Batch size & all & 16 & 64 \\\\ \\hline Training steps & all & 400000 & 80000 \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 3: **최적화 하이퍼-파라미터.** \\(\\beta_{0}=0.9\\) 및 \\(\\beta_{1}=0.99\\)을 설정한 AdamW(Loshchilov and Hutter, 2019)를 이용하여 모든 모델을 최적화하였다. 처음에, 학습률은 선형 보간되었다: 제로에서 시작하여 단계 2000까지 아래에 열거된 값까지 선형으로 증가되었다. 그리고 코사인 학습률 스케줄이 뒤따랐다(Loshchilov and Hutter, 2016). 첫 번째 훈련 단계에서 제로와 아래 열거된 값 사이의 10단계 동안 그런 다음 작업이 데이터 세트에 추가되었습니다. 소코반의 경우 \\(7\\times 7\\) 격자를 샘플링하고 두 개의 추가 벽 셀을 지도 내부에 장애물로 추가했다. 그런 다음 두 개의 부두, 상자 및 작업자 위치를 무작위로 배치했다. 샘플링된 작업이 A*에 의해 해결 가능한 경우 작업은 데이터 세트에 승인되었다.\n' +
+      '\n' +
+      '생성된 데이터의 양이 많기 때문에 모든 데이터는 MongoDB(MongoDB Inc.) 인스턴스와 맵 축소 기술로 저장 및 변환되었다. 또한 작업을 샘플링할 때 데이터 세트는 훈련 및 테스트 데이터와 각 프롬프트가 구별되도록 중복 작업을 거부하도록 구성되었다. 각각의 태스크 및 트레이스 데이터세트가 생성되면, 각각의 실행 트레이스는 그림 1(c) 및 그림 11에 예시된 바와 같이 프롬프트 및 응답 토큰 시퀀스로 변환된다. 소코반 태스크는 A*에 대해 매우 복잡하고 해결하기 어렵기 때문에, 결과적인 토큰 시퀀스는 부분적으로 매우 길었고 거의 100000 토큰에 도달하였다. GPU 메모리 요구 사항으로 인해 소코반 데이터 세트는 최대 10000개의 토큰이 있는 시퀀스만 포함하도록 추가로 슬라이스되었다. 그림 11은 각 데이터 세트에 대한 시퀀스 길이 분포를 비교한다. 트레이닝 동안, 각각의 데이터 세트는 또한 보고된 수의 트레이닝 시퀀스만을 포함하도록 정렬되고 슬라이스되었다. 또한, 각 모델은 각 작업 데이터 세트 내의 동일한 테스트 작업에 대해 평가되었다. 테스트 데이터세트는 트레이닝 데이터와 비교 가능한 길이의 계획 및 트레이스를 포함한다(도 11).\n' +
+      '\n' +
+      '### 검색기 성능 분석\n' +
+      '\n' +
+      'Sec. 3.3에서는 각 소코반 테스트 작업에 대해 64개의 토큰 시퀀스를 생성하여 각 검색-증강 및 검색형성기 모델을 평가한다. 동일한 테스트 작업에 대해 동일한 모델은 결과로 끝나는 시퀀스를 생성할 수 있습니다.\n' +
+      '\n' +
+      '도 11: 각 데이터세트에 대한 시퀀스 길이 분포. 트레이닝 및 테스트 세트는 시퀀스 길이가 밀접하게 일치하도록 설계된다.\n' +
+      '\n' +
+      '그림 12: \\(A^{*}\\) 검색으로 생성된 서열과 각 모델로 생성된 서열 간의 ** 서열 길이 비교.** 각 산점도의 각 점은 하나의 특정 테스트 작업에 해당한다. 우리는 \\(x\\) 축에 \\(A^{*}\\) 검색을 사용할 때 평균 토큰 시퀀스 길이를 표시한다. 우리는 \\(y\\)-축에서 각 모델을 사용할 때 평균 토큰 시퀀스 길이를 표시한다. 오차 막대는 표준 편차를 나타낸다. 백분율은 각 산점도에 포함된 생성된 시퀀스의 비율을 나타낸다. (a): 해당 모델을 이용하여 최적의 플랜이 생성된 모든 테스트 프롬프트에 대한 시퀀스 길이 비교. (b): 해당 모델을 사용하여 올바른 계획이 생성된 모든 테스트 프롬프트에 대한 시퀀스 길이 비교. 이 그림은 최적 계획으로 끝나는 시퀀스와 정확하지만 차선책 계획으로 끝나는 시퀀스에 걸쳐 집계됩니다. (c): 해당 모델을 사용하여 정확하지만 차선책 계획이 생성된 모든 테스트 프롬프트에 대한 시퀀스 길이 비교. 이 그림은 정확하지만 차선책으로 끝나는 시퀀스에 걸쳐 집계됩니다. 최적의 계획으로 끝나는 서열은 보류되었다.\n' +
+      '\n' +
+      '최적 계획, 잘못된 계획 또는 올바르지만 최적이 아닌 계획 그림 12에서 각 경우에 대한 \\(A^{*}\\) 검색을 사용할 때 생성된 시퀀스의 길이와 생성된 시퀀스의 길이를 비교한다. 각 패널의 캡션 목록의 백분율은 생성된 모든 시퀀스 중 몇 개가 최적 계획, 올바른 계획(최적 또는 차선일 수 있음) 및 올바르지만 차선인 계획으로 끝나는지 나열합니다.\n' +
+      '\n' +
+      '그림 12(a)와 그림 12(b)의 왼쪽 패널에서 점들은 대각선 축을 중심으로 하여 검색 증강 모델이 토큰 시퀀스 길이 측면에서 \\(A^{*}\\) 검색 알고리즘과 대략 일치함을 나타낸다. 그림 12(a)와 그림 12(b)는 Sec. 3.3에 제시된 결과를 추가로 확인한다: 개선 단계마다 점들이 대각선 아래로 이동한다. 이것은 개선된 Searchformer 모델이 \\(A^{*}\\) 검색으로 생성된 시퀀스보다 짧은 토큰 시퀀스를 생성한다는 것을 강조한다. 검색 형성기는 검색의 사용보다 적은 수의 검색 단계에서 최적의 계획을 계산하기 위해 태스크를 검색하는 방법을 찾았다.\n' +
+      '\n' +
+      '그림 12(c)는 각 모델이 정확하지만 최적이 아닌 계획을 생성할 때 어떤 일이 일어나는지 보여줍니다. 여기서, 탐색증강 모델은 \\(A^{*}\\)을 모방하도록 학습되어 \\(A^{*}\\)으로 생성된 시퀀스보다 상당히 긴 트레이스 시퀀스를 생성한다. 이것은 모델이 올바른 계획을 계산하는 데 어려움을 겪고 너무 많은 검색 단계를 생성하여 궁극적으로 올바르지만 최적이 아닌 계획을 찾는 데 앞장서고 있음을 시사한다. 마찬가지로 서치포머 모델도 \\(A^{*}\\) 검색으로 생성된 시퀀스보다 긴 시퀀스를 생성한다. 이러한 비효율성에도 불구하고 부트스트래핑 방법은 여전히 모델을 개선하고 평균 시퀀스 길이를 \\(A^{*}\\) 검색으로 생성된 시퀀스 길이에 더 가깝게 만든다(그림 12(c)의 오른쪽 대부분의 패널). 두 경우 모두 추적 길이가 낮기를 원하지만 각 모델은 5% 미만의 확률로 정확하지만 차선책을 생성한다는 것을 발견했다. 결과적으로, 그림 12(b)는 최종 서치포머 모델이 여전히 \\(A^{*}\\) 서치보다 평균적으로 더 적은 탐색 단계를 갖는 올바른 계획을 생성함을 보여준다. 통계적으로 그림 12(a)와 그림 12(b)의 차이는 미미하다.\n' +
+      '\n' +
+      '보충 미로 실험\n' +
+      '\n' +
+      '그림 13과 그림 14는 연구된 모든 미로 모양, 훈련 데이터 세트 크기 및 모델 매개변수화 조합에 대해 각 모델에서 정답이 얼마나 자주 제공되었는지 보여준다.\n' +
+      '\n' +
+      '그림 13: 솔루션 전용 모델에 대한 최적 계획 예측 성능. 각 패널은 5개의 다른 종자에 걸쳐 평균화된 올바르게 응답된 프롬프트의 백분율을 표시합니다.\n' +
+      '\n' +
+      '도 14: **검색-증강 모델들에 대한 최적의 계획 예측 성능.** A* 실행 트레이스들을 모방하도록 인코더-디코더 트랜스포머를 트레이닝하는 것은 성능을 상당히 증가시킨다. (a) : 정확하게 생성된 응답의 백분율. 플랜은 프롬프트에 정확하게 응답하기 위해 수백 개의 토큰 긴 플랜만 생성하면 됩니다. 추적 계획 모델은 프롬프트에 정확하게 응답하기 위해 훨씬 더 긴 A* 실행 추적을 올바르게 생성해야 합니다. 이를 위해서는 추적 계획 모델이 수백 또는 수천 토큰 길이의 응답 시퀀스를 생성해야 한다(_cf._도 3). 하나의 토큰이 잘못 예측되면 응답이 잘못된 것으로 계산됩니다. (b) : 정확하게 생성된 계획의 백분율. 각 모델은 각 프롬프트에 대해 여러 응답을 생성하는 데 사용되었다. 생성된 응답 중 하나에 최적 계획이 포함된 경우 테스트 프롬프트가 올바르게 응답된 것으로 계산됩니다.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
