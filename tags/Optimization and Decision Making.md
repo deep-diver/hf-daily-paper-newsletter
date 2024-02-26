@@ -5,3 +5,4 @@
 - [Driving Everywhere with Large Language Model Policy Adaptation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/21/2024-02-09+Driving+Everywhere+with+Large+Language+Model+Policy+Adaptation.yaml) / 2024-02-09
 - [Neural Network Diffusion](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/29/2024-02-21+Neural+Network+Diffusion.yaml) / 2024-02-21
 - [The FinBen: An Holistic Financial Benchmark for Large Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/29/2024-02-21+The+FinBen%3A+An+Holistic+Financial+Benchmark+for+Large+Language+Models.yaml) / 2024-02-21
+- [MobileLLM: Optimizing Sub-billion Parameter Language Models for On-Device Use Cases](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/32/2024-02-26+MobileLLM%3A+Optimizing+Sub-billion+Parameter+Language+Models+for+On-Device+Use+Cases.yaml) / 2024-02-26

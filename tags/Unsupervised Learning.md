@@ -19,3 +19,4 @@
 - [MusicMagus: Zero-Shot Text-to-Music Editing via Diffusion Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/22/2024-02-12+MusicMagus%3A+Zero-Shot+Text-to-Music+Editing+via+Diffusion+Models.yaml) / 2024-02-12
 - [Zero-Shot Unsupervised and Text-Based Audio Editing Using DDPM Inversion](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/26/2024-02-16+Zero-Shot+Unsupervised+and+Text-Based+Audio+Editing+Using+DDPM+Inversion.yaml) / 2024-02-16
 - [In deep reinforcement learning, a pruned network is a good network](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/30/2024-02-22+In+deep+reinforcement+learning%2C+a+pruned+network+is+a+good+network.yaml) / 2024-02-22
+- [Genie: Generative Interactive Environments](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/32/2024-02-26+Genie%3A+Generative+Interactive+Environments.yaml) / 2024-02-26

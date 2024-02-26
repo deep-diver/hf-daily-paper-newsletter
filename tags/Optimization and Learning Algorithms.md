@@ -45,3 +45,4 @@
 - [Scaling Up LLM Reviews for Google Ads Content Moderation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/31/2024-02-23+Scaling+Up+LLM+Reviews+for+Google+Ads+Content+Moderation.yaml) / 2024-02-23
 - [Subobject-level Image Tokenization](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/31/2024-02-23+Subobject-level+Image+Tokenization.yaml) / 2024-02-23
 - [TinyLLaVA: A Framework of Small-scale Large Multimodal Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/31/2024-02-23+TinyLLaVA%3A+A+Framework+of+Small-scale+Large+Multimodal+Models.yaml) / 2024-02-23
+- [AgentOhana: Design Unified Data and Training Pipeline for Effective Agent Learning](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/32/2024-02-26+AgentOhana%3A+Design+Unified+Data+and+Training+Pipeline+for+Effective+Agent+Learning.yaml) / 2024-02-26

@@ -30,3 +30,4 @@
 - [LLM Comparator: Visual Analytics for Side-by-Side Evaluation of Large Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/27/2024-02-19+LLM+Comparator%3A+Visual+Analytics+for+Side-by-Side+Evaluation+of+Large+Language+Models.yaml) / 2024-02-19
 - [Reformatted Alignment](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/28/2024-02-20+Reformatted+Alignment.yaml) / 2024-02-20
 - [Consolidating Attention Features for Multi-view Image Editing](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/31/2024-02-23+Consolidating+Attention+Features+for+Multi-view+Image+Editing.yaml) / 2024-02-23
+- [CLoVe: Encoding Compositional Language in Contrastive Vision-Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/32/2024-02-26+CLoVe%3A+Encoding+Compositional+Language+in+Contrastive+Vision-Language+Models.yaml) / 2024-02-26
