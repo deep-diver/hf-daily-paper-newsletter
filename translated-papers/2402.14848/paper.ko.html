@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# 동일한 작업, 더 많은 토큰: 입력 길이가 미치는 영향\n' +
+      '\n' +
+      '대규모 언어 모델의 추론 성능\n' +
+      '\n' +
+      'Mosh Levy\\({}^{*1}\\) Alon Jacoby\\({}^{*1}\\) Yoav Goldberg\\({}^{1,2}\\)\n' +
+      '\n' +
+      'Bar-Ilan University \\({}^{1}\\)Bar-Ilan University \\({}^{2}\\)Allen Institute of AI\n' +
+      '\n' +
+      '{moshe0110, alonj4}@gmail.com\n' +
+      '\n' +
+      '이 작가들은 이 작업에 동등하게 기여했다.\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      '본 논문에서는 입력길이의 확장이 대규모 언어모델(LLM)의 성능에 미치는 영향을 분석한다. 최근 LLM의 발전에도 불구하고, 다양한 입력 길이에 걸친 성능 일관성은 잘 이해되지 않는다. 우리는 입력 길이의 영향을 평가하기 위해 특별히 설계된 새로운 QA 추론 프레임워크를 도입하여 이 측면을 조사한다. 서로 다른 길이, 유형 및 위치의 패딩으로 각각 확장되는 동일한 샘플의 여러 버전을 사용하여 입력 길이의 영향을 분리한다. 본 연구의 결과는 입력길이가 기술적 최대값보다 훨씬 짧을 때 LLMs의 추론 성능이 현저하게 저하됨을 보여주며, 데이터세트의 모든 버전에서 다른 강도에도 불구하고 성능저하 경향이 나타남을 보여주며, 또한 전통적인 퍼플렉시티 메트릭이 긴 입력추론 작업에서 LLMs의 성능과 상관관계가 없다는 것을 보여준다. 우리는 결과를 분석하고 향후 연구에 유용한 가이드 역할을 할 수 있는 고장 모드를 식별하여 LLM에서 관찰된 한계를 해결하기 위한 전략을 잠재적으로 알려준다.\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      '최근 LLM(Large Language Models)의 발전은 여러 추론 단계를 필요로 하는 복잡한 질문에 정확하게 답하는 것을 포함하여 다양한 작업(OpenAI, 2023; Anil et al., 2023; Jiang et al., 2024)에서 인상적인 성능을 보여준다(Kojima et al., 2022; Wei et al., 2022). 이러한 모델은 또한 점점 더 긴 입력을 지원한다고 주장한다. 이 개발은 현재 기술적으로 지원되고 있는 더 긴 입력에 대한 성능을 조사할 필요성을 강조한다.\n' +
+      '\n' +
+      '합리적인 가정은 긴 입력에 대한 지원이 작업을 가로질러 이동하고 짧은 입력 프롬프트에 제시될 때 작업을 해결하는 데 능숙한 모델이 더 긴 프롬프트 내에 포함될 때 동일한 작업을 수행할 수 있다는 것이다. 이 가정은 유효한가? 추론 작업을 포함하여 더 긴 입력을 포함하는 작업에 대한 모델을 벤치마킹하는 최근 연구는 실제로 모델이 종종 긴 입력에 대한 추론에 어려움을 겪는다는 것을 나타낸다(Shaham et al., 2023; Li et al., 2023; Bai et al., 2023). 그러나, 이러한 연구들은 그들의 변수를 적절히 제어하지 못하고, 입력 길이 및 수행될 관련 작업들 모두를 변화시킨다. 이것은 성능이 저하된 것이 더 긴 입력으로 작업해야 하는 요건 때문인지, 또는 일반적으로 더 어려운 작업 때문인지 말하기 어렵게 만든다.\n' +
+      '\n' +
+      '본 연구에서는 입력 길이를 늘리는 것이 모델 성능에 미치는 영향을 연구하면서 다른 요인을 가능한 한 일정하게 유지한다.\n' +
+      '\n' +
+      '입력 길이의 함수로 모델 성능 추세를 측정하는 방법론을 사용하고,\n' +
+      '\n' +
+      '그림 1: 다양한 작업에 걸쳐 입력이 증가함에 따라 추론 성능이 떨어집니다. 입력은 태스크와 관련된 정보를 포함하는 텍스트(빨간색)와 다양한 소스에서 추출되고 점진적으로 확장되는 관련 없는 텍스트(회색)로 구성된다. 올바르게 대답하기 위해 두 개의 개별 텍스트 스팬이 필요하며, 입력에 랜덤하게 위치한다. 각 점은 600개의 표본에 걸친 성능을 반영합니다.\n' +
+      '\n' +
+      '기본 작업을 그대로 유지하면서 변수로 분리합니다.\n' +
+      '\n' +
+      '이를 위해 텍스트 기반 추론(SS3)을 위한 QA 데이터셋인 Flexible **LEN**gth **Q**uestion **A**nswering dataset(FLenQA) 1을 소개한다. 각 샘플에 대해 질문에 답하는 데 필요한 두 가지 정보(컨텍스트)에 걸쳐 참/거짓 질문으로 구성된 각 샘플에 대해 더 길고 관련이 없는 텍스트 내에 컨텍스트 부분을 삽입하여 서로 다른 길이의 여러 버전을 생성한다. 모델이 전체 입력을 활용하도록 하기 위해 데이터 세트는 질문에 정확하게 답하기 위해 두 정보가 함께 추론되어야 하는 작업으로 구성된다. 동시에 추가 패딩 없이 모델들이 정보 조각을 스스로 제시했을 때 대부분의 작업에 정확하게 응답할 수 있도록 작업을 충분히 단순하게 유지한다.\n' +
+      '\n' +
+      '각주 1: [https://github.com/alonj/Same-Task-More-Tokens](https://github.com/alonj/Same-Task-More-Tokens)\n' +
+      '\n' +
+      '본 논문에서는 3,000 토큰의 입력 길이에서도 LLM의 추론 능력이 빠르게 저하됨을 보이고, 이는 기술 최대값보다 훨씬 짧은 값(테스트된 모든 모델에 대해 평균적으로, 정확도가 \\(0.92\\)에서 \\(0.68\\)으로 떨어짐)을 보인다.\n' +
+      '\n' +
+      '또한, 정보 조각을 문맥 내의 다양한 위치에 임베딩하는 효과와 정보 조각과 유사하거나 유사하지 않은 두 가지 맥락을 탐색한다(SS4). 실험 환경에 관계없이 유사한 열화 경향이 있음을 발견했다.\n' +
+      '\n' +
+      '또한 긴 입력에 대한 모델의 다음 단어 예측 성능은 긴 입력에 대한 추론의 다운스트림 태스크에 대한 성능과 무관하다는 것을 보여준다(SS5).\n' +
+      '\n' +
+      '또한, _Chain-of-Thought_ (CoT) 프롬프트링(Kojima et al., 2022; Wei et al., 2022)은 짧은 입력에서 성능을 증가시키지만, 대부분의 모델에서는 입력이 더 길 때 성능의 저하를 완화시키지 않는다: CoT 프롬프트링은 non-CoT 프롬프트링보다 정확도를 증가시키는 반면, 증가량은 컨텍스트 길이에 걸쳐 대략 일치하고 긴 컨텍스트로 인한 성능 저하를 닫는 것과는 거리가 멀다(SS6). 그것에 대한 유일한 예외는 GPT42이며, 여기서 CoT와 정상 프롬프트 사이의 간격은 입력이 길어질수록 증가한다.\n' +
+      '\n' +
+      '각주 2: 우리는 모델 gpt-4-1106-preview, gpt-3.5-turbo-1106을 GPT4 및 그에 따라 GPT3.5로 참조한다.\n' +
+      '\n' +
+      '마지막으로, 본 연구의 결과를 분석하고 모델 응답에서 여러 고장 모드를 식별한다(SS7). 우리는 더 긴 입력 모델에서 답을 제공하지 않거나 CoT 프롬프트의 경우 추론 단계를 설명하기 전에 최종 답변을 제시하는 입력의 특정 지침을 따르지 않는 경향이 있음을 발견했다. 또한 입력 길이가 증가함에 따라 "거짓"에 답하는 편향과 반응에 관련 정보를 통합하는 모델의 능력이 감소하는 것을 관찰한다.\n' +
+      '\n' +
+      '##2 원하는 데이터 특성\n' +
+      '\n' +
+      '우리의 목표는 관련 정보가 동일하게 유지된다는 점을 감안할 때 입력 길이가 텍스트보다 LLMs 추론 능력에 어떻게 영향을 미치는지 이해하는 것이다. 따라서 우리는 주어진 텍스트를 추론하기 위해 모델이 필요한 질문 응답 작업을 사용한다. 조사가 개방 모델과 폐쇄 모델 모두에 적용되기 위해 입력 개입에 의존하는 행동 접근법을 선택했다(Holtzman et al., 2023).\n' +
+      '\n' +
+      '우리는 우리의 데이터가 다음 요구 사항을 충족하는 것을 목표로 한다:\n' +
+      '\n' +
+      '입력에 대한 모델의 이성을 보장한다. 긴 입력에 대한 모델의 성능을 검토하기 위해서는 텍스트(황과 장, 2022)의 증거에서 결론을 도출해야만 작업이 올바르게 해결될 수 있어야 한다.\n' +
+      '\n' +
+      '1. _각 데이터 샘플은 과제를 올바르게 해결하기 위해 필요하고 충분한 여러 관련 텍스트 스팬을 포함해야 한다._\n' +
+      '2._모든 관련 스팬은 성공적인 솔루션에 도달하기 위해 공동으로 상담되어야 한다._ 텍스트 요약과 같은 일부 작업은 "divide-and-conquer" 접근법(Gidiotis and Tsoumakas, 2020; Liu et al., 2022; Wolhandler et al., 2022)을 사용하여 해결될 수 있으며, 여기서 각각의 관련 스팬은 개별적으로 식별되고, 이어서 패러프레이징되어 출력에 추가된다. 긴 입력에 대한 추론이 필요하지 않기 때문에 이러한 분해 가능한 작업을 피하고 싶습니다.\n' +
+      '3. 본문에 의존하기 보다는 파라메트릭 지식에 대한 모델 의존을 피하고, 데이터 오염을 피하기 위해(Jacovi et al., 2023)_질문 및 관련 스팬을 지원하는 것은 훈련에서 볼 수 없는 새로운 사실들로 구성되어야 한다.3_각주 3: 모델들은 종종 질문의 입력에 필요하지 않은 지원 사실들 중 하나만이 존재하더라도 질문에 정확하게 응답한다. 우리는 이것을 부록 A에서 더 논의한다.\n' +
+      '\n' +
+      '길이 계수를 분리.길이의 효과를 분리하기 위해 다음과 같은 요구 사항을 부과한다.\n' +
+      '\n' +
+      '1. _필요한 추론은 샘플의 길이와 독립적이어야 한다_: 관련 스팬은 모든 길이 변화에서 동일하게 유지되어야 한다.\n' +
+      '2. _added material_(a.k.a "padding", sample의 길이를 제어하기 위해 부가되는 텍스트) _should는 관련 텍스트 span_에 대한 추론에 모순되거나 간섭되지 않아야 한다.\n' +
+      '3. 입력 내의 각각의 관련 스팬의 위치는 제어가능해야 한다.\n' +
+      '\n' +
+      '자연스럽게 보이는 입력들을 유지하는 것.입력은 LLM 프롬프트에서 사용자가 자연스럽게 사용할 수 있는 것을 반영해야 한다. 예를 들어, 관련이 없는 문장들의 시퀀스는 자연스럽지 않다. 대조적으로, 관련이 없지만 각 단락이 응집력이 있는 일련의 단락은 더 자연스러운데, 이러한 입력은 여러 출처에서 관련 정보를 수집하는 결과일 수 있기 때문이다. 입력의 길이를 변경하면서 입력의 자연성을 가장 잘 유지하기 위해 우리는 입력이 적어도 단락 수준에서 응집력이 있어야 한다.\n' +
+      '\n' +
+      '## 3 FLenQA\n' +
+      '\n' +
+      '우리는 SS2에서 설정한 요구 사항을 따르는 **F**lexible **LEN**g**th **Q**uestion **A**nswering dataset(FLenQA)을 소개한다.\n' +
+      '\n' +
+      'FlenQA는 Monotone Relations(새로운 태스크), People In Rooms(새로운 태스크) 및 단순화된 버전의 Ruletaker Clark 등(2021)(SS3.2)의 세 가지 추론 태스크로 구성된다. 각 작업은 100개의 기본 인스턴스로 구성되며, 여기서 우리는 서로 다른 길이, 서로 다른 배경 텍스트 및 배경 텍스트 내에서 서로 다른 사실 분산을 생성한다(SS3.3).\n' +
+      '\n' +
+      '각 작업은 라벨 분포("True" 및 "False")에서 완전히 균형을 이루고 있으며, 우리는 그 안에 있는 대부분의 기본 인스턴스가 확장되지 않은 형태로 표시될 때 LLM에 의해 올바르게 해결되도록 보장한다(SS3.4).\n' +
+      '\n' +
+      '추론 및 긴 입력 성능에 대한 향후 연구를 지원하기 위해 데이터 세트를 공개한다. 과제의 세부사항과 통계는 부록 B에 나와 있다.\n' +
+      '\n' +
+      '### Base instances.\n' +
+      '\n' +
+      '각각의 기본-인스턴스는 (1) _optional prefix_ (예를 들어, 태스크를 도입하거나 또는 사실을 뒷받침하는 것)와; (2) _2개의 키 단락_로 구성되며, 각각은 주제적으로 일관성 있고 태스크를 해결하기 위해 필요한 _key sentence_로 시작한다; 및 (3) _optional suffix_ (예를 들어, 선행 컨텍스트에 대한 질문을 묻는 것)으로 구성된다. 4 각각의 인스턴스에 대해, 상이한 파트들은 뉴라인들에 의해 결합되어 LLM에 공급된다.\n' +
+      '\n' +
+      '각주 4: 옵션성은 태스크 수준에 있으며, 태스크의 모든 인스턴스에 접두사/접미사가 있거나 그렇지 않습니다.\n' +
+      '\n' +
+      '본문 전체에서 핵심 문단은 빨간색으로 타이펫을, 그 안의 보조 문장은 어두운 빨간색으로, 선택적 접두사와 접미사는 검은색으로 표시된다. 각 데이터 세트에 사용된 전체 프롬프트는 부록 D에 있습니다.\n' +
+      '\n' +
+      '각 과제의 핵심 단락을 도출하는 것은 단순한 문장으로 표현되는 두 가지 사실에 의존한다. 그런 다음 이러한 문장 각각은 자연성 요건을 보장하기 위해 주제적으로 일관된 문단으로 확장된다. 이 확장은 GPT-4를 사용하여 수행되며, 이는 새로운 정보를 추가하지 않고 문장을 확장하도록 프롬프트한 다음 저자의 결과를 수동으로 검증한다.\n' +
+      '\n' +
+      '### The tasks\n' +
+      '\n' +
+      '모노톤 관계(MonoRel) 각각의 핵심 문장은 모노톤 스케일의 두 사람 이름을 비교하는 것이다. 예를 들어, "X는 Y보다 크다", "Y는 Z보다 크다" 접미사는 서로 다른 문장에서 나타나는 두 개체 사이의 관계(텍스트에서 명시적으로 비교되지 않음)를 묻는 True/False 질문이다. 그 관계는 본질적으로 과도기적이고 단조롭다.\n' +
+      '\n' +
+      '```\n' +
+      'MonoRel 예: JulieBakerisyoungerthan JulianBarton. Thisisafecthatremainsconstant, unchangelikethenorthernstar.It\'sathtruththatisasclearasdaythatshe... 사만다 아놀디스 영어탄 줄리베이커 Samantha Arnoldhasexperiencedfewbirthdaysthan JulieBaker... 사만다 아놀드 영어탄 줄리안 바튼인가요?\n' +
+      '```\n' +
+      '\n' +
+      '이 데이터는 신하 등이 2018년에 소개한 친족관계를 설명하는 서로 다른 단조관계에서 영감을 얻은 것으로, 본 연구에서는 새로운 관계유형을 정의한다. SS2의 요구 사항에 따라 질문에 답하려면 두 가지 핵심 문장에 대한 추론이 필요하다. 데이터는 페이커 파이썬 플라(Faker python Fla, Farajdia and Contributors, 2012)의 이름과 손으로 만든 관계 목록에서 관계를 무작위로 추출하여 프로그램적으로 생성된다.\n' +
+      '\n' +
+      '피플 인 룸(People In Rooms: PIR) 태스크 내의 각 샘플들에서, 하나의 핵심 문장 사람은 명명된 방("_X는 오래된 라이브러리에 있다") 내에 위치한다고 말하고, 다른 핵심 문장은 어떤 속성을 갖도록 방("오래된 라이브러리는 나무 바닥을 갖는다")을 기술한다. 그런 다음 작업은 주어진 사람이 주어진 속성이 있는 방에 있는지 추론하는 것이다.\n' +
+      '\n' +
+      '```\n' +
+      'PIR 예: 존의 거실은 대리석 바닥으로, 그 건물의 바로 그 기초만큼이나 본질적인 현실이다. 그 순간... 에단 워싱턴은 존의 거실에 있는데, 이것은 벽과 천장만큼이나 장소의 일부가 된 사실입니다. 에단 워싱턴이 존의 삶에 있다는 사실은... 에단 워싱턴은 대리석 바닥 방에 있나요?\n' +
+      '```\n' +
+      '\n' +
+      '이 데이터세트는 bAbI 태스크 세트(Weston et al., 2016)에 의해 영감을 받으며, 여기서 추론은 하나 이상의 에이전트에 의해 취해진 경로에 대해 수행된다. PIR은 하나의 에이전트를 포함하는 작업의 단순화이다. 과제에서 사람들의 이름은 무작위로 그려진다(Faraglia and Contributors, 2012). 방 및 속성은 상호 배타적이 되도록 손으로 선택되었습니다(예: 방은 파란색 벽 또는 빨간색 벽이므로 모호한 예가 생성되지 않습니다.\n' +
+      '\n' +
+      '간단화된 Ruletaker는 자연어로 명시적인 논리 이론을 제시하는 텍스트 내에서 증명하는 정리를 위해 설계된 벤치마크인 Ruletaker(Clark et al., 2021)의 과제 공식을 사용한다. 각 인스턴스는 논리 규칙, 사실을 각각 소개하는 두 문장, 규칙과 사실에 대한 질문으로 구성된다.5\n' +
+      '\n' +
+      '각주 5: 초기 실험은 대부분의 LLMs가 여전히 여러 규칙 또는 두 가지 이상의 사실과 관련된 사례와 어려움을 겪는 것으로 나타났다. 단순화된 규칙 처리기 작업은 이러한 기준에 맞는 생성된 샘플로 구성된다.\n' +
+      '\n' +
+      '```\n' +
+      '단순화된 규칙통치자 예: 사실: 에린은 털이 많다. 에린은 분노로 유명하다. 털이 많고... 에린은 좋은 사람이에요 에린은 항상 그가 얼마나 좋은 사람인지 잘 알려져 있었다. 그의 선함은 인생의 모든 문제에 나타난다. 규칙: X가 크고 X가 좋으면 X는 크다. 질문: "에린은 키가 크다"라는 진술은 규칙과 사실에서 파생될 수 있는가?\n' +
+      '```\n' +
+      '\n' +
+      '### Length Variations\n' +
+      '\n' +
+      '우리는 각 기본 인스턴스를 대략 250, 500, 1000, 2000, 3000 토큰의 입력 길이로 확장한다.6 이러한 타겟으로 입력을 확장하기 위해 질문("패딩", SS2)과 무관한 배경 텍스트를 추가한다. 각 기본 인스턴스 및 길이 쌍에 대해 우리는 배경 텍스트의 출처가 다른 다른 버전, 즉 인스턴스의 주요 단락과 _duplicate_, _similar_ 또는 _different_를 생성한다. 이 각각에 대해 배경 텍스트 내에서 키 단락의 분산도 다양합니다.\n' +
+      '\n' +
+      '각주 6: GPT4 토큰화기에 의해 측정된 그것의 토큰 카운트가 \\((N-70,N+70)\\)인 경우 샘플은 길이가 N인 것으로 간주한다.\n' +
+      '\n' +
+      '###### 3.3.1 배경문자\n' +
+      '\n' +
+      '중복.길이가 변하지만 정보가 동일한 극단적인 경우를 평가하기 위해 각 길이 텍스트가 핵심 단락의 여러 사본으로 구성된 실험을 수행한다. 입력의 목표 길이를 달성하기 위해 수정 없이 각 핵심 단락을 복제한다. 두 개의 중복된 단락은 원하는 표본 길이가 달성될 때까지 교대로 순서대로 나타난다. 이 경우 QA 추론의 두 가지 하위 작업 중 핵심 정보를 식별하고 그에 대한 추론을 수행하는 첫 번째 하위 작업은 사소한 것이다.\n' +
+      '\n' +
+      '유사: 동일한 작업에서 재샘플링.핵심 문단과 유사한 배경 텍스트를 얻기 위해 동일한 작업의 다른 기본 인스턴스에서 샘플링된 문단을 사용하여 패딩한다. 모순을 만들지 않기 위해 핵심 단락에 등장하는 실체를 포함하는 단락은 제외한다. 따라서 이 패딩은 샘플의 적대적이거나 모호한 버전을 생성하지 않는다.\n' +
+      '\n' +
+      '다름: Book Corpus.주요 단락과 다른 배경 텍스트를 얻기 위해, 우리는 Books Corpus(Zhu et al., 2015)의 텍스트를 사용한다. 우리는 북 코퍼스에서 무작위(연속) 텍스트를 샘플링하고 문장 경계를 존중하면서 그 안에 있는 주요 단락 각각을 주입한다.\n' +
+      '\n' +
+      '본문에서 핵심 단락의 위치\n' +
+      '\n' +
+      '우리는 주요 단락이 배경 텍스트 내에 분산되어 있는 네 가지 구별되는 방법을 고려한다: 처음 세 가지 경우에는 주요 단락이 서로 인접하여 나타나는 반면, 네 번째 경우에는 다양한 길이의 텍스트를 개입시켜 주요 단락을 분리한다.\n' +
+      '\n' +
+      '(1) _키 단락 처음_: 키 단락이 텍스트의 시작 부분에 나타나고 패딩이 뒤따른다; (2) _키 단락 중간_: 패딩의 절반은 키 단락의 앞뒤에 부착되지만 그들 사이에는 부착되지 않는다(키 단락이 정확히 중간에 있다);\n' +
+      '\n' +
+      '(3)_키 단락들 last_: 키 단락들은 텍스트의 끝에 나타나고, 그 앞에 미리 준비된 패딩은 접두사로써;\n' +
+      '\n' +
+      '(4) _Random placement_: 패딩은 임의의 간격으로 단락 전, 단락 사이 및 단락 후에 추가된다.\n' +
+      '\n' +
+      '시각적 표현은 도 2에 제공된다.\n' +
+      '\n' +
+      '### 기본 인스턴스는 답변 가능\n' +
+      '\n' +
+      '우리는 질문과 관련된 핵심 단락만 포함하는 데이터 세트의 각 샘플의 최소 텍스트에 대한 LLM을 평가하여 기준 정확도를 추정한다. 비 CoT 프롬프트를 사용하더라도 5가지 모델 중 4가지가 높은 정확도(>0.89)를 달성한다는 것을 발견했다. 가장 낮은 수행 모델(GPT3.5)은 열화가 관찰될 수 있을 만큼 충분히 높은 정확도를 달성한다(0.77). 전체 결과는 부록 C에서 확인할 수 있다.\n' +
+      '\n' +
+      '##4 메인 실험\n' +
+      '\n' +
+      '세 가지 작업 모두에 대한 평균 정확도를 보고하고 모든 입력 길이에 대해 동일한 설정(프롬프트, 온도 등)을 유지한다. 우리는 GPT4, GPT3.5, 제미니 프로, 미스트랄 70B 및 미스트랄 8x7B의 5가지 최근 가능한 LLM을 평가한다. 설치 매개변수에 대한 자세한 내용은 부록 E를 참조하십시오.\n' +
+      '\n' +
+      '### 길이와 위치의 영향\n' +
+      '\n' +
+      '다양한 실험 설정에서 입력 길이가 LLM 추론 성능에 미치는 영향을 검증하는 것(그림 1)으로 시작한다.\n' +
+      '\n' +
+      '관련 없는 단락은 먼저 관련 토큰만 추가되는 극단적인 경우("중복 패딩")를 조사한다. Shi 등(2023)은 추론 태스크(GSM-8K Cobbe 등(2021))의 입력에 무관한 텍스트들을 추가하는 것이 모델 성능을 실질적으로 감소시킨다는 것을 입증한다. 패딩이 핵심 단락의 정확한 텍스트의 복제인 설정을 테스트하여 관련성의 효과를 분리한다. 이 설정에서, LLM들은 주요 단락들을 찾기 위해 입력을 "검색"하도록 요구되지 않으므로, 임의의 위치에 대한 임의의 편향이 무관한 Liu 등이 된다(2023). 또한 핵심 단락 간의 거리에 의해 부과될 수 있는 어려움도 관련이 없다. 따라서 성능 저하가 없을 것으로 예상합니다. 놀랍게도, 도 3에 도시된 _Results_는, 이 셋업 길이에서도 팩터를 재생하고, 모든 모델_에 대해 길이에 따라 정확도가 감소한다는 것을 드러낸다.\n' +
+      '\n' +
+      '관련 없는 문단으로 둘러싸인 인접 단락은 이제 프롬프트에 핵심 단락뿐만 아니라 추가 관련 없는 단락이 포함된 보다 현실적인 경우로 이동한다. 첫 번째 실험 세트에서 우리는 주요 단락을 서로 인접하게 유지하는데, LLM은 나머지를 무시하고 입력의 단일 영역에 집중하고 작동하기만 하면 된다. Liu et al.(2023) Found the task of extractive QA, the position of the answer in the text is affect the ability of models to answer correctly. 따라서 우리는 두 주요 문단을 텍스트의 시작, 끝 또는 중간에 배치하는 세 가지 시나리오를 실험한다. 모든 경우에 우리는 두 가지 유형의 관련 없는 패딩에 대해 평균을 낸다.\n' +
+      '\n' +
+      '그림 4의 결과_는 500개의 토큰을 넘어 길이가 증가함에 따라 정확도가 크게 떨어지는 것을 보여준다. 대부분의 모델에서 키 단락의 인접성은 더 높은 정확도를 생성하고 키 파라가 있을 때\n' +
+      '\n' +
+      '그림 3: 패딩의 관련성은 요인이지만 길이 자체의 영향과는 구별된다. 일부 모델은 추론 성능이 저하됩니다. 참고로 GPT3.5와 GPT4는 추가된 토큰이 관련될 때 길이의 영향을 덜 받는다. 각 점은 300개의 샘플을 반영합니다.\n' +
+      '\n' +
+      '도 2: **입력 구성. 핵심 문장(짙은 빨간색)은 작업과 무관한 패딩 텍스트(회색) 중 통제된 위치에 분산되어 있는 핵심 단락(짙은 빨간색)으로 확장된다.**\n' +
+      '\n' +
+      '그래프들은 마지막에 나타나고, 정확도는 종종 가장 높다(최근의 편향을 암시한다).\n' +
+      '\n' +
+      '인접하지 않은 관련 단락.마지막으로 텍스트 내의 두 개의 인접하지 않은 위치에서 관련 사실을 수집해야 하는 시나리오를 테스트한다.\n' +
+      '\n' +
+      '여기서, 그림 1의 결과_는 길이가 증가함에 따라 매우 큰 성능 저하를 보여주며, 이는 LLM이 큰 맥락 길이의 두 개의 별개의 위치에서 증거를 수집해야 할 때 추론 작업이 LLM에 대해 상당히 더 어려워짐을 나타낸다.\n' +
+      '\n' +
+      '### 관련 없는 물질의 종류\n' +
+      '\n' +
+      '이제 우리는 인접하지 않은 핵심 단락 사례에만 초점을 맞추고 관련 없는 텍스트 유형의 효과를 탐구한다. 우리는 두 가지 시나리오를 고려한다: 관련 없는 단락이 관련 단락과 _similar_일 때(동일한 작업에서 취함), 그리고 그것들이 _different_일 때(책 말뭉치에서 취함).\n' +
+      '\n' +
+      '우리의 초기 기대는 관련 없는 단락이 관련 단락과 다른 _different_인 설정이 모델에 더 쉬울 것이며 관련 단락을 폐기하는 것이 더 쉬울 것이기 때문에 관련 단락에 초점을 맞추는 데 도움이 될 것이다. 그러나, 결과들(도 5)은 그렇지 않음을 보여준다: _different_ setup에 대한 드롭은 _similar_ setup에 대한 드롭보다 대부분 더 크다.\n' +
+      '\n' +
+      '##5 다음 단어 예측과의 상관관계\n' +
+      '\n' +
+      '복잡성은 모델들이 그들의 전체 입력 Anil 등(2023); Jiang 등(2024)을 활용한다는 것을 보여주기 위해 주요 벤치마크로서 사용된다. 그러나, 다운스트림 태스크들에 대한 성능이 모델 퍼플렉시티 Liu et al. (2023); Xia et al. (2022); Tay et al. (2022)와 반드시 상관관계가 있는 것은 아니라는 것이 나타났다. 여기서는 복잡성과 추론 정확도 사이의 상관 관계를 이해하기 위해 데이터 세트의 유연성을 사용할 것이다.\n' +
+      '\n' +
+      '폐쇄형 모델에서는 전체 어휘 토큰 확률에 대한 액세스가 부족하여 모델 복잡성을 측정할 수 없으므로 데이터에 대한 다음 단어 정확도를 측정하는 데 의존한다. 우리는 모델들이 주어진 텍스트에서 다음 단어를 완성하도록 프롬프트하고, 그것이 진정한 다음 단어와 정확히 일치한다면 출력이 정확하다. 우리는 (질문이 없는) 데이터 세트의 샘플을 텍스트로 사용하고 결과를 동일한 샘플에 대한 추론 성능과 비교한다.\n' +
+      '\n' +
+      '우리의 방법은 다음 단어 예측 태스크에서 다른 작업 Anil et al. (2023); Jiang et al. (2024)와 유사한 경향을 찾는데, 즉 입력이 길어질수록 정확도가 증가한다. 그러나 그림 1과 같이 다음 단어 정확도는 FlenQA 7에 대한 추론과 음의 상관관계가 있다.\n' +
+      '\n' +
+      '각주 7: \\(\\rho_{Pearson}=-0.95,p=0.01\\)\n' +
+      '\n' +
+      '이는 다음 단어 예측 및 유사하게 당혹감을 측정하는 것이 긴 입력에 대한 다운스트림 작업 평가를 대체할 수 없음을 의미한다.\n' +
+      '\n' +
+      '생각의 사슬이 도움이 될까?\n' +
+      '\n' +
+      'Kojima et al. (2022); Wei et al. (2022)에 의해 소개된, 생각의 체인(CoT) 프롬프트는 질문에 대한 정답을 결론짓기 전에 추론 단계들을 포함하는 텍스트를 생성하기 위해 LLM이 푸시되는 기술이다. Zhou et al. (2022)은 보다 구체적이고 최적화된 명령("우리가 올바른 답을 가지고 있는지 확인하기 위해 이것을 단계적으로 해결합시다."라고 밝혔다.\n' +
+      '\n' +
+      '그림 4: 핵심 단락 위치가 정확도에 미치는 영향. 키 단락이 입력 내에 배치된 위치에 관계없이 입력 길이가 증가함에 따라 정확도가 감소한다. 각 점은 300개의 샘플을 반영합니다. 모든 모델의 결과가 부록 E에 나타납니다.\n' +
+      '\n' +
+      '그림 5: 두 가지 유형의 패딩 모두에서 성능이 저하됨. 대부분의 모델에서 책 패딩 효과가 훨씬 더 큽니다. 각 점은 300개의 표본에 걸친 성능을 반영합니다.\n' +
+      '\n' +
+      'CoT 기법은 많은 추론 기반 질문 응답 설정에서 정확도를 크게 향상시키는 것으로 나타났다. 이를 사용하면 추세를 변경하고 LLM이 더 긴 입력에 대해 효과적으로 수행할 수 있습니까? We experiment with CoT using the elicitation string of Zhou et al. (2022).\n' +
+      '\n' +
+      '결과는 (그림 1) CoT가 다른 LLM에 다른 영향을 미치며 전반적으로 길이로 인한 성능 저하를 완화하지 못한다는 것을 보여준다. 대부분의 경우(GPT4, Mixtral 8x7B, Mixtral 70B 및 GPT3.5) 성능을 향상시키지만 GPT4에서만 길이가 증가함에 따라 효과가 증가하여 제한적인 완화 기법이다. Gemini-Pro의 경우, CoT는 짧은 길이에서 성능을 증가시키지만 입력 길이가 증가함에 따라 성능이 감소하는 것을 알 수 있다.\n' +
+      '\n' +
+      '모든 작업 및 설정에 대한 CoT 프롬프트의 전체 결과는 부록 E에서 확인할 수 있다.\n' +
+      '\n' +
+      '##7 길이 유도 고장 모드\n' +
+      '\n' +
+      '우리는 결과에서 잘못된 응답과 상관관계가 있는 4개의 _failure mode_:8 일관된 패턴을 발견한다.\n' +
+      '\n' +
+      '각주 8: 모든 고장 모드는 리포지토리의 코드를 사용하여 자동으로 측정할 수 있습니다.\n' +
+      '\n' +
+      '데이터 집합의 모든 샘플에 대한 응답 실패는 프롬프트(부록 D)에서 지시한 대로 "참" 또는 "거짓"으로 응답할 수 있습니다. 그러나 LLMs 중 일부는 질문에 대한 거절 답변으로 응답했는데, 종종 "텍스트에 정보가 충분하지 않다"와 같은 문장이 선행된다. **이러한 경향은 입력 길이가 증가함에 따라 증가하며,**는 "True"와 "False" 사이의 명확한 선택을 명시한 지시에 따르지 않는 것을 나타낸다. 추세는 그림 7에서 입증되며 부록 E의 모든 모델에 대한 결과이다.\n' +
+      '\n' +
+      'SS3에서 논의된 라벨 편향, 우리의 데이터 세트는 라벨 분포에서 완전히 균형을 이룬다. 우리는 특정 LLM이 입력 길이가 증가함에 따라 일반적으로 "거짓"인 레이블 중 하나를 선호하는 경향이 있음을 발견했다. 모든 모델에 대한 결과는 부록 E에 나와 있다.\n' +
+      '\n' +
+      '먼저 대답하고, 나중에 사고 사슬 프롬프트를 사용할 때 일부 LLM은 입력이 더 길어짐에 따라 최종 참/거짓 답변을 출력할 가능성이 훨씬 더 높았다. 최근 작업에서, Kojima et al. 2022는 모델들이 답변 후에 추론 단계들을 제공하기 위해 유도될 때 그들의 성능이 증가하지 않는다는 것을 발견했다(이전의 토큰들만을 다루는 자동 회귀 모델들을 사용할 때 예상된 바와 같이). 이는 길이가 길어짐에 따라 프롬프트 지시(부록 D의 프롬프트 지시 참조)를 따르지 않은 경우로 볼 수 있다. 테스트에서 오답은 추론 단계 9 이전에 답변 발생에 통계적으로 의존한다는 것을 발견했다.\n' +
+      '\n' +
+      '각주 9: Fisher exact test를 통해 얻은 \\(p<0.001\\)과 대응 승산비는 3.643이다.\n' +
+      '\n' +
+      '사고의 사슬 부족 FlenQA의 모든 작업은 LLM이 (1) 입력 내에서 관련 텍스트를 찾고 (2) 해당 텍스트에 대한 관련 추론을 수행해야 한다. 이상적으로, CoT 프롬프트는 LLM을 유도하여 먼저 관련 텍스트 각각을 찾고 "단계" 부분으로 복사하고,\n' +
+      '\n' +
+      '그림 6: 다음 단어 정확도는 FlenQA에 대한 추론 정확도와 음의 상관관계가 있다. 각 점은 300개의 표본에 걸친 성능을 반영합니다. Gemini-Pro는 임의의 길이로 다음 단어 예측 태스크에 대한 빈 응답에 응답했기 때문에 포함되지 않는다.\n' +
+      '\n' +
+      '그림 7: 모델은 입력 길이 종속 편향의 두 가지 유형을 나타낸다: (a) 그들은 "참"보다 더 자주 "거짓"을 생성하는 경향이 있고, (b) 그들은 명령어를 무시하고 둘 다 포함하지 않는 답변을 생성한다.\n' +
+      '\n' +
+      '긴 입력이 추론에 미치는 영향을 피합니다. 그러나 입력 길이가 증가함에 따라 이를 수행하는 LLM 능력이 저하된다는 것을 발견했다(그림 9).\n' +
+      '\n' +
+      '우리는 출력의 "단계" 부분(부록 D.4의 세부사항)에서 관련 텍스트(각 샘플의 핵심 문장)의 적용 범위를 계산하여 이를 측정한다. 우리는 대부분의 모델에서 입력 길이가 길어짐에 따라 입력 _감소_ 내에서 관련 텍스트를 찾을 수 있는 능력을 발견한다. 우리는 잘못된 응답이 사실 10의 불완전한 적용 범위에 통계적으로 의존한다는 것을 발견했다.\n' +
+      '\n' +
+      '각주 10: Fisher exact test를 통해 얻은 \\(p<0.001\\)에 해당하는 승산비는 3.138이다.\n' +
+      '\n' +
+      '## 8 관련 업무\n' +
+      '\n' +
+      '긴 입력에 대한 LLM의 평가는 다운스트림 작업의 벤치마크와 다음 단어 예측이라는 두 가지 별개의 경로를 따랐다. 벤치마크 영역에서 연구는 모델을 평가하는 데 사용할 수 있는 긴 입력 샘플의 데이터 세트를 제안했다(Shaham et al., 2023, 2022; An et al., 2023, 2024). 이러한 데이터 세트는 다르지만 고정된 길이의 입력에 대해 큐레이션된다. 이 접근법은 간단하지만 다양한 길이의 입력에 대한 능력을 제한하여 입력 길이가 모델 성능에 미치는 진정한 영향을 이해하는 데 어려움을 제기한다. 한편, 다음 단어 예측 평가는 모델이 상이한 길이의 입력을 처리하는 방법에 대한 통찰력을 제공한다(Anil et al. 2023; Jiang et al. 2024에서 수행된 바와 같이). 그러나, 이 태스크와 다운스트림 성능의 상관관계는 일관되지 않는 것으로 밝혀졌다 (Liu et al., 2023; Xia et al., 2022; Tay et al., 2022). 이 논문에서 우리는 확장된 길이에 대해 이 발견을 재현한다.\n' +
+      '\n' +
+      '본 연구는 입력 개입을 통해 다양한 측면을 조사한 선행 연구를 기반으로, 과제(Dasgupta et al., 2022), 프롬프트 전략(Kojima et al., 2022; Yao et al., 2023; Jin et al., 2024) 및 QA 과제의 다양한 속성(Levy et al., 2023)을 연구한다. 우리의 조사는 성능에 미치는 영향을 밝히기 위해 입력 길이에 초점을 맞추고 이를 분리한다.\n' +
+      '\n' +
+      '## 9 Discussion\n' +
+      '\n' +
+      '본 논문에서는 입력길이가 대용량 언어모델(LLM)의 추론 성능에 미치는 영향을 연구하였다. 우리의 연구 결과는 모델의 최대 입력 길이 용량에 도달하기 훨씬 전에 발생하는 더 긴 입력으로 성능의 상당한 감소를 보여준다. 우리의 실험은 작업과 무관한 입력의 부분을 조정하여 길이 인자를 분리할 수 있도록 구성한 데이터 세트인 FLenQA에 의존했다. 우리는 샘플을 조정하는 방법에 관계없이 길이가 추론 성능에 여전히 강한 영향을 미친다는 것을 보여준다.\n' +
+      '\n' +
+      '마지막으로 확장된 지침을 따르는 어려움과 덜 관련된 정보에 대한 편향을 포함하여 특정 고장 모드를 확인했다. 우리의 분석에서는 특정 결함을 밝혀 LLM에서 발견되는 약점을 해결하고 수정하기 위한 향후 연구에 가능한 방향을 제공한다.\n' +
+      '\n' +
+      '결론적으로, 단일 입력 길이를 기반으로 모델의 성능을 평가하는 것은 전체 그림을 제공하지 않으며 더 미묘한 평가가 필요하다는 것을 나타낸다. 우리는 모델이 장거리에서 능력이 있다고 간주되기 위해서는 기술적으로 지원하는 모든 길이의 성능을 유지해야 한다고 주장한다.\n' +
+      '\n' +
+      '그림 8: 대부분의 모델은 추론 단계 이전에 제로 샷 CoT 프롬프트 설정에서 답변을 생성하는 경향이 있으며 입력 길이가 증가함에 따라 더 많이 생성한다.\n' +
+      '\n' +
+      '그림 9: 관련 사실에 대한 CoT 적용 범위. 투입이 증가함에 따라 모든 모델은 CoT 추론 단계 단계에서 작업 관련 정보를 출력하는 데 더 자주 실패한다.\n' +
+      '\n' +
+      '### Limitations\n' +
+      '\n' +
+      '행동 테스트의 특성 때문에 다양한 입력 길이에 따라 관찰된 성능 하락은 설명되지 않은 상태로 남아 있으며, 많은 모델에 대한 액세스 부족으로 인해 이 방향이 계속 제한될 것으로 의심한다. 둘째, 우리의 접근법은 다양한 LLM에 걸쳐 보편적으로 적용 가능한 테스트를 만들어 가장 낮은 공통 분모를 충족하는 작업을 선택하는 것을 목표로 했다. 이 접근법은 더 복잡한 추론 작업(예: 5개의 핵심 단락)에서 미묘한 성능 차이를 잠재적으로 간과하며, 예를 들어 더 강한 모델은 우리의 발견이 제안하는 것과 비교하여 더 짧은 입력 길이에서 성능 저하를 나타낼 수 있다. 또한, 우리는 다른 유형과 행동적으로 다를 수 있는 추론 작업 유형의 하위 집합에 초점을 맞췄다. 마지막으로, 우리의 연구는 주요 단락 간의 거리를 테스트하지 않았으며, 향후 연구를 위해 떠나는 LLM 성능의 측면을 조사하지 않았다.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* An et al. (2023) Chen An, Shansan Gong, Ming Zhong, Mukai Li, Jun Zhang, Lingpeng Kong, and Xipeng Qiu. 2023a. L-eval: 긴 문맥 언어 모델에 대한 표준화된 평가를 시행한다. _ ArXiv_, abs/2307.11088.\n' +
+      '* An et al. (2023b) Chenxin An, Shansan Gong, Ming Zhong, Mukai Li, Jun Zhang, Lingpeng Kong, and Xipeng Qiu. 2023b. L-평가: 긴 컨텍스트 언어 모델에 대한 표준화된 평가 기관.\n' +
+      '* Anil et al. (2023) Rohan Anil, Sebastian Borgeaud, Yonghui Wu, and Gemini Team Google. 2023. 쌍둥이자리: 매우 유능한 멀티모달 모델들의 패밀리 _ ArXiv_, abs/2312.11805.\n' +
+      '*Bai et al. (2023) Yushi Bai, Xin Lv, Jiajie Zhang, Hongchang Lyu, Jiankai Tang, Zhidian Huang, Zhengxiao Du, Xiao Liu, Aohan Zeng, Lei Hou, et al. 2023. Longbench: A bilingual, multitask benchmark for long context understanding. _ arXiv preprint arXiv:2308.14508_.\n' +
+      '* Chen and Durrett (2019) Jifan Chen and Greg Durrett. 2019. 다중 홉 추론을 위한 데이터셋 설계 선택 이해. _Proceedings of the 2019 Conference of the North American chapter of Computational Linguistics Association: Human Language Technologies, Volume 1(Long and Short Papers)_.\n' +
+      '* Clark et al.(2021) Peter Clark, Oyvind Tafjord, and Kyle Richardson. 2021. 언어에 대한 부드러운 추론자로서 트랜스포머. IMT2000 3GPP - 인공지능 국제공동학술대회 29회 회보 - 3882-3890쪽\n' +
+      '* Cobbe et al. (2021) Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian, Mark Chen, Heewoo Jun, Lukasz Kaiser, Matthias Plappert, Jerry Tworek, Jacob Hilton, Reiichiro Nakano, et al. 2021. 수학 단어 문제를 해결하기 위한 훈련 검증자 __ arXiv preprint arXiv:2110.14168_.\n' +
+      '* Dasgupta et al. (2022) Ishita Dasgupta, Andrew K Lampinen, Stephanie CY Chan, Antonia Creswell, Dharshan Kumaran, James L McClelland, and Felix Hill. 2022. 언어 모델들은 추론에 대한 인간과 유사한 콘텐츠 효과를 보여준다. _ arXiv preprint arXiv:2207.07051_.\n' +
+      '* Faraglia and Contributors (2012) Daniele Faraglia and Other Contributors. 2012년, 페이커\n' +
+      '* Gidiotis and Tsoumakas (2020) Alexios Gidiotis and Grigorios Tsoumakas. 2020. A divide-and-conquer approach to the summary of long documents. _ IEEE/ACM Transactions on Audio, Speech, and Language Processing_, 28:3029-3040.\n' +
+      '* Holtzman et al. (2023) Ari Holtzman, Peter West, and Luke Zettlemoyer. 2023. 복잡한 시스템 과학으로서의 생성 모델: 우리는 어떻게 큰 언어 모델 행동을 이해할 수 있는가? _ arXiv preprint arXiv:2308.00189_.\n' +
+      '* Huang and Chang (2022) Jie Huang and Kevin Chen-Chuan Chang. 2022. 대형 언어 모델에서의 추론에 대하여: 설문 조사 _ arXiv preprint arXiv:2212.10403_.\n' +
+      '* Jacovi et al. (2023) Alon Jacovi, Avi Caciularu, Omer Goldman, and Yoav Goldberg. 2023. 테스트 데이터를 일반 텍스트로 업로드 중지: 평가 벤치마크에 의한 데이터 오염을 완화하기 위한 실용적인 전략. _Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing_, pages 5075-5084, Singapore. 컴퓨터 언어학과의 연관성\n' +
+      '* Jiang et al. (2024) Albert Q. 장, 알렉산드르 사블레이롤, 안토인 루, 아서 멘쉬, 블랑체 사바리, 크리스 뱀포드, 데벤드라 싱 채플롯, 디에고 데 라스 카사스, 엠마 부 한나, 플로리안 브레산드, 지아나 령겔, 기욤 부르, 기욤 샘플, 릴리오 레나르 라바우, 루실 사울니에, 마리안 나르 라초, 피에르 스톡, 산데프 서브라마니안, 소피아 양, 지몬 안토니아크, 테벤 르 스카오, 시오필 게르베트, 티보트 라브릴, 토마스 왕, 티모티 라크루아, 윌리엄 엘 사예드. 2024년, 전문가들의 혼합\n' +
+      '* Jin et al. (2024) Mingyu Jin, Qinkai Yu, Haiyan Zhao, Wenyue Hua, Yanda Meng, Yongfeng Zhang, Mengnan Du, et al. 2024. reasoning step length가 큰 언어 모델에 미치는 영향. _ arXiv preprint arXiv:2401.04925_.\n' +
+      '* Kojima et al. (2022) Takeshi Kojima, Shixiang Shane Gu, Machel Reid, Yutaka Matsuo, and Yusuke Iwasawa. 2022. 대형 언어 모델들은 제로 샷 추론기들이다. _ 신경 정보 처리 시스템들_, 35:22199-22213의 진보들.\n' +
+      '* Levy et al. (2023) Mosh Levy, Shauli Raviggel, and Yoav Goldberg. 2023. 자신을 속이기 위해 llm을 안내하는 단계: 기계 판독 이해 단축키 자동 조작 트리거. _Findings of the Association for Computational Linguistics: EMNLP 2023_, pages 8495-8505.\n' +
+      '\n' +
+      '리자치, 왕맹맹, 지롱정, 무한장 등이 있다. 2023. 구글: 롱컨텍스트 언어 모델이 롱컨텍스트를 이해할 수 있는가? _ ArXiv_, abs/2311.04939.\n' +
+      '* Liu et al. (2023) Hong Liu, Sang Michael Xie, Zhiyuan Li, and Tengyu Ma. 2023a. 동일한 사전 훈련 손실, 더 나은 다운스트림: 언어 모델에 대한 암시적 편향 문제. _International Conference on Machine Learning_, pages 22188-22214. PMLR.\n' +
+      '* Liu et al. (2023b) Nelson F Liu, Kevin Lin, John Hewitt, Ashwin Paranjape, Michele Bevilacqua, Fabio Petroni, and Percy Liang. 2023b. 중간에서 잃음: 언어 모델이 긴 문맥을 사용하는 방법. _ arXiv preprint arXiv:2307.03172_.\n' +
+      '* Liu et al.(2022) Yang Liu, Chenguang Zhu, and Michael Zeng. 2022. End-to-end segmentation-based news summary. _Findings of the Association for Computational Linguistics: ACL 2022_, pages 544-554.\n' +
+      '* Min et al. (2019) Sewon Min, Eric Wallace, Sameer Singh, Matt Gardner, Hannaneh Hajishirzi, and Luke Zettlemoyer. 2019. 구성 질문은 멀티 홉 추론을 필요로 하지 않는다. _연례 계산 언어학 협회 회의에서.\n' +
+      '* OpenAI(2023) OpenAI. 2023. Gpt-4 기술 보고서\n' +
+      '* Sainz et al. (2023) Oscar Sainz, Jon Campos, Iker Garcia-Ferrero, Julen Etxaniz, Oier Lopez de Lacalle, and Eneko Agirre. 2023. Nlp 평가 어려움: 각 벤치마크에 대한 llm 데이터 오염을 측정할 필요가 있다. _Findings of the Association for Computational Linguistics: EMNLP 2023_, pages 10776-10787.\n' +
+      '* Shaham et al. (2023) Uri Shaham, Maor Ivgi, Avia Efrat, Jonathan Berant, and Omer Levy. 2023. Zeroscrolls: Zero-shot benchmark for long text understanding. _ arXiv preprint arXiv:2305.14196_.\n' +
+      '* Shaham et al. (2022) Uri Shaham, Elad Segal, Maor Ivgi, Avia Efrat, Ori Yoran, Adi Haviv, Ankit Gupta, Wenhan Xiong, Mor Geva, Jonathan Berant, et al. 2022. Scrolls: Standardized comparison over long language sequences. _Proceedings of the 2022 Conference on Empirical Methods in Natural Language Processing_, pages 12007-12021.\n' +
+      '* Shi et al. (2023) Freda Shi, Xinyun Chen, Kanishka Misra, Nathan Scales, David Dohan, Ed H Chi, Nathanael Scharli, and Denny Zhou. 2023. 큰 언어 모델들은 관련 없는 컨텍스트에 의해 쉽게 산만해질 수 있다. _International Conference on Machine Learning_, pages 31210-31227. PMLR.\n' +
+      '* Sinha et al. (2018) Koustuv Sinha, Shagun Sodhani, William L. 해밀턴과 조엘 피노 2018. 텍스트 기반 관계 추론과의 합성 언어 이해 _ ArXiv_, abs/1811.02959.\n' +
+      '* Tay et al.(2022) Yi Tay, Mostafa Dehghani, Samira Abnar, Hyung Won Chung, William Fedus, Jinfeng Rao, Sharan Narang, Vinh Q Tran, Dani Yogatama, and Donald Metzler. 2022. 스케일링 법칙 대 모델 아키텍처: 유도 바이어스가 스케일링에 어떻게 영향을 미치는가? _ arXiv preprint arXiv:2207.10551_.\n' +
+      '* Wei et al. (2022) Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Fei Xia, Ed Chi, Quoc V Le, Denny Zhou, et al. 2022. Chain-of-thought prompting reasoning in large language models. _ 신경 정보 처리 시스템_, 35:24824-24837의 발전.\n' +
+      '* Weston et al.(2016) Jason Weston, Antoine Bordes, Sumit Chopra, Alexander M Rush, Bart Van Merrienboer, Armand Joulin, and Tomas Mikolov. 2016. ai-complete question answering: A set of prerequisite toy tasks. _4th International Conference on Learning Representations, ICLR 2016_.\n' +
+      '* Wolhandler et al. (2022) Ruben Wolhandler, Arie Cattan, Ori Ernst, and Ido Dagan. 2022. 다중 문서 요약은 "다중"이 어떻게 되나요? _Proceedings of the 2022 Conference on Empirical Methods in Natural Language Processing_, pages 5761-5769.\n' +
+      '* Xia et al. (2022) Mengzhou Xia, Mikel Artetxe, Chunting Zhou, Xi Victoria Lin, Ramakanth Pasunuru, Danqi Chen, Luke Zettlemoyer, and Ves Stoyanov. 2022. 축척에 걸친 언어 모델의 학습 궤적. _ arXiv preprint arXiv:2212.09803_.\n' +
+      '* Yao et al. (2023) Shunyu Yao, Dian Yu, Jeffrey Zhao, Izhak Shafran, Thomas L Griffiths, Yuan Cao, and Karthik Narasimhan. 2023. 생각의 나무: 큰 언어 모델을 사용한 숙고적 문제 해결 _ arXiv preprint arXiv:2305.10601_.\n' +
+      '* Zhou et al. (2022) Yongchao Zhou, Andrei Ioan Muresanu, Ziwen Han, Keiran Paster, Silviu Pitis, Harris Chan, and Jimmy Ba. 2022. 대형 언어 모델은 인간 수준의 프롬프트 엔지니어이다. _ arXiv preprint arXiv:2211.01910_.\n' +
+      '* Zhu et al. (2015) Yukun Zhu, Ryan Kiros, Rich Zemel, Ruslan Salakhutdinov, Raquel Urtasun, Antonio Torralba, and Sanja Fidler. 2015. 책과 영화를 정렬하기: 영화를 보고 책을 읽음으로써 이야기 같은 시각적 설명을 향해. In _The IEEE International Conference on Computer Vision (ICCV)_.\n' +
+      '\n' +
+      '## 부록 추론 작업에서의 훈련 오염\n' +
+      '\n' +
+      '데이터 오염은 모델을 평가할 때 주요 관심사이다(Sainz et al., 2023; Jacovi et al., 2023). 태스크가 다수의 텍스트 스팬에 걸쳐 추론을 필요로 하는 것을 보장하는 것은 멀티 홉 추론을 필요로 하는 태스크보다 더 강한 요건이다(SS2). 모수적 지식을 사용하여 답변하는 질문에 대한 모델을 평가하면 추론 능력을 평가할 수 없다. 인터넷 출처에서 유래한 데이터 세트는 특히 오염에 취약하여 새로운 사실을 추론할 수 있는 모델의 능력에 대한 평가를 손상시킨다.\n' +
+      '\n' +
+      '또한 작은 모델이 주어진 추론 데이터셋에 대해 기존 추론 데이터셋에 답할 수 있음을 보였다.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:11]\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:12]\n' +
+      '\n' +
+      '[MISSING_PAGE_EMPTY:13]\n' +
+      '\n' +
+      '도 16: **입력에서 주요 단락의 서로 다른 위치 간의 정확도의 차이.** 관련 없는 패딩의 두 유형에 걸쳐 평균화: 유사(데이터로부터의 재샘플링) 및 유사하지 않은(북 코퍼스) 패딩.\n' +
+      '\n' +
+      '도 15: **PIR(People In Rooms) 데이터셋에 대한 전체 결과**\n' +
+      '\n' +
+      '그림 17: **응답 생성 및 비응답의 편향.** 모델당 참, 거짓 또는 둘 다 없는 응답 빈도.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
