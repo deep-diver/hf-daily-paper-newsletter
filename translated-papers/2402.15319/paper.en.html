@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '[MISSING_PAGE_FAIL:1]\n' +
+      '\n' +
+      'training quantization called GPTVQ. This method allows fast non-uniform and vector quantization (VQ), improving the performance-size trade-off significantly compared to prior state-of-the-art.\n' +
+      '\n' +
+      'The contributions of this work are as follows:\n' +
+      '\n' +
+      '* Our analysis and experimental results show that increasing dimensionality of quantization gives improved accuracy versus model size trade-offs for many LLMs.\n' +
+      '* We propose a fast and accurate algorithm for post-training VQ compression. We show that our algorithm achieves SOTA size vs accuracy trade-offs on a wide range of LLMs, while having a practical run time of only 3 to 11 hours for a 70B parameter model.\n' +
+      '* We implemented and benchmarked VQ decompression on a mobile CPU. While VQ leads to significant memory footprint reductions, our on-device timings also demonstrate that it leads to improved latency compared to a 4-bit integer baseline.\n' +
+      '\n' +
+      '## 2 Motivation\n' +
+      '\n' +
+      'Neural network quantization is commonly used to reduce model footprint, data transfer and compute requirements. By quantizing a model, high bit-width floating point weights and activations that are commonly used for training can be represented by lower-precision values represented by fewer bits. Quantizing to 8 bits or lower significantly reduces footprint, data transfer and compute bottlenecks, at the cost of introducing _quantization noise_ in the model, resulting in a potential drop in accuracy. In this section we provide a brief overview of uniform scalar quantization, non-uniform scalar quantization and introduce vector quantization, each of which offers progressively more flexibility in quantization. We will then illustrate how these methods improve representational accuracy of (non-uniform) underlying distributions, and can yield improved trade-offs between compression and accuracy. Finally, we touch upon the challenges of vector quantization and the limitations of current approaches.\n' +
+      '\n' +
+      '### Types of quantization grid and their flexibility\n' +
+      '\n' +
+      'Uniform quantizationA symmetric uniform quantizer approximates an original floating point vector \\(\\textbf{x}\\in\\mathbb{R}^{D}\\) as \\(\\textbf{x}\\approx~{}s\\textbf{x}_{int}\\), where each element in \\(\\textbf{x}_{int}\\) is a \\(b\\)-bit integer value and \\(s\\) is a higher precision quantization scale, shared across the components of **x**.\n' +
+      '\n' +
+      'Non-uniform quantizationUniform quantization as presented in the previous section, while efficient, is very inflexible as the representable points can be solely equidistantly spaced. A more flexible quantization approach is non-uniform quantization using codebook quantization, in which floating point numbers are discretized to arbitrary scalar centroids in a codebook \\(C:C=\\{c_{1},c_{2},\\dots,c_{k}\\}\\). Each high precision value in **x** is then represented by an index \\(j\\) of a centroid \\(c_{j}\\). Each index can be stored using \\(\\lceil\\log_{2}k\\rceil\\) bits. This technique can be used to compress weight tensors by choosing \\(k\\) such that \\(\\log_{2}k\\) is less than the original bitwidth of the elements in **x**. Note that the codebook itself incurs overhead, which we will discuss in more detail in Sections 2.2 and 3.2.\n' +
+      '\n' +
+      'Vector quantizationIn non-uniform quantization, as introduced in the previous paragraph, we assume that each scalar value in **x** is quantized individually. However, a more flexible quantizer can be constructed by choosing a higher-dimensionality for the centroids in codebook \\(C\\). In this case each centroid in \\(C\\) encodes \\(d\\) values, e.g., pairs of values if \\(d=2\\), and each \\(d\\) values in **x** are represented by a single index into \\(C_{d}\\), where we use \\(C_{d}\\) to denote a codebook with elements of dimensionality \\(d\\). This technique is referred to as vector quantization (VQ) (Gersho & Gray, 2012). The case where a \\(D\\)-dimensional vector is split into multiple \\(d\\)-dimensional sub-vectors, \\(d<D\\), each represented individually by an index into \\(C_{d}\\) is also frequently referred to as product quantization (Stock et al., 2019).\n' +
+      '\n' +
+      'Accuracy improvement within higher dimensionalityIt is a well known fact that non-uniformly distributed data can be more accurately represented by a non-uniform quantizer. When increasing the dimensionality of the codebook, i.e. through VQ, the flexibility of the grid increases. A visual representation of this is given in figure 1. In this example, where we quantize each value in the original to a 3-bits representation (i.e., 6 bits for VQ with \\(d=2\\)), we can see that the number of points stays the same, i.e., \\(2^{6}=64\\), but the distribution of the centroids can more closely match the underlying distribution, increasing the accuracy of the representation.\n' +
+      '\n' +
+      'Figure 2: Quantization SQNR depending on the dimensionality for Llama-v2 7B weights. Signal-to-noise ratio increases with quantization dimensionality due to additional flexibility in the quantization grid.\n' +
+      '\n' +
+      'The accuracy of representation increases the more the dimensionality of the codebook increases. We can see the improvement in representational accuracy of higher \\(d\\) in figure 2. Here we plot the effect of compressing the weights of LLama-v2 7B with uniform quantization, non-uniform quantization, and vector quantization with 2 and 4 dimensions. On the y-axis we plot the signal-to-quantization noise ratio (SQNR) between the original and quantized weights, where higher is better. For fair comparison, we ensure the codebook overhead is always equal to 0.25b per weight for each quantization method, i.e., improved SQNR is not caused trivially by using more bits for our representations. We can clearly see that as the dimensionality increase, the SQNR improves significantly as well.\n' +
+      '\n' +
+      '### Challenges of vector quantization\n' +
+      '\n' +
+      'Codebook sizeThe improvement in accuracy of the representation comes at a cost, as we now need to store and transmit the VQ codebook \\(C_{d}\\), as well as the index assignments for the weights. The size of the codebook for a tensor is proportional to \\(k\\times d\\) where \\(k\\) is the number of centroids per codebook, and \\(d\\) is the VQ-dimension. If we aim to use VQ for compressing weight tensors we have to consider this overhead in finding good trade-offs between accuracy and size of the weight tensors in a network.\n' +
+      '\n' +
+      'In the rest of this work, we use _bits per dimension_ (\\(b\\)) to indicate the number of index bits stored for each individual weight. This means that, for VQ with dimension \\(d\\), the total number of index bits is \\(d\\times b\\), and the number of centroids in a codebook is \\(k=2^{d\\times b}\\).\n' +
+      '\n' +
+      'Centroids and assignment settingIn order to apply vector quantization, one has to find a codebook of representative centroids, and an assignment to a centroid for each weight. While there are many methods to achieve this, a practical and popular approach is the k-Means algorithm (Han et al., 2015). For neural network weights however, clustering on weights alone might not yield sufficient accuracy. To improve results, several authors (Stock et al., 2019; Martinez et al., 2021) include layer reconstruction error into their optimization, a technique that has been shown to improve results significantly in the model efficiency literature (He et al., 2017; Zhang et al., 2016; Nagel et al., 2020).\n' +
+      '\n' +
+      'Nevertheless, we find that neither k-Means alone, nor k-Means with layer input data included, is performant enough on LLamav2-7B (Touvron et al., 2023b), as can be seen in Table 1. In this experiment we apply VQ to groups of weights, where each group of weights has its own codebook. We select the size of each weight group such that the overhead is the same for each setting. We see that, while results do improve when data is included, the increase in perplexity remains unacceptably large, especially for 2 and 3 bit VQ. While including layer input data improves results, the authors of methods such as (Stock et al., 2019; Martinez et al., 2021) note that this alone does not yield satisfactory performance, and include an end-to-end fine-tuning step into their algorithms. Unfortunately, the size of modern LLMs make end-to-end fine-tuning prohibitively expensive for many practitioners. As we aim to have a fast and scalable method for post-training quantization, we set out to find a method that is accurate and takes the activations into account when quantizing, and is efficient and scalable to apply to significantly-sized large language models.\n' +
+      '\n' +
+      '## 3 Gptvq\n' +
+      '\n' +
+      'In this section we introduce a novel method for vector-quantizing LLMs efficiently and accurately. As mentioned in the previous section, existing methods targeting VQ do not scale to LLM-sized models. Instead, we build on a recent uniform quantization method named GPTQ (Frantar et al., 2022), which interleaves column-wise quantization with updates to the remaining (unquantized) weights, using information from the Hessian of the layer output reconstruction MSE. This method has been shown to give excellent performance on uniformly quantizing LLMs with up to hundreds of billions of parameters.\n' +
+      '\n' +
+      'We first present a brief description of GPTQ. Then, we present our GPTVQ method, which extends GPTQ to VQ and integrates ideas from (Stock et al., 2019) for accurate initialization. Finally, we present a number of novel tricks to improve the size vs. accuracy trade-offs of the resulting quantized models.\n' +
+      '\n' +
+      '### Background: GPTQ\n' +
+      '\n' +
+      'As described in Section 2.1, quantization introduces quantization noise. A large body of literature exists with methods\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c} \\hline \\hline Setting & With input data & Perplexity \\\\ \\hline FP16 & n/a & 5.47 \\\\ \\hline\n' +
+      '2 bits per dim & No & 1.3e3 \\\\  & Yes & 948 \\\\ \\hline\n' +
+      '3 bits per dim & No & 8.23 \\\\  & Yes & 6.95 \\\\ \\hline\n' +
+      '4 bits per dim & No & 5.97 \\\\  & Yes & 5.78 \\\\ \\hline \\hline Uniform 3 bit & Yes & 6.03 \\\\ Uniform 4 bit & Yes & 5.74 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 1: **2D VQ on Llamav2-7B using k-Means (without and with data included).**to alleviate the effects of quantization noise on model accuracy, see (Nagel et al., 2021; Gholami et al., 2022) for recent surveys. Post-training quantization (PTQ) approaches aim to mitigate the adverse effects of quantization noise on pre-trained networks, without having to resort to costly quantization-aware training (QAT). A popular and effective approach in PTQ, introduced by AdaRound (Nagel et al., 2020), is to modify weights to minimize a layer\'s output error as an approximation to the full network\'s loss:\n' +
+      '\n' +
+      '\\[\\mathbb{E}\\left[\\mathcal{L}(\\theta+\\epsilon)-\\mathcal{L}(\\theta)\\right]\\approx \\sum_{\\ell}||\\mathbf{W}^{\\ell}\\mathbf{X}^{\\ell}-\\mathbf{\\widehat{W}}^{\\ell} \\mathbf{X}^{\\ell}||_{F}^{2}, \\tag{1}\\]\n' +
+      '\n' +
+      'where \\(\\mathbf{W}^{\\ell}\\) is the weight for layer \\(\\ell\\), \\(\\mathbf{\\widehat{W}}^{\\ell}=\\mathbf{W}^{\\ell}+\\epsilon^{\\ell}\\) is the (quantized) approximation to this weight tensor, and \\(\\mathbf{X}^{\\ell}\\) of shape \\(R\\times N\\) denotes the input data for layer \\(\\ell\\) from a calibration dataset, with \\(N\\) individual data points of dimensionality \\(R\\) along its columns.\n' +
+      '\n' +
+      'GPTQ follows Optimal Brain Quantization (OBQ; Frantar and Alistarh (2022)), which uses the Hessian of Equation 1. This Hessian can be efficiently computed as \\(\\mathbf{H}^{(\\ell)}=\\mathbf{X}^{(\\ell)}\\mathbf{X}^{(\\ell)T}\\). Like OBQ, GPTQ aims to minimize the Hessian-weighted error introduced by quantizing weights in \\(\\mathbf{W}^{(\\ell)}\\):\n' +
+      '\n' +
+      '\\[E=\\sum_{q}|E_{q}|_{2}^{2};\\hskip 14.226378ptE_{q}=\\frac{\\mathbf{W}_{:,q}- \\text{quant}(\\mathbf{W}_{:,q})}{\\left[\\mathbf{H}^{-1}\\right]_{qq}}. \\tag{2}\\]\n' +
+      '\n' +
+      'GPTQ extends OBQ in the following ways. First, GPTQ exploits the fact that \\(\\mathbf{H}^{(\\ell)}\\) is shared over all rows of \\(\\mathbf{W}^{(\\ell)}\\) by quantizing all weights in a column in parallel, from left to right. This obviates the need for independent Hessian updates for different rows. After quantizing a column \\(q\\), all remaining (unquantized) columns \\(q^{\\prime}>q\\) are modified with a Hessian-based update rule \\(\\delta\\) that absorbs the error introduced by quantizing column \\(q\\) on the layer\'s output:\n' +
+      '\n' +
+      '\\[\\delta=-\\frac{\\mathbf{W}_{:,q}-\\text{quant}(\\mathbf{W}_{:,q})}{\\left[\\mathbf{ H}^{-1}\\right]_{qq}}\\mathbf{H}_{:,(q+1):} \\tag{3}\\]\n' +
+      '\n' +
+      'To reduce data transfer, GPTQ applies the update of Equation 3 only to a small block of \\(B\\) columns in which column \\(q\\) resides. To update the columns outside of block \\(B\\), the error \\(E_{q}\\) in Equation 2 is accumulated while the columns in block \\(B\\) are processed, and are applied in one go to all columns outside of block \\(B\\) after all columns in block \\(B\\) are processed. Lastly, GPTQ uses a Cholesky decomposition of the inverse Hessian \\(\\mathbf{H}^{-1}\\), which introduces a more numerically stable alternative to the inverse Hessian row and column removal operations of OBQ.\n' +
+      '\n' +
+      '### The GPTVQ method\n' +
+      '\n' +
+      'The GPTVQ method generalizes the GPTQ method for non-uniform and vector quantization.\n' +
+      '\n' +
+      'Following the GPTQ framework we perform quantization of the weight tensor in a greedy manner starting from the first column. The details of the method are given in Algorithm 1. Given the VQ dimensionality \\(d\\), we quantize \\(d\\) columns at a time. In the case of scalar quantization, the optimal hessian-weighted quantization of a single columnn was achieved by rounding to nearest. However, in the case of vector quantization, simply choosing the nearest centroid might be suboptimal as error in each of \\(d\\) coordinates is weighted differently. The following rule is used for choosing the optimal assignment \\(j\\) for a data point \\(\\mathbf{x}^{(i)}\\) and the corresponding inverse sub-Hessian \\(\\mathbf{H}^{(i)}\\):\n' +
+      '\n' +
+      '\\[j=\\arg\\min_{m}\\left(\\mathbf{x}-\\mathbf{c}^{(m)}\\right)^{T}\\mathbf{H}^{(i)} \\left(\\mathbf{x}-\\mathbf{c}^{(m)}\\right). \\tag{4}\\]\n' +
+      '\n' +
+      'After performing quantization of \\(d\\) columns, we update the remaining weights using the update rule 3. We accumulate the update along \\(d\\) coordinates and apply it on the remaining weights as a single operation.\n' +
+      '\n' +
+      'To minimize the quantization error, we use several codebooks per layer. Each codebook is assigned to a _group_ of weights (see Algorithm 1).\n' +
+      '\n' +
+      'Codebook initializationTo initialize the codebook for a group of weights, we suggest the following variant of the EM algorithm. Given the set of \\(d\\)-dimensional vectors\\(\\mathbf{x}^{(i)}\\), our goal is to find \\(k\\) centroid vectors \\(\\mathbf{c}^{(m)}\\) and the corresponding sets of assignments \\(I_{m}\\). The objective is the following sum of Hessian-weighted distance functions:\n' +
+      '\n' +
+      '\\[\\min_{\\mathbf{I},\\mathbf{c}^{(0)},\\dots,(k)}\\sum_{m=0}^{k}\\sum_{i\\in I_{m}} \\left(\\mathbf{x}^{(i)}-\\mathbf{c}^{(m)}\\right)^{T}\\mathbf{H}^{(i)}\\left( \\mathbf{x}^{(i)}-\\mathbf{c}^{(m)}\\right), \\tag{5}\\]\n' +
+      '\n' +
+      'where \\(\\mathbf{H}^{(i)}\\) is a \\(d\\times d\\) subset of the inverse Hessian corresponding to the data point \\(\\mathbf{x}^{i}\\). E.g. for 2D vector quantization, these matrices are share among pairs of columns. For the case of \\(\\mathbf{H}^{(i)}\\) equal to identity, the clustering method is equivalent to K-means. The objective can be minimized using E- and M-steps as follows.\n' +
+      '\n' +
+      '**E-step**: find the assignment \\(j\\) for each unquantized \\(d\\)-dimensionl vector \\(\\mathbf{x}^{(i)}\\) that minimizes the objective 4. Using this distance function assigns optimal centroids based on the data-aware loss.\n' +
+      '\n' +
+      '**M-step**: find the centroid value \\(\\mathbf{c}^{(m)}\\) that minimizes\n' +
+      '\n' +
+      '\\[\\mathbf{c}^{(m)}=\\arg\\min_{\\mathbf{c}^{(m)}}\\sum_{i\\in I_{m}}\\left(\\mathbf{x} ^{(i)}-\\mathbf{c}^{(m)}\\right)\\mathbf{H}^{(i)}\\left(\\mathbf{x}^{(i)}-\\mathbf{ c}^{(m)}\\right). \\tag{6}\\]\n' +
+      '\n' +
+      'This objective is a quadratic form w.r.t \\(\\mathbf{c}^{(m)}\\). The optimal value is computed in a closed form as \\(\\mathbf{c}^{(m)}=\\left(\\sum_{i\\in I_{m}}\\mathbf{H}^{(i)}\\right)^{+}\\left(\\sum _{i\\in I_{m}}\\mathbf{H}^{(i)}\\mathbf{x}^{(i)}\\right)\\), where \\((\\cdot)^{+}\\) is a Moore-Penrose pseudoinverse. During the vector quantization operation on line 15 in Algorithm 1, we use the assignment step defined in Equation 4 as well. Practically, we find no performance difference between using the inverse Hessian diagonal, or the full \\(d\\)-dim inverse sub-Hessian.\n' +
+      '\n' +
+      'Blockwise data normalizationIn order to lower the error of vector quantization, we apply blockwise data normalization to the data before the codebook initialization. For each group corresponding to a new codebook we perform element-wise division \\(\\mathbf{W}_{i}\\odot\\mathbf{S}_{i}\\) of the weight sub-matrix matrix \\(\\mathbf{W}_{i}\\) by the corresponding scales \\(\\mathbf{S}_{i}\\). The scale is computed block-wise for every sub-row of \\(\\mathbf{W}_{i}\\), e.g. for a block size of 16, 32, or 64.\n' +
+      '\n' +
+      'Given a set of blocks (sub-rows) \\(\\mathbf{w}^{(i)}\\), the scale \\(s^{(i)}\\) for each of them is computed as \\(s^{(i)}=\\max_{j}|w_{j}^{(i)}|\\). In order to minimize the overhead, the scales are quantized to 4-bit integer. We found that it is beneficial to perform quantization in log-scale to capture several orders of magnitudes in weights. The quantized scales are computed as \\(s_{int}^{(i)}=\\lceil\\frac{\\log_{2}[s^{(i)}]-z}{a}\\rfloor a\\), where \\(a\\) is the quantization scale shared among the group of weights. In order to accurately represent zero in log-space which corresponds to unit scaling, we use the floating point offset \\(z\\). In practice the value of \\(z\\) is shared within the columns of \\(\\mathbf{W}\\) and thus has negligible overhead. Finally the scaled sub-row is normalized as \\(\\mathbf{w}\\cdot 2^{-a(s_{int}-s_{0})}\\), where \\(s_{0}=\\log_{2}(z)\\). The scaled data is used for codebook initialization. The inverse scaling is applied at VQ decoding step.\n' +
+      '\n' +
+      'Total bits per valueAs a measure of total model size, we compute _bits per value_, given by \\(\\log_{2}(k)+kdb_{c}/l+b_{s}/N_{s}\\), where \\(k\\) is the number of centroids, d is the \\(VQ\\) dimensionality, \\(b_{c}\\) is the codebook bit-width, and \\(l\\) is the number of weights per codebook, \\(b_{s}\\) is the scale bit-width, and \\(N_{s}\\) is the scaling block size. We choose values \\(k\\) s.t. \\(\\log_{2}(k)\\) is an integer.\n' +
+      '\n' +
+      '### Additional steps\n' +
+      '\n' +
+      'After the procedure in Algorithm 1 is completed, we perform several steps to further improve model size vs perplexity trade-offs. Each of these steps is described below.\n' +
+      '\n' +
+      'Codebook updateWe found that output reconstruction error can be further reduced through a _codebook update_. Recall that, in line 15 of Algorithm 1, \\(\\mathbf{Q}\\) is incrementally constructed from the elements of \\(\\mathbf{C}\\). Since this construction constitutes a lookup of values in \\(\\mathbf{C}\\), the layerwise objective can still be minimized w.r.t \\(\\mathbf{C}\\). The objective is a quadratic program and is convex:\n' +
+      '\n' +
+      '\\[\\min_{\\mathbf{c}_{0},\\dots,\\mathbf{C}_{N}}||\\mathbf{W}\\mathbf{X}-\\mathbf{Q} \\mathbf{X}||_{F}^{2}, \\tag{7}\\]\n' +
+      '\n' +
+      'where \\(\\mathbf{Q}(\\mathbf{C}_{0},\\dots,\\mathbf{C}_{N})\\) is a look-up operation reconstructing the quantized weights from the centroids. While this objective can be minimized in a closed form, we find that gradient descent is considerably faster and yields equally good solutions. The gradient of \\(\\mathbf{Q}\\) w.r.t. \\(\\mathbf{C}\\) can be defined simply as constructing \\(Q\\) only involves a look-up operation. In each GD step, the values in \\(\\mathbf{C}\\) are updated, and \\(\\mathbf{Q}\\) is reconstructed using the new values in \\(\\mathbf{C}\\), keeping the assignments fixed.\n' +
+      '\n' +
+      'Codebook quantizationIn practical scenarios, codebooks need to be quantized to 8 bits. As a further post-processing step, we quantize the codebook for each group of weights to signed 8-bit integers, using symmetric min-max quantization.\n' +
+      '\n' +
+      'Further codebook compressionWe achieve improved model size vs perplexity trade-offs by reducing the rank of the codebook tensor \\(\\mathbf{C}\\). For a single tensor, \\(\\mathbf{C}\\) has shape \\(N_{G}\\times k\\times d\\), where \\(N_{G}\\) is the number of groups in the corresponding weight tensor, \\(k\\) is the number of centroids per codebook, and \\(d\\) is the VQ-dimension, \\(d\\geq 1\\). We first sort the second dimension of \\(\\mathbf{C}\\) by the first value along the third dimension, and reassign the indices in \\(\\mathbf{I}\\) accordingly. Then, we perform SVD on every \\(N_{G}\\times k\\) matrix along the third dimension, leading to matrices \\(\\mathbf{U}_{i}\\), \\(\\mathbf{\\Sigma}_{i}\\) and \\(\\mathbf{V}_{i}\\), for \\(i=1\\cdots d\\), of shapes \\(N_{G}\\times k\\), \\(k\\times k\\) and \\(k\\times k\\), respectively. We fold \\(\\mathbf{\\Sigma}\\) into \\(\\mathbf{U}\\) as \\(\\mathbf{U}^{\\prime}=\\mathbf{U}\\mathbf{\\Sigma}\\), and reduce the rank of this matrix to \\(k\\), yielding a \\(N_{G}\\times k\\) shaped matrix \\(\\mathbf{U}^{\\prime\\prime}\\). We also reduce the rank of \\(\\mathbf{V}\\) accordingly, yielding \\(k\\times k\\) matrix \\(\\mathbf{V}^{\\prime}\\). Then, we perform gradient descent (GD) on the loss of equation 7, but with respect to the codebook tensor factors \\(\\mathbf{U}^{\\prime\\prime}\\) and \\(\\mathbf{V}^{\\prime}\\). In each GD step, \\(\\widehat{\\mathbf{C}}\\) is created as \\(\\widehat{\\mathbf{C}}=\\mathbf{U}^{\\prime\\prime}\\mathbf{V}^{\\prime T}\\), and the rest of the codebook up procedure as described earlier is followed. Lastly, only the codebook tensor factor \\(\\mathbf{U}^{\\prime\\prime}\\) is quantized, as \\(\\mathbf{V}^{\\prime}\\) gives very little overhead. During inference, \\(\\widehat{\\mathbf{C}}\\) is quantized per codebook after construction. Practically, we only apply this step to 1d VQ as we found it to have little effect for larger \\(d\\).\n' +
+      '\n' +
+      '## 4 Experiments and results\n' +
+      '\n' +
+      'In this section we evaluate GPTVQ and compare the performance of vector quantization in 1, 2 and 4 dimensions against uniform quantization baseline methods.\n' +
+      '\n' +
+      'ModelsWe use the Llama-1 (Touvron et al., 2023), Llama-2 (Touvron et al., 2023) as well as Mistral-7B-v0.1 (Jiang et al., 2023) and Mistral-MoE-8x7B-v0.1 (Jiang et al., 2024). Additionally, we run a single ablation on BLOOM-560M (Workshop et al., 2022).\n' +
+      '\n' +
+      'DatasetsWe follow Shao et al. (2023) and use the WikiText2 (Merity et al., 2016) training set as the calibration dataset for all our experiments. We evaluate our models on token perplexity for the WikiText2 validation set, as well as zero-shot language tasks: PIQA (Bisk et al., 2020), ARC-easy and ARC-challenge (Clark et al., 2018), BoolQ (Clark et al., 2019), HellaSwag (Zellers et al., 2019), and WinoGrande (Keisuke et al., 2019). For all datasets except WikiText2 we use the LLM-evaluation-harness (Gao et al., 2023) to run evaluations.\n' +
+      '\n' +
+      'BaselinesWe compare GPTVQ against various uniform quantization methods with different group sizes and ensure that all have the same bits-per-value (bpv) overhead. We include Round-to-Nearest (RTN) and several recent state-of-the-art PTQ approaches targeting LLMs: GPTQ (Frantar et al., 2022), AWQ (Lin et al., 2023), and OmniQuant (Shao et al., 2023).\n' +
+      '\n' +
+      'Main resultsTable 2 contains the main results for GPTVQ. In this table, we report WikiText 2 perplexity and an average over zero-shot task scores for the PIQA, BoolQ, ARC-easy, ARC-challenge, HellaSwag and WinoGrande tasks. In this table we report results for all Llama-v2 models, Mistral-7B-v0.1 and Mistral-8x7B-v0.1. More detailed results are included in appendix A; Table 5 contains individual scores for the zero-shot tasks and Table 4 contains WikiText2 perplexity for all Llama-v1 models, as well as further experiments with 4 bit quantization.\n' +
+      '\n' +
+      'In these tables, we can see that non-uniform quantization using GPTVQ generally yields improved results over uniform PTQ methods. This gap becomes especially large at low bitwidths and for very large models. Compare e.g., GPTVQ 2D on Llamav2-70B to OmniQuant W2@g128, where an improvement of nearly 2 perplexity points is achieved. Furthermore, in nearly all cases, 2D VQ outperforms 1D VQ, and even more significant improvements are achieved with 4D VQ.\n' +
+      '\n' +
+      '### GPTVQ hyperparameters\n' +
+      '\n' +
+      'In all our experiments we use the WikiText training set as calibration data for our method. Following (Frantar et al., 2022) we sample 128 sequences of 2048 tokens each. Our method has several hyperparameters: the EM initialization method; the number of EM iterations; the number of weights in a block of weights sharing the same codebook; the number of columns in each block. Furthermore, we can lower codebook overhead through different routes: increasing the block size; quantizing the codebooks; or performing SVD on the codebooks. In our main results we use the following hyperparameter settings: We seed EM initialization with centroids found by our \'Mahalanobis\' method (see Section 4.3), and run EM for 100 iterations to initialize codebook centroids. Each weight group spans (at most) 256 columns, e.g., a group of 1024 weights is 4 rows \\(\\times\\) 256 columns. After the procedure in Algorithm 1 is run, we update the codebook as described in 3.3 for 25 iterations, and by default use 8 bit uniform quantization to represent codebook values. In Section 4.3 we perform an ablation on the choice of each of these hyperparameters. We note that applying the blockwise data normalization as introduced in Section 3.2 mostly improves the final performance. However, for some cases, specifically 1D VQ with 2 bits per index, it hurts the performance and in such cases we did not apply it.\n' +
+      '\n' +
+      'Codebook overheadAs described in Section 2.2, VQ codebooks introduce non-negligible overhead. A point rarely addressed is that the quantization scale of uniform quantization also needs to be stored and transmitted, and incurs an overhead. The overhead of this scale, while negligible for per-channel or per-tensor quantization, becomes significant for quantization to smaller block sizes, as is often applied in low-bitwidth quantization for LLMs (Rouhani et al., 2023; Frantar et al., 2022; Lin et al., 2023; Shao et al., 2023). For groups of 128 weights for example, a 16 bit scale introduces an overhead of \\(16/128=0.125\\) bits per value. In our experiments, for a given VQ dimension and bitwidth, we choose a group size such that a specific target overhead is achieved. For example, consider 2D VQ with a 2.125 bits per value target. Codebook overhead of 2D VQ is \\(2\\times 2^{2\\times 2}\\times 8=256\\) bits, meaning that each group needs to contain 2048 weights for the codebook overhead to meet the 2.125 bits per value target.\n' +
+      '\n' +
+      'To compare to the baseline results presented in (Shao et al., 2023), we choose a combination of group size and codebook bitwidth that corresponds to an overhead of 0.125 or 0.25 bits per value. These settings correspond to uniform quantization with group sizes of 128 or 64 weights, respectively, as used in (Shao et al., 2023).\n' +
+      '\n' +
+      '### Data transfer speed comparision\n' +
+      '\n' +
+      'To illustrate the effect of VQ on data transfer latency, we developed an optimized kernel for Arm@ CPUs to efficiently decode VQ-compressed weights. Our implementation uses variants of the Arm@ TBL instruction. The TBL instruction can be used to look up values in a lookup table (LUT), to translate an index of (at most) 5 bits to an 8 bit integer value. VQ in dimensions higher than 1 can be implemented by using multiple LUTs and corresponding TBL instructions. For example, 2D VQ with 2 bits per index translates to 2 LUTs, one for each VQ dim, each mapping a 4-bit index to an 8 bit value.\n' +
+      '\n' +
+      'We run an experiment on a device with Snapdragon@ technology1. In our experiments we measure weights transferred and decoded per second and report relative speed compared to an 4-bit integer baseline. We measure data transfer latency on 2D vector quantized data tensors with 2 or 2.5 bits per dimension, i.e. 4 or 5 bits per index respectively. We don\'t consider settings with a higher bitwidth per index, as this would require double the number of TBL instructions.\n' +
+      '\n' +
+      'Footnote 1: Snapdragon is a product of Qualcomm Technologies, Inc. and/or its subsidiaries.\n' +
+      '\n' +
+      'Table 3 shows the results of this experiment. In this table we show that besides large footprint reductions, VQ also reduces data transfer latency compared to the 4-bit integer baseline. Lastly, we run one LLM-generation experiment on Llamav2-7B on the same device. In this experiment we integrate a 1D VQ decoding kernel with the MatMul operation.\n' +
+      '\n' +
+      '### Ablations on hyperparameter choices\n' +
+      '\n' +
+      'EM initializationStarting EM initialization from a good set of seed centroids is crucial to the final GPTVQ perfor\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l l c c c c c c c c c} \\hline \\hline  & & \\multicolumn{6}{c}{WikiText2 perplexity \\(\\downarrow\\)} & \\multicolumn{6}{c}{Zeroshot avg acc. \\(\\uparrow\\)} \\\\  & & L2-7B & L2-13B & L2-70B & M-7B & 8x7B & L2-7B & L2-13B & M-7B & 8x7B \\\\ \\hline FP16 & & 5.47 & 4.88 & 3.31 & 5.25 & 3.84 & 70.47 & 73.22 & 75.69 & 75.93 \\\\ \\hline \\multirow{7}{*}{2.125 bvp} & RTN & 4.263 & 122.08 & 27.27 & 1.4e3 & 4.3e3 & 36.94 & 42.06 & 37.75 & 38.29 \\\\  & GPTQ & 36.77 & 28.14 & 6.74 & 15.68 & 14.17 & 41.44 & 46.56 & 41.93 & 44.54 \\\\  & AWQ & 2.265 & 1.2e5 & - & - & - & - & - & - & - \\\\  & OmniQuant & 11.06 & 8.26 & 6.55 & - & - & - & - & - & - \\\\  & **GPTVQ 10 (ours)** & 11.57 & **7.34** & **5.00** & **15.03** & **8.11** & **47.51** & **60.82** & **44.85** & **57.54** \\\\  & **GPTVQ 2D (ours)** & **8.23** & **6.50** & **4.64** & **10.28** & **6.37** & **57.24** & **64.46** & **57.25** & **64.50** \\\\ \\hline \\multirow{7}{*}{2.25 bvp} & RTN & 431.97 & 26.22 & 10.31 & 71.52 & 155.82 & 42.40 & 46.41 & 44.79 & 46.86 \\\\  & GPTQ & 20.85 & 22.44 & NAN & 14.24 & 10.07 & 47.51 & 54.16 & 51.76 & 48.78 \\\\  & AWQ & 2.1e5 & 1.2e5 & - & - & - & - & - & - & - \\\\  & OmniQuant & 9.62 & 7.56 & 6.11 & - & - & - & - & - & - \\\\  & **GPTVQ 10 (ours)** & 10.08 & **7.17** & **4.82** & **9.56** & **8.06** & **51.95** & **61.48** & **55.82** & **57.12** \\\\  & **GPTVQ 2D (ours)** & **7.97** & **6.47** & **4.61** & **10.11** & **6.23** & **59.08** & **64.85** & **56.14** & **63.92** \\\\  & **GPTVQ 4D (ours)** & **7.22** & **6.08** & **4.39** & **7.16** & **5.55** & **61.49** & **66.17** & **64.44** & **66.43** \\\\ \\hline \\multirow{7}{*}{3.125 bvp} & RTN & 6.66 & 5.51 & 3.97 & 6.15 & 5.18 & 67.25 & 70.75 & 71.79 & 72.40 \\\\  & GPTQ & 6.29 & 5.42 & 3.85 & 5.83 & 4.71 & 66.16 & 71.44 & 72.24 & 72.73 \\\\ \\cline{1-1}  & AWQ & 6.24 & 5.32 & - & - & - & - & - & - & - \\\\ \\cline{1-1}  & OmniQuant & 6.03 & 5.28 & 3.78 & - & - & - & - & - & - \\\\ \\cline{1-1}  & **GPTVQ 10 (ours)** & **5.98** & **5.17** & **3.62** & **5.76** & **4.59** & **67.61** & **71.59** & 71.56 & **72.75** \\\\ \\cline{1-1}  & GPTVQ 2D (ours)** & **5.82** & **5.10** & **3.55** & **5.51** & **4.30** & **67.88** & **71.76** & **73.56** & **74.36** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 2: **Weight-only quantization results of Llama-v2, Mistral, and Mistral-MoE Models**. We report WikiText2 perplexity and average zero-shot accuracy; Models marked ‘L2’ denote Llama-v2, M denotes Mistral, and 8x7B denotes Mistral-MoE 8x7B. Numbers marked in bold are SOTA or surpass it, numbers underlined are on par with or outperform at least one VQ variant.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c} \\hline \\hline Setting & BPV \\(\\downarrow\\) & Relative \\(\\downarrow\\) & Relative \\(\\downarrow\\) \\\\  & footprint & latency \\\\ \\hline INT4 & 4 & 1.00\\(\\times\\) & 1.00\\(\\times\\) \\\\ INT8 & 8 & 2.00\\(\\times\\) & 1.93\\(\\times\\) \\\\ \\hline\n' +
+      '2D 2.5B @ 512 & 3 & 0.75\\(\\times\\) & 0.98\\(\\times\\) \\\\\n' +
+      '2D 2.5B @ 2048 & 2.25 & 0.56\\(\\times\\) & 0.96\\(\\times\\) \\\\\n' +
+      '2D 2B @ 1024 & 2.25 & 0.56\\(\\times\\) & 0.87\\(\\times\\) \\\\ \\hline Llamav2-7B & 3.5 & 0.88\\(\\times\\) & 0.96\\(\\times\\) \\\\\n' +
+      '1D 3B @ 128 & & & \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 3: **Model footprint and latency of vector-quantized data transfer and decoding.**mance. To find seed centroids for EM initialization, we compare k-Means++ (Arthur and Vassilvitskii, 2007) to a quick and effective initialization method which we dub _Mahalanobis initialization_. In the latter method, we initialize EM for a matrix of \\(N\\)\\(d\\)-dimensional points \\(\\mathbf{X}\\) as follows: first we sort all points by Mahalanobis distance \\(a\\) to the mean of \\(\\mathbf{X}\\): \\(a^{(i)}=(x^{(i)}-\\mu)^{T}\\mathbf{\\Sigma}^{-1}(x^{(i)}-\\mu)\\), where \\(\\mu\\) is the mean of the data, and \\(\\mathbf{\\Sigma}\\) its covariance matrix. Then, to sample \\(k\\) points, we sample \\(k\\) points spaced equally at \\(\\lfloor\\frac{k-1}{N}\\rceil\\) apart from the sorted list. While not theoretically justifiable, intuitively this method ensures that points are sampled at representative distances. Table 6 shows perplexity after GPTVQ for different methods of finding good seed values for EM initialization. Here we see that Mahalanobis initialization performs comparably to k-Means++, at significantly increased speed.\n' +
+      '\n' +
+      'EM iterationsWe explore the effect of the number of EM initialization iterations on the final of perplexity of GPTVQ. Table 7 shows that even up to 100 iterations, results keep slightly improving, therefore we use 100 iterations as default.\n' +
+      '\n' +
+      'Codebook overheadAs mentioned in section 4.1, we determine a group size to target a specific overhead. However, if codebooks are quantized to lower bitwidths, or if codebook compression is applied as described in Section 3.3, the group size can be proportionally decreased to achieve the same overhead.\n' +
+      '\n' +
+      'We perform experiments targeting an overhead of 0.125 bits per value, and evaluate which method achieves best results: keeping the codebook in 16 bit, quantizing the codebook to 8 bit and halving the blocksize, or keeping the codebook in 16 bit, but reducing its rank to 50% of the original rank and halving the blocksize.\n' +
+      '\n' +
+      'In Table 8 the results of these experiments show that, overall, quantizing the codebook to 8 bit generally yields slightly improved results.\n' +
+      '\n' +
+      'Codebook updateIn Table 9 we include an ablation on the effect including codebook update, as described in Section 3.3. We find that, in all cases, updating the codebook after running Algorithm 1 improves final perplexity, at the expense of moderately increased (though still reasonable) run time. We thus include codebook update in all training runs.\n' +
+      '\n' +
+      'Method runtimeOur method can process large language models efficiently. Exact runtime of GPTVQ depends on model, quantization setting (groupsize, bitwidth, vq-dimension), and several hyperparameters (EM iterations, codebook update iterations). To give an indication of realistic run-times: on a single H100, Llamav2-7B takes between 30 minutes and 1 hour, while Llamav2-70B takes between between 3 and 11 hours.\n' +
+      '\n' +
+      'Effect of blockwise data normalizationWe investigate how applying input data normalization as described in Section 3.2 affects final performance. Table 10 shows how perplexity of the quantized model depends on the scaling block size. In addition, we compared perplexity for configurations of equal overhead with and without scaling applied, see the Table 11 for the results. Overall, we see that scaling improves the results in many cases, however sometimes it leads to perplexity increase, especially in the case of 1D VQ with 2 bits per index.\n' +
+      '\n' +
+      '## 5 Related work\n' +
+      '\n' +
+      'Vector quantizationA number of works suggested using vector quantization for CNN weights compression (Gong et al., 2014; Martinez et al., 2021; Fan et al., 2020; Stock et al., 2019; Wu et al., 2016; Martinez et al., 2021; Cho et al., 2021). The most common approach is to reshape the weights of convolutional or fully connected layers into a matrix, and then apply K-means clustering directly on the columns. Typically, the clustering is applied on scalar or vectors of dimensionality 4 or higher. Some of the works consider data-aware optimization of the quantized weights. Most often, a variant of EM algorithm is used in order to update centroids and assignments (Stock et al., 2019; Gong et al., 2014). An alternative approach is using a differentiable K-means formulation which enables fine-tuning using SGD with the original loss function in order to recover the network accuracy (Cho et al., 2021; Fan et al., 2020; Tang et al., 2023).\n' +
+      '\n' +
+      'LLM quantizationApplying DNN quantization approaches for recent LLMs often poses significant computational challenges. Therefore, even uniform post-training quantization methods required revisiting to improve their scalability (Frantar et al., 2022). As vector quantization approaches have higher computational complexity, using them for LLM weights compression has even stricter computational requirements. The most similar to our work is the approach (Deng et al., 2024). The method uses gradient-based layer sensitivities to update the codebooks and a reduced complexity LoRA-based approach (Hu et al., 2021) to partially recover the accuracy.\n' +
+      '\n' +
+      'Hessian-based compression methodsSeveral classical works suggest to use second-order approximation of the neural network loss function for accurate unstructured pruning (LeCun et al., 1989; Hassibi et al., 1993). A line of more recent papers extend this family of methods for PTQ (Singh and Alistarh, 2020; Frantar and Alistarh, 2022; Frantar et al., 2022).\n' +
+      '\n' +
+      '## 6 Conclusions\n' +
+      '\n' +
+      'In this work we have shown that vector quantization in one or more dimensions progressively improves quantized model accuracy. We have introduced a fast method for post-training quantization of large networks using VQ. This method achieves SOTA model size vs accuracy trade-offs on a wide range of LLMs and zero-shot tasks. Finally, we have shown that VQ presents a HW-feasible alternative to uniform quantization as a compression method, yielding increased tokens per second at the same accuracy, or higher accuracy for a fixed tokens per second budget.\n' +
+      '\n' +
+      '## Acknowledgement\n' +
+      '\n' +
+      'We would like to thank Amir Said for useful discussions.\n' +
+      '\n' +
+      'Impact\n' +
+      '\n' +
+      'EfficiencyOur method can be used to make models more efficient. Given hardware and a software stack that supports vector quantized networks, a user can run more inference for a given energy budget, or reduce the energy required for a fixed inference task.\n' +
+      '\n' +
+      'DemocratizationReducing the inference cost of neural networks generally allows more practitioners to deploy models and increases democratization of deep learning. Our method itself is efficient enough that it can be run on consumer-grade hardware, even for very large networks.\n' +
+      '\n' +
+      'BiasWhile it has been shown that model pruning can increase bias in neural networks (Iofinova et al., 2023), whether this is the case for quantization and to what extent, and whether how this applies to large language models is an underexplored topic. An investigation of this topic is outside the scope of this paper, but we concede that our method may introduce subtle biases into quantized models.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* Achiam et al. (2023) Achiam, J., Adler, S., Agarwal, S., Ahmad, L., Akkaya, I., Aleman, F. L., Almeida, D., Altenschmidt, J., Altman, S., Anadkat, S., et al. Gpt-4 technical report. _arXiv preprint arXiv:2303.08774_, 2023.\n' +
+      '* Arthur and Vassilvitskii (2007) Arthur, D. and Vassilvitskii, S. K-means++ the advantages of careful seeding. In _Proceedings of the eighteenth annual ACM-SIAM symposium on Discrete algorithms_, pp. 1027-1035, 2007.\n' +
+      '* Bisk et al. (2020) Bisk, Y., Zellers, R., Gao, J., Choi, Y., et al. Piga: Reasoning about physical commonsense in natural language. In _Proceedings of the AAAI conference on artificial intelligence_, volume 34, pp. 7432-7439, 2020.\n' +
+      '* Cho et al. (2021) Cho, M., Vahid, K. A., Adya, S., and Rastegari, M. Dkm: Differentiable k-means clustering layer for neural network compression. _arXiv preprint arXiv:2108.12659_, 2021.\n' +
+      '* Clark et al. (2019) Clark, C., Lee, K., Chang, M.-W., Kwiatkowski, T., Collins, M., and Toutanova, K. Boolq: Exploring the surprising difficulty of natural yes/no questions. In _NAACL_, 2019.\n' +
+      '* Clark et al. (2018) Clark, P., Cowhey, I., Etzioni, O., Khot, T., Sabharwal, A., Schoenick, C., and Tafjord, O. Think you have solved question answering? try arc, the ai2 reasoning challenge. _arXiv:1803.05457v1_, 2018.\n' +
+      '* Deng et al. (2024) Deng, J., Li, S., Wang, C., Gu, H., Shen, H., and Huang, K. LLM-codebook for extreme compression of large language models, 2024. URL [https://openreview.net/forum?id=nMDWsXPUVL](https://openreview.net/forum?id=nMDWsXPUVL).\n' +
+      '* Fan et al. (2020) Fan, A., Stock, P., Graham, B., Grave, E., Gribonval, R., Jegou, H., and Joulin, A. Training with quantization noise for extreme model compression. _arXiv preprint arXiv:2004.07320_, 2020.\n' +
+      '* Frantar and Alistarh (2022) Frantar, E. and Alistarh, D. Optimal brain compression: A framework for accurate post-training quantization and pruning. _Advances in Neural Information Processing Systems_, 35:4475-4488, 2022.\n' +
+      '* Frantar et al. (2022) Frantar, E., Ashkboos, S., Hoefler, T., and Alistarh, D. Gptq: Accurate post-training quantization for generative pre-trained transformers. _arXiv preprint arXiv:2210.17323_, 2022.\n' +
+      '* Gao et al. (2023) Gao, L., Tow, J., Abbasi, B., Biderman, S., Black, S., DiPofi, A., Foster, C., Golding, L., Hsu, J., Le Noac\'h, A., Li, H., McDonell, K., Muennighoff, N., Ociepa, C., Phang, J., Reynolds, L., Schoelkopf, H., Skowron, A., Sutawika, L., Tang, E., Thite, A., Wang, B., Wang, K., and Zou, A. A framework for few-shot language model evaluation, 12 2023. URL [https://zenodo.org/records/10256836](https://zenodo.org/records/10256836).\n' +
+      '* Gersho and Gray (2012) Gersho, A. and Gray, R. M. _Vector quantization and signal compression_, volume 159. Springer Science & Business Media, 2012.\n' +
+      '* Gholami et al. (2022) Gholami, A., Kim, S., Dong, Z., Yao, Z., Mahoney, M. W., and Keutzer, K. A survey of quantization methods for efficient neural network inference. In _Low-Power Computer Vision_, pp. 291-326. Chapman and Hall/CRC, 2022.\n' +
+      '* Gong et al. (2014) Gong, Y., Liu, L., Yang, M., and Bourdev, L. Compressing deep convolutional networks using vector quantization. _arXiv preprint arXiv:1412.6115_, 2014.\n' +
+      '* Han et al. (2018) Han, S., Mao, H., and Dally, W. J. Deep compression: Compressing deep neural networks with pruning,trained quantization and huffman coding. _arXiv preprint arXiv:1510.00149_, 2015.\n' +
+      '* Hassibi et al. (1993) Hassibi, B., Stork, D. G., and Wolff, G. J. Optimal brain surgeon and general network pruning. In _IEEE international conference on neural networks_, pp. 293-299. IEEE, 1993.\n' +
+      '* He et al. (2017) He, Y., Zhang, X., and Sun, J. Channel pruning for accelerating very deep neural networks. In _Proceedings of the IEEE International Conference on Computer Vision_, pp. 1389-1397, 2017.\n' +
+      '* Hu et al. (2021) Hu, E. J., Shen, Y., Wallis, P., Allen-Zhu, Z., Li, Y., Wang, S., Wang, L., and Chen, W. Lora: Low-rank adaptation of large language models. _arXiv preprint arXiv:2106.09685_, 2021.\n' +
+      '* Iofinova et al. (2023) Iofinova, E., Peste, A., and Alistarh, D. Bias in pruned vision models: In-depth analysis and countermeasures. _IEEE/CVF Conference on Computer Vision and Pattern Recognition, CVPR_, pp. 24364-24373, 2023.\n' +
+      '* Jiang et al. (2023) Jiang, A. Q., Sablayrolles, A., Mensch, A., Bamford, C., Chaplot, D. S., Casas, D. d. l., Bressand, F., Lengyel, G., Lample, G., Saulnier, L., et al. Mistral 7b. _arXiv preprint arXiv:2310.06825_, 2023.\n' +
+      '* Jiang et al. (2024) Jiang, A. Q., Sablayrolles, A., Roux, A., Mensch, A., Savary, B., Bamford, C., Chaplot, D. S., Casas, D. d. l., Hanna, E. B., Bressand, F., et al. Mistral of experts. _arXiv preprint arXiv:2401.04088_, 2024.\n' +
+      '* Keisuke et al. (2019) Keisuke, S., Ronan, L. B., Chandra, B., and Yejin, C. Winogrande: An adversarial winograd schema challenge at scale. 2019.\n' +
+      '* LeCun et al. (1989) LeCun, Y., Denker, J., and Solla, S. Optimal brain damage. _Advances in neural information processing systems_, 2, 1989.\n' +
+      '* Lin et al. (2023) Lin, J., Tang, J., Tang, H., Yang, S., Dang, X., and Han, S. Awq: Activation-aware weight quantization for llm compression and acceleration. _arXiv preprint arXiv:2306.00978_, 2023.\n' +
+      '* Martinez et al. (2021) Martinez, J., Shewakramani, J., Liu, T. W., Barsan, I. A., Zeng, W., and Urtasun, R. Permute, quantize, and fine-tune: Efficient compression of neural networks. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pp. 15699-15708, 2021.\n' +
+      '* Merity et al. (2016) Merity, S., Xiong, C., Bradbury, J., and Socher, R. Pointer sentinel mixture models, 2016.\n' +
+      '* Nagel et al. (2020) Nagel, M., Amjad, R. A., Van Baalen, M., Louizos, C., and Blankevoort, T. Up or down? adaptive rounding for post-training quantization. In _International Conference on Machine Learning_, pp. 7197-7206. PMLR, 2020.\n' +
+      '* Nagel et al. (2021) Nagel, M., Fournarakis, M., Amjad, R. A., Bondarenko, Y., Van Baalen, M., and Blankevoort, T. A white paper on neural network quantization. _arXiv preprint arXiv:2106.08295_, 2021.\n' +
+      '* Rouhani et al. (2023) Rouhani, B., Zhao, R., Elango, V., Shafipour, R., Hall, M., Mesmakhorsoshahi, M., More, A., Melnick, L., Golub, M., Varatkar, G., Shao, L., Kolhe, G., Melts, D., Klar, J., L\'Heureux, R., Perry, M., Burger, D., Chung, E., Deng, Z., and Naumov, M. With shared microexponents, a little shifting goes a long way. In _Proceedings of the 50th Annual International Symposium on Computer Architecture_, pp. Article No.: 83, 2023.\n' +
+      '* Roziere et al. (2023) Roziere, B., Gehring, J., Gloeckle, F., Sootla, S., Gat, I., Tan, X. E., Adi, Y., Liu, J., Remez, T., Rapin, J., et al. Code lama: Open foundation models for code. _arXiv preprint arXiv:2308.12950_, 2023.\n' +
+      '* Shao et al. (2023) Shao, W., Chen, M., Zhang, Z., Xu, P., Zhao, L., Li, Z., Zhang, K., Gao, P., Qiao, Y., and Luo, P. Omniquant: Omnidirectionally calibrated quantization for large language models. _arXiv preprint arXiv:2308.13137_, 2023.\n' +
+      '* Singh & Alistarh (2020) Singh, S. P. and Alistarh, D. Woodfisher: Efficient second-order approximation for neural network compression. _Advances in Neural Information Processing Systems_, 33:18098-18109, 2020.\n' +
+      '* Stock et al. (2019) Stock, P., Joulin, A., Gribonval, R., Graham, B., and Jegou, H. And the bit goes down: Revisiting the quantization of neural networks. _arXiv preprint arXiv:1907.05686_, 2019.\n' +
+      '* Tang et al. (2023) Tang, X., Wang, Y., Cao, T., Zhang, L. L., Chen, Q., Cai, D., Liu, Y., and Yang, M. Lut-nn: Empower efficient neural network inference with centroid learning and table lookup. In _Proceedings of the 29th Annual International Conference on Mobile Computing and Networking_, pp. 1-15, 2023.\n' +
+      '* Touvron et al. (2023a) Touvron, H., Lavril, T., Izacard, G., Martinet, X., Lachaux, M.-A., Lacroix, T., Roziere, B., Goyal, N., Hambro, E., Azhar, F., et al. Llama: Open and efficient foundation language models. _arXiv preprint arXiv:2302.13971_, 2023a.\n' +
+      '* Touvron et al. (2023b) Touvron, H., Martin, L., Stone, K., Albert, P., Almahairi, A., Babaei, Y., Bashlykov, N., Batra, S., Bhargava, P., Bhosale, S., et al. Llama 2: Open foundation and fine-tuned chat models. _arXiv preprint arXiv:2307.09288_, 2023b.\n' +
+      '* Tu et al. (2024) Tu, T., Palepu, A., Schaekermann, M., Saab, K., Freyberg, J., Tanno, R., Wang, A., Li, B., Amin, M., Tomasev, N., et al. Towards conversational diagnostic ai. _arXiv preprint arXiv:2401.05654_, 2024.\n' +
+      '\n' +
+      '* (2016) Workshop, B., Scao, T. L., Fan, A., Akiki, C., Pavlick, E., Ilic, S., Hesslow, D., Castagne, R., Luccioni, A. S., Yvon, F., et al. Bloom: A 176b-parameter open-access multilingual language model. _arXiv preprint arXiv:2211.05100_, 2022.\n' +
+      '* (2016) Wu, J., Leng, C., Wang, Y., Hu, Q., and Cheng, J. Quantized convolutional neural networks for mobile devices. In _Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition_, pp. 4820-4828, 2016.\n' +
+      '* (2016) Zellers, R., Holtzman, A., Bisk, Y., Farhadi, A., and Choi, Y. Hellaswag: Can a machine really finish your sentence? In _Proceedings of the 57th Annual Meeting of the Association for Computational Linguistics_, 2019.\n' +
+      '* (2016) Zhang, X., Zou, J., He, K., and Sun, J. Accelerating very deep convolutional networks for classification and detection. _IEEE transactions on pattern analysis and machine intelligence_, 38(10):1943-1955, 2016.\n' +
+      '\n' +
+      '[MISSING_PAGE_EMPTY:12]\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c c c c c c c} \\hline \\hline \\(\\uparrow\\) & \\#Bits & Method & PIQA & ARC-e & Arc-c & BoolQ & HellaSwag & Winogrande & **Avg.** \\\\ \\hline \\multirow{8}{*}{Llama-v2-7B} & FP16 & 79.11 & 74.58 & 46.25 & 77.74 & 75.99 & 69.14 & 70.47 \\\\ \\cline{2-10}  & RTN & 51.09 & 27.95 & 25.00 & 41.13 & 26.57 & 49.88 & 36.94 \\\\\n' +
+      '2.125 bpv & GPTQ & 54.84 & 30.64 & 25.09 & 53.43 & 33.09 & 51.54 & 41.44 \\\\\n' +
+      '**(W2@g128)** & **VQ-1D** & **62.95** & **40.28** & **22.61** & **61.90** & **44.63** & **52.72** & **47.51** \\\\  & **VQ-2D** & **70.73** & **58.08** & **31.48** & **63.73** & **58.49** & **60.93** & **57.24** \\\\ \\cline{2-10}  & RTN & 58.76 & 36.66 & 24.83 & 41.87 & 40.38 & 51.93 & 42.40 \\\\\n' +
+      '2.25 bpv & GPTQ & 60.83 & 39.02 & 25.17 & 59.33 & 45.82 & 55.49 & 47.61 \\\\  & **VQ-1D** & **66.54** & **45.62** & **26.88** & **64.95** & **50.89** & **56.83** & **51.95** \\\\  & **VQ-2D** & **70.40** & **58.92** & **32.25** & **70.09** & **59.80** & **62.98** & **59.08** \\\\  & **VQ-4D** & **73.29** & **63.43** & **35.92** & **66.63** & **63.39** & **63.69** & **66.06** & **61.49** \\\\ \\cline{2-10}  & RTN & 76.77 & 70.50 & 42.92 & 71.71 & 73.96 & 67.64 & 67.25 \\\\\n' +
+      '3.125 bpv & GPTQ & 77.37 & 68.14 & 40.70 & 71.04 & 72.50 & 67.25 & 66.16 \\\\\n' +
+      '**(W3@g128)** & **VQ-1D** & **77.64** & **70.12** & **42.15** & **75.90** & **71.42** & **68.43** & **67.61** \\\\  & **VQ-2D** & **77.64** & **72.73** & **43.69** & **71.65** & **72.71** & **67.64** & **67.68** \\\\ \\hline \\multirow{8}{*}{Llama-v2-13B} & FP16 & 80.52 & 77.53 & 49.23 & 80.52 & 79.38 & 72.14 & 73.22 \\\\ \\cline{2-10}  & RTN & 58.43 & 32.32 & 25.51 & 47.86 & 39.40 & 48.86 & 42.06 \\\\\n' +
+      '2.125 bpv & GPTQ & 59.52 & 40.15 & 27.65 & 57.06 & 41.56 & 53.43 & 46.56 \\\\\n' +
+      '**(W2@g128)** & **VQ-1D** & **72.74** & **63.85** & **35.75** & **65.54** & **61.60** & **65.43** & **60.82** \\\\  & **VQ-2D** & **75.19** & **68.27** & **39.51** & **70.67** & **65.66** & **67.48** & **64.46** \\\\ \\cline{2-10}  & RTN & 61.59 & 41.58 & 25.43 & 49.79 & 48.24 & 51.85 & 46.41 \\\\  & GPTQ & 70.13 & 56.65 & 31.57 & 51.10 & 56.62 & 58.88 & 54.16 \\\\\n' +
+      '**VQ-1D** & **72.91** & **65.32** & **36.86** & **66.48** & **62.19** & **65.11** & **61.48** \\\\  & **VQ-2D** & **74.97** & **66.92** & **39.51** & **59.95** & **67.36** & **69.38** & **64.85** \\\\  & **VQ-4D** & **76.17** & **71.89** & **43.26** & **67.55** & **69.97** & **68.19** & **66.17** \\\\ \\cline{2-10}  & RTN & 78.89 & 74.28 & 46.76 & 77.25 & 76.51 & 70.80 & 70.75 \\\\\n' +
+      '3.125 bpv & GPTQ & 79.33 & 75.84 & 47.01 & 78.90 & 77.16 & 70.40 & 71.44 \\\\\n' +
+      '**(W3@g128)** & **VQ-1D** & **78.78** & **75.85** & **47.35** & **79.36** & **76.57** & **71.90** & **71.59** \\\\  & **VQ-2D** & **79.43** & **75.29** & **48.12** & **78.99** & **76.96** & **71.74** & **71.76** \\\\ \\hline \\multirow{8}{*}{Mistral-7B} & FP16 & 82.10 & 79.59 & 53.92 & 83.58 & 81.07 & 73.88 & 75.69 \\\\ \\cline{2-10}  & RTN & 53.05 & 29.24 & 26.62 & 38.56 & 29.26 & 49.57 & 37.75 \\\\\n' +
+      '2.125 bpv & GPTQ & 57.73 & 35.65 & 26.62 & 46.06 & 36.06 & 49.49 & 41.93 \\\\ \\cline{1-1}  & **VQ-1D** & **58.71** & **38.85** & **23.89** & **59.51** & **37.40** & **50.83** & **44.86** \\\\  & **VQ-2D** & **69.10** & **59.64** & **34.22** & **68.99** & **55.07** & **56.51** & **57.25** \\\\ \\cline{1-1} \\cline{2-10}  & RTN & 60.72 & 38.47 & 27.56 & 44.83 & 46.10 & 51.07 & 44.79 \\\\\n' +
+      '2.25 bpv & GPTQ & 65.83 & 46.21 & 30.20 & 62.11 & 50.64 & 55.56 & 51.76 \\\\\n' +
+      '**(W2@g64)** & **VQ-1D** & **66.27** & **57.85** & **33.35** & **70.58** & **51.53** & **55.41** & **55.82** \\\\\n' +
+      '**(W2@g64)** & **VQ-2D** & **68.01** & **59.85** & **33.53** & **66.06** & **51.40** & **58.01** & **56.14** \\\\  & **VQ-4D** & **72.80** & **69.28** & **40.02** & **73.03** & **65.00** & **66.54** & **64.44** \\\\ \\cline{2-10}  & RTN & 80.79 & 74.62 & 48.46 & 80.00 & 78.66 & 68.19 & 71.79 \\\\\n' +
+      '3.125 bpv & GPTQ & 79.82 & 75.51 & 49.40 & 81.22 & 77.34 & 70.17 & 72.24 \\\\\n' +
+      '3.125 bpv & **VQ-1D** & **79.76** & **75.04** & **47.53** & **79.69** & **75.91** & **71.43** & **71.56** \\\\\n' +
+      '**(W3@g128)** & **VQ-2D** & **80.41** & **77.23** & **49.57** & **82.72** & **78.52** & **72.93** & **73.56** \\\\ \\hline \\multirow{8}{*}{Mixtral-8x7B} & FP16 & 83.46 & 73.74 & 55.89 & 84.74 & 82.45 & 75.30 & 75.93 \\\\ \\cline{1-1} \\cline{2-10}  & RTN & 51.90 & 27.27 &\n' +
+      '\n' +
+      '[MISSING_PAGE_EMPTY:14]\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c c c c c c} \\hline \\hline \\(d\\) & \\(b\\) & gs & \\multicolumn{5}{c}{Scaling BS} \\\\  & & & None & 128 & 64 & 32 & 16 & 8 \\\\ \\hline \\multirow{2}{*}{1} & 2 & 512 & 14.01 & 16.74 & 2744.9 & 480.8 & 15.36 & 13.79 \\\\ \\cline{2-7}  & 3 & 1024 & 6.02 & 5.97 & 6.00 & 5.87 & 5.82 & 5.72 \\\\ \\hline \\multirow{2}{*}{2} & 2 & 2048 & 8.23 & 8.38 & 8.04 & 7.97 & 7.56 & 6.89 \\\\ \\cline{2-7}  & 3 & 8192 & 5.91 & 5.82 & 5.78 & 5.73 & 5.74 & 5.66 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 10: **Effect of scaling block size on perplexity for Llamav2-7B. \\(d\\)**: VQ-dimension; \\(b\\): VQ bitwidth per dimension; gs: block size; Codebooks are quantized to 8 bits.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c c c c c} \\hline \\hline \\(d\\) & \\(b\\) & gs & Scale & Llamav2-7B & Llamav2-13B & Mistral-7B & Mistral-8x7B \\\\ \\hline \\multirow{2}{*}{1} & 2 & 256 & N & 14.01 & 7.34 & 15.03 & 8.56 \\\\  & & 512 & Y & 171.29 & 7.44 & 87.60 & 8.11 \\\\ \\cline{2-7}  & 3 & 512 & N & 5.98 & 5.21 & 5.76 & 4.60 \\\\ \\cline{2-7}  & & 1024 & Y & 6.01 & 5.17 & 5.77 & 4.59 \\\\ \\hline \\multirow{2}{*}{2} & 2 & 2048 & N & 8.23 & 6.69 & 10.98 & 6.73 \\\\  & & 4096 & Y & 8.49 & 6.50 & 10.28 & 6.37 \\\\ \\cline{2-7}  & 3 & 8192 & N & 5.91 & 5.19 & 8.63 & 4.52 \\\\ \\cline{2-7}  & 16384 & Y & 5.56 & 5.11 & 5.53 & 4.30 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 11: **Effect of scaling on perplexity for different models**. Configurations with equal overhead with or without the scaling are considered. \\(d\\): VQ-dimension; \\(b\\): VQ bitwidth per dimension; gs: block size; Codebooks are assumed to be quantized to 8 bit.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c c c c} \\hline \\hline \\(d\\) & \\(b\\) & gs & Update & PPL & Runtime (s) \\\\ \\hline \\multirow{4}{*}{1} & 2 & 512 & \\begin{tabular}{c} N \\\\ Y \\\\ \\end{tabular} & 43.14 & 625 \\\\  & 14.02 & 1857 \\\\ \\cline{2-7}  & 3 & 1024 & \\begin{tabular}{c} N \\\\ Y \\\\ \\end{tabular} & 6.01 & 712 \\\\ \\cline{2-7}  & 2 & 2048 & \\begin{tabular}{c} N \\\\ Y \\\\ \\end{tabular} & 8.64 & 723 \\\\  & 8.21 & 1335 \\\\ \\cline{2-7}  & 3 & 8192 & \n' +
+      '\\begin{tabular}{c} N \\\\ Y \\\\ \\end{tabular} & 5.93 & 1585 \\\\ \\cline{2-7}  & 5.88 & 2195 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 9: **Effect of codebook fine-tuning on final PPL for Llamav2-7B.**\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
