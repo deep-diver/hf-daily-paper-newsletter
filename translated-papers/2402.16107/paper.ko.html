@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# FusChat: 채팅 모델의 지식 융합\n' +
+      '\n' +
+      ' 판치완, 쯔이양, 용광중, 소준취안, 신팅황위비\n' +
+      '\n' +
+      '중국 선얏센대학교 컴퓨터공학부\n' +
+      '\n' +
+      '{wanfq,yangzy39,zhonglg5}@mail2.sysu.edu.cn, quanxj3@mail.sysu.edu.cn\n' +
+      '\n' +
+      '{timxthuang,victoriabi}@tencent.com\n' +
+      '\n' +
+      'Corresponding authors.\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      '대규모 언어 모델(LLM)을 처음부터 교육하는 것은 실제로 뚜렷한 능력과 강점을 가진 모델로 이어질 수 있지만, 이 접근법은 상당한 비용을 초래하고 역량의 잠재적인 중복성을 초래할 수 있다. 대안적인 전략은 기존의 LLM을 보다 견고한 LLM으로 결합하여 값비싼 사전 훈련의 필요성을 줄이는 것이다. 그러나 LLM의 다양한 아키텍처로 인해 직접적인 매개변수 혼합은 불가능하다는 것이 입증되었다. 최근 FusLLM은 경량 연속 훈련을 통해 구조적으로 다양한 다중 LLM의 집합적 지식을 목표 LLM으로 전달하기 위해 지식 융합 개념을 도입하였다. 본 논문에서는 FusELM 프레임워크의 확장성과 유연성을 확장하여 채팅 LLM의 융합을 실현하여 FusChat을 생성한다. FusChat은 두 개의 주요 단계로 구성된다. 먼저, 경량 미세 조정을 통해 동일한 구조와 크기의 다중 표적 LLM을 도출하기 위해 구조적 및 규모 가변 소스 LLM에 대한 지식 융합을 수행한다. 그런 다음, 이러한 목표 LLM들을 파라미터 공간 내에서 병합하고, 미세 조정 전후의 파라미터 행렬의 변화율에 기초하여 병합 가중치를 결정하는 새로운 방법을 제안한다. 우리는 NH2-믹스트럴-8x7B, NH2-솔라-10.7B 및 오픈챗-3.5-7B의 다양한 아키텍처와 규모를 가진 세 가지 두드러진 채팅 LLM을 사용하여 우리의 접근법을 검증한다. 다양한 채팅 도메인에 걸친 실험 결과는 7B 및 34B 스케일에서 광범위한 채팅 LLM에 걸쳐 FusChat-7B의 우수성을 입증하며, GPT-3.5(3월)를 능가하고 Mixtral-8x7B-Instruct에 접근한다. 우리의 코드, 모델 가중치 및 데이터는 [https://github.com/fanqiwan/FuseLLM](https://github.com/fanqiwan/FuseLLM)에서 공개적으로 액세스할 수 있다.\n' +
+      '\n' +
+      'Introduction\n' +
+      '\n' +
+      'GPT(Brown et al., 2020) 및 LLaMA(Touvron et al., 2023) 시리즈와 같은 대형 언어 모델(LLM)은 광범위한 자연 언어 처리(NLP) 작업에 걸쳐 현저한 성공을 입증했다. 개인 또는 기업이 독점 LLM을 구축하는 것이 필수 요건이 되었다. 그러나 LLM 개발과 관련된 계산 자원 및 시간 비용은 대부분의 엔티티에서 엄청나게 높다. LLM 간의 구조적 및 기능적 차이에도 불구하고 다양한 작업에서 유사한 기능을 나타내는 경우가 많다. 따라서, LLM을 처음부터 훈련시키는 전통적인 접근법을 넘어, 대안적인 옵션은 기존의 LLM을 새롭고 더 강력한 것으로 결합하는 것이며, 이는 완 등(2024)에 의한 LLM의 _knowledge fusion이라고 불린다. 성공적인 경우 이 융합은 초기 훈련 비용을 줄일 뿐만 아니라 결합된 모델이 여러 LLM의 장점을 활용할 수 있도록 한다.\n' +
+      '\n' +
+      '여러 모델의 기능을 통합하기 위한 노력은 오랫동안 추구해 왔다. 예를 들어, 앙상블 방법들(Littlestone and Warmuth, 1994; Jiang et al., 2023)은 예측 성능 및 견고성을 향상시키기 위해 상이한 모델들의 출력들을 직접 집계한다. 그러나, 이 접근법은 다수의 트레이닝된 모델을 유지하고 추론 동안 각각을 실행해야 하며, 이는 LLM의 실질적인 메모리 및 추론 시간 요건으로 인해 LLM에 대해 비효율적이다. 또 다른 접근법은 파라미터 공간에서의 산술 연산을 통해 여러 개의 뉴럴 네트워크를 하나의 네트워크로 직접 병합하는 것이다(Gupta et al., 2020). 이 접근법은 일반적으로 균일한 네트워크 아키텍처를 가정하고 수동 병합 가중치(Wortsman et al., 2022; Yadav et al., 2023)를 통해 또는 모델 구배 또는 추가 데이터의 표현에 기초하여 병합 가중치를 자동으로 획득함으로써 상이한 신경망의 파라미터를 병합하려고 한다(Matena and Raffel, 2022; Jin et al., 2022). 최근 FuseLLM(Wan et al., 2024)은 다수의 LLM의 능력을 통합하기 위한 새로운 패러다임을 도입하였다. 이 접근법은 생성된 확률 분포 행렬을 사용하여 다중 소스 LLM의 지식을 외부화하고 경량 연속 훈련을 통해 집합 지식을 목표 LLM으로 전달한다. 결과적으로, FuseLLM은 별개의 아키텍처를 갖는 다수의 사전 훈련된 LLM을 통합된 LLM으로 융합하는 것을 용이하게 한다.\n' +
+      '\n' +
+      '본 연구에서는 FuseLLM의 프레임워크를 확장하여 다양한 아키텍처와 스케일을 가진 여러 채팅 LLM을 융합하여 두 가지 주요 단계로 구성된 FuseChat의 개발로 이어진다. 첫째, 동일한 구조와 크기의 다중 표적 LLM을 도출하기 위해 다양한 구조와 스케일을 갖는 소스 LLM에 대한 지식 융합을 수행한다. 이를 위해 FuseChat은 FuseLLM의 개념을 따르지만 pairwise 지식 융합 전략을 채택한다. 둘째, 이러한 목표 LLM은 매개변수 공간 내에서 병합되어 소스 LLM의 집합적 지식과 각각의 이점을 통합한다. 병합을 위해 미세 조정 전후의 파라미터 행렬의 변화율에 기초하여 병합 가중치를 결정하는 새로운 방법인 VaRM(**V**ariation **R**atio **M**erge)을 소개한다. 이전 접근법과 달리 VaRM은 미세 조정 동안 업데이트의 변동 비율을 기반으로 각 매개변수 매트릭스에 고유한 가중치를 자동으로 할당할 수 있다. 이것은 추가적인 훈련 노력을 필요로 하지 않고 LLM을 세밀한 가중치와 병합하는 것을 용이하게 한다.\n' +
+      '\n' +
+      'FuseChat은 FuseLLM에 비해 뛰어난 확장성을 제공합니다. 첫째, FuseLLM은 탐사를 대상 LLM과 동일한 크기의 LLM으로 제한하지만, FuseChat은 다양한 크기의 소스 채팅 LLM의 융합을 탐구한다. 이러한 광범위한 범위를 통해 다양한 모델 구성 및 요구 사항에 더 큰 적응성을 가질 수 있다. 둘째, FuseLLM의 프레임워크는 지속적인 훈련 동안 모든 소스 LLM의 분포 행렬 조합을 요구하기 때문에 새로운 소스 LLM의 포함을 원활하게 지원하지 않는다. 대조적으로, FuseChat의 임의의 스케일에서 새로운 소스 LLM을 통합하는 것은 플러그 앤 플레이이며, 새로운 소스 LLM으로부터 타겟 LLM을 획득하고 이를 기존의 버전의 FuseChat과 병합하는 것만을 요구한다. 오픈 소스 커뮤니티2에서 채팅 LLM의 빈번한 업데이트를 감안할 때 FuseChat은 채팅 모델의 융합에 더 유망한 것으로 판단된다.\n' +
+      '\n' +
+      '각주 2: 이 보고서 초안 작성 시 허깅페이스에서 사용할 수 있는 7300개 이상의 채팅 LLM이 있습니다.\n' +
+      '\n' +
+      'FuseChat의 효과를 실증적으로 입증하기 위해, NH2-Mixtral-8x7B(Jiang et al., 2024), NH2-Solar-10.7B(Kim et al., 2023) 및 OpenChat-3.5-7B(Wang et al., 2023)의 세 가지 대표적인 융합 오픈 소스 채팅 LLM을 사용하여 FuseChat을 구현한다. 채팅 LLM의 멀티턴 대화 능력을 평가하기 위해 8개의 서로 다른 도메인으로 구성된 최첨단 벤치마크인 MT-Bench(Zheng et al., 2023)에 대한 실험 결과는 FuseChat이 7B 및 10.7B 스케일에서 모든 소스 LLM 및 미세 조정 기준선을 능가하며 심지어 8x7B MoE 소스 LLM에 접근함을 확인한다. 또한, 모든 병합 방법 중에서 제안된 VaRM이 가장 우수한 성능을 보여 갱신 변화율에 기반한 병합 가중치의 유효성을 나타낸다.\n' +
+      '\n' +
+      ' 관련 업무\n' +
+      '\n' +
+      '모델 융합 다양한 모델로부터의 능력의 융합은 기존의 접근 방식이 주로 세 가지 범주로 분류되는 오랜 목표였다. 첫째, 모델 _ensemble_의 전통적인 기법은 여러 모델의 출력을 결합하여 전체적인 시스템 성능을 향상시킨다(Littlestone and Warmuth, 1994; Sagi and Rokach, 2018). 이 기술은 여러 모델을 새 모델로 명시적으로 병합하는 것을 포함하지 않습니다. 모델 앙상블을 위한 일반적인 방법들은 일반적으로 다양한 모델들로부터의 예측들을 통합하기 위해 가중 평균화(Littlestone and Warmuth, 1994) 또는 다수결 투표(Monteith et al., 2011)를 채용한다. 최근, Jiang et al.(2023)은 다중 오픈 소스 LLM의 다양한 장점을 활용하기 위해 설계된 앙상블 프레임워크를 도입하였다. 이 프레임워크는 먼저 후보 출력 간의 미묘한 차이를 감지하기 위해 쌍별 비교 방법을 사용한다. 그런 다음 상위 순위 후보를 결합하여 향상된 출력을 생성합니다.\n' +
+      '\n' +
+      '둘째, _model merging_은 파라미터 공간 내에서 모델 융합을 용이하게 하는 또 다른 접근법을 제시한다. Wortsman et al. (2022)은 상이한 전략들 또는 구성들을 통해 획득된 다수의 모델들을 파라미터들의 선형 가중 평균을 통해 결합함으로써, 향상된 전체 성능을 초래한다. 마찬가지로 Shoemake (1985)와 Ilharco et al. (2022)는 구면 선형 보간법과 작업 산술을 사용하여 모델 매개변수를 병합함으로써 별개의 모델의 능력을 통합했다. 중복 파라미터 간섭을 피하기 위해 Yadav et al. (2023) 및 Yu et al. (2023)은 모델 병합 전에 저진폭 가변 파라미터 값들을 가지치기하는 것을 제안했다. 또한, Matena and Raffel (2022)과 Jin et al.(2022)은 모델 기울기 또는 표현에 기초하여 병합 가중치를 계산하기 위해 보충 데이터를 통합함으로써 하이퍼파라미터 튜닝이 필요하지 않다.\n' +
+      '\n' +
+      '마지막으로, FuseLLM(Wan et al., 2024)은 다수의 LLM의 지식 융합을 위한 새로운 패러다임을 제시하며, 이는 집합적 지식과 각각의 장점을 목표 LLM으로 전달하기 위해 소스 LLM으로부터 생성된 확률 분포 행렬을 활용한다. 다중 모델의 병렬 배치를 필요로 하는 모델 앙상블 방법과 일반적으로 동일한 아키텍처를 가진 모델에 국한되는 모델 병합 접근법에 비해 FuseLLM은 서로 다른 아키텍처를 가진 다중 소스 LLM을 목표 LLM으로 융합하는 것을 지원한다.\n' +
+      '\n' +
+      '모델 압축을 위해 처음에 제안된 지식 증류 지식 증류(Hinton et al., 2015)는 하나 이상의 교사 모델의 안내 하에 학생 모델을 훈련시키는 것을 포함한다. NLP 커뮤니티에서 지식 증류는 텍스트 분류 작업에 널리 적용되었다. 이러한 애플리케이션들은 교사의 출력 분포를 복제하도록 학생 모델을 트레이닝하는 것(Sanh et al., 2019; Turc et al., 2019), 뿐만 아니라 특징(Sun et al., 2019; Jiao et al., 2020) 및 교사 모델의 중간 계층으로부터 유도된 관계(Wang et al., 2020)를 포함한다. 텍스트 생성의 영역에서 기존의 접근법은 학생과 교사 생성 분포 사이의 KL 발산을 최소화하는 데 중점을 둔다. 이는 각 시간 단계에서의 교사의 확률 분포를 수퍼비전(Khanuja et al., 2021; Gu et al., 2023; Agarwal et al., 2023)으로 사용하거나, 교사가 생성한 텍스트(Peng et al., 2023; Xu et al., 2023)에 대해 직접 훈련함으로써 달성된다.\n' +
+      '\n' +
+      '##3 채팅 모델의 지식 융합\n' +
+      '\n' +
+      'FuseChat의 핵심 개념은 두 단계로 구성된다. 첫째, 소스 채팅 LLM에 내재된 지식 및 능력을 동일한 구조와 크기의 다수의 타겟 LLM으로 외부화하고 전달한다. 둘째, 이러한 표적 LLM은 모델 병합을 통해 최종 융합된 LLM에 통합된다. FuseChat의 개요는 그림 1에 나와 있다.\n' +
+      '\n' +
+      '구체적으로, 다양한 아키텍처 및 스케일을 갖는 \\(K\\) 소스 채팅 LLMs\\(\\{\\mathcal{M}^{s}_{i}\\}_{i=1}^{K}\\)을 고려하여, FuseChat은 먼저 소스 LLM\\(\\mathcal{M}^{s}_{v}\\)을 _pivot_로 지정한 후, 피봇과 나머지 LLMs 각각에 대해 쌍별 지식 융합을 적용하여, 피봇 LLM과 동일한 아키텍처 및 초기 파라미터를 공유하는 \\(\\{\\mathcal{M}^{t}_{j}_{j=1}^{K-1}\\) 타겟 LLMs\\(\\{\\mathcal{M}^{t}_{j=1}^{K-1}\\)을 얻는다. Pairwise 지식 융합을 수행하기 위해 FuseChat은 작고 대표적인 학습 데이터셋 \\(\\mathcal{D}\\)을 사용하여 소스 LLMs에게 다음 토큰을 예측하여 고유한 지식을 보여주도록 유도한다. 그 후, 결과적인 확률 분포 행렬들은 FuseLLM(Wan et al., 2024)으로서 경량 미세 조정을 통해 쌍별 지식 융합을 수행하기 위해 활용된다. 그 후, (\\(K-1\\)) 표적 LLM을 특정 병합 방법을 사용하여 매개변수 공간에서 결합하여 융합된 LLM\\(\\mathcal{M}^{f}\\)을 산출한다. 선원 LLM의 세밀한 장점을 반영하기 위해 VARM(**V**ariation **R**atio **M**erge)을 도입하여 세선 조정 전후의 파라미터 행렬의 변화율에 따라 병합 가중치를 결정한다.\n' +
+      '\n' +
+      '다음 섹션에서는 예비 사항에 대한 간략한 소개를 제공하고 FuseChat에서 쌍별 지식 융합 및 모델 병합에 대한 자세한 설명을 제공한다.\n' +
+      '\n' +
+      '### Preliminaries\n' +
+      '\n' +
+      '학습 데이터세트 \\(\\mathcal{D}\\)에서 샘플링된 길이 \\(N\\)의 텍스트 시퀀스 \\(q\\)을 고려해보자. \\(i\\)번째 토큰 앞의 시퀀스는 \\(t_{<i}=(t_{1},t_{2},\\ldots,t_{i-1})\\으로 표시된다. ● \\(\\theta\\)에 의해 파라미터화된 언어 모델을 트레이닝하기 위한 인과 언어 모델링(CLM) 목표는 음의 로그-우도를 최소화하는 것으로 정의된다:\n' +
+      '\n' +
+      '\\[\\mathcal{L}_{\\text{CLM}=-\\mathbb{E}_{q\\sim\\mathcal{D}}\\left[\\sum_{i}\\log p_{\\theta}(t_{i}|t_{<i}\\right], \\tag{1}\\right]\n' +
+      '\n' +
+      '여기서 \\(p_{\\theta}(t_{i}|t_{<i}))는 앞의 토큰들이 주어진 \\(i\\)번째 토큰에 대한 모델의 예측 확률이다.\n' +
+      '\n' +
+      '채팅 LLM의 미세 조정을 용이하게 하기 위해, 텍스트 시퀀스\\(q\\)는 종종 사용자와 어시스턴트 사이의 다중 턴 대화로 구성되며, 우리는 이전 작업들(Chiang et al., 2023; Wan et al., 2023)을 따르고 트레이닝 손실\\(\\mathcal{L}_{\\text{CLM}}\\)을 계산할 때 사용자 지시들을 마스킹한다.\n' +
+      '\n' +
+      '위의 목표는 시퀀스 우도를 토큰 수준의 교차 엔트로피 손실로 분해하여 각 토큰의 예측된 분포를 하나의 핫 표현과 비교한다. 보다 일반화된 관점을 제공하기 위해 이 토큰 수준 뷰를 순차적 배포 형식으로 재구성한다. 구체적으로, 텍스트 시퀀스 \\(q\\)에 대해, 확률적 분포 행렬 \\(\\mathbf{P}_{q}^{\\theta}\\in\\mathbb{R}^{N\\times V}\\)을 형성하기 위해 토큰 수준 예측을 집계하며, 여기서 \\(i\\)번째 행은 크기 \\(V\\)의 어휘에 대한 \\(i\\)번째 토큰에 대한 모델에 의해 예측된 분포를 나타낸다. CLM 목표는 \\(\\mathbf{P}_{q}^{\\theta}\\)와 원-핫 라벨 매트릭스 \\(\\mathbf{O}_{q}\\in\\{0,1\\}^{N\\times V}\\) 사이의 불일치를 줄이는 것으로 해석될 수 있다. 형식적으로, CLM 목표는 다음의 표현으로 변환된다:\n' +
+      '\n' +
+      '\\[\\mathcal{L}_{\\text{CLM}=-\\mathbb{E}_{q\\sim\\mathcal{D}}\\left[\\mathbb{D}(\\mathbf{P}_{q}^{\\theta},\\mathbf{O}_{q}}\\right], \\tag{2}\\t}\n' +
+      '\n' +
+      '여기서 \\(\\mathbb{D}(\\cdot,\\cdot)\\)는 두 행렬 사이의 불일치 함수를 나타내며, 이는 식과 같다. KL 발산을 사용하여 구현될 때 1.\n' +
+      '\n' +
+      '쌍별 지식융합\n' +
+      '\n' +
+      '언어 모델에 대한 이러한 관점을 취하여, 우리는 Wan et al.(2024)을 따르고, 확률적 분포 행렬이 텍스트를 이해하는 데 있어서 언어 모델의 특정 내재적 지식을 반영한다고 가정한다. 결과적으로, 다양한 LLM에서 비롯된 동일한 텍스트에 대한 서로 다른 확률적 분포 행렬은 이러한 모델 내에 내재된 다양한 지식을 나타내는 데 사용될 수 있다. 이러한 가정을 바탕으로 제안된 FuseChat은 확률적 모델링을 통해 소스 LLM의 지식을 외부화하고 생성된 소스 LLM의 분포 행렬을 이용하여 타겟 LLM을 미세 조정함으로써 쌍별 지식 융합을 수행한다.\n' +
+      '\n' +
+      '구체적으로, 학습 데이터셋의 각 텍스트 샘플 \\(\\mathcal{D}\\)에 대해, 먼저 제공된 \\(K\\) 소스 LLMs를 적용하여 \\(\\mathbf{P}_{q}^{\\theta_{j}}\\}_{j=1}^{K}\\)으로 표시되는 확률적 분포 행렬 세트를 얻는다. 여기서 \\(\\theta_{j}\\)은\n' +
+      '\n' +
+      '그림 1: FuseLLM과 제안된 FuseChat의 그림. 독특한 동물 아이콘은 다양한 LLM을 상징하며, 여기서 종과 크기는 별개의 아키텍처와 규모에 해당한다. FuseChat은 FuseLLM을 확장하고 여러 채팅 LLM의 융합을 위한 향상된 확장성과 유연성을 제공합니다.\n' +
+      '\n' +
+      '\\(j\\)번째 소스 LLM의 매개변수. 이러한 소스 LLM들은 상이한 토큰화기를 채용할 수 있고, 토큰 정렬은 종종 확률적 분포 매트릭스들의 적절한 매핑을 위해 필요하다(Fu et al., 2023; Wan et al., 2024). 이러한 행렬을 활용하여 우리는 개별 모델의 지식을 통일된 공간으로 외부화하여 본질적으로 텍스트에 대한 통일된 확률적 표현을 생성한다.\n' +
+      '\n' +
+      '그런 다음 피벗 LLM과 나머지 소스 LLM 각각 간에 쌍별 지식 융합을 수행한다. 이를 위해 피벗 LLM에 의해 생성된 확률분포행렬을 \\(\\mathbf{P}_{q}^{\\theta_{v}\\)로 나타내고, 다음과 같이 융합행렬의 집합 \\(\\mathbf{P}_{q}^{j}\\}_{j=1}^{K-1}\\)을 얻는다.\n' +
+      '\n' +
+      '\\mathbf{P}_{q}^{j}=\\mathbbb{F}\\text{usion}(\\mathbf{P}_{q}^{\\theta_{v}}, \\mathbf{P}_{q}^{\\theta_{j}})|_{v\\neq j}, \\tag{3}\\\n' +
+      '\n' +
+      '여기서 \\(\\mathbb{F}\\text{usion}(\\cdot)\\)는 두 행렬을 융합하는 함수를 나타내며, 결과적으로 \\(\\mathbf{P}_{q}^{j}\\)는 두 소스 LLM의 집단적 지식과 독특한 강점을 나타내는 것으로 보인다. 다양한 융합 전략들 중에서, 본 연구는 최소 편집 거리(MinED)(Wan et al., 2024)를 채용하며, 이는 FuseLLM과 FuseChat 모두에서 경험적으로 가장 우수한 성능을 발휘한다.\n' +
+      '\n' +
+      '그 후, 각 목표 LLM(\\mathcal{M}_{j}^{t}\\)의 예측과 그에 상응하는 융합 표현 행렬(\\mathbf{P}_{q}^{j}\\) 사이의 정렬을 시행한다. 텍스트에 대한 목표 LLM(\\mathcal{M}_{j}^{t}\\)의 출력 분포 행렬을 표현하기 위해 \\(\\mathbf{Q}_{q}^{\\theta_{j}\\)을 사용한 후, 각 목표 LLM에 대한 융합 목적을 다음과 같이 정의한다:\n' +
+      '\n' +
+      '\\[\\mathcal{L}_{\\text{Fusion}}=-\\mathbb{E}_{q\\sim\\mathcal{D}}\\left[\\mathbb{D}(\\mathbf{Q}_{q}^{\\theta_{j}},\\mathbf{P}_{q}^{j}}\\right]\\tag{4}\\w}\n' +
+      '\n' +
+      '각 표적 LLM에 대한 전체 훈련 목표는 다음과 같이 인과 언어 모델링 목표\\(\\mathcal{L}_{\\text{CLM}}\\)와 융합 목표\\(\\mathcal{L}_{\\text{Fusion}}\\)의 가중치 조합으로 구성된다.\n' +
+      '\n' +
+      '\\[\\mathcal{L}=\\lambda\\mathcal{L}_{\\text{CLM}+(1-\\lambda\\mathcal{L}_{\\text{Fusion}}. \\tag{5}\\\n' +
+      '\n' +
+      '### Model Merging\n' +
+      '\n' +
+      '융합된 타겟 LLMs\\(\\{\\mathcal{M}_{j}^{t}_{j=1}^{K-1}\\)이 동일한 아키텍처와 스케일을 공유하면서 소스 LLMs로부터 학습된 다양한 장점과 능력을 가지고 있다는 점을 감안할 때, 이는 매개변수 공간(Wortsman et al., 2022)에서 추가로 통합되어 최종 융합된 LLM\\(\\mathcal{M}^{f}\\)을 얻을 수 있다:\n' +
+      '\n' +
+      '\\[\\mathcal{M}^{f}=\\mathbb{M}\\text{erge}(\\{\\mathcal{M}_{1}^{t},\\mathcal{M}_{2}^{t},...,\\mathcal{M}_{K-1}^{t}), \\tag{6}\\}\n' +
+      '\n' +
+      '여기서 \\(\\mathbb{M}\\text{erge}(\\cdot)\\)는 다중 표적 LLM을 집합적 지식과 이들 표적 LLM의 독특한 장점을 결합한 최종 LLM으로 병합하는 함수를 나타낸다.\n' +
+      '\n' +
+      'FuseChat의 적응성을 높이기 위해서는 \\(\\mathbb{M}\\text{erge}\\) 함수의 단순성을 유지하는 것이 필수적이다. 첫째, 복잡한 하이퍼파라미터 튜닝이 필요 없이 병합 가중치를 자동으로 계산할 수 있어야 한다. 둘째, 병합 절차는 모델 기울기 또는 표현 계산을 위한 추가 데이터의 통합을 요구하지 않아야 한다.\n' +
+      '\n' +
+      '대상 LLM의 매개변수는 생성된 분포 행렬을 해당 소스 LLM과 정렬하기 위해 지속적으로 진화하므로, 각 대상 LLM을 미세 조정 전후의 매개변수의 변동 비율을 지식 업데이트의 지표로 활용하기 위해 \\(\\mathbb{M}\\text{erge}\\) 함수에서 중요도를 결정하는 **V**ariation **R**atio **M**erge(VARM)를 제안한다.\n' +
+      '\n' +
+      '\\frac{\\mathbb{E}_{m}\\Delta\\theta_{j,m}^{2}{\\sum_j}^{K-1}\\mathbb{E}_{m}\\Delta\\theta_{j,m}^{2}. \\tag{7}\\\n' +
+      '\n' +
+      '여기서, \\(W_{j,m}\\)은 목표 LLM \\(\\mathcal{M}_{j}^{t}\\)에서 매개변수 단위 \\(\\theta_{j,m}\\)(예: 행렬)에 대한 병합 가중치를 나타내는 반면, \\(\\mathbb{E}_{m}\\Delta\\theta_{j,m}^{2}\\)은 단위 \\(\\theta_{j,m}\\)에서 매개변수의 평균 제곱 변동을 나타낸다.\n' +
+      '\n' +
+      '예비 탐색에서 가중치를 결정하기 위한 몇 가지 대체 접근법을 조사했다. 여기에는 제곱 연산을 절대 연산으로 대체하거나 소프트맥스를 사용하는 것이 포함된다. 그러나 결과는 이러한 대안 중 어느 것도 현재 방법을 능가하지 않는다는 것을 나타낸다.\n' +
+      '\n' +
+      '본 연구에서는 모델 병합을 위한 파라미터 단위를 행렬 레벨 3으로 정의하고, 각 파라미터 행렬에 대한 병합 가중치를 자동으로 할당함으로써 다중 표적 LLM으로부터 융합된 LLM에 세밀한 장점을 통합할 수 있도록 한다.\n' +
+      '\n' +
+      '### Discussions\n' +
+      '\n' +
+      'FuseChat이 서로 다른 구조와 스케일의 여러 소스 LLM을 융합하기 위해 FuseLLM을 직접 따르지 않는 이유는 두 가지이다. 첫째, Table 1의 OpenChat-3.5-7B Multi의 결과에서 알 수 있듯이 모든 소스 LLM을 직접 융합하는 것은 어려운 것으로 판명되었다. 대신 퓨즈챗은 피벗 LLM과 다른 소스 LLM 사이의 쌍별 지식 융합을 사용하여 모델 융합의 어려움을 줄였다. 둘째, FuseChat은 FuseLLM에 비해 우수한 확장성을 제공한다. FuseLLM의 프레임워크는 지속적인 훈련 동안 모든 소스 LLM의 분포 행렬 조합을 필요로 하며, 이는 새로운 소스 LLM의 포함을 원활하게 지원하지 않는다. 대조적으로, FuseChat은 임의의 스케일에서 새로운 소스 LLM의 플러그 앤 플레이 통합을 지원하며, 새로운 소스 LLM과 피벗을 융합한 다음 기존 버전의 FuseChat과 병합하여 목표 LLM만을 획득해야 한다.\n' +
+      '\n' +
+      '또한, FuseChat과 FuseLLM이 채택한 지식융합의 개념은 전통적인 모델 앙상블과 병합 기법뿐만 아니라 최근 주목받고 있는 전문가 혼합 주제(MoEs)와 같은 다른 관련 주제들과 근본적으로 유사한 목적을 공유하는데, 이는 모두 다중 모델(전문가)의 장점을 활용하는 것을 목표로 하기 때문이다. 모델 앙상블 및 MoE는 메모리 요구량이 더 높은 추론 동안 다수의 모델(전문가)을 로딩할 것을 요구하지만, 가중치 병합은 동일한 아키텍처를 갖는 모델에 제한된다. 대조적으로, 지식 융합은 다양한 아키텍처를 가진 여러 LLM을 별도의 메모리 요구 없이 단일 LLM으로 통합하는 것을 지원하여 유연성과 효율성 측면에서 매력적이다.\n' +
+      '\n' +
+      '## 4 Experiments\n' +
+      '\n' +
+      '실험에서 우리는 소스 LLM이 아키텍처와 스케일에서 최소한의 유사성을 나타내는 채팅 LLM의 융합에 대한 도전적인 시나리오를 고려한다. 구체적으로, NH2-Mixtral-8x7B4(Jiang et al., 2024), NH2-Solar-10.7B5(Kim et al., 2023) 및 OpenChat-3.5-7B6(Wang et al., 2023)을 포함하는 세 가지 대표적인 오픈 소스 채팅 LLM을 소스 LLM으로 사용하여 실험을 수행한다. 목표 LLM의 시작점이기도 한 피벗 LLM의 경우 균형 잡힌 규모와 성능으로 인해 오픈챗-3.5-7B를 선택한다. 그런 다음 섹션 3.2에 소개된 쌍별 지식 융합을 적용하여 두 개의 목표 LLMs OpenChat-3.5-7B Mixtral 및 OpenChat-3.5-7B Solar를 얻는다. 마지막으로, 우리는 최종 FuseChat-7B를 얻기 위해 VaRM 방법(섹션 3.3)으로 OpenChat-3.5-7B Mixtral과 OpenChat-3.5-7B Solar를 병합한다. FuseChat-7B의 성능을 평가하기 위해 다양한 도메인에 걸쳐 다중 회전 대화에서 채팅 LLM의 기능을 평가하기 위해 특별히 설계된 벤치마크인 MT-Bench7(Zheng et al., 2023)에 대한 실험을 수행한다.\n' +
+      '\n' +
+      '각주 4: [https://huggingface.co/NousResearch/Nous-Hermes-2-Mixtral-8x7B-DPO](https://huggingface.co/NousResearch/Nous-Hermes-2-Mixtral-8x7B-DPO)\n' +
+      '\n' +
+      '각주 5: [https://huggingface.co/NousResearch/Nous-Hermes-2-SOLAR-10.7B](https://huggingface.co/NousResearch/Nous-Hermes-2-SOLAR-10.7B)\n' +
+      '\n' +
+      '각주 6: [https://huggingface.co/openchat/openchat_3.5](https://huggingface.co/openchat/openchat_3.5)\n' +
+      '\n' +
+      '각주 7: [https://github.com/lm-sys/FastChat/tree/main/fastchat/llm_judge](https://github.com/lm-sys/FastChat/tree/main/fastchat/llm_judge)\n' +
+      '\n' +
+      '### Experimental Setup\n' +
+      '\n' +
+      '지식 융합 동안 소스 LLM의 이점을 얻기 위해 데이터셋을 훈련하는 동시에 치명적인 망각을 완화하면서 두 소스에서 FuseChat Mixture라는 고품질 훈련 데이터 세트를 선별했다. 첫째, 오픈챗8에서 사용하는 데이터셋에서 학습 데이터의 50%를 샘플링하고, 둘째, 오픈챗에서 볼 수 없는 나머지 학습 샘플을 오픈소스 커뮤니티에서 수집하였다. 이 두 소스는 다양한 도메인에 걸쳐 약 95,000개의 대화 상자를 수집했다. 퓨즈챗 혼합물의 자세한 내용은 부록 A에서 확인할 수 있다.\n' +
+      '\n' +
+      '각주 8: [https://huggingface.co/openchat/openchat_3.5#dataset-details](https://huggingface.co/openchat/openchat_3.5#dataset-details)\n' +
+      '\n' +
+      '모든 실험에서, 우리는 8x40GB NVIDIA A100 GPU가 있는 단일 노드에서 배치 크기 128과 최대 길이 2048을 사용하여 약 7시간이 걸리는 OpenChat-3.5-7B를 훈련한다. 모델은 AdamW(Loshchilov and Hutter, 2017) 최적화기를 사용하여 \\(\\beta_{1}=0.9\\)와 \\(\\beta_{2}=0.999\\)의 기울기 클리핑을 1.0으로 설정하고 가중치 감쇠를 0.0으로 최적화하였다. 코사인 학습률 스케줄은 최대 학습률 5e-6, 워밍업 비율 0.03으로 설정하였으며, 결합 가중치 \\(\\lambda\\)을 식에 경험적으로 설정하였다. 5 내지 0.9. 우리의 트레이닝 프레임워크는 HuggingFace Transformers(Wolf et al., 2020)를 기반으로 구현된다.\n' +
+      '\n' +
+      '평가 우리는 _writing_, _roleplay_, _reasoning_, _math_, _coding_, _stem_ 및 _humanities_ 도메인에 걸쳐 있는 80개의 다중 턴 대화로 구성된 MT-Bench에서 FuseChat을 평가한다. 우리는 Zheng et al.(2023)의 기본 구성을 준수하고 생성된 응답에 대한 평가자로 GPT-49(gpt-4-0613)를 사용하여 복제성을 보장하기 위해 온도를 0.0으로 설정한다. 평가 점수는 1점에서 10점까지이며, 1점은 가장 낮은 품질을 나타내고 10점은 가장 좋은 품질을 나타낸다.\n' +
+      '\n' +
+      '각주 9: [https://platform.openai.com/docs/models](https://platform.openai.com/docs/models)\n' +
+      '\n' +
+      '실험에서 우리는 FuseChat을 세 가지 범주의 기준선과 비교한다. (i) _Closed-source LLMs_: GPT-4(March), GPT-3.5(March), Claude-1.0. (ii) _Source LLMs_: NH2-Mixtral-8x7B, NH2-Solar-10.7B, OpenChat-3.5-7B. (iii) _Fine-tuned target LLMs_: OpenChat-3.5-7B CLM, 이는 캐주얼 언어 모델링 목적만을 사용하여 미세 조정된다; 다중 소스 LLMs로부터 생성된 분포의 융합을 사용하여 미세 조정된다(Wan et al., 2024); OpenChat-3.5-7B Mixtral, OpenChat-3.5-7B와 NH2-Mixtral-8x7B를 융합하여 얻은 해당 target LLM, OpenChat-3.5-7B Solar, OpenChat-3.5-7B와 NH2-Solar-10.7B를 융합하여 얻은 해당 target LLM이다. 또한 FuseChat-7B Linear(Wortsman et al., 2022), FuseChat-7B SLERP(Shoemake, 1985), FuseChat-7B TA(Ilharco et al., 2022), FuseChat-7B TIES(Yadav et al., 2023), FuseChat-7B DARE(Yu et al., 2023b) 및 우리의 FuseChat-7B VARM을 포함하는 서로 다른 병합 방법을 비교하여 FuseChat의 성능을 평가한다.\n' +
+      '\n' +
+      '### Overall Results\n' +
+      '\n' +
+      '표 1에서 MT-벤치의 다양한 도메인에 걸쳐 다양한 척도 및 범주의 기준선과 비교하여 FuseChat의 전반적인 결과를 제시한다. 우리의 관찰은 다음과 같다. 첫째, 우리는 OpenChat-3.5-7B가 더 작은 규모에도 불구하고 균형 잡힌 성능을 나타내는 모든 도메인에 걸쳐 세 가지 소스 LLM 간에 뚜렷한 성능을 주목한다. 둘째, 고품질 학습 데이터셋에서 캐주얼 언어 모델 목표를 사용하여 미세 조정한 결과 모델(OpenChat-3.5-7B CLM)은 7.79에서 7.95로 평균 성능이 증가했지만, 이러한 개선은 서로 다른 도메인에서 상대적으로 미미하고 일관성이 없다. 셋째, 미세 조정된 목표 LLM의 범주에서는 OpenChat-3.5-7B Multi가 OpenChat-3.5-7B CLM에 비해 1.38%의 상대적 성능 이득을 달성한다. 특히, OpenChat-3.5-7B Mixtral과 OpenChat-3.5-7B Solar, pairwise 지식 융합으로 얻은 두 개의 목표 LLM이 OpenChat-3.5-7B Multi를 능가한다. 더욱이, 이러한 표적 LLM은 다른 도메인에서 개별 강도를 입증하여 보다 강력한 LLM으로의 후속 통합을 위한 기초를 제공한다. 예를 들어, OpenChat-3.5-7B Mixtral은 OpenChat-3.5-7B CLM을 평균 12.58% 능가하는 _reasoning_ 도메인에서 탁월하며, OpenChat-3.5-7B Solar는 _extraction_ 및 _STEM_ 도메인 모두에서 각각 8.70% 및 9.53%의 상대적 성능 향상으로 가장 높은 점수를 달성한다.\n' +
+      '\n' +
+      '최종 융합된 LLM FuseChat-7B는 다양한 병합 방법이 탐색되는 파라미터 공간에서 OpenChat-3.5-7B Mixtral과 OpenChat-3.5-7B Solar를 병합하여 얻어진다. SLERP, TA 및 VARM을 사용한 FuseChat-7B는 모든 미세 조정된 목표 LLM을 능가하여 다른 목표 LLM의 고유한 강도와 집합 능력을 통합하는 FuseChat의 능력을 보여주는 것으로 관찰된다. 대조적으로, 선형 및 DARE와 같은 병합 방법은 성능 저하를 초래하는 경향이 있다. 대상 LLM은 다양한 매개변수 변화를 나타내기 때문에 각각의 장점을 효과적으로 결합하기 위해서는 세립 병합 가중치를 설계하는 것이 중요하다. 따라서 수동 가중치 할당을 포함하는 선형과 병합 전에 모델 매개변수의 하위 집합을 제거하는 DARE와 같은 방법은 FuseChat에 적합하지 않은 것으로 간주된다.\n' +
+      '\n' +
+      '또한 VARM이 적용된 FuseChat-7B가 다른 모든 병합 방법의 평균 평가 점수 8.22를 달성하여 GPT-3.5(3월)의 평균 평가 점수 7.94를 능가할 뿐만 아니라 현재 최신 오픈 소스 채팅 LLM, NH2-Mixtral-8X7B의 점수에 근접한다. 이는 제안된 VARM 방법이 서로 다른 병합 가중치를 할당하기 위해 각 매개변수 행렬의 변동 비율을 활용하여 업데이트된 지식을 세분화된 행렬 수준에서 혼합하는 데 효과적임을 확인시켜준다.\n' +
+      '\n' +
+      'VARM에서 Granularity의 합치\n' +
+      '\n' +
+      'Eq에서 매개변수 단위 \\(\\theta_{j,m}\\)의 병합 입도가 있기 때문이다. 7은 적응적으로 조정될 수 있으며, 우리는 FuseChat-7B VARM의 최종 성능에 미치는 영향을 조사한다.\n' +
+      '\n' +
+      '표 2에서, 우리는 가중치 병합의 입도를 모델 레벨에서 레이어 레벨로, 그리고 나서 매트릭스 레벨로 전환할 때 평균 성능의 일관된 개선을 관찰한다. 이는 세분화된 병합 가중치를 할당하는 것이 다중 목표 LLM의 지식을 통합하는 데 효과적임을 시사한다. 그러나 입도가 매개변수 수준으로 감소하면 성능이 눈에 띄게 감소하는 것을 관찰한다. 이는 특정 매개변수에 할당된 극단적인 병합 가중치에 기인할 수 있으며, 이는 다른 매개변수 간의 상관 관계를 방해한다.\n' +
+      '\n' +
+      '우리는 다양한 대화 전환의 성능에 대한 다양한 병합 입도의 영향을 추가로 조사한다. 그림 2는 병합 입도가 모델 수준에서 계층 수준 및 매트릭스 수준으로 점진적으로 감소함에 따라 첫 번째 턴의 성능이 향상되었다가 감소하는 반면 두 번째 턴의 성능은 반대 경향을 나타냄을 보여준다. 이러한 변동에도 불구하고 전반적인 성능에는 일관된 개선이 있다. 이러한 발견은 매트릭스 입도의 VARM이 다중 대화 회전 사이의 복잡한 역학을 능숙하게 포착하여 최적의 전체 성능을 유도함을 시사한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c c c c c c|c} \\hline \\hline\n' +
+      '**Models** & **Writing** & **Roleplay** & **Reasoning** & **Math** & **Coding** & **Extraction** & **STEM** & **Hummities** & **Avg.** \\\\ \\hline \\hline \\multicolumn{10}{c}{_Closed-aware LIDMs_} \\\\ \\hline GPT-4 (March) & 9.65 & 8.50 & 9.00 & 6.80 & 8.55 & 9.38 & 9.70 & 9.95 & 8.96 \\\\ GPT-3.5 (March) & 9.20 & 8.40 & 5.65 & 6.30 & 6.90 & 8.85 & 8.70 & 9.55 & 7.94 \\\\ Clande-1.0 & 9.50 & 8.50 & 5.95 & 4.80 & 6.25 & 8.80 & 9.70 & 9.70 & 7.90 \\\\ \\hline \\multicolumn{10}{c}{_Source LIDMs_} \\\\ \\hline NL2:Mixture-87/B & 9.70 & 9.05 & 6.63 & 6.75 & 6.00 & 8.80 & 9.70 & 9.95 & 8.33 \\\\ NL2:Solar-10.7B & 9.50 & 8.40 & 7.35 & 5.55 & 4.00 & 7.85 & 8.80 & 9.80 & 7.66 \\\\ OpenChat-3.5-7B & 9.00 & 7.85 & 7.75 & 5.30 & 5.50 & 8.45 & 8.55 & 9.90 & 7.79 \\\\ \\hline \\multicolumn{10}{c}{_Tine-tuned LIDMs_} \\\\ \\hline OpenChat-3.5-7B CLM & 8.80 & 8.60 & 7.55 & 5.88 & 5.45 & 8.05 & 9.45 & 9.85 & 7.95 \\\\ OpenChat-3.5-7B Multi & 9.35 & 8.38 & 8.40 & 5.35 & 5.15 & 8.70 & 9.28 & 9.50 & 8.06 \\\\ (+2.55\\%) & (+11.26\\%) & (+0.01\\%) & (+0.19\\%) & (+5.09\\%) & (+8.07\\%) & (+1.80\\%) & (+0.51\\%) & (+1.38\\%) \\\\ \\hline OpenChat-3.5-7B Mixat & 9.35 & 8.35 & **8.50** & 5.80 & 5.10 & 8.25 & 9.38 & 9.50 & 8.08 \\\\ (+6.25\\%) & (+2.91\\%) & (+12.58\\%) & (+3.66\\%) & (+6.42\\%) & (+2.48\\%) & (+0.74\\%) & (+0.51\\%) & (+1.64\\%) \\\\ \\hline \\multicolumn{10}{c}{_Fused LIDMs_} \\\\ \\hline \\hline \\multicolumn{10}{c}{_Fused LIDMs_} \\\\ \\hline \\hline \\multicolumn{10}{c}{FuseChat-7B Linear} & 9.18 & 8.23 & 8.00 & 5.78 & 5.35 & 8.50 & 9.43 & 9.78 & 8.05 \\\\ (+3.23\\%) & (+3.40\\%) & (+5.96\\%) & (+7.10\\%) & (+1.83\\%) & (+5.99\\%) & (+0.21\\%) & (+0.71\\%) & (+1.26\\%) \\\\ \\hline \\multicolumn{10}{c}{_FuseChat-7B SLERP_} \\\\ \\hline \\hline \\multicolumn{10}{c}{_FuseChat-7B SLERP_} \\\\ \\hline \\hline \\multicolumn{10}{c}{_FuseChat-7B TA_} \\\\ \\hline \\hline \\multicolumn{10}{c}{_FuseChat-7B TA_} \\\\ \\hline \\hline \\multicolumn{10}{c}{_FuseChat-7B TIES_} \\\\ \\hline \\hline \\multicolumn{10}{c}{_FuseChat-7B DARE_} \\\\ \\hline \\hline \\multicolumn{10}{c}{_FuseChat-7B DARE_} \\\\ \\hline \\hline \\multicolumn{10}{c}{_FuseChat-7B VARM_} \\\\ \\hline \\hline \\multicolumn{10}{c}{_FuseChat-7B VARM_} \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 1: MT-벤치의 다양한 도메인에 걸쳐 서로 다른 척도 및 범주의 기준선과 비교하여 제안된 FuseChat의 전체 결과. 백분율은 OpenChat-3.5-7B CLM에 비해 개선(파란색)/감소(빨간색) 비율을 나타낸다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c c c c c c|c} \\hline \\hline\n' +
+      '**Granularity** & **Writing** & **Roleplay** & **Reasoning** & **Math** & **Coding** & **Extraction** & **STEM** & **Hummities** & **Avg.** \\\\ \\hline \\hline Model & 8.93 & 8.58 & **8.20** & 5.73 & 5.45 & **8.55** & **9.45** & **9.90** & 8.10 \\\\ Layer & **9.43** & 8.73 & 8.00 & **6.15** & 5.25 & **8.55** & 9.18 & **9.90** & 8.15 \\\\ Matrix & 9.20 & 8.63 & 8.00 & **6.15** & **6.15** & 8.50 & 9.30 & 9.85 & **8.22** \\\\ Parameter & 1.00 & 1.00 & 1.00 & 1.00 & 1.00 & 1.00 & 1.00 & 1.00 & 1.00 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 2: MT-벤치의 다양한 도메인에 걸쳐 매개변수 입력의 서로 다른 병합 입도를 채택하는 VARM을 사용한 FuseChat-7B VARM의 결과.\n' +
+      '\n' +
+      '그림 2: MT-Bench에서 서로 다른 대화 회전에서 매개변수 그룹의 다양한 병합 입도를 사용하여 FuseChat-7B VARM의 성능.\n' +
+      '\n' +
+      'Conclusion\n' +
+      '\n' +
+      '본 연구에서는 FuseLLM의 확장된 프레임워크를 제안하여 다중 구조와 스케일 가변 채팅 LLM의 집단적 지식과 개별적 장점을 보다 강력한 채팅 LLM에 통합하여 FuseChat을 생성한다. FuseChat은 두 가지 주요 단계를 갖는 퓨즈-앤-머징 전략을 채택한다. 먼저, 경량 미세 조정을 통해 동일한 구조와 크기의 다중 표적 LLM을 도출하기 위해 소스 LLM에 대한 쌍별 지식 융합을 수행한다. 그런 다음, 이러한 목표 LLM들을 파라미터 공간 내에서 병합하고, 미세 조정 전후의 파라미터 행렬의 변화율에 기초하여 병합 가중치를 결정하는 새로운 방법 VaRM을 제안한다. 다양한 채팅 도메인에 걸친 실험 결과는 GPT-3.5(3월)를 능가하고 Mixtral-8x7B-Instruct에 접근하는 다양한 모델 스케일에서 FuseChat의 우수성을 보여준다.\n' +
+      '\n' +
+      '또한, FuseChat과 FuseLLM이 채택한 지식 융합의 개념은 모두 여러 모델(전문가)의 장점을 활용하는 것을 목표로 하기 때문에 최근 인기 있는 전문가 혼합 주제(MoEs)와 같은 다른 관련 주제들과 근본적으로 유사한 목적을 공유한다고 주장한다. 그러나, MoE는 메모리 요구량이 더 높은 추론 동안 다수의 전문가를 로딩해야 하지만, 지식 융합은 추가적인 메모리 요구 없이 다양한 아키텍처를 갖는 다수의 LLM을 단일 LLM에 통합함으로써 더 효율적인 메모리가 되도록 지원한다. 우리가 아는 한 MoE는 일반적으로 6명 이상의 전문가를 고용하는 반면 FuseChat 및 FuseLLM은 3개의 소스 LLM만 융합한다. 향후 연구에서는 LLM에 대한 지식 융합의 잠재력을 완전히 활용하기 위해 더 많은 소스 LLM을 융합하는 것을 추가로 탐구할 것이다.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* A. Agarwal, N. 비야르, P. 스탠첵, S. 라모스 가이스트, O Bachem(2023)Gkd: 자동 회귀 서열 모델에 대한 일반화된 지식 증류. ArXiv:2306.13649. 인용: SS1.\n' +
+      '*T. 브라운, B. 만, N. 라이더 Subbiah, J. D. Kaplan, P. Dhariwal, A. Neelakantan, P. Shyam, G. Sastry, A. Askell, et al. (2020)Language models is few-shot learners. The Advances in Neural Information Processing Systems33, pp. 1877-1901. Cited by: SS1.\n' +
+      '*W. 장종 이종욱 임영식 성진 우현장 정승 장영 Zhuang, J. E. Gonzalez, I. Stoica, and E. P. Xing(2023)Vicuna: 90%* chatgpt 품질의 gpt-4를 인상하는 오픈 소스 챗봇. 인용: SS1.\n' +
+      '*K. 코비, V 고사라주 바이에른 M. 천현준 카이저 플래퍼트, J. 트워렉, R. 힐튼, R. Nakano, et al.(2021)Training verifiers to solve math word problems. ArXiv:2110.14168. 인용: SS1.\n' +
+      '*Y. 부현팽 Ou, A. Sabharwal, T. Khot(2023) 다단계 추론을 위한 더 작은 언어 모델 전문화. ArXiv:2301.12726. 인용: SS1.\n' +
+      '*Y. 구룡 동, F. Wei, M. 황(2023) 대용량 언어 모델의 지식 증류. ArXiv:2306.08543. 인용: SS1.\n' +
+      '* V. Gupta, S. A. Serrano, and D. DeCoste (2020)Stochastic weight averaging in parallel: 잘 일반화되는 large-batch training. 학습 표상에 관한 국제 회의 인용: SS1.\n' +
+      '* D. 헨드릭스, C. 번즈, S. 카다바스 A. 아로라 S. Basart, E. Tang, D. Song, and J. Steinhardt (2021)Measuring mathematical problem solving with the math dataset. ArXiv:2103.03874. 인용: SS1.\n' +
+      '* G. Hinton, O. Vinyals, and J. Dean (2015) the knowledge in neural network. ArXiv:1503.02531. 인용: SS1.\n' +
+      '* G. I. 일리하르코, M. T. 리베이로, M. S. 워츠맨 구루랑간 Schmidt, H. Hajishirzi, and A. Farhadi (2022) Editing models with task arithmetic. ArXiv:2212.04089. 인용: SS1.\n' +
+      '* A. Q. Jiang, A. Sablayrolles, A. Roux, A. Mensch, B. Savary, C. Bamford, D. S. Chaplot, D. d. Casas, E. B. Hanna, F. Bressand, et al.(2024)Mixtral of experts. ArXiv:2401.04088. 인용: SS1.\n' +
+      '* J.\n' +
+      '\n' +
+      'Jiang, D., Ren, X., and Lin, B. Y. (2023). Llm-블렌더: 쌍별 랭킹 및 생성 융합을 갖는 대형 언어 모델들을 앙상블하는 단계. _ arXiv preprint arXiv:2306.02561_.\n' +
+      '* Jiao et al. (2020) Jiao, X., Yin, Y., Shang, L., Jiang, X., Chen, X., Li, L., Wang, F., and Liu, Q. (2020). Tinybert: 자연 언어 이해를 위한 증류 버트. _Findings of the Association for Computational Linguistics: EMNLP 2020_, pages 4163-4174.\n' +
+      '* Jin et al. (2022) Jin, X., Ren, X., Preotiuc-Pietro, D., and Cheng, P. (2022). 언어 모델의 가중치를 병합하여 데이터리스 지식 융합 _The Eleventh International Conference on Learning Representations_.\n' +
+      '* Khanuja et al. (2021) Khanuja, S., Johnson, M., and Talukdar, P. (2021). Mergedistill: 미리 훈련된 증류를 사용하여 언어 모델을 병합한다. _Findings of the Association for Computational Linguistics: ACL-IJCNLP 2021_, pages 2874-2887.\n' +
+      '*Kim et al. (2023) Kim, D., Park, C., Kim, S., Lee, W., Song, W., Kim, Y., Kim, H., Kim, Y., Lee, H., Kim, J., et al. (2023). 태양열 10.7 b: 간단하면서도 효과적인 깊이 업-스케일링을 갖는 대형 언어 모델 스케일링. _ arXiv preprint arXiv:2312.15166_.\n' +
+      '* Kopf et al. (2023) Kopf, A., Kilcher, Y., von Rutte, D., Anagnostidis, S., Tam, Z. - R., Stevens, K., Barhoum, A., Duc, N. M., Stanley, O., Nagyfi, R., et al. (2023). 개방형 대화 - 대규모 언어 모델 정렬 민주화 arXiv preprint arXiv:2304.07327_.\n' +
+      '* Littlestone and Warmuth (1994) Littlestone, N. 및 Warmuth, M. K. (1994). 가중 다수결 알고리즘 Information and Computation_, 108(2):212-261.\n' +
+      '* Loshchilov and Hutter (2017) Loshchilov, I. and Hutter, F. (2017). Decoupled weight decay regularization. _ arXiv preprint arXiv:1711.05101_.\n' +
+      '* Luo et al. (2023) Luo, Z., Xu, C., Zhao, P., Sun, Q., Geng, X., Hu, W., Tao, C., Ma, J., Lin, Q., and Jiang, D. (2023). Wizardcoder:evol-instruct로 코드 대언어 모델을 Empowering하는 단계; _ arXiv preprint arXiv:2306.08568_.\n' +
+      '* Matena and Raffel(2022) Matena, M. S. and Raffel, C. A. (2022). 피셔 가중 평균과 모델 병합 신경 정보 처리 시스템_, 35:17703-17716의 발전.\n' +
+      '* Monteith et al. (2011) Monteith, K., Carroll, J. L., Seppi, K., and Martinez, T. (2011). 베이지안 모델 평균을 베이지안 모델 조합으로 전환합니다. _The 2011 International Joint Conference on Neural Networks_, pages 2657-2663. IEEE.\n' +
+      '* Mukherjee et al. (2023) Mukherjee, S., Mitra, A., Jawahar, G., Agarwal, S., Palangi, H., and Awadallah, A. (2023). Orca: gpt-4의 복잡한 설명 흔적으로부터 점진적 학습. _arXiv preprint arXiv:2306.02707_.\n' +
+      '* Peng et al.(2023) Peng, B., Li, C., He, P., Galley, M., and Gao, J. (2023). gpt-4를 사용한 명령어 튜닝. _arXiv preprint arXiv:2304.03277_.\n' +
+      '* Sagi and Rokach(2018) Sagi, O. 로카흐, L. (2018). 앙상블 학습: 설문조사. _ Wiley 학제간 검토: Data Mining and Knowledge Discovery_, 8(4):e1249.\n' +
+      '* Sanh et al. (2019) Sanh, V., Debut, L., Chaumond, J., and Wolf, T. (2019). 버트의 증류 버전인 디스틸버트: 더 작고, 더 빠르고, 더 싸고, 더 가볍다. _ arXiv preprint arXiv:1910.01108_.\n' +
+      '* Shoemake (1985) Shoemake, K. (1985). 쿼터니언 곡선으로 회전을 추정하는 중입니다. 제12회 컴퓨터 그래픽 및 대화형 기술에 관한 연례 회의의 _Proceedings_에서 245-254페이지.\n' +
+      '* Sun et al.(2019) Sun, S., Cheng, Y., Gan, Z., and Liu, J. (2019). 버트 모델 압축을 위한 환자 지식 증류. _Proceedings of the 2019 Conference on Empirical Methods in Natural Language Processing and the 9th International Joint Conference on Natural Language Processing (EMNLP-IJCNLP)_, pages 4323-4332.\n' +
+      '* Touvron et al. (2023) Touvron, H., Martin, L., Stone, K., Albert, P., Almahairi, A., Babaei, Y., Bashlykov, N., Batra, S., Bhargava, P., Bhosale, S., et al. (2023). 라마 2: 오픈 파운데이션 및 미세 조정 채팅 모델들_ arXiv preprint arXiv:2307.09288_.\n' +
+      '* Touvron et al. (2019)Turc, I., Chang, M. - W., Lee, K., and Toutanova, K. (2019). 잘 읽은 학생들은 더 잘 배운다: 컴팩트 모델을 미리 훈련하는 것의 중요성에 대해. _ arXiv preprint arXiv:1908.08962_.\n' +
+      '* Wan et al. (2024) Wan, F., Huang, X., Cai, D., Quan, X., Bi, W., and Shi, S. (2024). 대형 언어 모델의 지식 융합. _ arXiv preprint arXiv:2401.10491_.\n' +
+      '* Wan et al. (2023) Wan, F., Huang, X., Yang, T., Quan, X., Bi, W., and Shi, S. (2023). 탐색-명령어: 능동 탐사를 통한 도메인-특정 명령어 커버리지 향상. _ arXiv preprint arXiv:2310.09168_.\n' +
+      '* Wang et al. (2023) Wang, G., Cheng, S., Zhan, X., Li, X., Song, S., and Liu, Y. (2023). 오픈챗: 양질의 데이터가 혼합된 오픈소스 언어 모델의 발전 arXiv preprint arXiv:2309.11235_.\n' +
+      '* Wang et al. (2020) Wang, W., Wei, F., Dong, L., Bao, H., Yang, N., and Zhou, M. (2020). Minilm: 미리 훈련된 변압기의 작업 진단 압축을 위한 깊은 자기 집중 증류. _ 신경 정보 처리 시스템_, 33:5776-5788에서의 발전.\n' +
+      '* Wei et al.(2023) Wei, Y., Wang, Z., Liu, J., Ding, Y., and Zhang, L. (2023). 매직코더: 소스 코드만 있으면 돼 arXiv preprint arXiv:2312.02120_.\n' +
+      '* Wolf et al.(2020) Wolf, T., Debut, L., Sanh, V., Chaumond, J., Delangue, C., Moi, A., Cistac, P., Rault, T., Louf, R., Funtowicz, M., et al.(2020) 트랜스포머: 최첨단 자연어 처리. _Proceedings of the 2020 Conference on Empirical Methods in Natural Language Processing: System Dviemonstrations_, pages 38-45.\n' +
+      '* Wortsman et al. (2022) Wortsman, M., Ilharco, G., Gadre, S. Y., Roelofs, R., Gontijo-Lopes, R., Morcos, A. S., Namkoong, H., Farhadi, A., Carmon, Y., Kornblith, S., et al. (2022). 모델 스프: 여러 미세 조정 모델의 가중치를 평균하면 추론 시간이 증가하지 않고 정확도가 향상된다. _International Conference on Machine Learning_, pages 23965-23998. PMLR.\n' +
+      '* Xu et al.(2023) Xu, C., Sun, Q., Zheng, K., Geng, X., Zhao, P., Feng, J., Tao, C., and Jiang, D. (2023). Wizardlm: 복잡한 명령어를 따르기 위해 대규모 언어 모델의 권한을 부여합니다. _ arXiv preprint arXiv:2304.12244_.\n' +
+      '* Yadav et al. (2023) Yadav, P., Tam, D., Choshen, L., Raffel, C., and Bansal, M. (2023). 타이 병합: 모델을 병합할 때 간섭을 해결합니다. IMT-2000 3GPP-신경정보처리시스템에 관한 제37차 회의\n' +
+      '* Yu et al. (2023a) Yu, L., Jiang, W., Shi, H., Yu, J., Liu, Z., Zhang, Y., Kwok, J. T., Li, Z., Weller, A., and Liu, W. (2023a). 메타매스: 큰 언어 모델에 대해 자신의 수학적 질문을 부트스트랩합니다. _ arXiv preprint arXiv:2309.12284_.\n' +
+      '* Yu et al. (2023b) Yu, L., Yu, B., Yu, H., Huang, F., and Li, Y. (2023b). 언어 모델은 슈퍼 마리오입니다: 무료 점심 식사로 동종 모델의 능력을 흡수합니다. _ arXiv preprint arXiv:2311.03099_.\n' +
+      '* Zheng et al. (2023) Zheng, L., Chiang, W. -L., Sheng, Y., Zhu, S., Wu, Z., Zhuang, Y., Lin, Z., Li, Z., Li, D., Xing, E., et al. (2023). mt-bench와 챗봇의 장으로 llm-as-a-judge를 판단하는 것 arXiv preprint arXiv:2306.05685_.\n' +
+      '\n' +
+      '## 부록 교육 데이터세트 세부사항\n' +
+      '\n' +
+      '우리는 다양한 소스에서 포괄적인 훈련 데이터 세트인 FuseChat-Mixture를 큐레이션했다. 이 데이터 세트는 인간 작성 및 모델 생성, 일반 명령어 추적 및 특정 기술을 모두 특징으로 하는 다양한 스타일과 기능을 포함한다. 이러한 소스들은,\n' +
+      '\n' +
+      'Orca-Best10**: Orca-Best로부터 20,000개의 예를 샘플링했는데, Orca(Mukherjee et al., 2023)의 원래 GPT-4(1M) 파티션으로부터 필터링된 Orca-Best(Mukherjee et al., 2023)는 명령어의 최대 길이 및 임베딩 클러스터링을 기반으로 하였다.\n' +
+      '\n' +
+      'Capybara11**: 멀티턴 합성 대화의 고품질 컬렉션인 Capybara의 16,000가지 사례를 모두 통합했습니다.\n' +
+      '\n' +
+      '각주 10: [https://huggingface.co/datasets/shahules786/orca-best](https://huggingface.co/datasets/shahules786/orca-best)\n' +
+      '\n' +
+      '각주 11: [https://huggingface.co/datasets/LDJnr/Capybara](https://huggingface.co/datasets/LDJnr/Capybara)\n' +
+      '**No-Robots12**: 우리는 감독 미세 조정을 위해 숙련된 인간 주석자가 만든 데이터 세트인 No-Robots의 9,500개의 예를 모두 포함했다.\n' +
+      '\n' +
+      '각주 12: [https://huggingface.co/datasets/HuggingFaceH4/no_robots](https://huggingface.co/datasets/HuggingFaceH4/no_robots)\n' +
+      '\n' +
+      'ShareGPT-GPT43**: 우리는 ShareGPT-GPT4에서 GPT-4가 생성한 대화문을 독점적으로 사용하는 ShareGPT-GPT4의 6,200개의 모든 예를 활용했다.\n' +
+      '\n' +
+      '각주 13: [https://huggingface.co/datasets/shibing624/sharegpt_gpt4](https://huggingface.co/datasets/shibing624/sharegpt_gpt4)\n' +
+      '\n' +
+      '각주 14: [https://huggingface.co/datasets/OpenAssistant/oasst_top1_2023-08-25](https://huggingface.co/datasets/OpenAssistant/oasst_top1_2023-08-25)\n' +
+      '\n' +
+      'Onast-Top1**: 인간 주석이 달린 어시스턴트 스타일의 대화 데이터세트인 Onast1(Kopf et al., 2023)의 정제된 버전인 Onast-Top1로부터 5,000개의 예를 선택하였다.\n' +
+      '\n' +
+      '각주 15: [https://huggingface.co/datasets/meta-math/MetaMathQA](https://huggingface.co/datasets/meta-math/MetaMathQA)\n' +
+      '\n' +
+      'MetaMathQA**15: 우리는 수학 문제 해결을 위한 GSM8K(Cobbe et al., 2021) 및 MATH(Hendrycks et al., 2021) 데이터세트로부터 증강된 MetaMathQA(Yu et al., 2023)로부터 10,000개의 예를 샘플링하였다.\n' +
+      '\n' +
+      '각주 15: [https://huggingface.co/datasets/ine-uiuc/Magicoder-OSS-Instruct-75K](https://huggingface.co/datasets/ine-uiuc/Magicoder-OSS-Instruct-75K)\n' +
+      '\n' +
+      '우리는 OSS-Instruct(Wei et al., 2023)로부터 10,000개의 예를 선택했는데, OSS-Instruct(Wei et al., 2023)는 오픈 소스 코드 스니펫으로부터 합성된 코드 명령어 데이터를 포함한다.\n' +
+      '\n' +
+      '우리는 WizardCoder(Luo et al., 2023)에 의해 제안된 evol-instruct와 함께 GPT-4에 의해 생성된 코드 명령 데이터세트인 Evol-Alpaca로부터 10,000개의 예를 샘플링하였다.\n' +
+      '\n' +
+      '각주 17: [https://huggingface.co/datasets/theblackcat102/evol-codealpaca-v1](https://huggingface.co/datasets/theblackcat102/evol-codealpaca-v1)\n' +
+      '\n' +
+      '각주 18: [https://huggingface.co/datasets/ajibawa-2023/Python-Code-23k-ShareGPT](https://huggingface.co/datasets/ajibawa-2023/Python-Code-23k-ShareGPT)\n' +
+      '\n' +
+      'Python Code**18: 우리는 Python Code에서 10,000개의 예를 선택했는데, 이 예는 Python Code 생성을 위해 GPT-3.5와 GPT-4에 의해 생성된 명령어와 응답으로 구성된다.\n' +
+      '\n' +
+      '각주 18: [https://huggingface.co/datasets/ajibawa-2023/Python-Code-23k-ShareGPT](https://huggingface.co/datasets/ajibawa-2023/Python-Code-23k-ShareGPT)\n' +
+      '\n' +
+      '우리는 비영어 또는 특수 문자를 포함하는 인스턴스를 정리하기 위해 Vicuna(Chiang et al., 2023)의 데이터 처리 코드를 따랐다. 그런 다음 긴 대화를 최대 길이가 2048 토큰인 블록으로 분할하여 95,000개의 예가 있는 최종 FuseChat Mixture를 생성했다.\n' +
+      '\n' +
+      '## 부록 사례 연구\n' +
+      '\n' +
+      '본 논문에서는 소스 LLM의 지식 융합을 통해 얻은 목표 LLM(OpenChat-3.5-7B Mixtral and OpenChat-3.5-7B Solar)의 개별적 강점을 입증하고, 목표 LLM을 추가 병합하여 얻은 FuseChat(FuseChat-7B VARM)의 집단적 지식과 강도를 보여주기 위한 사례 연구를 제시한다. OpenChat-3.5-7B CLM은 비교를 위한 기준선으로 사용된다.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:13]\n' +
+      '\n' +
+      '**OpenChat-3.5-7B Mixtral; Roleplay; ID 93;**\n' +
+      '\n' +
+      '**1번 질문:** 다양한 질병과 말라리아에 대한 혁신적인 치료법을 고안하는 임무를 맡은 의사라고 상상해 보십시오. 전문성은 전통적인 약물, 허브 치료 및 대체 천연 솔루션을 처방하는 것을 포함해야 합니다. 또한 권장 사항을 제공하면서 환자의 연령, 생활 방식 및 의료 배경을 고려해야 합니다. 먼저, 심한 복부 불편이 포함된 시나리오를 진단하는 데 도움을 주세요.\n' +
+      '\n' +
+      '**Turn 1 Answer:** 의사로서, 나는 먼저 환자의 병력, 복부 불편감의 지속 시간 및 심각성, 그리고 그들이 겪을 수 있는 다른 증상들에 대한 정보를 수집할 것이다. 환자의 상황에 대한 철저한 이해를 얻은 후 가장 적절한 치료 계획을 결정하기 위해 연령, 생활습관, 의학적 배경 등 다양한 요인을 고려할 것이다. 1. 전통적인 약물: 복부 불편감이 소화불량이나 과민성 대장 증후군과 같은 질환으로 인한 경우 증상을 완화하기 위해 제산제나 항경련제와 같은 처방전 없이 살 수 있는 약을 처방할 수 있다. 더 심한 경우에는 근본적인 원인에 따라 처방약이 필요할 수 있다. 약물에 대한 환자의 반응을 모니터링하고 그에 따른 투여량 또는 치료 계획을 조정하는 것이 필수적이다. 2. 한약 치료: 한약 치료는 복부 불편감에 대한 치료 계획에 귀중한 부가가 될 수 있다. 예를 들어, 샤모닉은 소화 시스템을 진정시키는 데 도움이 될 수 있는 항염증 및 칼리밍 특성을 가지고 있다. 페퍼민지 오일은 복통을 완화하고 팽만감을 줄이는 데에도 도움이 될 수 있다. 그러나, 일부 허브는 다른 약물과 상호작용하거나 특정 개인에게 금기 사항이 있을 수 있으므로, 환자들은 그들의 요법에 허브 치료법을 통합하기 전에 의료 전문가와 상담해야 한다. 3. 대체 천연 해결책: 허브 치료법 외에도 복부 불편감을 관리하기 위한 다른 자연적 접근법이 있다. 예를 들어, 프로바이오틱스는 소화 불량 또는 과민성 장 증후군의 경우 증상을 완화할 수 있는 장내 미생물군집의 균형을 회복하는 데 도움이 될 수 있다. 고지방, 고당류 또는 가공식품의 섭취를 줄이고 섬유질이 풍부한 식품의 섭취를 늘리는 것과 같은 식이 변형은 또한 소화 건강을 개선하는 데 도움이 될 수 있다. 4. 생활 습관 권장: 환자가 더 건강한 생활 습관을 채택하도록 장려하는 것도 복부 불편감을 완화하는데 기여할 수 있다. 규칙적인 운동, (요가나 명상과 같은) 스트레스 감소 기술, 그리고 건강한 체중을 유지하는 것은 모두 최적의 소화 기능을 지원할 수 있다. 요약하면, 복부 불편감에 대한 적절한 치료는 근본적인 원인과 환자의 독특한 상황에 따라 달라진다. 상태를 효과적으로 관리하기 위해 전통적인 약물, 한방 치료, 대체 자연 솔루션 및 생활 습관 조정의 조합이 권장될 수 있다. 의사로서, 나는 치료 계획에 대한 환자의 반응을 지속적으로 평가하고 그들의 편안함과 웰빙을 보장하기 위해 필요한 조정을 할 것이다.\n' +
+      '\n' +
+      '**턴 1 저젠트:** 어시스턴트의 응답은 포괄적이고 정확하며 사용자의 질문과 매우 관련이 있다. 환자의 연령, 생활습관, 의료배경 등을 고려하여 복부 불편감을 진단하고 치료하는 구체적인 접근 방법을 제공한다. 보조자는 주제에 대한 깊은 이해를 보여주는 전통적인 약물, 허브 치료법, 대체 자연 솔루션 및 생활 습관 조정을 제안한다. 보조자는 또한 환자 치료의 중요한 측면인 치료 계획에 대한 환자의 반응을 모니터링하는 것의 중요성을 강조한다. 반응은 서로 다른 치료 방법을 결합하는 접근 방식에서 창의적이며 각 방법에 대한 설명에 자세히 설명되어 있다. 따라서 조수의 응답은 고품질입니다. 평가: [10]\n' +
+      '\n' +
+      '2번 질문:** 하지만 저는 임신 20주째이고 많은 약에 알레르기가 있습니다.\n' +
+      '\n' +
+      '**2번 답변:** 저는 의사가 아니지만, 귀하가 제공한 정보를 바탕으로 몇 가지 일반적인 지침을 제공하려고 노력할 수 있습니다. 임신은 특히 특정 약물에 알레르기가 있는 경우 통증이나 불편함을 관리하는 데 있어 독특한 문제를 일으킬 수 있다. 1. 임신에 대한 고려: 임신 중에는 산모와 발달 중인 아기 모두에게 치료와 약물의 안전성을 고려하는 것이 중요하다. 2. 알레르기 고려 사항: 많은 약물에 알레르기가 있는 경우 새로운 치료를 시도할 때 주의하는 것이 중요합니다. 3. 약초 치료 및 천연 해결책: 앞서 언급한 바와 같이, 약초 치료 및 천연 해결책은 임신 중 치료 계획에 가치 있는 부가가 될 수 있다. 그러나, 어떤 한약 제품을 사용하기 전에 의료 제공자와 상담하는 것은 임신 중에 해로울 수 있기 때문에 필수적이다. 4. 대체 치료: 전통적인 약물과 한방 치료법이 적합하지 않은 경우, 침술, 마사지 또는 물리 치료와 같은 대체 치료법이 의료 제공자의 승인을 받는다면 고려될 수 있다. 5. 당신의 의료 제공자와의 의사소통: 당신의 임신 기간 동안 당신의 의료 제공자와 개방적이고 정직한 의사소통을 유지하는 것이 필수적이다. 증상과 우려, 그리고 여러분이 가질 수 있는 모든 알레르기에 대해 논의하여, 그들은 여러분과 아기 모두의 안전을 보장하면서 여러분의 요구를 충족시키는 치료 계획을 조정할 수 있습니다. 임신 중 치료 계획에 대한 결정을 내리기 전에 자격을 갖춘 의료 전문가와 상담하는 것이 중요합니다. 그들은 귀하의 특정 상황과 병력에 따라 개인화된 지침을 제공할 수 있습니다.\n' +
+      '\n' +
+      '**Turn2 Judgent:** 조수의 응답은 매우 적절하고 정확하며 상세합니다. 그것은 사용자의 임신과 약물에 대한 알레르기를 고려하여 사용자의 질문에 대한 포괄적인 답변을 제공한다. 보조자는 임산부에게 중요한 조언인 새로운 치료를 시작하기 전에 의료 제공자와 상담하는 것의 중요성을 강조한다. 보조자는 또한 침술, 마사지 또는 물리 치료와 같은 대체 치료법을 제안하는데, 이는 사용자에게 도움이 될 수 있다. 어시스턴트의 응답은 또한 창의적이며, 이는 사용자의 문제에 대한 다양한 잠재적 해결책을 제시하기 때문이다. 전반적으로 조수의 응답은 매우 유용하고 유익합니다. 평가: [9]\n' +
+      '\n' +
+      '**Turn2 Judgent:** 조수의 응답은 매우 적절하고 정확하며 상세합니다. 그것은 사용자의 임신과 약물에 대한 알레르기를 고려하여 사용자의 질문에 대한 포괄적인 답변을 제공한다. 보조자는 임산부에게 중요한 조언인 새로운 치료를 시작하기 전에 의료 제공자와 상담하는 것의 중요성을 강조한다. 보조자는 또한 침술, 마사지 또는 물리 치료와 같은 대체 치료법을 제안하는데, 이는 사용자에게 도움이 될 수 있다. 어시스턴트의 응답은 또한 창의적이며, 이는 사용자의 문제에 대한 다양한 잠재적 해결책을 제시하기 때문이다. 전반적으로 조수의 응답은 매우 유용하고 유익합니다. 평가: [9]\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l} \\hline\n' +
+      '**OpenChat-3.5-7B Mixtral; Roleplay; ID 93;** \\\\ \\hline\n' +
+      '**Turn 1 Question:** Imagine yourself as a doctor tasked with devising innovative remedies for various ailments and malalies. Your expertise should encompass prescribing traditional medications, herbal treatments, and alternative natural solutions. Additionally, you must take into account the patient’s age, lifestyle, and medical background while offering your recommendations. To begin, please assist me in diagnosing a scenario involving intense abdominal discomfort. \\\\ \\hline\n' +
+      '**Turn 1 Answer:** As a doctor, I would first gather information about the patient’s medical history, the duration and severity of the abdominal discomfort, and any other symptoms they might be experiencing. After obtaining a thorough understanding of the patient’s situation, I would consider various factors, such as age, lifestyle, and medical background, to determine the most appropriate treatment plan. 1. Traditional Medications: If the abdominal discomfort is due to a condition such as indigestion or irritable bowel syndrome, over-the-counter medications like antacids or anti-spansmodics may be prescribed to alleviate symptoms. For more severe cases, prescription medications may be necessary, depending on the underlying cause. It is essential to monitor the patient’s response to the medication and adjust the dosage or treatment plan accordingly. 2. Herbal Treatments: Herbal remedies can be a valuable addition to a treatment plan for abdominal discomfort. Chamonic, for example, has anti-inflammatory and caliming properties that can help soothe the digestive system. Peppermini oil may also be beneficial for relieving abdominal pain and reducing bloating. However, patients should consult with a healthcare professional before incorporating herbal treatments into their regimen, as some herbs may interact with other medications or have contraindications for certain individuals. 3. Alternative Natural Solutions: In addition to herbal remedies, there are other natural approaches to managing abdominal discomfort. Probiotics, for instance, can help restore balance to the gut microbiome, which may alleviate symptoms in cases of ingestion or irritable bowel syndrome. Dietary modifications, such as reducing intake of high-fat, high-sugar, or processed foods, and increasing consumption of fiber-rich foods, can also help improve digestive health. 4. Lifestyle Recommendations: Encouraging the patient to adopt a healthier lifestyle may also contribute to alleviating abdominal discomfort. Regular exercise, stress reduction techniques (such as yoga or meditation), and maintaining a healthy weight can all support optimal digestive function. In summary, the appropriate treatment for abdominal discomfort depends on the underlying cause and the patient’s unique circumstances. A combination of traditional medications, herbal treatments, alternative natural solutions, and lifestyle adjustments may be recommended to effectively manage the condition. As a doctor, I would continually assess the patient’s response to the treatment plan and make any necessary adjustments to ensure their comfort and well-being. \\\\ \\hline\n' +
+      '**Turn 1 Judgent:** 어시스턴트의 응답은 포괄적이고 정확하며 사용자의 질문과 매우 관련이 있다. 환자의 연령, 생활습관, 의학적 배경을 고려하여 복부 불편감을 진단하고 치료하는 구체적인 접근 방법을 제공한다. 보조자는 주제에 대한 깊은 이해를 보여주는 전통적인 약물, 허브 치료법, 대체 자연 솔루션 및 생활 습관 조정을 제안한다. 보조자는 또한 환자 치료의 중요한 측면인 치료 계획에 대한 환자의 반응을 모니터링하는 것의 중요성을 강조한다. 반응은 서로 다른 치료 방법을 결합하는 접근 방식에서 창의적이며 각 방법에 대한 설명에 자세히 설명되어 있다. 따라서 조수의 응답은 고품질입니다. 평가: [10]\n' +
+      '\n' +
+      '**Turn 2 Question:** But I have been pregnant for 20 weeks and I am allergic to many medicines. \\\\ \\hline\n' +
+      '**Turn 2 Answer:** I’m not a doctor, but I can try to provide you with some general guidance based on the information you’ve provided. Pregnancy can indeed present unique challenges when it comes to managing pain or discomfort, especially if you have allergies to certain medications. 1. Consideration of Pregnancy: During pregnancy, it’s crucial to take into account the safety of treatments and medications for both the mother and the developing baby. Always consult with your healthcare provider before starting any new treatment, as they will be able to recommend options that are safe for you and your baby. 2. Allergy Considerations: If you are allergic to many medications, it’s important to be cautious when trying new treatments. Make sure to inform your healthcare provider about your allergies, as they can help identify alternative options that are less likely to cause adverse reactions. 3. Herbal Remedies and Natural Solutions: As mentioned earlier, herbal remedies and natural solutions can be a valuable addition to a treatment plan during pregnancy. However, it’s essential to consult with your healthcare provider before using any herbal products, as some can be harmful during pregnancy. 4. Alternative Treatments: In cases where traditional medications and herbal remedies are not suitable, alternative treatments such as acupuncture, massage, or physical therapy may be considered, provided they are approved by your healthcare provider. 5. Communication with Your Healthcare Provider: It’s vital to maintain open and honest communication with your healthcare provider throughout your pregnancy. Discuss your symptoms, concerns, and any allergies you may have, so they can tailor a treatment plan that addresses your needs while ensuring the safety of both you and your baby. Remember, it’s important to consult with a qualified healthcare professional before making any decisions about your treatment plan during pregnancy. They will be able to provide personalized guidance based on your specific circumstances and medical history. \\\\ \\hline\n' +
+      '**Turn2 Judgent:** 조수의 응답은 매우 적절하고 정확하며 상세합니다. 그것은 사용자의 임신과 약물에 대한 알레르기를 고려하여 사용자의 질문에 대한 포괄적인 답변을 제공한다. 보조자는 임산부에게 중요한 조언인 새로운 치료를 시작하기 전에 의료 제공자와 상담하는 것의 중요성을 강조한다. 보조자는 또한 침술, 마사지 또는 물리 치료와 같은 대체 치료법을 제안하는데, 이는 사용자에게 도움이 될 수 있다. 사용자의 문제에 대한 다양한 잠재적 해결책을 제시하기 때문에 어시스턴트의 반응도 창의적이다. 전반적으로 조수의 응답은 매우 유용하고 유익합니다. 평가: [9]\n' +
+      '\n' +
+      '\\end{table}\n' +
+      '표 4: 역할극에 대한 사례 연구. 답변은 OpenChat-3.5-7B Mixtral에 의해 생성된다.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:15]\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:16]\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
