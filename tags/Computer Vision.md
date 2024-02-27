@@ -174,3 +174,5 @@
 - [Gen4Gen: Generative Data Pipeline for Generative Multi-Concept Composition](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/32/2024-02-26+Gen4Gen%3A+Generative+Data+Pipeline+for+Generative+Multi-Concept+Composition.yaml) / 2024-02-26
 - [Genie: Generative Interactive Environments](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/32/2024-02-26+Genie%3A+Generative+Interactive+Environments.yaml) / 2024-02-26
 - [Seamless Human Motion Composition with Blended Positional Encodings](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/32/2024-02-26+Seamless+Human+Motion+Composition+with+Blended+Positional+Encodings.yaml) / 2024-02-26
+- [Multi-LoRA Composition for Image Generation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/33/2024-02-27+Multi-LoRA+Composition+for+Image+Generation.yaml) / 2024-02-27
+- [Towards Open-ended Visual Quality Comparison](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/33/2024-02-27+Towards+Open-ended+Visual+Quality+Comparison.yaml) / 2024-02-27
