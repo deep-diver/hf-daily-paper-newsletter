@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# 대용량 언어 모델의 훈련-프리 롱-컨텍스트 스케일링\n' +
+      '\n' +
+      'Chenxin An\n' +
+      '\n' +
+      'Fei Huang\n' +
+      '\n' +
+      'Jun Zhang\n' +
+      '\n' +
+      'Shansan Gong\n' +
+      '\n' +
+      'Xipeng Qiu\n' +
+      '\n' +
+      'Chang Zhou\n' +
+      '\n' +
+      'Lingpeng Kong\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      '일관성 있는 텍스트를 처리하고 생성하는 LLM(Large Language Models)의 능력은 입력 토큰의 수가 사전 훈련 길이를 초과할 때 현저하게 약화된다. 본 논문에서는 Llama2 70B가 연속 학습 없이 100k 이상의 토큰의 컨텍스트 윈도우를 지원할 수 있는 Dual Chunk Attention (DCA)을 제안한다. DCA는 긴 시퀀스에 대한 어텐션 계산을 청크 기반 모듈로 분해함으로써, 동일한 청크(Intra-Chunk) 내에서 그리고 별개의 청크(Inter-Chunk)에 걸쳐 토큰들의 상대적인 위치 정보를 효과적으로 캡처하고 플래시 어텐션과 끊김 없이 통합한다. DCA는 인상적인 외삽 능력 외에도 미세화된 모델과 비슷하거나 심지어 더 나은 실용적인 긴 컨텍스트 작업에서 성능을 달성한다. 독점 모델과 비교할 때, 우리의 훈련 없는 70B 모델은 gpt-3.5-16k 성능의 94%에 도달하여 실행 가능한 오픈 소스 대안임을 나타낸다. 이 작업에 사용된 모든 코드와 데이터는 [https://github.com/HKUNLP/ChunkLlama](https://github.com/HKUNLP/ChunkLlama)에서 공개된다.\n' +
+      '\n' +
+      '머신러닝, ICML, ICML\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      '롱컨텍스트 정보를 이해하고 처리하는 능력은 대규모 언어 모델들(LLM)(OpenAI, 2023; Touvron et al., 2023; 20; Anthropic, 2023)에 있어서, 광범위한 애플리케이션들을 효과적으로 수용하기 위해 필수적이다. 이들은 상당한 PDF들 내의 문의들을 분석하고 응답하는 것, 확장된 대화 이력을 유지하는 것, 및 대화형 챗봇들을 권한 부여하는 것을 포함한다(Wei et al., 2023; Lee et al., 2023; Rula and D\'Souza, 2023; Saad-Falcon et al., 2023).\n' +
+      '\n' +
+      '최근의 발전들은 긴 텍스트 시퀀스들 상에서 짧은-컨텍스트 모델을 추가로 트레이닝함으로써 긴-컨텍스트 능력이 개선될 수 있다는 것을 보여주었다(Ruoss et al., 2023; Roziere et al., 2023). 긴 텍스트 데이터와 원래의 Llama2(Touvron et al., 2023) 사전 훈련 코퍼스의 혼합으로부터 훈련되는 Llama2 Long(Xiong et al., 2023)의 인상적인 성능은 이러한 접근법의 증거로서 존재한다. 그럼에도 불구하고, 이러한 훈련 코퍼스의 제한된 접근성과 긴 컨텍스트 피네튜닝의 엄청난 비용으로 인해, 현재의 오픈 소스 모델은 종종 독점적인 모델에 비해 성능이 부족하고 일반적으로 더 작은 크기(예: 7B/13B)로 사용할 수 있다.\n' +
+      '\n' +
+      '이러한 제약들을 감안할 때, LLM들에서 컨텍스트 스케일링을 위한 추가적인 트레이닝을 필요로 하지 않는 접근법들이 특히 매력적이게 된다. LM-무한(Han et al., 2023) 및 StreamingLLM(Xiao et al., 2023)을 포함하는 최근의 트레이닝-프리 방법들은 제한된 컨텍스트 윈도우 상에서 트레이닝된 LLM들이 무한 길이의 텍스트를 효율적으로 프로세싱할 수 있다는 것을 보여주었다(Zhang et al., 2023; Zhu et al., 2024; Qin et al., 2024). LLM이 훈련 길이보다 긴 텍스트로 일반화할 수 없다고 가정하면 이러한 모델은 필수 로컬 정보를 선택적으로 유지하여 확장된 시퀀스를 처리한다. 이러한 패러다임은 PPL(Low Perplexity)을 효과적으로 유지하면서도 장거리 의존성을 상실한다. 글로벌 정보를 유지하기 위해, 다른 관점은 그들의 훈련 동안 마주치는 것들을 능가하는 시퀀스 길이들로 효과적으로 외삽하는 것이다(Sun et al., 2022; Kazemnejad et al., 2023; Liu et al., 2023; Chi et al., 2023). Position Interpolation (PI) (Chen et al., 2023) 및 NTK-Aware RoPE (NTK) (LocalLLAMA, 2023;a)를 포함하는 Llama 기반 모델들에 대한 인기 기술들은 Rotary Positional Encodings (RoPE) (Su et al., 2022)의 적응들이다. 이러한 스케일링된 위치 인코딩은 원래의 RoPE에 비해 더 적은 미세조정 단계를 필요로 하며, 이들의 트레이닝 비용은 YaRN(Peng et al., 2023) 및 CLEX(Chen et al., 2023)와 같은 방법을 통해 더욱 감소될 수 있다. 그러나 훈련 없는 환경에서 이러한 접근 방식은 일반적으로 훈련 길이의 두 배 이상인 입력 길이에서 특히 PPL의 현저한 증가로 이어진다는 것을 발견했다(SS4, 표 1).\n' +
+      '\n' +
+      '본 논문에서는 LLM의 컨텍스트 창을 추론하기 위한 새로운 훈련 없는 프레임워크인 Dual Chunk Attention(DCA)을 소개한다. 우리는 RoPE(Su et al., 2022)에서 포지션 인덱스들의 선형 다운스케일링 또는 베이스 주파수의 증가를 회피한다. 대신, 우리는 사전 훈련된 모델의 임베딩과 함께 원래 위치 지수를 재사용하지만, 가능한 한 충실하게 두 토큰의 상대 위치를 정확하게 반영할 수 있는 방식으로 상대 위치 행렬의 구성을 재설계하도록 선택한다. 효율적인 청크-기반 주의 패턴(Child et al., 2019; Song et al., 2023; Ratner et al., 2023; He et al., 2024), DCA 세그먼트들은 작은 청크들로 긴 시퀀스에 대한 자기-주의 계산들을 만드는데, 각각의 청크는 사전 훈련 윈도우의 크기보다 작다. DCA는 (1) 동일한 청크 내에서 토큰을 처리하기 위해 맞춤화된 청크 내 주의, (2) 별개의 청크 사이에서 토큰을 처리하기 위한 청크 간 주의, (3) 연속적인 별개의 청크에서 토큰을 처리하기 위한 연속적인 청크 주의의 세 가지 구성 요소로 구성된다. 이러한 각각의 처리는 모델이 시퀀스에서 장거리 및 단거리 의존성을 모두 효과적으로 캡처하는 데 도움이 된다. 또한, 청크 기반 어텐션 계산은 오픈 소스 커뮤니티에서 롱-컨텍스트 스케일링을 위한 핵심 요소인 플래시 어텐션 2(Dao et al., 2022; Dao, 2023)와 원활하게 통합될 수 있다.1 각주 1: 플래시 어텐션 없이 Llama2 7B/13B에 대한 최대 입력 토큰은 약 16k이고, Llama2 70B에 대한 최대 입력 토큰은 우리 실험에서 두 개의 A100 80G GPU에서 테스트할 때 5k이다.\n' +
+      '\n' +
+      '본 논문에서는 질의응답(Pang et al., 2022; Kocisky et al., 2018; Dasigi et al., 2021; An et al., 2023)과 요약(Zhong et al., 2021)에 걸쳐 있는 언어 모델링, pasksey 검색, 실세계 롱컨텍스트 애플리케이션을 포함하는 다양한 태스크에 대한 모델을 종합적으로 평가한다. 일반적으로 7B/13B 모델에 대한 검증으로 제한되는 이전 작업과 달리, 본 방법의 상당한 훈련 효율성은 70B 모델에 대한 검증을 가능하게 하여 강력한 결론을 보장한다. 사전 훈련 중 잠재적인 데이터 노출과 무관한 모델의 긴 맥락 능력을 검증하기 위해 본 논문 자체를 입력으로 사용하고 모델에 대한 일련의 질문을 조작했다.2 우리의 경험적 결과는 다음과 같은 통찰력을 보여준다.\n' +
+      '\n' +
+      '각주 2: 관심 있는 독자를 초대하여 표 6,7의 결과를 검토\n' +
+      '\n' +
+      '1. ** 외삽** 언어 모델링에서 DCA는 훈련 없는 접근법에 상당한 발전을 나타낸다. 먼저 4k 컨텍스트 윈도우를 갖는 LLM이 훈련 없이 32k 이상으로 확장될 수 있어 PPL의 무시할 수 있는 증가를 유지하는 반면, 이전 방법은 일반적으로 8k를 초과하는 컨텍스트 길이에서 흔들린다. 또한, Llama2 70B가 DCA와 통합될 때 100k 토큰을 초과하는 컨텍스트 크기를 처리할 수 있는 예외적인 외삽 기능을 보여준다.\n' +
+      '2. **Orthogonality** DCA는 PI(Chen et al., 2023) 및 NTK(LocalLLaMA, 2023; 2023)와 같은 기존의 인기 있는 스케일링된 위치 인코딩에 직교한다. 본 논문에서는 32k 컨텍스트 윈도우를 지원한 기존의 Long-context LLM이 높은 pasksey 검색 정확도와 낮은 perplexity를 유지하면서 192k 컨텍스트 길이로 더 추론할 수 있음을 경험적으로 보인다.\n' +
+      '3. **Long-Context Understanding** 우리는 제로 샷 및 소수 샷 설정 모두에서 벤치마크를 이해하는 일련의 긴 컨텍스트에서 DCA를 평가한다. 결과는 우리의 훈련 없는 모델이 비용이 많이 드는 지속적인 훈련을 통해 구축된 기존 최첨단 모델과 비슷하거나 능가하는 성능을 달성함을 시사한다.\n' +
+      '\n' +
+      '## 2 Background\n' +
+      '\n' +
+      '### Positional Encoding\n' +
+      '\n' +
+      '트랜스포머 모델(Vaswani et al., 2017)로부터의 원래의 위치 임베딩은 절대 위치 인덱스들을 \\(d\\)차원 특징 공간에 매핑하고, 이것을 입력 레이어에 통합한다. 위치 인덱스 \\(i\\)와 연관된 입력 \\(\\mathbf{x}\\)은 다음과 같이 표현된다. \\(\\mathbf{x}_{i}=\\mathbf{x}+f(i)\\), 여기서 \\(f:\\mathbb{N}\\rightarrow\\mathbb{R}^{d}\\)는 (위치) 임베딩 함수이다.\n' +
+      '\n' +
+      'LLM에 대한 가장 널리 사용되는 위치 부호화 방법 중 하나는 RoPE(Rotary Positional Encoding)이다(Su et al., 2022). RoPE는 입력 레이어에 위치 정보를 주입하는 종래의 접근을 피한다. 대신 이 정보를 주의 계층에 직접 통합합니다. \\(l\\) 토큰의 시퀀스에 대해 키 및 쿼리 3에 대한 위치 인덱스를 다음과 같이 표시한다.\n' +
+      '\n' +
+      '각주 3: 질의와 키는 보통 학습 가능한 선형 레이어를 통해 입력 \\(\\mathbf{x}\\)을 투영하여 도출한다.\n' +
+      '\n' +
+      '\\[P_{\\mathbf{k}}=P_{\\mathbf{q}}=[0,1,\\ldots,l-1]. \\tag{1}\\]\n' +
+      '\n' +
+      '우리는 질의 벡터\\(\\mathbf{q}\\) 또는 키 벡터\\(\\mathbf{k}\\)을 수용하는 RoPE의 임베딩 함수에 표기 \\(f\\)과 각 위치 인덱스를 인수로 사용한다. 예를 들어, \\(\\mathbf{q}_{i}=f(\\mathbf{q},P_{\\mathbf{q}}[i])\\)와 \\(\\mathbf{k}_{j}=f(\\mathbf{k},P_{\\mathbf{k}}[j])\\이 있으며, 여기서 \\([i]\\)는 목록의 \\(i\\)번째 요소를 나타낸다. 가장 간단한 경우, 우리는 \\(P[i]=i\\)을 갖는다. 함수 \\(f\\)4는 위치 인덱스를 캡슐화하는 수정된 쿼리 또는 키 벡터를 출력함으로써 \\(i\\)번째 쿼리와 \\(j\\)번째 키 사이의 내적(i\\geq j\\)이 상대적인 위치 정보 \\(P_{\\mathbf{q}}[i]]-P_{\\mathbf{k}[j]\\을 포착하도록 한다. RoPE는 절대 위치 지수를 입력으로 하지만, \\(\\mathbf{q}\\), \\(\\mathbf{k}\\)의 내적 결과는 상대적인 위치 정보만을 포함한다. (즉, \\(\\mathbf{q}_{i}^{\\top}\\mathbf{k}_{j}=\\mathbf{q}_{m}^{\\top}\\mathbf{k}_{n}\\)은 \\(m-n=i-j\\)일 때, Self-attention 동안 RoPE에 의해 도입된 상대적 위치 행렬 \\(M\\)은 그림 1과 같이 Toeplitz 행렬로 설명될 수 있다. 각 요소 \\(M[i][j]=P_{\\mathbf{q}}[i]]-P_{\\mathbf{k}[j]\\)는 \\(\\mathbf{q}_{i}\\) (i\\)번째 질의)와 \\(\\mathbf{k}_{j}\\) (the \\(j\\)번째 키) 사이의 상대적 위치를 나타낸다.\n' +
+      '\n' +
+      '각주 4: \\(f\\)의 전형적인 구현은 modeling_llama.py Line 211 apply_rotary_pos.emb()에서 찾을 수 있다\n' +
+      '\n' +
+      'RoPE의 외삽\n' +
+      '\n' +
+      '최근 작업(Chen et al., 2023; Chowdhury and Caragea, 2023; Chen et al., 2023)은 원래의 RoPE를 갖는 LLM이 견고한 길이 외삽 능력이 부족하고, 전형적으로 사전 훈련 동안 보이는 것보다 더 긴 입력 시퀀스에 대해 테스트될 때 성능 저하를 초래한다는 것을 입증하였다(Li et al., 2023b; Zhu et al., 2023). 최근의 연구들(Chen et al., 2023b; Su, 2023; Jin et al., 2024)은 주로 이러한 제한을 프리트레이닝 단계에서 보이지 않는 상대 위치들의 존재에 귀속시키고 상대 위치 매트릭스를 재설계할 것을 제안한다. 도 1의 예에서 예시된 바와 같이, 모델은 6개의 토큰들의 시퀀스에 대해 트레이닝되는 반면, 추론은 12개의 토큰들의 시퀀스에 대해 수행된다. 이러한 불일치는 6을 초과하는 상대 위치가 훈련되지 않았기 때문에 높은 PPL로 이어질 수 있다. PI 및 NTK와 같은 이전 접근법은 훈련 중 관찰된 컨텍스트 길이의 범위에 포함되도록 \\(M[i][j]\\)의 크기를 줄임으로써 이 문제를 완화시키는 것을 목표로 한다. 예를 들어, 이 예에서 PI를 적용하면 \\(P_{\\mathbf{q}}[i]\\Rightarrow P_{\\mathbf{q}}[i]/2\\) 및 \\(P_{\\mathbf{k}[j]\\Rightarrow P_{\\mathbf{k}[j]/2\\)의 스케일링에 의해 위치 지수를 조정할 수 있다. 결과적으로, 상대 위치 행렬은 \\(M[i][j]=M[i][j]/2\\)로 스케일링된다. 여기서, 상대적 위치를 축소하기 위해 스케일링 인자\\(2=\\frac{12}{6}\\)를 사용하여 위치 정보의 분해능이 떨어지고 외삽 능력이 약해진다.\n' +
+      '\n' +
+      '## 3 Method\n' +
+      '\n' +
+      '이 섹션에서는 새로운 훈련 없는 프레임워크 듀얼 청크 어텐션에 대해 자세히 설명한다. 이중 청크 어텐션의 실행 예는 도 2에 도시되어 있다. 우리의 방법은 청크 기반 효율적인 어텐션 패턴인 청크 내 어텐션(도 2의 (a))으로부터 시작한다(Child et al., 2019; Song et al., 2023). 각 청크의 위치 임베딩은 청크 크기가 사전 훈련 길이보다 작게 설정되는 0 내지 청크 크기의 범위이다. 청크 내 주의 패턴은 실질적으로 이전 청크로부터 정보를 폐기하는 청크 크기로의 입력을 좌측으로부터 직접 절단하는 것을 의미한다. 이러한 절단은 보통 낮은 당혹감을 가져오지만(Xiao et al., 2023), 장거리 정보를 잃는다. 이러한 한계를 해결하기 위해 우리는 먼 토큰 위치에 대한 정밀도는 낮지만 서로 다른 청크 간의 주의력 계산을 가능하게 하는 청크 간 주의력(그림 2(b))을 구현한다. 마지막으로, 우리는 지역성을 보존하기 위해 두 청크가 인접할 때 특별히 적용되는 그림 2(c)에 묘사된 청크 간 주의의 변형인 연속 청크 주의를 소개한다. 이러한 주의 메커니즘이 PPL 및 패스키 검색 정확도에 어떻게 영향을 미치는지 보여주기 위한 절제 연구는 그림 4에서 찾을 수 있다.\n' +
+      '\n' +
+      '### Intra-Chunk Attention\n' +
+      '\n' +
+      '인트라 청크 어텐션은 동일한 청크 내에서 쿼리 및 키의 내부 곱을 계산하기 위해 사용된다. 길이\\(l\\)의 긴 시퀀스에 대해, 우리는 시퀀스를 \\(n=\\frac{l}{s}\\) 청크로 분할함으로써, 각 청크 내의 위치 인덱스가 청크 크기\\(s\\)를 초과하지 않도록 한다. 도 2의 (a)는 프리트레이닝 길이 10을 초과하는 12개의 토큰들의 시퀀스를 2개의 청크들로 세그먼트화하는 프로세스를 예시하고, 각각의 청크는 \\(s=6<10\\)개의 토큰들을 포함한다. 키 및 질의에 대한 위치 인덱스는 청크 크기 6 내에서 스케일링된다. 구체적으로, 키(P_{\\mathbf{k}=[\\underbrace{0,1,2,3,4,5}_{\\text{chunk 0}},\\underbrace{0,1,2,3,4,5}_{\\text{chunk 1}}] 및 \\(P_{\\mathbf{q}}^{\\text{Intra}}=P_{\\mathbf{k}}}}}})는 청크 내 주의 시 질의에 대한 위치 인덱스를 의미한다. 정크 내 주의를 공식화하기 위해, 질의 및 키에 대한 위치 인덱스를 다음과 같이 조정한다:\n' +
+      '\n' +
+      '\\[P_{\\mathbf{q}}^{\\text{Intra}}=P_{\\mathbf{k}}=[0,1,\\dots,l-1]\\mod s. \\tag{2}\\]\n' +
+      '\n' +
+      '동일한 청크 내의 절대지수 \\(i\\)와 \\(j\\) 즉 \\(\\lfloor i/s\\rfloor=\\lfloor j/s\\rfloor\\)에 대해 \\(0\\leq j\\leq i<l\\)을 만족하는 요소 \\(M[i][j]\\)는 질의의 위치 부호화와 키의 차이로 정의된다:\n' +
+      '\n' +
+      '\\[M[i][j]=P_{\\mathbf{q}}^{\\text{Intra}}[i]-P_{\\mathbf{k}}[j]. \\tag{3}\\]\n' +
+      '\n' +
+      '\\(\\lfloor i/s\\rfloor=\\lfloor j/s\\rfloor\\)일 때, 우리는 식 3에 따라 \\(M[i][j]\\)을 계산한다. 우리가 12의 시퀀스 길이와 6의 청크 크기를 갖는 이전 예제의 계산된 \\(M\\)은 그림 2의 (a)에 설명되어 있다. 그런 다음 \\(i\\)번째 쿼리와 \\(j\\)번째 키 사이의 상호 작용에 대한 청크 내 주의 점수를 다음과 같이 계산한다.\n' +
+      '\n' +
+      '\\mathbf{q}_{i}^{\\top}\\mathbf{k}_{j}=f(\\mathbf{q},P_{\\mathbf{q}}^{\\text{Intra}[i])^{\\top}f(\\mathbf{k},P_{\\mathbf{k}}[j]}\\tag{4}\\text{4}\\text{Intra}[i])^{\\top}f(\\mathbf{k},P_{\\mathbf{k}}[j].\n' +
+      '\n' +
+      '### Inter-Chunk Attention\n' +
+      '\n' +
+      '다른 청크의 정보를 집계하기 위해 청크 간 주의를 도입합니다. Llama 기반 LLMs에서 질의의 위치 인덱스는 좌우 정보 흐름을 반영하기 위해 키보다 크다. 즉, 우리는 \\(i\\geq j\\)마다 \\(P_{\\mathbf{q}[i]\\geq P_{\\mathbf{k}[j]\\)을 갖는다. 서로 다른 청크간의 주의력 계산을 위해 \\(P_{\\mathbf{q}}=P_{\\mathbf{q}}^{\\text{Intra}}\\)와 \\(P_{\\mathbf{k}}\\)을 사용하는 것은 이러한 성질을 분명히 위배한다. 예를 들어, \\(\\mathbf{q}_{s}\\)와 \\(\\mathbf{k}_{1}\\)을 고려할 때, \\(P_{\\mathbf{q}}^{\\text{Intra}[s]=0\\)와 \\(P_{\\mathbf{k}[1]=1\\)에 의해 주어진 상대적인 거리는 -1이다. KV 캐시를 고려하여 키 \\(P_{\\mathbf{k}}\\)에 대한 위치 인덱스를 유지하고 KV 캐시를 탐색한다.\n' +
+      '\n' +
+      '그림 1: 표준 RoPE를 활용한 상대 위치 행렬 \\(M\\)의 시각화. 사전 학습 컨텍스트 윈도우는 6이고 입력 시퀀스 길이는 12이다. x축\\(P_{\\mathbf{k}}\\)은 키들의 위치 인덱스들을 나타내고, y축\\(P_{\\mathbf{q}}\\)은 질의들의 위치 인덱스들에 대응한다. 각 행렬 엔트리 \\(M[i][j]\\)는 상대적인 위치 오프셋 \\(P_{\\mathbf{q}}[i]-P_{\\mathbf{k}}[j]\\을 나타낸다.\n' +
+      '\n' +
+      '청크간 주의집중 동안 \\(P_{\\mathbf{q}}\\)의 새로운 집합은 \\(P_{\\mathbf{q}}^{\\text{inter}\\)으로 기록된다. 주어진 Eq. 도 2에서, 키들에 대한 위치 인덱스들은 최대 위치 인덱스 \\(\\max(P_{\\mathbf{k}})=s-1\\)로 순환적으로 반복된다. 질의들이 이전의 청크들로부터의 모든 키들보다 더 큰 위치 인덱스들을 갖는 것을 보장하기 위해, 먼 질의들을 구별하기 위한 간단한 전략은 프리트레이닝 동안 최대 위치 인덱스(\\(c-1>\\max(P_{\\mathbf{k}}))와 같이 상당히 큰 위치 인덱스를 할당하는 것이다. 여기서 \\(c\\)는 프리트레이닝 컨텍스트 길이이다:\n' +
+      '\n' +
+      '\\[P_{\\mathbf{q}}^{\\text{Inter}}=[\\underbrace{c-1,c-1,\\ldots c-1}_{l\\text{ elements}], \\tag{5}\\]\n' +
+      '\n' +
+      '\\(\\lfloor i/s\\rfloor\\neq\\lfloor j/s\\rfloor\\)일 때, 우리는 \\(\\mathbf{q}_{i}\\)와 \\(\\mathbf{k}_{j}\\)의 상대위치행렬을 다음과 같이 구할 수 있다.\n' +
+      '\n' +
+      '[M[i][j]=P_{\\mathbf{q}}^{\\text{Intra}}[i] -P_{\\mathbf{k}}[j]=c-1-P_{\\mathbf{k}}[j]\\geq c-s. \\tag{6}\\tag{6}\\\n' +
+      '\n' +
+      '그림 2 (b)에 반영된 바와 같이, 우리는 모든 위치에 대해 상수 \\(c-1=9\\)의 값을 갖는 \\(P_{\\mathbf{q}^{\\text{Inter}\\)을 할당하는데, 이는 \\(P_{\\mathbf{k}\\)에서 최대 위치 인덱스 \\(s-1=5\\)보다 크다. 우리는 식 6으로 청크 내 주의에 의해 행렬 \\(M\\) 왼쪽 공백의 나머지 부분을 완성한다.\n' +
+      '\n' +
+      '### Successive-Chunk Attention\n' +
+      '\n' +
+      '연속-청크 어텐션은 LLMs들이 다음 토큰을 예측하기 위해 이웃 토큰들에 크게 의존하는 경향이 있는 LLMs들의 로컬리티를 유지하기 위해 제안된, 청크간 어텐션을 위한 특별한 경우로 볼 수 있다(Xiao et al., 2023; Han et al., 2023). 단순히 청크 간 주의를 사용하는 것은 이웃 토큰 간의 정확한 상대 위치를 더 이상 유지하지 못하여 성능 저하를 초래할 수 있다.\n' +
+      '\n' +
+      '그림 2(b)와 같이 청크의 크기는 \\(s=6\\)이고 사전 훈련 길이는 \\(c=10\\)이며, 첫 번째 청크의 마지막 키인 \\(\\mathbf{k}_{5}\\), 두 번째 청크의 첫 번째 쿼리인 \\(\\mathbf{q}_{6}\\), 위치 인덱스 \\(P_{\\mathbf{q}^{\\text{Inter}[6]=9\\)이 뒤따른다. 절대거리가 1임에도 불구하고, \\(\\mathbf{q}_{6}\\)과 \\(\\mathbf{k}_{5}\\)의 상대거리는 \\(P_{\\mathbf{q}^{\\text{Inter}[6]-P_{\\mathbf{k}[5]=4\\이다. 이 구성은 주의 메커니즘에서 지역성을 유지하는 모델의 능력에 도전합니다.\n' +
+      '\n' +
+      '다행히도, 이 문제는 연속적인 청크들 사이에서만 발생하므로, 우리는 이 경우를 다루기 위해 새로운 연속적인 청크 주의를 도입한다. 구체적으로, 우리는 \\(P_{\\mathbf{q}}^{\\text{Inter}}\\)에 대한 첫 번째 \\(w\\) 위치 지수를 조정하여 \\(w\\) 이웃 토큰의 지역성을 유지할 것을 제안한다. 예를 들어, 도 2의 (c)에서, 사전 훈련 컨텍스트 \\(c=10\\), 청크 크기 \\(s=6\\), \\(P_{\\mathbf{q}}^{\\text{Inter}}=[\\underbrace{9,9,9,9,9}_{\\text{chunk 0}}, \\underbrace{9,9,9,9,9}_{\\text{chunk 1}]\\)이 주어지면, 위치 인덱스 \\(P_{\\mathbf{q}}^{\\text{Succ}\\)는 연속적인 청크 사이의 주의 계산을 위해 \\([\\underbrace{6,7,8,9,9,9}_{\\text{chunk 0}},\\underbrace{6,7,8,9,9}_{\\text{chunk 1}]]\\으로 설정될 수 있다. 형식적으로 청크 크기\\(s\\), 사전 훈련 크기\\(c\\) 및 로컬 윈도우\\(w\\)이 주어지면 다음과 같다.\n' +
+      '\n' +
+      '\\[P_{\\mathbf{q}}^{\\text{Succ}}=[\\underbrace{s,s+1,\\ldots,s+w-1}_{\\text{the same for all chunk},c-1,\\ldots,c-1], \\tag{7}\\]\n' +
+      '\n' +
+      '여기서 \\(w\\)은 로컬 윈도우 크기를 의미하며 프리트레이닝 길이와 청크 크기 \\(c-s\\)의 차이로 직접 설정될 수 있다. 연속적인 청크로부터 \\(i,j\\)에 대해, \\(P_{\\mathbf{q}}^{\\text{Succ}}\\) 및\\(P_{\\mathbf{k}}\\)을 사용한 \\(M[i][j]\\)의 계산 결과는 그림자가 결과 로컬 윈도우를 의미하는 그림 2(c)에 반영된다. 식 7은 이웃하는 \\(w\\) 키들이 현재 쿼리와 가장 가까운 거리를 갖는 것을 보장한다.\n' +
+      '\n' +
+      '내부 청크, 내부 청크 및 연속 청크 주의력을 결합하여 최종적으로 \\(M[i][j]\\)을 다음과 같이 계산한다.\n' +
+      '\n' +
+      '[M[i][j]=\\begin{cases}P_{\\mathbf{q}}^{\\text{Intra}}[i]-P_{\\mathbf{k}}[j]&\\text{if}\\lfloor i/s\\lfloor j/s\\rfloor=0\\\\mathbf{q}}^{\\text{succ}[i]-P_{\\mathbf{k}}[j]\\text{if}\\lfloor i/s\\rfloor j/s\\rfloor}[i]-P_{\\mathbf{k}}[j]\\text{if}\\lfloor i/s\\rfloor\n' +
+      '\n' +
+      '그림 2: 이중 청크 어텐션(DCA)을 사용하는 상대 위치 행렬 \\(M\\)의 시각화, 청크 크기 \\(s=6\\), 사전 훈련 창 크기 \\(c=10\\), 로컬 창 크기 \\(w=4\\)이 (c)의 그림자에 의해 기록된다. 시퀀스는 상대적인 위치가 9를 넘지 않도록 청크로 분할된다. 행렬 요소 \\(M[i][j]\\)는 \\(i\\)번째 질의 벡터 \\(\\mathbf{q}\\)와 \\(j\\)번째 키 벡터 \\(\\mathbf{k}\\) 사이의 상대적인 위치를 나타낸다. RoPE의 \\(\\mathbf{q}\\), \\(\\mathbf{k}\\)에 대한 원래 위치 인덱스와 달리 DCA는 별개의 위치 인덱스 집합 \\(P_{\\mathbf{k}\\), \\(P_{\\mathbf{q}^{\\text{Inter}\\)을 사용한다. 2), \\(P_{\\mathbf{q}^{\\text{Inter}}\\)(Eq. 5), \\(P_{\\mathbf{q}^{\\text{Succ}}\\)(Eq. 7)은 \\(M\\)의 서로 다른 구간들 내의 상대 거리들을 계산한다.\n' +
+      '\n' +
+      'DCA에서 \\(\\mathbf{q},\\mathbf{k}\\)의 내적은 결과적으로 다음과 같이 정의된다.\n' +
+      '\n' +
+      'bf{q}_{i}^{T}=\\begin{cases}f(\\mathbf{q},P_{\\mathbf{q}}^{l}\\text{u}[i])^{T}f(\\mathbf{k},P_{\\mathbf{k}[j]),&\\text{if}|i/s|-|j/s|=0\\f(\\mathbf{q},P_{\\mathbf{q}}^{u}[j]),&\\text{if}|i/s|-|j/s|=1\\f(\\mathbf{q},P_{\\mathbf{q}}[i])^{T}f(\\mathbf{k},P_{\\mathbf{q}}^{l}}[i])^{t}f(\\mathbf{k},P_{\\mathbf{q}}}[i])^{t}f(\\mathbf{k},P_{\\mathbf{q}}\n' +
+      '\n' +
+      '### Normalization\n' +
+      '\n' +
+      '소프트맥스 층 DCA 내의 내부 제품 계산은 수학식 8과 같이 공식화된다. 이어서, 소프트맥스 함수를 적용하여 계산된 내부 제품을 정규화한다:\n' +
+      '\n' +
+      '\\text{softmax}(\\Big{[}\\frac{\\mathbf{q}_{i}^{\\top}\\mathbf{k}_{0}{\\sqrt{d},\\frac{\\mathbf{q}_{i}^{\\top}\\mathbf{k}_{i}}{\\sqrt{d},\\dots,\\frac{\\mathbf{q}_{i}^{\\top}\\mathbf{k}_{i}}{\\sqrt{d}}\\Big{}}\\tag{9}\\frac{\\mathbf{q}^{\\top}\\mathbf{k}{i}}{\\sqrt{d}}}{\\sqrt{d}}}{\\sqrt{d}}}{\\sqrt{d}}}{\\sqrt{d}}}{\\sqrt{d}}}{\\sqrt{d}}}{\\sqrt{d}}}{\\sqrt{d}}\n' +
+      '\n' +
+      '여기서 \\(d\\)은 숨겨진 상태들의 차원을 나타낸다.\n' +
+      '\n' +
+      '플래시 어텐션과 플래시 어텐션 2(Dao, 2023)를 통합하는 방법에 대한 PyTorch 스타일의 의사코드는 알고리즘 1에서 찾을 수 있다. 코드의 설명 및 복잡도 분석은 부록 SSA.2에서 찾을 수 있다. 플래시 어텐션으로 DCA는 Llama에서 원래의 자기 어텐션과 유사한 GPU 메모리 사용 및 추론 속도를 얻는다. 결과는 그림 3에서 확인할 수 있다.\n' +
+      '\n' +
+      '## 4 Experiments\n' +
+      '\n' +
+      '우리는 Llama2(Touvron et al., 2023b), 특히 7B, 13B 및 70B 모델의 다양한 변형, 4k 사전 훈련 컨텍스트를 갖는 채팅 상대방에 대한 프레임워크 DCA를 평가한다. Llama2 기반 모델은 **ChunkLlama2**로 표시된다. 또한, 두 개의 인기 있는 오픈 소스 롱 컨텍스트 모델((1) Together-32k(Together, 2023)5)에 DCA를 적용한다. 이 모델은 위치 인코딩으로 위치 보간(PI)을 사용한다. 이 모델의 DCA 강화 버전을 ChunkTogether라고 한다. (2) CodeLlama(Roziere et al., 2023)6: 이 모델은 NTK-Aware RoPE를 적용한다. DCA를 적용한 후 결과 모델을 ChunkCodeLlama라고 한다.\n' +
+      '\n' +
+      '각주 5: [https://huggingface.co/togethercomputer/LLaMA-2-7B-32K](https://huggingface.co/togethercomputer/LLaMA-2-7B-32K)\n' +
+      '\n' +
+      '각주 6: [https://huggingface.co/codellama](https://huggingface.co/codellama)\n' +
+      '\n' +
+      '### Experimental Setup\n' +
+      '\n' +
+      'DCA는 원래 라마 주의의 추론 코드를 대체하기 위해 원숭이 패치로 구현될 수 있다. 플래시 어텐션 2(Dao, 2023) 덕분에 ChunkLlama2의 7B/13B 변형에 대해 추론을 위해 단일 NVIDIA A100-80G GPU 하나만 필요하다. 70B 모델까지 확장할 때, 2개의 A100 GPU는 16k 컨텍스트 길이 내에서 추론을 관리하기에 충분하다. 청크 크기\\(s\\)는 일반적으로 \\(\\frac{3}{4}\\) 트레이닝 길이로 설정될 수 있고 Llama2의 경우 이 값은 3072이다. 청크의 수는 입력 시퀀스 길이에 의존한다.\n' +
+      '\n' +
+      '훈련이 없는 평가 외에도 7B/13B Llama2 체크포인트에서 미세 조정된 모델도 제공합니다. 이러한 미세화 과정은 Vicuna(LMSYS, 2023) 및 LongChat(Li et al., 2023a)에 이어 16k 입력 토큰들과의 긴 대화들만을 활용한다. 트레이닝 데이터세트는 ShareGPT7 및 AlpacaGPT4(Taori et al., 2023)로부터 소스된다. ShareGPT에서 파생된 데이터의 경우 GPT-4에서 생성된 응답과 길이가 4k 토큰을 초과하는 대화를 추출하여 하위 집합을 특별히 큐레이션한다. 이 선택으로 인해 5,405개의 훈련 인스턴스가 컴파일됩니다.\n' +
+      '\n' +
+      '각주 7: [https://sharegpt.com/](https://sharegpt.com/)\n' +
+      '\n' +
+      '본 논문에서는 LongChat 저장소에 명시된 하이퍼파라미터에 따라 Llama2를 배치크기가 1인 16k 이상의 단계로 세분화하였으며, 7B 모델의 경우 약 40 GPU 시간, 13B 변형의 경우 60 GPU 시간으로 세분화 하였다.\n' +
+      '\n' +
+      '각주 8: [https://github.com/DachengLi1/LongChat](https://github.com/DachengLi1/LongChat)\n' +
+      '\n' +
+      'DatasetsWe evaluate our ChunkLlama2 on the book corpus dataset PG19 (Rae et al., 2020) on the context length ranging from 4k to 192k tokens. 7B 및 13B 모델의 경우, 이전 작업(Peng et al., 2023; Chen et al., 2023c)에 따라 256의 슬라이딩 윈도우를 사용한다. 70B 모델의 경우 슬라이딩 윈도우 크기를 2048로 조정하고 96k 토큰을 초과하는 컨텍스트를 처리할 때 실행 시간을 고려하여 슬라이딩 윈도우를 입력 길이의 절반이 되도록 조정한다. 소샷 실험의 경우 Llama2 Long(Xiong et al., 2023)의 설정을 따른다. 구체적으로, ChunkLlama2 on NarrativeQA (Kocisky et al., 2018), 1-shot on QMSum (Zhong et al., 2021), 2-shot on QuALITY (Pang et al., 2022), 2-shot for Qasper (Dasigi et al., 2021)의 0-shot 성능을 평가한다. 0-shot 실험을 위해, 우리는 L-Eval(An et al., 2023): TOFEL, QuALITY(cleaned from Pang et al. (2022)), Coursera, SFiction으로부터 4개의 폐쇄-엔드 태스크들에 대해 ChunkLlama2를 테스트한다. 또한 Mohtashami & Jaggi(2023)에서 사용된 패스키 검색에 대한 모델의 유효성을 검증한다. 패스키 검색에 대한 평가(Mothashami & Jaggi, 2023)는 부록 A.1에서 찾을 수 있다.\n' +
+      '\n' +
+      'BaselinesWe compare the popular open-source long-context models in Huggingface Transformers9. _Base Models_: Focused Transformer 3B(Tworkowski et al., 2023), CLEX 7B(Chen et al., 2023a), YaRN 7B/13B(Peng et al., 2023), MPT 30B(MosaicML, 2023b;a), Together 7B(Together, 2023), CodeLlama 7B(Roziere et al., 2023), Longlora 13B/70B(Chen et al., 2023c), Llama2 Long 7B/13B/70B(Xiong et al., 2023c), Llama2 Long 7B/13B/70B(Peng et al., 2023a), MPT 30B(MosaicML, 2023b;a), Together 7B(Together, 2023), CodeLlama 7B(Roziere et al., 2023), Longlora 13B/70B(Xiong et al., 2023c), Llama2 Long 7B/13B/70 Chat Models_: LongChat-v1.5-32k 7B (Li et al., 2023a), Vicuna-v1.5-16k (LMSYS, 2023) 7B/13B, Longlora-Chat 70B (Chen et al., 2023c), 및 Llama2 Long-Chat 70B (Xiong et al., 2023).\n' +
+      '\n' +
+      '각주 9: 2023년 12월 1일 이전\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:6]\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:7]\n' +
+      '\n' +
+      '7B. 입력 긴 프롬프트는 NarrativeQA(Kocisky et al., 2018)로부터 온다. 우리는 20번의 시험을 수행하고 평균 성능을 보고한다. 플래시 어텐션이 없는 경우, 단일 GPU에서 관리할 수 있는 최대 입력 길이는 대략 12k에서 16k 토큰 사이임을 관찰한다. DCA는 원래 플래시 주의력으로 상당한 오버헤드를 추가하지 않고도 유사한 GPU 메모리 소비와 추론 속도를 유지한다.\n' +
+      '\n' +
+      '이 작업에서 제안된 세 가지 주의 메커니즘을 검증하기 위해 언어 모델링 및 패스키 검색 작업에 초점을 맞춘 그림 4의 DCA에 대한 절제 연구를 제시한다. 우리는 세 가지 실험 조건을 고려한다: (1) 청크 내 주의만 사용한다. (2) 청크 내 주의와 청크 간 주의 모두를 활용하는 단계. (3) 세 가지 유형의 주의집중(intra-chunk, inter-chunk, successive chunk attention)을 모두 결합한다. 언어 모델링의 결과로부터 이전 청크의 정보를 무시하는 청크 내 주의를 사용하면 매우 낮은 PPL을 유지할 수 있지만 다른 청크에서 패스키를 검색하는 모델의 능력을 방해할 수 있음을 관찰한다. 청크 간 주의를 도입하면 12k의 입력 길이에서 패스키 검색 성능이 향상됨을 알 수 있다. 그러나 지역성의 손실은 모델의 PPL을 크게 증가시킨다. 연속적인 청크 주의를 통합함으로써 낮은 PPL과 높은 검색 정확도를 모두 달성한다.\n' +
+      '\n' +
+      '## 5 Conclusion\n' +
+      '\n' +
+      '본 논문에서는 LLM에 내재된 문맥 길이의 한계를 극복하기 위한 새롭고 효율적인 접근 방법으로 이중 청크 어텐션(Dual Chunk Attention, DCA)을 제시한다. DCA는 모델의 기존 위치 지수를 독창적으로 활용하고 다면 주의 메커니즘을 도입함으로써 비용이 많이 들고 시간이 많이 소요되는 추가 훈련 없이도 훈련 길이를 8배 이상 추정할 수 있다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c|c c c c c} \\hline \\hline \\multirow{2}{*}{**Model**} & Finetuning & Training & **TOFEL** & **QuALITY** & **Coursera** & **SFiction** & \\multirow{2}{*}{**Avg**} \\\\  & corpus & context & (3k\\(\\sim\\)5k) & (4k\\(\\sim\\)9k) & (5k\\(\\sim\\)17k) & (6k\\(\\sim\\)27k) & \\\\ \\hline Llama2-Chat 7B & ✗ & 4k & 51.67 & 37.62 & 29.21 & 60.15 & 48.74 \\\\ Llama2-DynTK 7B & ✗ & 4k & 52.27 & 30.69 & 13.95 & 57.02 & 38.48 \\\\ Longkat-v1.5-32k 7B & ShareGPT & 32k & 39.77 & 37.62 & 32.99 & 57.02 & 41.85 \\\\ Llama2-PI-SFT 7B & Dialogues & 16k & 56.13 & 38.61 & 36.19 & 53.90 & 46.20 \\\\ Llama2-NTK-SFT 7B & Dialogues & 16k & 53.90 & 38.11 & 34.01 & 64.06 & 47.51 \\\\ Vicuna-v1.5-16k 7B & ShareGPT & 16k & 55.39 & 39.60 & 38.66 & 60.15 & 48.45 \\\\ Llama2-Chat 13B & ✗ & 4k & 60.96 & 42.57 & 35.75 & 54.68 & 48.99 \\\\ Llama2-DynTK 13B & ✗ & 4k & 62.45 & 33.16 & 37.06 & 60.93 & 48.40 \\\\ Vicuna-v1.5-16k 13B & ShareGPT & 16k & 68.40 & 53.96 & 40.69 & 61.71 & 56.19 \\\\ Longlora-Chat 70B & LongAlpaca & 32k & 71.37 & 55.45 & 44.76 & 67.96 & 59.88 \\\\ \\hline\n' +
+      '***프리**&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&\n' +
+      '**Finetuned** & & & & & & & \\\\ Chunklama2-Chat 7B & Dialogues & 16k & 62.08 & 41.58 & 39.68 & 64.06 & 51.85 \\\\ Chunklama2-Chat 13B & Dialogues & 16k & 65.42 & 53.96 & 44.76 & 65.62 & 57.94 \\\\ \\hline \\multicolumn{7}{l}{_propagary models_} \\\\ GPT3.5-16k-0613 & Unknown & – & 78.43 & **61.38** & 63.51 & 64.84 & 67.03 \\\\ Claudel.3-100k & Unknown & – & **83.64** & 60.03 & **73.76** & **72.65** & **72.52** \\\\ Llama2 Long-Chat 70B1 & Long doc-diag & 16k & 81.8 & – & 52.9 & – & – \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 4: L-Eval(An et al., 2023)로부터 다양한 입력 길이를 갖는 4개의 폐쇄-엔드 태스크에 대한 오픈-소스 **챗** 모델(첫 번째 블록) 및 독점 모델(마지막 블록)과의 비교. 우리는 각 블록에서 최상의 결과를 강조합니다. 이전 최고의 오픈 소스 미세 조정 모델을 초과하는 결과는 **볼드**에 있다. ‘대화’는 우리의 훈련에 사용된 ShareGPT와 AlpacaGPT4의 혼합을 의미한다. Llama2-PI-SFT와 Llama2-NTK-SFT는 동일한 데이터와 ChunkLlama2로 훈련된 모델이다. \\({}^{\\ddagger}\\): 결과는 Xiong et al. (2023)에서 가져왔다.\n' +
+      '\n' +
+      '도 4: 언어 모델링(왼쪽) 및 패스키 검색(오른쪽)에 대한 DCA의 절제 연구. 우리는 8k에서 32k까지의 입력 시퀀스로 세 가지 주의 메커니즘을 테스트한다.\n' +
+      '\n' +
+      '도 3: (a) Pytorch, (b) Flash Attention(Dao, 2023), (c) DCA(본 작업)에 의해 구현된 원래의 자기 주의의 추론 시간 및 GPU 메모리.\n' +
+      '\n' +
+      '## Impact Statement\n' +
+      '\n' +
+      'LLM의 지원되는 컨텍스트 길이를 확장하기 위해 많은 연구가 등장했지만 높은 교육 비용과 플래시 어텐션과 같은 기술과의 비호환성으로 인해 산업은 주로 RoPE 또는 PI의 기본 주파수 확장에 주로 의존한다. DCA(Dual Chunk Attention) 방식은 플래시 어텐션과 호환되며 추론 코드에 대한 수정만 요구되어 광범위한 재교육의 필요성을 부정한다. DCA는 훈련 길이 내에서 모델 성능을 보존하고 이 범위를 넘어서는 이점만 제공하여 이미 긴 컨텍스트 미세 조정을 거친 모델과의 호환성을 제공한다. 결과적으로, 우리의 접근법은 LLM 애플리케이션에서 긴 컨텍스트 시나리오를 관리하기 위한 비용 효율적인 솔루션을 제공하여 산업에 상당한 영향을 미칠 수 있다. 우리 작업에는 많은 잠재적인 사회적 결과가 있으며, 여기에서 특별히 강조되어야 한다고 느끼는 것은 없습니다.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* An et al. (2023) An, C., Gong, S., Zhong, M., Li, M., Zhang, J., Kong, L., and Qiu, X. L-eval: 긴 문맥 언어 모델에 대한 표준화된 평가를 설치한다. _ arXiv preprint arXiv:2307.11088_, 2023.\n' +
+      '*인체(2023)인체. 100K Context Windows, 2023. URL[https://www.anthropic.com/index/100k-context-windows](https://www.anthropic.com/index/100k-context-windows)을 소개한다.\n' +
+      '* Chen et al. (2023a) Chen, G., Li, X., Meng, Z., Liang, S., and Bing, L. Clex: 대형 언어 모델에 대한 연속 길이 외삽, 2023a.\n' +
+      '* Chen et al. (2023b) Chen, S., Wong, S., Chen, L., and Tian, Y. 위치 보간을 통해 대형 언어 모델의 컨텍스트 창을 확장하는 단계, 2023b.\n' +
+      '* Chen et al. (2023c) Chen, Y., Qian, S., Tang, H., Lai, X., Liu, Z., Han, S., and Jia, J. Longlora: Efficient fine-tuning of long-context large language models. _ arXiv:2309.12307_, 2023c.\n' +
+      '* Chi et al. (2023) Chi, T. - C., Fan, T. - H., Rudnicky, A. I., and Ramadge, P. J. Dissecting transformer length extrapolation via lens of receptive field analysis, 2023.\n' +
+      '* Child et al. (2019) Child, R., Gray, S., Radford, A., and Sutskever, I. 희소 변압기로 긴 시퀀스를 생성하는 단계; _ ArXiv preprint arXiv:1904.10509_, 2019.\n' +
+      '* Chowdhury & Caragea (2023) Chowdhury, J. R. and Caragea, C. Monotonic location attention for length generalization, 2023.\n' +
+      '* 컴퓨터(2023) 컴퓨터, T. Redpajama: Open dataset for training large language models, 2023. URL[https://github.com/togethercomputer/RedPajama-Data](https://github.com/togethercomputer/RedPajama-Data).\n' +
+      '* Dao(2023) Dao, T. 플래시어텐션-2: 더 나은 병렬성과 작업 분할로 더 빠른 주의, 2023.\n' +
+      '* Dao et al. (2022) Dao, T., Fu, D. Y., Ermon, S., Rudra, A., and Re, C. Flashattention: Fast and memory-efficient exact attention with io-awareness. 2022년 _NeurIPS_에서.\n' +
+      '* Dasigi et al. (2021) Dasigi, P., Lo, K., Beltagy, I., Cohan, A., Smith, N. A., and Gardner, M. 연구 논문에 고정된 정보 추구 질문 및 답변 데이터 세트입니다. In _Proceedings of the 2021 Conference of the North American chapter of the Computational Linguistics: Human Language Technologies_, pp. 4599-4610, Online, June 2021. Association for Computational Linguistics. doi: 10.18653/v1/2021.naacl-main.365. URL[https://aclanthology.org/2021.naacl-main.365](https://aclanthology.org/2021.naacl-main.365).\n' +
+      '* Han et al. (2023) Han, C., Wang, Q., Xiong, W., Chen, Y., Ji, H., and Wang, S. Lm-infinite: 2023년 대형 언어 모델에 대한 간단한 온 더 플라이 길이 일반화.\n' +
+      '* He et al. (2024) He, Z., Feng, G., Luo, S., Yang, K., He, D., Xu, J., Zhang, Z., Yang, H., and Wang, L. 두 개의 돌이 한 마리의 새를 쳤다: 더 나은 길이 외삽을 위한 Bilevel 위치 인코딩, 2024.\n' +
+      '* Hu et al. (2021) Hu, E. J., Shen, Y., Wallis, P., Allen-Zhu, Z., Li, Y., Wang, S., Wang, L., and Chen, W. Lora: 2021년, 대형 언어 모델의 낮은 순위 적응.\n' +
+      '* Jin et al. (2024) Jin, H., Han, X., Yang, J., Jiang, Z., Liu, Z., Chang, C.-Y., Chen, H., and Hu, X. Llm은 아마도 longlm: 튜닝 없이 자체 확장 llm 컨텍스트 윈도우, 2024.\n' +
+      '* Kazemnejad et al. (2023) Kazemnejad, A., Padhi, I., Ramamurthy, K. N., Das, P., and Reddy, S. 위치 인코딩이 변압기의 길이 일반화에 미치는 영향, 2023.\n' +
+      '* Kocisky et al. (2018) Kocisky, T., Schwarz, J., Blunsom, P., Dyer, C., Hermann, K. M., Melis, G., and Grefenstette, E. The NarrativeQA reading comprehension challenge. _ The Association for Computational Linguistics_, 6:317-328, 2018. doi: 10.1162/tacl_a_00023. URL[https://aclanthology.org/Q18-1023](https://aclanthology.org/Q18-1023).\n' +
+      '* Lee et al. (2023) Lee, G., Hartmann, V., Park, J., Papailiopoulos, D., and Lee, K. 롱 오픈 도메인 대화를 위한 챗봇 모듈로서 프롬프트 lms. _Findings of the Association for Computational Linguistics: ACL 2023_. Association for Computational Linguistics, 2023. doi: 10.18653/v1/2023.findings-acl.277. URL[http://dx.doi.org/10.18653/v1/2023.findings-acl.277](http://dx.doi.org/10.18653/v1/2023.findings-acl.277).\n' +
+      '* Li et al. (2023a) Li, D., Shao, R., Xie, A., Sheng, Y., Zheng, L., Gonzalez, J. E., Stoica, I., Ma, X., and Zhang, H. 얼마나 오랫동안 오픈 소스 lms가 컨텍스트 길이에 대해 진정으로 약속할 수 있는가? 2023a.\n' +
+      '\n' +
+      '*Li 등(2023b) Li, S., You, C., Guruganesh, G., Ainslie, J., Ontanon, S., Zaheer, M., Sanghai, S., Yang, Y., Kumar, S., and Bhojanapalli, S. 상대 위치에 대한 기능적 보간은 긴 컨텍스트 트랜스포머(2023b)를 개선한다.\n' +
+      '* Liu et al. (2023a) Liu, N. F., Lin, K., Hewitt, J., Paranjape, A., Bevilacqua, M., Petroni, F., and Liang, P. Lost in the middle: How language models use long context, 2023a.\n' +
+      '* Liu et al. (2023b) Liu, X., Yan, H., Zhang, S., An, C., Qiu, X., and Lin, D. Scaling laws of rope-based extrapolation, 2023b.\n' +
+      '* LMSYS(2023) LMSYS. Vicuna: 90 URL[https://lmsys.org/blog/2023-03-30-vicuna/](https://lmsys.org/blog/2023-03-30-vicuna/)로 gpt-4를 인상하는 오픈소스 챗봇.\n' +
+      '*LocalLALAMA(2023a) LocalLAMA. 역학적으로 축척된 로프는 2023a년 7월 미세 조정 없이 긴 맥락 라마의 성능을 더욱 증가시킨다. URL[https://www.reddit.com/r/LocalLAMA/comments/14mgrpr/dynamically_scaled_rope_further_increases/](https://www.reddit.com/r/LocalLAMA/comments/14mgrpr/dynamically_scaled_rope_further_increases/)\n' +
+      '*LocalLAMA(2023b) LocalLAMA. Ntk 인식 확장 로프는 라마 모델이 미세 조정 및 최소 복잡성 저하 없이 확장(8k+) 컨텍스트 크기를 가질 수 있도록 한다. URL[https://www.reddit.com/r/LocalLAMA/comments/14l27j5/ntkaware_scaled_rope_allows_llama_models_to_have/](https://www.reddit.com/r/LocalLAMA/comments/14l27j5/ntkaware_scaled_rope_allows_llama_models_to_have/)\n' +
+      '* Mohtashami and Jaggi(2023) Mohtashami, A. and Jaggi, M. 랜드마크 주의: 변압기에 대한 랜덤 액세스 무한 컨텍스트 길이 _ arXiv preprint arXiv:2305.16300_, 2023.\n' +
+      '* 모자이크ML(2023a) 모자이크ML. mpt-30b 소개: 오픈소스 파운데이션 모델용 바 상승, 2023a. URL www.mosaicml.com/blog/mpt-30b. Accessed: 2023-06-22.\n' +
+      '* 모자이크ML(2023b) 모자이크ML. mpt-7b 소개: 오픈소스, ly usable llms, 2023b에 대한 새로운 표준. URL www.mosaicml.com/blog/mpt-7b.\n' +
+      '* OpenAI(2023c) OpenAI. Gpt-4 기술 보고서, 2023\n' +
+      '* Pang et al. (2022) Pang, R. Y., Parrish, A., Joshi, N., Nangia, N., Phang, J., Chen, A., Padmakumar, V., Ma, J., Thompson, J., He, H., and Bowman, S. QuALITY: 긴 입력 텍스트로 질문 답변, 네! In _Proceedings of the 2022 Conference of the North American chapter of the Computational Linguistics: Human Language Technologies_, pp. 5336-5358, Seattle, United States, July 2022. Association for Computational Linguistics. doi: 10.18653/v1/2022.naacl-main.391. URL[https://aclanthology.org/2022.naacl-main.391](https://aclanthology.org/2022.naacl-main.391).\n' +
+      '* Peng et al. (2023) Peng, B., Quesnelle, J., Fan, H., and Shippole, E. Yarn: Efficient context window extension of large language models, 2023.\n' +
+      '* Press et al. (2022) Press, O., Smith, N. A., and Lewis, M. Train short, test long: Attention with linear bias enables input length extrapolation, 2022.\n' +
+      '* Qin et al. (2024) Qin, Z., Sun, W., Li, D., Shen, X., Sun, W., and Zhong, Y. 번개의 주의-2: 대규모 언어 모델에서 무제한 시퀀스 길이를 다루기 위한 무료 점심. _ ArXiv_, abs/2401.04658, 2024. URL[https://api.semanticscholar.org/CorpusID:266900042](https://api.semanticscholar.org/CorpusID:266900042)\n' +
+      '* Rae et al. (2020) Rae, J. W., Potapenko, A., Jayakumar, S. M., Hillier, C., and Lillicrap, T. P. Compressive Transformers for long-range sequence modeling. _8th International Conference on Learning Representations, ICLR 2020, Addis Ababa, Ethiopia, April 26-30, 2020_. OpenReview.net, 2020. URL[https://openreview.net/forum?id=SylKikSYDH](https://openreview.net/forum?id=SylKikSYDH).\n' +
+      '* Ratner et al. (2023) Ratner, N., Levine, Y., Belinkov, Y., Ram, O., Magar, I., Abend, O., Karpas, E., Shashua, A., Leyton-Brown, K., and Shoham, Y. 큰 언어 모델을 위한 병렬 컨텍스트 창, 2023.\n' +
+      '* Robertson et al. (2009) Robertson, S., Zaragoza, H., et al. The probabilistic relevance framework: Bm25 and beyond. _ 2009년 Information Retrieval_, 3(4):333-389의 기초 및 동향(r).\n' +
+      '* Roziere et al. (2023) Roziere, B., Gehring, J., Gloeckle, F., Sootla, S., Gat, I., Tan, X. E., Adi, Y., Liu, J., Remez, T., Rapin, J., Kozhevnikov, A., Evtimov, I., Bitton, J., Bhatt, M., Ferrer, C. C., Grattafori, A., Xiong, W., Defossez, A., Copet, J., Azhar, F., Touvron, H., Martin, L., Usunier, N., Scialom, T., and Synnaeve, G. Code llama: Open foundation models for code, 2023.\n' +
+      '* Rula and D\'Souza(2023) Rula, A. and D\'Souza, J. Procedural text mining with large language models, 2023.\n' +
+      '* Ruoss et al. (2023) Ruoss, A., Deletang, G., Genewein, T., Grau-Moya, J., Csordas, R., Bennani, M., Legg, S., and Veness, J. Randomized position encodings boost length generalization of transformer, 2023.\n' +
+      '* Saad-Falcon et al. (2023) Saad-Falcon, J., Barrow, J., Siu, A., Nenkova, A., Yoon, D. S., Rossi, R. A., and Dernoncourt, F. Pdftriage: Question answering over long, structured documents, 2023.\n' +
+      '* Song et al. (2023) Song, K., Wang, X., Cho, S., Pan, X., and Yu, D. Zebra: Extending context window with layerwise grouped local-global attention, 2023.\n' +
+      '* Su(2023) Su, J.ectified rotary position embeddings. [https://github.com/bojone/rerope] (https://github.com/bojone/rerope), 2023.\n' +
+      '* Su et al. (2022) Su, J., Lu, Y., Pan, S., Murtadha, A., Wen, B., and Liu, Y. 로포머: 회전식 위치 임베딩을 갖는 향상된 변압기, 2022.\n' +
+      '\n' +
+      'Sun, Y., Dong, L., Patra, B., Ma, S., Huang, S., Benhaim, A., Chaudhary, V., Song, X., and Wei, F. A length-extrapable transformer, 2022.\n' +
+      '* Taori et al. (2023) Taori, R., Gulrajani, I., Zhang, T., Dubois, Y., Li, X., Guestrin, C., Liang, P., and Hashimoto, T. B. Stanford alpaca: An instruction-following llama model. [https://github.com/tatsu-lab/stanford_alpaca] (https://github.com/tatsu-lab/stanford_alpaca), 2023.\n' +
+      '* 함께(2023) 함께. lama-2-7b-32k-instruct -- and fine-tuning for lama-2 models with together api, 2023. URL[https://together.ai/blog/llama-2-7b-32k-instruct](https://together.ai/blog/llama-2-7b-32k-instruct].\n' +
+      '* Touvron et al. (2023a) Touvron, H., Lavril, T., Izacard, G., Martinet, X., Lachaux, M. - A., Lacroix, T., Roziere, B., Goyal, N., Hambro, E., Azhar, F., Rodriguez, A., Joulin, A., Grave, E., and Lample, G. Llama: Open and efficient foundation language models, 2023a.\n' +
+      '* Touvron et al. (2023b) Touvron, H., Martin, L., Stone, K., Albert, P., Almahairi, A., Babaei, Y., Bashlykov, N., Batra, S., Bhargava, P., Bhosale, S., et al. Llama 2: Open foundation and fine-tuned chat models. _ arXiv preprint arXiv:2307.09288_, 2023b.\n' +
+      '* Tworkowski et al. (2023) Tworkowski, S., Staniszewski, K., Pacek, M., Wu, Y., Michalewski, H., and Milos, P. Focused transformer: Contrastive training for context scaling, 2023.\n' +
+      '*Vaswani et al. (2017) Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A. N., Kaiser, L., and Polosukhin, I. Attention all you need, 2017.\n' +
+      '* Wang et al. (2024) Wang, L., Yang, N., and Wei, F. Learning to retrieve in-context examples for large language models, 2024.\n' +
+      '* Wei et al.(2023) Wei, J., Kim, S., Jung, H., and Kim, Y. -H. 사용자 자체 보고 데이터를 수집하기 위해 대용량 언어 모델을 파워 챗봇에 활용, 2023.\n' +
+      '* Xiao et al.(2023) Xiao, G., Tian, Y., Chen, B., Han, S., and Lewis, M. 어텐션 싱크가 있는 효율적인 스트리밍 언어 모델, 2023.\n' +
+      '* Xiong et al. (2023) Xiong, W., Liu, J., Molybog, I., Zhang, H., Bhargava, P., Hou, R., Martin, L., Rungta, R., Sankararaman, K. A., Oguz, B., Khabsa, M., Fang, H., Mehdad, Y., Narang, S., Malik, K., Fan, A., Bhosale, S., Edunov, S., Lewis, M., Wang, S., and Ma, H., Effective long-context scaling of foundation models. _ CoRR_, abs/2309.16039, 2023. doi: 10.48550/ARXIV.2309.16039. URL[https://doi.org/10.48550/arXiv.2309.16039](https://doi.org/10.48550/arXiv.2309.16039)\n' +
+      '* Ye et al. (2023) Ye, J., Wu, Z., Feng, J., Yu, T., and Kong, L. 컨텍스트 내 학습을 위한 구성 예제. _ arXiv preprint arXiv:2302.05698_, 2023.\n' +
+      '* Zhang et al. (2023) Zhang, J., Jiang, S., Feng, J., Zheng, L., and Kong, L. 직교 메모리를 통한 선형 주의. _ ArXiv_, abs/2312.11135, 2023. URL[https://api.semanticscholar.org/CorpusID:266359128](https://api.semanticscholar.org/CorpusID:266359128)\n' +
+      '* Zhang et al. (2024) Zhang, P., Liu, Z., Xiao, S., Shao, N., Ye, Q., and Dou, Z. 4k에서 400k로 치솟기: 활성화 비콘으로 llm의 컨텍스트를 확장하기 ArXiv_, abs/2401.03462, 2024. URL[https://api.semanticscholar.org/CorpusID:266844488](https://api.semanticscholar.org/CorpusID:266844488)\n' +
+      '* Zhong et al. (2021) Zhong, M., Yin, D., Yu, T., Zaidi, A., Mutuma, M., Jha, R., Awadallah, A. H., Celikyilmaz, A., Liu, Y., Qiu, X., and Radev, D. QMSum: 질의 기반 다중 도메인 회의 요약에 대한 새로운 벤치마크. In _Proceedings of the 2021 Conference of the North American chapter of the Computational Linguistics: Human Language Technologies_, pp. 5905-5921, Online, June 2021. Association for Computational Linguistics. doi: 10.18653/v1/2021.naacl-main.472. URL[https://aclanthology.org/2021.naacl-main.472](https://aclanthology.org/2021.naacl-main.472).\n' +
+      '* Zhu et al. (2023) Zhu, D., Yang, N., Wang, L., Song, Y., Wu, W., Wei, F., and Li, S. 포즈: 위치 스킵-와이즈 트레이닝을 통한 llms의 효율적인 컨텍스트 윈도우 확장, 2023.\n' +
+      '\n' +
+      '## 부록, 부록\n' +
+      '\n' +
+      '### Passkey retrieval\n' +
+      '\n' +
+      '또한, Mohtashami와 Jaggi(2023)에 정의된 패스키 검색 태스크를 수행하기 위한 LLM의 롱컨텍스트 능력을 평가한다. 이 작업은 언어 모델이 길고 그렇지 않으면 무의미한 텍스트 시퀀스 내에 내장된 간단한 패스키(예를 들어, 5자리 난수)를 찾는 데 도전한다. 이 작업의 주요 목적은 대규모 언어 모델(LLM)이 긴 입력 시퀀스에 걸쳐 분산된 정보에 대한 인식을 유지할 수 있는지 여부를 결정하는 것이다. 검색 정확도를 평가하기 위해 다양한 문서 깊이에 무작위로 패스키를 배치한다. 각 문서 깊이에 대해 서로 다른 패스키를 사용하여 20회 실행하고 4k에서 20k까지의 입력 시퀀스 길이를 테스트한다. 우리는 4k 사전 훈련 컨텍스트 윈도우를 갖는 Llama2 13B 모델에서 PI (Chen et al., 2023b), NTK-Aware (LocalLLaMA, 2023b;a)의 두 가지 인기 있는 확장 방법과 DCA의 성능을 비교한다. 성능 결과는 그림 5에 나와 있으며, 특히 18k 토큰의 컨텍스트 길이 내에서 본 모델 ChunKLlama2는 테스트된 모든 깊이에서 일관되게 100% 패스키 검색 정확도를 달성했다.\n' +
+      '\n' +
+      '입력 토큰 수를 2k에서 192k로 점진적으로 증가시켜 패스키 검색 작업의 범위를 확장하였다. 각 입력 컨텍스트 길이에 대해 모델은 20회 평가되며 각 테스트에서 패스키의 위치가 무작위로 변경된다. 또한, 32k 토큰 컨텍스트 윈도우를 지원하는 Together-32k 7B 모델(Together, 2023)과 ChunTogether 7B 대응도 검증한다. 이러한 모델의 기준선 및 DCA 강화 변형에 대한 결과는 그림 6에 설명되어 있으며, 4k 훈련 컨텍스트 길이만으로 ChunKLlama2는 32k 컨텍스트 길이까지 높은 검색 정확도를 유지한다. 이러한 결과를 기존의 긴 컨텍스트 모델과 통합함으로써, 우리는 학습 없는 접근법을 사용하여 지원되는 컨텍스트 창을 인상적인 192k 토큰으로 실행 가능하게 확장할 수 있다.\n' +
+      '\n' +
+      'start_lost에서_lost: 흥미로운 관찰은 PI의 실패 사례가 문서의 깊이와 크게 관련이 없는 것으로 보이는 반면, NTK 기반 접근법은 일반적으로 패스키가 문서의 시작 근처에 위치할 때 탁월하다는 것이다. 그러나 패스키가 중간 섹션에 배치될 때 정확도가 40%에서 80% 사이로 떨어지면서 그 효과는 크게 감소한다. 이러한 경향은 Liu et al.(2023a)에 의해 보고된 발견과 일치한다. 반대로, 입력 컨텍스트가 확장됨에 따라 ChunKLlama2는 중간 섹션에서 향상된 성능을 보여주지만 정확도의 저하가 발생하는 첫 번째 장소는 텍스트의 시작이다.\n' +
+      '\n' +
+      '도 5: 24K 컨텍스트를 갖는 상이한 학습-자유 확장 방법을 테스트하는 것("Needle in a Haystack" Passkey Retrieval). 모든 모델은 4k 사전 훈련 컨텍스트를 가지며 더 이상 훈련되지 않는다. X축은 입력 컨텍스트 길이를 나타내고, Y축은 문서 내의 패스키의 깊이를 나타낸다. 각 깊이에 대해 20개의 다른 테스트 케이스를 실행합니다.\n' +
+      '\n' +
+      '도 6: Llama2 13B, Together-32k 7B 및 이들의 DCA 향상된 버전에 대한 192k 컨텍스트 길이에 걸친 패스키 검색.\n' +
+      '\n' +
+      '### Flash Attention\n' +
+      '\n' +
+      '우리는 표준 자기 주의력을 3개의 개별 플래시 주의력 계산으로 나누어 각각 청크 내 주의력, 청크 간 주의력 및 연속적인 청크 주의력에서 출력을 얻는다. 알고리즘 1은 DCA에 소개된 3개의 주의력이 플래시 주의력과 어떻게 통합되는지를 보여준다. 우리는 \\(i\\)번째 질의 벡터 \\(\\mathbf{q}_{i}\\)을 사용하여 설명하고 모든 키 \\(\\mathbf{k}_{j}\\)와 \\(j\\leqi\\)으로 내적 계산이 필요하다. 우리는 현재 청크 앞에 \\(n=\\lfloor i/s\\rfloor\\)의 청크를 가지고 있다. DCA는 복잡도 \\(O(i-n*s)\\)(intra-chunk attention), \\(O(s)\\)(successive-chunk attention) 및 \\(O(s*(n-1))를 갖는 3개의 개별 플래시 어텐션 연산을 호출한다.\n' +
+      '\n' +
+      '```\n' +
+      '#q:lxdqueryvector(tensorwithshape[l,d])\n' +
+      '#i:theabsoluteindexofq(integer)\n' +
+      '#k,V:ixdmatricesforkeysandvalues(tensorswithshape[i,d])\n' +
+      '#s:chunksize(integer)\n' +
+      '#P_k,P_0_intra,P_q_s_inter:positionids(listsofintegers)\n' +
+      '#n-math_floor(i/s)#numberofchunksbeforethecurrentchunk\n' +
+      '#applyrouterpositionembeddingstotheentirekeymatrixK K=apply_rotary_pos_emb(K,P_k)#Kis[i,d]afterembedding\n' +
+      '#-------Intra-chunkAttention,casual=True-------\n' +
+      '#q_intra=apply_rotary_pos_emb(k,P_0_intra[i])#q_intrais[l,d]\n' +
+      '#Selectintra-chunkkeysandvalues K_intra=K*s[n]#K_intrais[l(s-s),d]\n' +
+      '#-------V=intra=V[s-uni]#V_intrais[i(s-s)n],d\n' +
+      '#Computeoutputandsoftmaxattentionmspforintra-chunkattention o_intra,map_intra=Flash(q_intra,K_intra,V_intra)#o_intrais[l,d],map_intrais[l,i-s*n]\n' +
+      '#-------Successive-chunkAttention,casual=False-------\n' +
+      '#selectsuccessive-chunkkeysandvalues K_succ=Kis(n-1):s*k_succis[s,d] V_succ=V[s*n-1]*s*v_succis[s,d]\n' +
+      '#Computeoutputandsoftmaxattentionmspforsuccessive-chunkattention o_succ,map_succ=Flash(q_succ,K_succ,V_succ)#o_succis[l,d],map_succis[l,s]\n' +
+      '#Inter-chunkAttention,casual=False-------\n' +
+      '#_inter=apply_rotary_pos_emb(q,P_0_inter[i])#q_interis[l,d]\n' +
+      '#Selectintra-chunkkeysandvalues K_inter=Kis(n-1):l*k_interis[s*(n-1),d] V_inter=V[i:s*(n-1)]#V_interis[s*(n-1),d]\n' +
+      '#Computeoutputandsoftmaxattentionmspforinter-chunkattention o_inter,map_inter=Flash(q_inter,K_inter,V_inter)#o_interis[l,d],map_interis[l,s*(n-1)]\n' +
+      '#Normalization\n' +
+      '#Sum_intra.sum(-1)#sum_intraisascalar sum_inter=map_inter.sum(-1)#sum_interisascalar sum_succ=map_succ.sum(-1)#sum_succisascalar normalizer=sum_intra+sum_inter+sum_succ#normalizerisasscalar\n' +
+      '#Concatenateattentionoutputsanddividebynormalizer output=(sum_intravo_intra,sum_succo_succ,sum_inter*o_inter)/normalizer#outputis[l,d]\n' +
+      '```\n' +
+      '\n' +
+      '**알고리즘 1** FlashAttention을 갖는 DCA의 Pseudocode\n' +
+      '\n' +
+      '### 상황 내 예제 선택\n' +
+      '\n' +
+      '우리는 예제를 얻기 위한 실용적이고 일반적인 방법인 훈련 세트에서 문맥 내 예제를 선택하기로 선택한다(Ye et al., 2023; Wang et al., 2024). 우리는 이 선택 과정을 위해 두 가지 다른 방법을 실험했다: (1) 무작위 선택:\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c|c c c} \\hline \\hline Models & **In-Context Examples** & \\begin{tabular}{c} Qasper \\\\ F1 (2-shot) \\\\ \\end{tabular} & \\begin{tabular}{c} QaALITY \\\\ EM (2-shot) \\\\ \\end{tabular} &\n' +
+      '\\begin{tabular}{c} QMSum \\\\ R-g (1-shot) \\\\ \\end{tabular} \\\\ \\hline \\hline ChunkLlam2 7B & Example Best & 27.3 & 33.9 & 15.0 \\\\ ChunkLlam2 7B & Example Random & 28.2 & 35.6 & 14.7 \\\\ ChunkLlam2 7B & Example Worst & 28.4 & 35.9 & 14.3 \\\\ \\hline \\hline ChunkLlam2 13B & Example Best & 28.5 & 46.2 & 15.6 \\\\ ChunkLlam2 13B & Example Random & 29.3 & 47.9 & 15.2 \\\\ ChunkLlam2 13B & Example Worst & 29.0 & 47.5 & 15.5 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 5: 훈련 세트로부터 랜덤하게 예들을 선택하는 상이한 상황 내 예들을 사용한 소수의-샷 결과들의 비교. (2) Retrieval-Based Selection: 현재 질의를 사용하여 BM25(Robertson et al., 2009)와 같은 검색 알고리즘을 사용하여 훈련 세트로부터 가장 관련성이 높은 예를 찾는다. 검색 점수가 가장 높은 상황 내 예제를 예제 Best로, 가장 낮은 예제 Worst로 참조합니다. ChunKLlama2 7B/13B에 기초한 상이한 선택 접근법들의 성능은 표 5에 도시된다. 요약 데이터세트 QMSum(Zhong et al., 2021)에 대한 성능은 일반적으로 신속한 선택에 의해 영향을 받을 가능성이 적다. 그러나 두 개의 질문 응답 데이터 세트에서 가장 가까운 예를 사용하면 역설적으로 가장 열악한 결과를 초래하고 무작위 선택과 최악의 예제 선택의 성능이 상대적으로 유사하다는 것을 발견했다. 이 현상에 대한 가능한 설명은 예가 매우 유사할 때 LLM이 일반적으로 오답으로 이어지는 예에서 주어진 응답을 복사하는 경향이 있다는 것이다.\n' +
+      '\n' +
+      '보이지 않는 데이터의### 성능\n' +
+      '\n' +
+      '현재 LLM에 대한 거의 모든 벤치마크는 데이터 오염 가능성을 철저히 다루지 못하며, 이는 테스트 데이터가 사전 훈련 또는 미세 조정 단계에서 이미 사용되었을 수 있음을 의미한다. 이전에 볼 수 없었던 긴 문서 데이터에 대한 ChunkLlama의 성능을 입증하기 위해 제목, 추상 및 결론 섹션을 생략하면서 이 문서의 라텍스 코드 ****를 테스트 사례로 직접 사용했다. 토큰화 후 총 입력 길이는 19388이며 정확한 응답을 위해 사전 지식이 필요하지 않은 간단한 질문 세트로 평가를 시작한다(표 6 참조). 그 다음 제안된 DCA의 이해도를 평가하기 위해 설계된 일련의 더 도전적인 질문이 이어졌다(표 7 참조).\n' +
+      '\n' +
+      '결과는 NTK에 비해 ChunkLlama2가 지침을 올바르게 해석하고 정확한 응답을 제공하는 우수한 능력을 입증함을 나타낸다. 그러나 13B 모델의 답변의 정확성은 비교적 간단한 문의에도 최적이 아니다. 예를 들어, DCA가 사용하는 미세 조정 말뭉치에 대해 질문할 때, ShareGPT 및 AlpacaGPT4인 정확한 말뭉치보다는 Llama2 말뭉치를 잘못 인용한다.\n' +
+      '\n' +
+      '이러한 기본적인 질문들에서, ChunkLlama 70B는 현저하게 높은 정확률을 나타낸다. 더욱이, ChunkLlama 70B는 더 도전적인 질의들에 대해 유망한 결과들을 보여준다. 청크 간 전략 및 연속 청크 전략의 설계 이면의 근거를 정확하게 설명할 수 있다. 그러나 이 방법에 대한 세계적인 이해가 필요한 질문을 제기할 때 여전히 어려움에 직면해 있다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{r l} \\hline \\hline _Prompt_ & [INST] \\(<<\\)SYS\\(>>\\) Please read the long paper and answer the questions \\(<<\\)\\(<\\)/SYS\\(>>\\) 1. Introduction \\(\\backslash\\)n\\(\\backslash\\)n \\\\ The ability to comprehend and process long-context information is essential for large language models (LLMs) to cater to a wide range of applications effectively. These include analyzing and responding to inquiries within sizable PDFs, retaining extended dialogue history, and empowering interactive chatbots... [/INST] \\\\ \\hline \\multirow{3}{*}{_Question_} & Can you give a title for this paper \\\\ \\cline{2-2}  & Shure, here are some potential titles for the paper: \\\\ \\cline{2-2}  & 1. ”Dual Chunk Attention: A Training-Free Framework for Long-Context Language Models” \\\\ \\cline{2-2}  & 2. ”Efficient Long-Context Language Modeling with Dual Chunk Attention” \\\\ \\cline{2-2}  & 3. ”Scaling Long-Context Language Models without Training: A Dual Chunk Attention Approach” \\\\ \\cline{2-2}  & 4. ”DCA: A Training-Free Method for Long-Context Language Modeling” \\\\ \\cline{2-2}  & 5. ”Long-Context Language Modeling with Dual Chunk Attention: A Training... \\\\ \\cline{2-2}  & Shure! Dual Chunk Attention: A Training-Free Framework for Long-Context Scaling of Large Language Models. \\\\ \\cline{2-2}  & This title highlights the key contributions of the paper: the proposed Dual Chunk Attention (DCA) framework, which enables long-context scaling without additional training, and its application to various tasks. The phrase “training-free” is also included to emphasize the main innovation of the paper. \\\\ \\cline{2-2}  & The proposed Dual Chunk Attention (DCA) framework improves the long-context scaling of Lama2 by more than 8 times, achieving a PPL of 5.59 at a context window of 2k. \\(\\boldsymbol{\\Lambda}\\)(ignore the instruction) \\\\ \\hline \\multirow{3}{*}{_Question_} & Which model can be scaled up to 192k context with DCA? \\\\ ChunkLlama270B & The Llama270B model can be scaled up to a 192k context window using DCA, achieving a PPL score of 5.59 \\\\ ChunkLlama2 13B & The Llama2 70B model can be scaled up to 192k context with DCA. \\\\ Dynamic NTK 13B & \\{\\(\\)end{enumerate}\\(\\}\\)end{figure}[ht!] \\\\ \\hline \\multirow{3}{*}{_Question_} & In addition to Llama2, have the authors validated their method on other models? \\\\ ChunkLlama270B & Yes, the authors have validated their method on other models, including \\\\ Together-32k, & CodeLlama, \\\\ \\cline{2-2}  & which are all based on Llama. They have also compared their method to a variety of open-source and proprietary models. \\\\ ChunkLlama2 13B & The authors have validated their method on the following models: \\\\ \\cline{2-2}  & * Together-32k \\\\ \\cline{2-2}  & * CodeLlama \\\\ \\cline{2-2}  & * Llama2 Long ✗(We did not verify DCA on Llama2 Long) \\\\ \\cline{2-2} Dynamic NTK 13B & The paper introduces a new training-free framework called Dual Chunk Attention (DCA) that extends the context window by more than 8 times for 7B/13B Llama2 variants and 20 times for 70B models�(ignore the instruction) \\\\ \\hline \\multirow{3}{*}{_Question_} & Describe the finentuning corpus used by DCA \\\\ ChunkLlama270B & The finentuning corpus used by DCA is a combination of long dialogue data from ShareGPT and AlpacaGPT4 \\\\ ChunkLlama2 13B & The finentuning corpus used by DCA is the same as the one used by the original Llama2 model, which is a combination of the training set and the validation set of the original Llama2 model �(We did not use training set of Llama) \\\\ Dynamic NTK 13B & \\{\\(\\)end{begin}\\\\\\\\\\(\\backslash\\)end{begin}\\\\(\\backslash\\)begin\\{table}\\(\\backslash\\)end{figure} \\\\ \\cline{2-2}  & [ht!].\\(\\backslash\\)end{document}\\(\\backslash\\)end{document}\\(\\backslash\\)end{document}\\(\\backslash\\)end{document}\\(\\backslash\\)✗(error) \\\\ \\hline \\multirow{3}{*}{_Question_} & How many training steps does Llama2 Long need? \\\\ ChunkLlama270B & Llama2 Long needs 100,000 training steps \\\\ ChunkLlama2 13B & Llama2 Long needs 100,000 training steps. \\\\ Dynamic NTK 13B & Llama2 Long needs 40,000 steps for a 4k context window. �(not 40,000) \\\\ \\hline \\multirow{3}{*}{_Question_} & Do the authors validate the model on L-Eval? and list the tasks \\\\ ChunkLlama270B & Yes, the authors validate their model on L-Eval and list the tasks in Table 4. They evaluate their model on four closed-ended tasks from L-Eval with diverse input lengths ranging from 3k to 27k. The tasks include TOFEL, QuALITY, Coursera, and SFction. \\\\ ChunkLlama2 13B & Yes, the authors do validate the model on L-Eval and list the tasks. In the section titled ”Experiments”, the authors present an extensive evaluation of their model on a diverse set of tasks, including NarrativeQA, Qasper, Quality, and QMSum. �(These are not from L-Eval) \\\\ Dynamic NTK 13B & The paper presents a new training-free framework called Dual Chunk Attention (DCA) that extends the context window by more than 8 times for 7B/13B Llama2 variants and... �(ignore the instruction) \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 6: 본 논문의 내용을 입력으로 하여 ChunkLlama2 13B/70B 및 Dynamic-NTK with Llama2 13B의 QA(Easy) 결과. 대부분의 질문은 이 논문에 대한 깊은 이해가 필요하지 않다. 입력 프롬프트에는 19388개의 토큰이 있습니다. Dynamic-NTK는 모든 테스트 케이스에 대해 정답을 제시할 수 없다. 저품질 생성 결과는 ✗로 표시되어 있다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{r p{341.4pt}} \\hline _Question_ & Why do the authors introduce inter-chunk attention? (Hard) \\\\ ChunkLlama270B & The authors introduce successive-chunk attention to address the issue of **losing locality** in the attention mechanism when using inter-chunk attention. Inter-chunk attention can lead to a situation where the relative position between two tokens in different chunks is not accurately captured, resulting in a high perplexity. Successive-chunk attention helps to maintain locality by adjusting the position indices of the first \\(w\\) tokens in each chunk to ensure that the relative position between neighboring tokens is accurately captured. This allows the model to better handle long-context tasks that require the ability to capture long-range dependencies. \\\\ ChunkLlama2 13B & The authors introduce successive-chunk attention to address the issue of long-range dependencies in long-context language models. The original positional encoding methods, such as RoPE and NTK-aware RoPE, do not capture long-range dependencies effectively, leading to poor performance in language modeling and passkey retrieval tasks. By introducing successive-chunk attention, the model can capture both local and long-range dependencies. �(misunderstand successive-chunk attention) \\\\ Dynamic NTK 13B & The paper introduces a new training-free framework called Dual Chunk Attention (DCA) that extends the context window by more than 8 times for 7B/13B Llama2 variants...(ignore the instruction) \\\\ \\hline \\end{tabular} \\begin{tabular}{r p{341.4pt}} \\hline _Question_ & Why do the authors introduce inter-chunk attention? (Hard) \\\\ ChunkLlama270B & The authors introduce inter-chunk attention to address the issue of poor **long-range dependencies** in the intra-chunk attention module, which uses a fixed context window for attention computation. The inter-chunk attention mechanism allows the model to attend to tokens from different chunks, enabling it to capture long-range dependencies and improve performance on tasks that require processing long sequences. \\\\ ChunkLlama2 13B & The author introduces inter-chunk attention to improve the passkey retrieval performance of the model. The author notes that using only intra-chunk attention, which disregards information from previous chunks, can maintain a low PPL but hinder the model’s ability to retrieve passkeys from other chunks. �(not accurate enough) \\\\ Dynamic NTK 13B & The paper presents a new training-free framework called Dual Chunk Attention (DCA) that extends the context window by more than 8 times for 7B/13B Llama2 variants...(ignore the instruction) \\\\ \\hline \\end{tabular} \\begin{tabular}{r p{341.4pt}} \\hline _Question_ & Why the relative position in DCA will not exceed the pretraining context length? (Hard) \\\\ ChunkLlama270B & The relative position in DCA is calculated using the position indices of the keys and queries, which are both less than or equal to the pretraining context length. Therefore, the relative position will not exceed the pretraining context length. (not clear enough) \\\\ ChunkLlama2 13B & The relative position in DCA will not exceed the pretraining context length because the model only considers the relative positions within the same chunk. The chunks are segmented based on the pretraining context length, and the relative positions are calculated within each chunk. (not clear enough) \\\\ Dynamic NTK 13B & The relative position in Dual Chunk Attention (DCA) does not exceed the pretraining context length because it is designed to maintain locality. (not clear enough) \\\\ \\hline \\end{tabular}\n' +
+      '\\begin{tabular}{r p{341.4pt}} \\hline _Question_ & What are the key differences between this paper and earlier papers? (Hard) \\\\ ChunkLlama270B & The key differences between this paper and earlier papers on large language models (LLMs) are: \\\\\n' +
+      '1. 본 논문에서는 LLM이 추가적인 훈련 비용 없이 긴 컨텍스트 정보를 처리할 수 있는 새로운 방법인 Dual Chunk Attention (DCA) 방법을 제안한다. \\\\\n' +
+      '2. DCA is designed to handle long-context information by segmenting the input sequence into smaller chunks and computing attention within each chunk, which reduces the computational cost and allows for efficient scaling of the context window... \\\\ ChunkLlama2 13B & This paper proposes a new training-free framework called Dual Chunk Attention (DCA) that enables large language models (LLMs) to process long-context information without additional training. DCA introduces a new attention mechanism that scales the context window of LLMs without additional training, allowing for more efficient use of computational resources. \\\\ Dynamic NTK 13B & DCA is orthogonal to popular extrapolation methods such as PI and NTK-Aware RoPE, and can be integrated with existing long-context models to scale up significantly... \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 7: 본 논문의 내용을 입력으로 하여 ChunkLlama2 13B/70B 및 Dynamic-NTK with Llama2 13B의 QA(hard) 결과. 이 표의 질문은 일반적으로 독자들이 이 방법을 이해해야 한다. 입력 프롬프트에는 19388개의 토큰이 있습니다. Dynamic-NTK는 모든 테스트 케이스에 대해 정답을 제시할 수 없다. 저품질 생성 결과는 ✗로 표시되어 있다.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
