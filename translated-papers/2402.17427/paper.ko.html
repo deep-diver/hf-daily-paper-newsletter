@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# VastGaussian: Vast 3D Gaussians for Large Scene Reconstruction\n' +
+      '\n' +
+      'Jiaqi Lin\\({}^{1*}\\)  Zhihao Li\\({}^{2*}\\)  Xiao Tang\\({}^{2}\\)  Jianzhuang Liu\\({}^{3}\\)  Shiyong Liu\\({}^{2}\\)  Jiayue Liu\\({}^{1}\\)\n' +
+      '\n' +
+      'Yangdi Lu\\({}^{2}\\)  Xiaofei Wu\\({}^{2}\\)  Songcen Xu\\({}^{2}\\)  Youliang Yan\\({}^{2}\\)  Wenming Yang\\({}^{1\\dagger}\\)\n' +
+      '\n' +
+      '화웨이 노아의 방주연구소({}^{1}\\) 칭화대\n' +
+      '\n' +
+      '등 기여도 \\({}^{*}\\) 등 기여도 \\({}^{\\dagger}\\) 교신저자\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      '큰 장면 재구성을 위한 기존의 NeRF 기반 방법들은 종종 시각적 품질 및 렌더링 속도에 한계를 갖는다. 최근 3D 가우스 분할은 소규모 및 객체 중심 장면에서 잘 작동하지만, 제한된 비디오 메모리, 긴 최적화 시간 및 눈에 띄는 외관 변화로 인해 큰 장면으로 확장하는 것은 문제를 제기한다. 이러한 문제를 해결하기 위해 본 논문에서는 3차원 가우시안 스플래팅 기반의 대용량 장면에서의 고품질 복원과 실시간 렌더링을 위한 첫 번째 방법인 VastGaussian을 제안한다. 본 논문에서는 훈련 카메라와 포인트 클라우드가 공역을 인지하는 가시성 기준으로 적절하게 분포된 큰 장면을 여러 개의 셀로 분할하는 점진적 분할 전략을 제안한다. 이들 셀은 병렬 최적화 후에 완전한 장면으로 병합된다. 또한 렌더링된 이미지의 외형 변화를 줄이기 위해 디커플드 외관 모델링을 최적화 프로세스에 도입한다. 본 논문에서 제안하는 방법은 기존의 NeRF 기반 방법을 능가하고, 다수의 대형 장면 데이터 세트에서 최첨단 결과를 달성하여 빠른 최적화 및 고충실도 실시간 렌더링을 가능하게 한다. 프로젝트 페이지: [https://vastgaussian.github.io](https://vastgaussian.github.io)\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      '사진 현실감 있는 시각적 품질과 실시간 렌더링을 필요로 하는 자율주행[22, 33, 54], 항공측량[6, 13], 가상현실 등 많은 응용 분야에서 대형 장면 재구성이 필수적이다. 일부 접근법 [41, 44, 52, 53, 61]은 신경 복사 필드(NeRF) [31]을 대규모 장면으로 확장하기 위해 도입되지만, 여전히 디테일이 부족하거나 천천히 렌더링한다. 최근 3차원 가우시안 스플래팅(3DGS, 3DGaussian Splatting)[21]은 1080p 해상도의 광실감 및 실시간 렌더링을 가능하게 하는 시각적 품질 및 렌더링 속도에서 인상적인 성능을 가진 유망한 접근법으로 등장한다. 동적 장면 재구성[28, 51, 55, 56] 및 3D 콘텐츠 생성[12, 42, 59]에도 적용된다. 그러나, 이러한 방법들은 소규모 및 객체 중심 장면들에 초점을 맞추고 있다. 대규모 환경에 적용할 경우 여러 가지 확장성 문제가 있다. _ 첫째, 3D 가우시안들의 수는 주어진 비디오 메모리에 의해 제한되는 반면, 큰 장면의 풍부한 디테일은 수많은 3D 가우시안들을 필요로 한다. 3DGS를 대규모 장면에 쉽게 적용하면 저품질 재구성 또는 메모리 외 오류가 발생한다. 직관적인 설명을 위해, \\(32\\) GB GPU를 사용하여 약 \\(11\\)백만 3D 가우시안들을 최적화할 수 있는 반면, Mip-NeRF 360dataset [3]의 작은 _Garden_ 장면은 이미 \\(100m^{2}\\) 미만의 면적을 갖는 약 \\(5.8\\)백만 3D 가우시안들을 필요로 한다. Second_, 전체 큰 장면을 전체적으로 최적화하기 위해 충분한 반복을 필요로 하며, 이는 시간이 많이 소요될 수 있고, 양호한 정규화 없이 불안정할 수 있다. _ 셋째_, 조명은 일반적으로 큰 장면에서 불균일하며, 그림과 같이 캡처된 이미지에서 눈에 띄는 외관 변동이 있다. 2(a) 3DGS는 다른 견해에 걸친 이러한 격차를 보상하기 위해 낮은 불투명도를 가진 큰 3D 가우시안들을 생산하는 경향이 있다. 예를 들어, 밝은 블롭들은 높은 노출의 이미지들을 갖는 카메라들에 근접하는 경향이 있고, 어두운 블롭들은 낮은 노출의 이미지들과 연관된다. 이 블롭은 그림 1과 같이 새로운 관점에서 관찰될 때 공기 중 불쾌한 부유물로 변한다. 2(b,d)\n' +
+      '\n' +
+      '이러한 문제를 해결하기 위해 본 논문에서는 3차원 가우시안 스플래팅 기반의 대규모 장면 재구성을 위한 Vast 3D 가우시안(VastGaussian)을 제안한다. 우리는 분할 및 정복 방식으로 큰 장면을 재구성한다: 큰 장면을 여러 개의 셀로 분할하고, 각 셀을 독립적으로 최적화하고, 마지막으로 전체 장면으로 병합한다. 더 미세한 공간 규모와 더 작은 데이터 크기로 인해 이러한 셀을 최적화하는 것이 더 쉽다. 자연스럽고 순진한 분할 전략은 훈련 데이터를 위치에 따라 지리적으로 배포하는 것이다. 이는 일반적인 카메라가 거의 없어 인접한 두 셀 사이의 경계 아티팩트를 유발할 수 있으며, 충분한 감독 없이 공기 중 부유체를 생성할 수 있다. 따라서, 우리는 보다 많은 훈련 카메라와 포인트 클라우드를 점진적으로 통합하기 위해 가시성 기반 데이터 선택을 제안하며, 이는 끊김 없는 병합을 보장하고 공기 중의 부유물을 제거한다. 우리의 접근 방식은 3DGS보다 더 나은 유연성과 확장성을 허용한다. 이들 셀들 각각은 더 적은 수의 3D 가우시안들을 포함하고, 이는 특히 다수의 GPU들과 병렬로 최적화될 때 메모리 요구 및 최적화 시간을 감소시킨다. 병합된 장면에 포함된 3D 가우시안들의 총 수는 전체적으로 훈련된 장면의 총 수를 크게 초과할 수 있어 재구성 품질을 향상시킨다. 또한, 큰 장면 전체를 재교육하지 않고 새로운 셀을 통합하거나 특정 영역을 미세 조정함으로써 장면을 확장할 수 있다.\n' +
+      '\n' +
+      '외관변동에 의한 부유물을 저감하기 위해, NeRF 기반 방법[41, 61]에 대해 외관 임베딩이 있는 생성 잠재 최적화(Generative Latent Optimization, GLO)[5]를 제안하였다. 이 접근법은 광선 마킹을 통해 포인트를 샘플링하고 포인트 피쳐는 최종 색상을 얻기 위해 외관 임베딩과 함께 MLP에 공급된다. 렌더링 프로세스는 최적화와 동일하며, 이는 여전히 입력으로서 외관 임베딩을 필요로 한다. MLP가 없는 프레임 단위의 래스터화에 의해 렌더링이 수행되므로 3DGS에는 적합하지 않다. 따라서 우리는 최적화에만 적용되는 새로운 디커플드 외관 모델링을 제안한다. 렌더링된 이미지에 외형 임베딩을 픽셀 단위로 부착하고, 이를 CNN에 공급하여 렌더링된 이미지에 외형 조정을 적용하기 위한 변환 맵을 획득한다. 렌더링된 영상과 그라운드 트루스 사이의 구조적 차이를 벌하여 일정한 정보를 학습하고, 학습된 영상의 외형 변화에 맞도록 조정된 영상에서 측광 손실을 계산한다. 일관된 렌더링만이 우리가 필요로 하는 것이므로, 이 외관 모델링 모듈은 최적화 후에 폐기될 수 있고, 따라서 실시간 렌더링 속도를 늦추지 않는다.\n' +
+      '\n' +
+      '여러 대형 장면 벤치마크에 대한 실험은 NeRF 기반 방법에 비해 본 방법의 우수성을 확인한다. 우리의 기여는 다음과 같이 요약된다:\n' +
+      '\n' +
+      '* 3D Gaussian Splatting 기반의 대용량 장면에서의 고충실도 재구성과 실시간 렌더링을 위한 첫 번째 방법인 VastGaussian을 제시한다.\n' +
+      '* 훈련 뷰와 포인트 클라우드를 서로 다른 셀에 할당하여 병렬 최적화 및 끊김 없는 병합이 가능한 점진적 데이터 분할 전략을 제안한다.\n' +
+      '* 외관의 변동으로 인한 부유체를 억제하는 디커플드 외관 모델링을 최적화 과정에 도입한다. 이 모듈은 실시간 렌더링 속도를 얻기 위해 최적화 후에 폐기될 수 있다.\n' +
+      '\n' +
+      '도 2: (a) 외관은 인접한 트레이닝 뷰들에서 변할 수 있다. (b) 어두운 또는 밝은 블롭은 상이한 밝기의 트레이닝 이미지를 갖는 카메라 근처에서 생성될 수 있다. (c) 3D 가우시안 스플래팅은 이러한 블롭들을 외관 변화들에 맞게 사용하여, 렌더링들을 (a)의 트레이닝 이미지들과 유사하게 만든다. (d) 이러한 블롭들은 신규한 견해에서 플로터로서 나타난다. (e) 우리의 분리된 외관 모델링은 모델이 일정한 색상을 학습할 수 있게 하므로 렌더링된 이미지는 다른 뷰에 걸쳐 외관이 더 일관적이다. (f) 우리의 접근법은 새로운 관점에서의 부유물을 크게 감소시킨다.\n' +
+      '\n' +
+      ' \n' +
+      '\n' +
+      '##2 관련 업무\n' +
+      '\n' +
+      '큰 장면 재구성\n' +
+      '\n' +
+      '지난 수십 년 동안 이미지 기반 대형 장면 재구성에 상당한 진전이 있다. 일부 작업 [1, 16, 23, 34, 38, 39, 62]은 SfM(structure-from-motion) 파이프라인을 따라 카메라 포즈 및 희소 포인트 클라우드를 추정한다. 다음 작업 [17, 19]는 다중 뷰 스테레오(MVS)를 기반으로 SfM 출력으로부터 조밀한 점군 또는 삼각형 메쉬를 생성한다. NeRF [31]이 최근 몇 년 동안 사진 사실적 신규-뷰 합성을 위한 인기 있는 3D 표현이 됨에 따라, 품질[2, 45, 47, 48, 49, 57, 24, 44, 45], 증가 속도[8, 9, 11, 14, 20, 32, 36, 37, 40, 43, 46, 58, 60], 동적 장면[7, 15, 18, 25, 27, 50] 등으로 확장되는 많은 변형들이 제안되고 있다. 일부 방법들[41, 44, 52, 53, 61]은 그것을 큰 장면들로 스케일링한다. Block-NeRF[41]은 도시를 여러 블록으로 나누고, 그 위치에 따라 트레이닝 뷰를 분배한다. Mega-NeRF[44]는 그리드 기반 분할을 사용하고 이미지 내의 각 픽셀을 그 광선이 통과하는 서로 다른 그리드에 할당한다. 이러한 휴리스틱 분할 전략과 달리 Switch-NeRF[61]은 장면 분해를 학습하기 위해 혼합형 NeRF-전문가 프레임워크를 도입한다. Grid-NeRF[53]은 장면 분해를 수행하는 것이 아니라 NeRF 기반 방법과 그리드 기반 방법의 통합을 사용한다. 이러한 방법의 렌더링 품질은 전통적인 방법에 비해 크게 향상되지만 여전히 세부 정보가 부족하고 천천히 렌더링한다. 최근 3D Gaussian Splatting[21]은 1080p 해상도에서 고품질의 실시간 렌더링으로 표현 가능한 명시적 3D 표현을 소개한다. 그러나 큰 장면으로 확장하는 것은 사소한 일이 아닙니다. 우리의 VastGaussian은 장면 분할, 최적화 및 병합을 위한 새로운 설계로 그렇게 한 최초의 것이다.\n' +
+      '\n' +
+      '다양한 외모 모델링\n' +
+      '\n' +
+      '외관 변화는 자동 노출, 자동 화이트 밸런스 및 톤 매핑과 같은 조명 변경 또는 다른 카메라 설정에서 이미지 기반 재구성의 일반적인 문제이다. NRW[30]은 대조적 손실과 함께 데이터-구동 방식으로 외관 인코더를 트레이닝하며, 이는 지연-차양 딥 버퍼를 입력으로 하고 외관 임베딩(AE)을 생성한다. NeRF-W[29]는 광선 마킹에서 점 기반 특징에 AE를 부착하고, 최종 색상을 얻기 위해 MLP에 공급하며, 이는 많은 NeRF 기반 방법[41, 44, 61]에서 표준 관행이 된다. Ha-NeRF [10]은 AE를 다른 뷰에 걸친 전역 표현으로 만들고, 뷰 일관성 손실로 학습한다. 우리의 VastGaussian에서는 AE를 렌더링된 이미지와 연결하고 CNN에 공급하여 변환 맵을 얻고 변환 맵을 사용하여 렌더링된 이미지를 외형 변화에 맞게 조정한다.\n' +
+      '\n' +
+      '## 3 Preliminaries\n' +
+      '\n' +
+      '본 논문에서는 3DGaussian Splatting (3DGS)에 기반한 대규모 장면 재구성 및 렌더링을 위한 VastGaussian을 제안한다[21]. 3DGS는 3D Gaussians \\(\\mathbf{G}\\)의 집합을 통해 기하학과 외형을 표현한다. 각각의 3D 가우시안들은 시점 의존 색상에 대한 위치, 이방성 공분산, 불투명도 및 구면 조화 계수를 특징으로 한다. 렌더링 프로세스 동안, 각각의 3D 가우시안들은 2D 가우시안으로서 이미지 공간에 투영된다. 투영된 2D 가우시안들은 상이한 타일들에 할당되고, 점 기반 볼륨 렌더링 방식으로 렌더링된 이미지로 정렬되고 알파-블렌딩된다[63].\n' +
+      '\n' +
+      '장면 최적화를 위해 사용된 데이터셋에는 희소점 구름\\(\\mathbf{P}\\)과 학습 뷰\\(\\mathbf{V}=\\{(\\mathcal{C}_{i},\\mathcal{I}_{i})\\}\\)이 포함되어 있으며, 여기서 \\(\\mathcal{C}_{i}\\)은 \\(i\\)번째 카메라이고 \\(\\mathcal{I}_{i}\\)은 해당 이미지이다. \\(\\mathcal{V}=\\{(\\mathcal{C}_{i}},\\mathcal{I}_{i}\\)은 해당 이미지이다. (\\mathbf{P}\\)와 \\(\\{\\mathcal{C}_{i}\\}\\\\)는 \\(\\{\\mathcal{I}_{i}\\}\\)으로부터 구조-from-모션(SfM)에 의해 추정된다. \\\\ 3차원 가우시안들을 초기화하기 위해 \\(\\mathbf{P}\\)을 사용하고, 3차원 가우시안들의 미분 렌더링과 기울기 기반 최적화를 위해 \\(\\mathbf{V}\\)을 사용한다. 카메라 \\(\\mathcal{C}_{i}\\)의 경우, 렌더링된 이미지 \\(\\mathcal{I}_{i}^{r}=\\mathcal{R}(\\mathbf{G},\\mathcal{C}_{i})\\)는 미분 가능한 래스터라이저 \\(\\mathcal{R}\\)에 의해 얻어진다. 3차원 가우시안들의 특성은 다음과 같이 \\(\\mathcal{I}_{i}^{r}\\)와 \\(\\mathcal{I}_{i}\\) 사이의 손실함수에 대해 최적화된다:\n' +
+      '\n' +
+      '\\mathcal{L}=(1-\\lambda)\\mathcal{L}_{1}(\\mathcal{I}_{i}^{r},\\mathcal{I}_{i})+\\lambda\\mathcal{L}_{\\text{D-SSIM}}(\\mathcal{I}_{i}^{r},\\mathcal{I}_{i}), \\tag{1}\\text{1}}\n' +
+      '\n' +
+      '여기서 \\(\\lambda\\)는 하이퍼-파라미터이고, \\(\\mathcal{L}_{\\text{D-SSIM}}\\)은 D-SSIM 손실[21]을 나타낸다. 이 프로세스는 적응 포인트 치밀화와 인터리빙되며, 이는 포인트의 누적 기울기가 특정 임계값에 도달할 때 트리거된다.\n' +
+      '\n' +
+      '## 4 Method\n' +
+      '\n' +
+      '3DGS[21]은 작고 객체 중심적인 장면에서 잘 작동하지만, 비디오 메모리 제한, 긴 최적화 시간 및 외형 변동으로 인해 큰 환경으로 확장될 때 어려움을 겪는다. 본 논문에서는 실시간 및 고품질 렌더링을 위해 3DGS를 대형 장면으로 확장한다. 우리는 큰 장면을 개별 최적화 후에 병합되는 다수의 셀로 분할할 것을 제안한다. Sec. 4.1에서는 공역 인식 가시성 계산을 통한 점진적 데이터 분할 전략을 소개한다. Sec. 4.2는 개별 세포를 최적화하는 방법을 자세히 설명하여 이미지의 외관 변화를 포착하기 위한 분리 외관 모델링을 제시한다. 마지막으로 Sec. 4.3에서 이러한 셀을 병합하는 방법에 대해 설명한다.\n' +
+      '\n' +
+      '### 점진적 데이터 분할\n' +
+      '\n' +
+      '우리는 큰 장면을 여러 개의 셀로 분할하고 최적화하기 위해 점군 \\(\\mathbf{P}\\)과 뷰 \\(\\mathbf{V}\\)의 부분을 이 셀들에 할당한다. 이들 셀들 각각은 더 적은 수의 3D 가우시안들을 포함하고, 이는 더 낮은 메모리 용량으로 최적화에 더 적합하고, 병렬로 최적화될 때 더 적은 트레이닝 시간을 필요로 한다. 진행성 데이터 분할 전략의 파이프라인이 그림 3에 나와 있다.\n' +
+      '\n' +
+      '**카메라 위치 기반 영역 분할.** 도 3의 (a)에서, 우리는 접지면 상의 투영된 카메라 위치들에 기초하여 장면을 분할하고, 각각의 셀이 동일한 반복 횟수 하에서 상이한 셀들 간의 균형 최적화를 보장하기 위해 유사한 수의 트레이닝 뷰들을 포함하도록 한다. 일반성의 손실 없이, \\(m\\times n\\) 셀의 그리드가 문제의 장면에 잘 적합하다고 가정하면, 먼저 접지면을 각각 대략 \\(|\\mathbf{V}|/m\\) 뷰를 포함하는 한 축을 따라 \\(m\\) 섹션으로 분할한다. 그런 다음 이 각 섹션은 다른 축을 따라 \\(n\\) 세그먼트로 더 세분되며, 각각은 대략 \\(|\\mathbf{V}|/(m\\times n)\\) 뷰를 포함한다. 여기서는 그리드 기반 분할을 예로 들지만 데이터 분할 전략은 섹터화 및 쿼드 트리와 같은 다른 지리 기반 분할 방법에도 적용할 수 있다.\n' +
+      '\n' +
+      '**위치 기반 데이터 선택.** 도에 예시된 바와 같이. 도 3의 (b)를 참조하면, 학습 뷰의 부분\\(\\mathbf{V}\\)과 포인트 클라우드\\(\\mathbf{P}\\)을 각 셀에 할당하고 그 경계를 확장한다. 구체적으로, \\(\\ell_{j}^{h}\\times\\ell_{j}^{w}\\) 사각형으로 \\(\\ell_{j}^{h}\\times\\ell_{j}^{w}\\)번째 영역을 경계로 하고, 본 논문에서 원래의 경계는 일정 비율인 \\(20\\%\\)만큼 확장되어 \\(\\ell_{j}^{h}+0.2\\ell_{j}^{h})\\times(\\ell_{j}^{w}+0.2\\ell_{j}^{w})의 더 큰 사각형을 만든다. 확장된 경계를 기준으로 학습 뷰\\(\\mathbf{V}\\)을\\(\\mathbf{V}_{j}\\}_{j=1}^{m\\times n}\\)으로 분할하고, 점군\\(\\mathbf{P}\\)을 같은 방법으로 \\(\\mathbf{P}_{j}\\}\\)으로 분할한다.\n' +
+      '\n' +
+      '**시인성 기반 카메라 선택.** 이전 단계에서 선택된 카메라가 고충실도 재구성에 불충분하다는 것을 발견하며, 이는 열악한 디테일 또는 플로터 아티팩트로 이어질 수 있다. 이 문제를 해결하기 위해 그림 1과 같이 가시성 기준에 따라 더 많은 관련 카메라를 추가할 것을 제안한다. 3(c). 아직 선택되지 않은 카메라\\(\\mathcal{C}_{i}\\)이 주어지면, 이미지 \\(\\Omega_{ij}\\)에서 \\(j\\)번째 셀의 투영 면적이 \\(\\mathcal{I}_{i}\\)이 되도록 하고, \\(\\Omega_{i}\\)이 \\(\\mathcal_I}_{i}\\)이 되도록 하며, 가시성은 \\(\\Omega_{ij}/\\Omega_{i}\\)으로 정의한다. 미리 정의된 임계값\\(T_{h}\\)보다 큰 가시성 값을 갖는 카메라들이 선택된다.\n' +
+      '\n' +
+      '\\(\\Omega_{ij}\\)를 계산하는 다른 방법은 다른 카메라 선택을 초래한다는 점에 유의한다. 도 1에 도시된 바와 같다. 도 3의 (e)를 참조하면, 자연스럽고 순진한 해결책은 물체 표면에 분포된 3D 점들에 기초한다. 그들은 \\(\\mathcal{I}_{i}\\)에 투영되어 면적 \\(\\Omega_{ij}^{\\text{surf}\\)의 볼록한 선체를 형성한다. 이 계산은 지표면만 고려하기 때문에 공역을 고려하지 않습니다. 따라서 일부 관련 카메라는 이 계산에서 \\(j\\)번째 셀에서 낮은 가시성으로 인해 선택되지 않으며, 이는 공역에 대한 과소 감독을 초래하고 공기 중 부유물을 억제할 수 없다.\n' +
+      '\n' +
+      '그림 1과 같이 공역 인식 가시성 계산을 소개한다. 3(f). 구체적으로, 축 정렬 바운딩 박스는 \\(j\\)번째 셀에서 포인트 클라우드에 의해 형성되며, 그 포인트는 가장 높은 포인트 사이의 거리로 선택된다.\n' +
+      '\n' +
+      '도 3: **프로그레시브 데이터 분할.****Top row**: (a) 전체 장면은 접지면 상에 투영된 2D 카메라 위치들에 기초하여 다수의 영역들로 분할된다. (b) 훈련용 카메라 및 포인트 클라우드의 부분들은 그 확장된 경계에 따라 특정 영역에 할당된다. (c) 영공 인식 가시성 기준에 기초하여, 부유물을 감소시키기 위해 더 많은 훈련 카메라가 선택되며, 여기서 카메라는 이 영역에 충분한 가시성을 갖는 경우 선택된다. (d) 포인트 클라우드의 더 많은 포인트들은 선택된 카메라들에 의해 관찰된다면, 3D 가우시안들의 더 나은 초기화를 위해 통합된다. **맨 아래 행**: 더 많은 훈련 카메라를 선택하기 위한 두 개의 가시성 정의. (e) 순진한 방법: \\(j\\)번째 셀에서 \\(i\\)번째 카메라의 가시성은 \\(\\Omega_{ij}^{\\text{surf}}/\\Omega_{i}\\)으로 정의되며, 여기서 \\(\\Omega_{i}\\)은 이미지의 영역이다. \\(\\mathcal{I}_{i}\\) 및 \\(\\Omega_{ij}^{\\text{surf}\\)은 \\(\\mathcal{I}_{i}\\)번째 셀에 투영되는 \\(j\\)번째 셀 내의 표면 점들에 의해 형성된 볼록 선체 영역이다. (f) 우리의 공역인식해: \\(\\mathcal{I}_{i}\\)에서 \\(j\\)번째 셀의 바운딩 박스의 투영에서 볼록선체 면적 \\(\\Omega_{ij}^{\\text{surf}}\\)을 계산한다. (g) 부적절한 점 초기화를 갖는 깊이 모호성에 의해 야기되는 부유체들, 이는 트레이닝 카메라들로부터 충분한 감독 없이 제거될 수 없다.\n' +
+      '\n' +
+      '및 접지면을 포함하는 것을 특징으로 하는 반도체 메모리 장치. 우리는 경계 상자를 \\(\\mathcal{I}_{i}\\)에 투영하고 볼록 선체 면적 \\(\\Omega_{ij}^{\\text{air}\\)을 얻는다. 이 공역 인식 솔루션은 모든 가시 공간을 고려하며, 이는 적절한 가시성 임계값이 주어지면 이 셀의 최적화에 상당한 기여를 하는 뷰가 선택되고 공역에 대한 충분한 감독을 제공한다.\n' +
+      '\n' +
+      '**커버리지 기반 포인트 선택.** \\(j\\)번째 셀의 카메라 세트 \\(\\mathbf{V}_{j}\\)에 더 많은 관련 카메라를 추가한 후 그림과 같이 \\(\\mathbf{V}_{j}\\)에서 모든 뷰가 커버하는 포인트를 \\(\\mathbf{P}_{j}\\)에 추가한다. 3(d). 새로 선택된 포인트들은 이 셀의 최적화를 위해 더 나은 초기화를 제공할 수 있다. 도 1에 도시된 바와 같다. 3(g)에서, \\(j\\)번째 셀 밖의 일부 객체들은 \\(\\mathbf{V}_{j}\\)의 일부 뷰들에 의해 캡처될 수 있고, 새로운 3D 가우시안들은 적절한 초기화 없이 깊이 모호성으로 인해 이들 객체들에 맞도록 잘못된 위치들에서 생성된다. 그러나, 초기화를 위해 이러한 객체 포인트들을 추가함으로써, \\(j\\)번째 셀에서 플로터를 생성하는 대신에, 정확한 위치에 있는 새로운 3D 가우시안들을 이러한 트레이닝 뷰들에 맞게 쉽게 생성할 수 있다. 셀 외부에서 생성된 3D 가우시안들은 셀의 최적화 후에 제거된다는 점에 유의한다.\n' +
+      '\n' +
+      '#분리된 외관 모델링\n' +
+      '\n' +
+      '고르지 않은 조명에서 촬영된 이미지에는 명백한 외관 변화가 있으며 3DGS는 그림 1과 같이 다양한 뷰에 걸쳐 이러한 변화를 보상하기 위해 부유체를 생성하는 경향이 있다. 2(a-d)\n' +
+      '\n' +
+      '이 문제를 해결하기 위해 일부 NeRF 기반 방법[29, 41, 44, 61]은 픽셀 단위의 광선 마킹에서 점 기반 피쳐에 외관 임베딩을 연결하고 광선 MLP에 공급하여 최종 색상을 얻는다. 이것은 MLP가 없는 프레임별 래스터화에 의해 렌더링이 수행되는 3DGS에 적합하지 않다. 대신, 디커플드 외관 모델링을 최적화 과정에 도입하여, 그림 4와 같이 렌더링된 이미지를 학습 이미지의 외형 변화에 맞게 조정하기 위한 변환 맵을 생성한다. 구체적으로, 먼저 렌더링된 이미지\\(\\mathcal{I}_{i}^{r}\\)을 다운샘플링하여 변환 맵이 고주파 세부 정보를 학습하는 것을 방지할 뿐만 아니라 계산 부담과 메모리 소모를 줄인다. 그런 다음 3채널 다운샘플링된 영상에서 모든 픽셀에 길이\\(m\\)의 외형 임베딩 \\(\\ell_{i}\\)을 연결하고 \\(3+m\\) 채널과 2D 맵 \\(\\mathcal{D}_{i}\\)을 얻는다. (\\mathcal{D}_{i}\\)는 합성곱 신경망(CNN)에 입력되며, 합성곱 신경망은 \\(\\mathcal{D}_{i}\\)을 점진적으로 업샘플링하여 \\(\\mathcal{I}_{i}^{r}\\)과 동일한 해상도의 \\(\\mathcal{M}_{i}\\)을 생성한다. 마지막으로, \\(\\mathcal{I}_{i}^{a}\\)으로 \\(\\mathcal{I}_{i}^{r}\\)에 대해 픽셀-와이즈 변환 \\(T\\)을 수행하여 외관-변이 이미지 \\(\\mathcal{I}_{i}^{a}\\)을 얻는다:\n' +
+      '\n' +
+      '\\[\\mathcal{I}_{i}^{a}=T(\\mathcal{I}_{i}^{r};\\mathcal{M}_{i}). \\tag{2}\\]\n' +
+      '\n' +
+      '실험에서 간단한 픽셀 단위의 곱셈은 우리가 사용하는 데이터 세트에서 잘 작동한다. 외관 임베딩과 CNN은 Eq에서 수정된 손실 함수를 사용하여 3D 가우시안과 함께 최적화된다. (1) :\n' +
+      '\n' +
+      '\\mathcal{L}=(1-\\lambda)\\mathcal{L}_{1}(\\mathcal{I}_{i}^{a},\\mathcal{I}_{i})+\\lambda\\mathcal{L}_{text{D-SSIM}}(\\mathcal{I}_{i}^{r},\\mathcal{I}_{i}})\\tag{3}\\tag{3}}\n' +
+      '\n' +
+      '\\(\\mathcal{L}_{text{D-SSIM}\\)은 구조적 비유사성을 주로 처벌하기 때문에, 이를 \\(\\mathcal{I}_{i}^{r}\\)과 지상진리 \\(\\mathcal{I}_{i}\\) 사이에 적용하면 \\(\\mathcal{I}_{i}^{r}\\)의 구조정보를 \\(\\mathcal{I}_{i}\\)에 가까운 \\(\\mathcal{I}_{i}^{r}\\)으로 만들고, \\(\\ell_{i}\\)과 CNN에 의해 학습될 외형정보를 남긴다. 외관변화 렌더링 \\(\\mathcal{I}_{i}^{a}\\)과 \\(\\mathcal{I}_{i}\\) 사이에 손실 \\(\\mathcal{L}_{1}\\)이 적용되었으며, 이는 다른 이미지와의 외관 변화가 있을 수 있는 지상진리 이미지 \\(\\mathcal{I}_{i}\\)에 맞도록 사용된다. 학습 후, \\(\\mathcal{I}_{i}^{r}\\)은 다른 이미지들과 일관된 모습을 가질 것으로 예상되며, 이로부터 3D 가우시안들은 모든 입력 뷰들의 평균 모습을 학습하고 기하학을 교정할 수 있다. 이러한 외관 모델링은 실시간 렌더링 속도를 늦추지 않고 최적화 후에 폐기될 수 있다.\n' +
+      '\n' +
+      '### Seamless Merging\n' +
+      '\n' +
+      '모든 셀을 독립적으로 최적화한 후, 완전한 장면을 얻기 위해 병합해야 합니다. 각각의 최적화된 셀에 대해, 우리는 원래 영역 밖에 있는 3D 가우시안들을 삭제한다(그림). 3(a)) 경계 확장 전. 그렇지 않으면 다른 세포의 부유체가 될 수 있습니다. 그런 다음 우리는 이러한 겹치지 않는 세포의 3D 가우시안들을 병합한다. 병합된 장면은 데이터 분할에서 인접한 셀 간에 일부 학습 뷰가 공통적이기 때문에 명백한 경계 아티팩트 없이 모양과 기하학에서 매끄럽다. 따라서, Block-NeRF[41]와 같이 추가적인 외관 조정을 수행할 필요가 없다. 병합된 장면에 포함된 3D 가우시안들의 총 수는 전체적으로 훈련된 장면의 총 수를 크게 초과할 수 있고, 따라서 재구성 품질을 향상시킨다.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:6]\n' +
+      '\n' +
+      '효율성과 기억력 탭에서 2, 학습 시간, 최적화 시 비디오 메모리 소모량, 렌더링 속도를 보고한다. Mega-NeRF, Switch-NeRF 및 Vast-Gaussian은 8개의 Tesla V100 GPU에서 훈련되고, Grid-NeRF 및 Modified 3DGS는 장면 분해를 수행하지 않기 때문에 단일 V100 GPU에서 훈련된다. 렌더링 속도는 단일 RTX 3090 GPU에서 테스트된다. 우리의 VastGaussian은 광 사실적 렌더링으로 장면을 재구성하는 데 훨씬 더 짧은 시간이 필요하다. 변형된 3DGS와 비교하여, Vast-Gaussian은 단일 GPU에서의 비디오 메모리 소비를 크게 감소시킨다. VastGaussian은 변형된 3DGS보다 병합된 장면에서 더 많은 3D 가우시안들을 갖기 때문에, 렌더링 속도는 변형된 3DGS보다 약간 느리지만, 여전히 NeRF 기반 방법들보다 훨씬 빨라 1080p 해상도에서 실시간 렌더링을 달성한다.\n' +
+      '\n' +
+      '### Ablation Study\n' +
+      '\n' +
+      '우리는 VastGaussian의 다양한 측면을 평가하기 위해 _Sci-Art_ 장면에 대한 절제 연구를 수행한다.\n' +
+      '\n' +
+      '**데이터 분할.**에 도시된 바와 같다. 6 및 탭. 도 3을 참조하면, 가시성 기반 카메라 선택(VisCam)과 커버리지 기반 포인트 선택(CovPoint) 모두 시각적 품질을 향상시킬 수 있다. 그들 각각 또는 둘 다 없이, 부유체는 세포의 공역에 생성되어 바깥쪽 영역을 관찰하는 뷰에 적합할 수 있다.\n' +
+      '\n' +
+      '그림 5: VastGaussian과 이전 작품의 질적 비교. 플로터는 녹색 화살표로 표시된다.\n' +
+      '\n' +
+      '감방 옆에요 도 1에 도시된 바와 같다. 도 7을 참조하면, 가시성 기반 카메라 선택은 인접한 셀들 사이에 더 일반적인 카메라들을 보장할 수 있으며, 이는 구현되지 않을 때 외관 점핑의 눈에 띄는 경계 아티팩트를 제거한다.\n' +
+      '\n' +
+      '**공역 인식 가시성 계산.** 탭의 \\(4\\)번째 행에 예시된 바와 같이. 도 3 및 도 3을 참조하여 설명한다. 도 8에 도시된 바와 같이, 공역 인식 가시성 계산에 기초하여 선택된 카메라는 셀의 최적화를 위해 더 많은 감독을 제공하고, 따라서 공역 인식 방식으로 가시성이 계산될 때 제시되는 부유체를 생성하지 않는다.\n' +
+      '\n' +
+      '**분리된 외관 모델링.** 도에 도시된 바와 같이. 2 및 탭의 \\(5\\)번째 행. 셋째, 디커플드 외관 모델링은 렌더링된 이미지의 외관 변화를 줄인다. 따라서, 3D 가우시안들은 이러한 변화들을 보상하기 위해 플로터를 생성하는 대신에, 외관 변화들이 있는 트레이닝 이미지들로부터 일관된 기하학 및 컬러들을 학습할 수 있다. 보충제에 있는 영상도 보시기 바랍니다.\n' +
+      '\n' +
+      '** 셀의 수가 다릅니다** 탭에 표시된 대로입니다. 도 4를 참조하면, 더 많은 세포가 VastGaussian에서 더 나은 세부 사항을 재구성하여 더 나은 SSIM 및 LPIPS 값을 유도하고, 세포가 병렬로 최적화될 때 더 짧은 훈련 시간을 유도한다. 그러나 셀 수가 \\(16\\) 이상이 되면 화질 개선은 미미해지고, 멀리 떨어져 있는 셀들로부터 렌더링된 이미지에 점진적인 밝기 변화가 있을 수 있기 때문에 PSNR이 약간 감소한다.\n' +
+      '\n' +
+      '##6 결론 및 제한\n' +
+      '\n' +
+      '본 논문에서는 대규모 장면에 대한 최초의 고품질 복원 및 실시간 렌더링 방법인 VastGaussian을 제안한다. 도입된 점진적 데이터 분할 전략은 독립적인 셀 최적화 및 원활한 병합을 가능하게 하여 충분한 3D 가우시안들로 완전한 장면을 얻는다. 분리된 외관 모델링은 학습 이미지의 외관 변화를 분리하고 다양한 뷰에 걸쳐 일관된 렌더링을 가능하게 한다. 이 모듈은 더 빠른 렌더링 속도를 얻기 위해 최적화 후에 폐기될 수 있다. 우리의 VastGaussian은 어떤 형태의 공간 분할에도 적용될 수 있지만, 장면 배치, 셀 수 및 훈련 카메라 분포를 고려해야 하는 최적의 분할 해를 제공하지 않는다. 또한, 장면이 거대할 때 3D 가우시안들이 많이 존재하는데, 이는 큰 저장 공간이 필요하고 렌더링 속도가 현저히 느려질 수 있다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c|c|c c c} \\hline \\hline \\#Cell & \\#GPU & SSIM & PSNR & LPIPS & Training \\\\ \\hline\n' +
+      '4 & 4 & 0.870 & 26.39 & 0.136 & 2h46m\\\\\n' +
+      '8 & 8 & 0.885 & **26.81** & 0.121 & 2h39m\\\\\n' +
+      '16 & 16 & 0.888 & 26.80 & 0.116 & 2h30m\\\\\n' +
+      '24 & 24 & **0.892** & 26.64 & **0.110** & **2h19m** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 4: 상이한 세포 수의 영향.\n' +
+      '\n' +
+      '그림 8: 공역 진단 방식으로 가시성을 계산할 때 중형 부유체가 나타난다.\n' +
+      '\n' +
+      '도 6: 가시성 기반 카메라 선택은 클리어런스 기반 포인트 선택이 공역 내의 부유물을 감소시킬 수 있다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c} \\hline \\hline Model setting & SSIM & PSNR & LPIPS \\\\ \\hline\n' +
+      '1) w/o VisCam & 0.694 & 20.05 & 0.261 \\\\\n' +
+      '2) w/o CovPoint & 0.874 & 26.14 & 0.128\\\\\n' +
+      '3) w/o VisCam \\& CovPoint & 0.699 & 20.35 & 0.253 \\\\\n' +
+      '4) Airspace-aware \\(\\rightarrow\\) agnostic & 0.855 & 24.54 & 0.128 \\\\\\\n' +
+      '5) w/o Decoupled AM & 0.858 & 25.08 & 0.148 \\\\ \\hline Full model & **0.885** & **26.81** & **0.121** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 3: 데이터 분할에 대한 절제, 가시성 계산 및 디커플드 외관 모델링(Decoupled AM).\n' +
+      '\n' +
+      '도 7: 가시성 기반 카메라 선택은 셀 경계 상에서 점핑하는 외관을 제거할 수 있다.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* [1] Sameer Agarwal, Yasutaka Furukawa, Noah Snavely, Ian Simon, Brian Curless, Steven M Seitz, and Richard Szeliski. Building rome in a day. _Communications of the ACM_, 2011.\n' +
+      '* [2] Jonathan T Barron, Ben Mildenhall, Matthew Tancik, Peter Hedman, Ricardo Martin-Brualla, and Pratul P Srinivasan. Mip-nerf: A multiscale representation for anti-aliasing neural radiance fields. In _ICCV_, 2021.\n' +
+      '* [3] Jonathan T Barron, Ben Mildenhall, Dor Verbin, Pratul P Srinivasan, and Peter Hedman. Mip-nerf 360: Unbounded anti-aliased neural radiance fields. In _CVPR_, 2022.\n' +
+      '* [4] Jonathan T Barron, Ben Mildenhall, Dor Verbin, Pratul P Srinivasan, and Peter Hedman. Zip-nerf: Anti-aliased grid-based neural radiance fields. In _ICCV_, 2023.\n' +
+      '* [5] Piotr Bojanowski, Armand Joulin, David Lopez-Pas, and Arthur Szlam. Optimizing the latent space of generative networks. In _ICML_, 2018.\n' +
+      '* [6] Ilker Bozcan and Erdal Kayacan. Au-air: A multi-modal unmanned aerial vehicle dataset for low altitude traffic surveillance. In _ICRA_, 2020.\n' +
+      '* [7] Ang Cao and Justin Johnson. Hexplane: A fast representation for dynamic scenes. In _CVPR_, 2023.\n' +
+      '* [8] Junli Cao, Huan Wang, Pavlo Chemerys, Vladislav Shakhrai, Ju Hu, Yun Fu, Denys Makoviichuk, Sergey Tulyakov, and Jian Ren. Real-time neural light field on mobile devices. In _CVPR_, 2023.\n' +
+      '* [9] Anpei Chen, Zexiang Xu, Andreas Geiger, Jingyi Yu, and Hao Su. Tensorf: Tensorial radiance fields. In _ECCV_, 2022.\n' +
+      '* [10] Xingyu Chen, Qi Zhang, Xiaoyu Li, Yue Chen, Ying Feng, Xuan Wang, and Jue Wang. Hallucinated neural radiance fields in the wild. In _CVPR_, 2022.\n' +
+      '* [11] Zhiqin Chen, Thomas Funkhouser, Peter Hedman, and Andrea Tagliasacchi. Mobilenferl: Exploiting the polygon rasterization pipeline for efficient neural field rendering on mobile architectures. In _CVPR_, 2023.\n' +
+      '* [12] Zilong Chen, Feng Wang, and Huaping Liu. Text-to-3d using gaussian splatting. _arXiv preprint arXiv:2309.16585_, 2023.\n' +
+      '* [13] Dawei Du, Yuankai Qi, Hongyang Yu, Yifan Yang, Kaiwen Duan, Guorong Li, Weigang Zhang, Qingming Huang, and Qi Tian. The unmanned aerial vehicle benchmark: Object detection and tracking. In _ECCV_, 2018.\n' +
+      '* [14] Sara Fridovich-Keil, Alex Yu, Matthew Tancik, Qinhong Chen, Benjamin Recht, and Angjoo Kanazawa. Plenoxels: Radiance fields without neural networks. In _CVPR_, 2022.\n' +
+      '* [15] Sara Fridovich-Keil, Giacomo Maein, Frederik Rahbaek Warburg, Benjamin Recht, and Angjoo Kanazawa. K-planes: Explicit radiance fields in space, time, and appearance. In _CVPR_, 2023.\n' +
+      '* [16] Christian Fruh and Avideh Zakhor. An automated method for large-scale, ground-based city model acquisition. _IJCV_, 2004.\n' +
+      '* [17] Yasutaka Furukawa, Brian Curless, Steven M Seitz, and Richard Szeliski. Towards internet-scale multi-view stereo. In _CVPR_, 2010.\n' +
+      '* [18] Hang Gao, Ruilong Li, Shubham Tulsiani, Bryan Russell, and Angjoo Kanazawa. Monocular dynamic view synthesis: A reality check. In _NeurIPS_, 2022.\n' +
+      '* [19] Michael Goesele, Noah Snavely, Brian Curless, Hugues Hoppe, and Steven M Seitz. Multi-view stereo for community photo collections. In _ICCV_, 2007.\n' +
+      '* [20] Peter Hedman, Pratul P Srinivasan, Ben Mildenhall, Jonathan T Barron, and Paul Debevec. Baking neural radiance fields for real-time view synthesis. In _ICCV_, 2021.\n' +
+      '* [21] Bernhard Kerbl, Georgios Kopanas, Thomas Leimkuhler, and George Drettakis. 3d gaussian splatting for real-time radiance field rendering. _ACM ToG_, 2023.\n' +
+      '* [22] Wei Li, CW Pan, Rong Zhang, JP Ren, YX Ma, Jin Fang, FL Yan, QC Geng, XY Huang, HJ Gong, et al. Aads: Augmented autonomous driving simulation using data-driven algorithms. _Science robotics_, 2019.\n' +
+      '* [23] Xiaowei Li, Changchang Wu, Christopher Zach, Svetlana Lazebnik, and Jan-Michael Frahm. Modeling and recognition of landmark image collections using iconic scene graphs. In _ECCV_, 2008.\n' +
+      '* [24] Zhaoshuo Li, Thomas Muller, Alex Evans, Russell H Taylor, Mathias Unberath, Ming-Yu Liu, and Chen-Hsuan Lin. Neuralangelo: High-fidelity neural surface reconstruction. In _CVPR_, 2023.\n' +
+      '* [25] Haotong Lin, Sida Peng, Zhen Xu, Yunzhi Yan, Qing Shuai, Hujun Bao, and Xiaowei Zhou. Efficient neural radiance fields for interactive free-viewpoint video. In _SIGGRAPH Asia_, 2022.\n' +
+      '* [26] Liqiang Lin, Yilin Liu, Yue Hu, Xingguang Yan, Ke Xie, and Hui Huang. Capturing, reconstructing, and simulating: the urbanscene3d dataset. In _ECCV_, 2022.\n' +
+      '* [27] Yu-Lun Liu, Chen Gao, Andreas Meuleman, Hung-Yu Tseng, Ayush Saraf, Changil Kim, Yung-Yu Chuang, Johannes Kopf, and Jia-Bin Huang. Robust dynamic radiance fields. In _CVPR_, 2023.\n' +
+      '* [28] Jonathon Luiten, Georgios Kopanas, Bastian Leibe, and Deva Ramanan. Dynamic 3d gaussians: Tracking by persistent dynamic view synthesis. _arXiv preprint arXiv:2308.09713_, 2023.\n' +
+      '* [29] Ricardo Martin-Brualla, Noha Radwan, Mehdi SM Sajjadi, Jonathan T Barron, Alexey Dosovitskiy, and Daniel Duckworth. Nerf in the wild: Neural radiance fields for unconstrained photo collections. In _CVPR_, 2021.\n' +
+      '* [30] Moustafa Meshry, Dan B Goldman, Sameh Khamis, Hugues Hoppe, Rohit Pandey, Noah Snavely, and Ricardo Martin-Brualla. Neural rerendering in the wild. In _CVPR_, 2019.\n' +
+      '* [31] Ben Mildenhall, Pratul P. Srinivasan, Matthew Tancik, Jonathan T. Barron, Ravi Ramamoorthi, and Ren Ng. Nerf: Representing scenes as neural radiance fields for view synthesis. In _ECCV_, 2020.\n' +
+      '* [32] Thomas Muller, Alex Evans, Christoph Schied, and Alexander Keller. Instant neural graphics primitives with a multiresolution hash encoding. _ACM ToG_, 2022.\n' +
+      '* [33] Julian Ost, Fahim Mannan, Nils Thuerey, Julian Knodt, and Felix Heide. Neural scene graphs for dynamic scenes. In _CVPR_, 2021.\n' +
+      '\n' +
+      '* [34] Marc Pollefeys, David Nister, J-M Frahm, Amir Akbarzadeh, Philippos Mordohai, Brian Clipp, Chris Engels, David Gallup, S-J Kim, Paul Merrell, et al. Detailed real-time urban 3d reconstruction from video. _IJCV_, 2008.\n' +
+      '* [35] Ravi Ramamoorthi. Nerfs: The search for the best 3d representation. _arXiv preprint arXiv:2308.02751_, 2023.\n' +
+      '* [36] Christian Reiser, Songyou Peng, Yiyi Liao, and Andreas Geiger. Kilonfer: Speeding up neural radiance fields with thousands of tiny mlps. In _ICCV_, 2021.\n' +
+      '* [37] Christian Reiser, Rick Szeliski, Dor Verbin, Pratul Srinivasan, Ben Mildenhall, Andreas Geiger, Jon Barron, and Peter Hedman. Merf: Memory-efficient radiance fields for real-time view synthesis in unbounded scenes. _ACM ToG_, 2023.\n' +
+      '* [38] Johannes Lutz Schonberger and Jan-Michael Frahm. Structure-from-motion revisited. In _CVPR_, 2016.\n' +
+      '* [39] Noah Snavely, Steven M Seitz, and Richard Szeliski. Photo tourism: exploring photo collections in 3d. In _SIGGRAPH_. 2006.\n' +
+      '* [40] Cheng Sun, Min Sun, and Hwann-Tzong Chen. Direct voxel grid optimization: Super-fast convergence for radiance fields reconstruction. In _CVPR_, 2022.\n' +
+      '* [41] Matthew Tancik, Vincent Casser, Xinchen Yan, Sabeek Pradhan, Ben Mildenhall, Pratul P Srinivasan, Jonathan T Barron, and Henrik Kretzschmar. Block-nerf: Scalable large scene neural view synthesis. In _CVPR_, 2022.\n' +
+      '* [42] Jiaxiang Tang, Jiawei Ren, Hang Zhou, Ziwei Liu, and Gang Zeng. Dreamgaussian: Generative gaussian splatting for efficient 3d content creation. _arXiv preprint arXiv:2309.16653_, 2023.\n' +
+      '* [43] Jiaxiang Tang, Hang Zhou, Xiaokang Chen, Tianshu Hu, Errui Ding, Jingdong Wang, and Gang Zeng. Delicate textured mesh recovery from nerf via adaptive surface refinement. In _ICCV_, 2023.\n' +
+      '* [44] Haithem Turki, Deva Ramanan, and Mahadev Satyanarayanan. Mega-nerf: Scalable construction of large-scale nerfs for virtual fly-throughs. In _CVPR_, 2022.\n' +
+      '* [45] Dor Verbin, Peter Hedman, Ben Mildenhall, Todd Zickler, Jonathan T Barron, and Pratul P Srinivasan. Ref-nerf: Structured view-dependent appearance for neural radiance fields. In _CVPR_, 2022.\n' +
+      '* [46] Huan Wang, Jian Ren, Zeng Huang, Kyle Olszewski, Menglei Chai, Yun Fu, and Sergey Tulyakov. R2l: Distilling neural radiance field to neural light field for efficient novel view synthesis. In _ECCV_, 2022.\n' +
+      '* [47] Peng Wang, Lingjie Liu, Yuan Liu, Christian Theobalt, Taku Komura, and Wenping Wang. Neus: Learning neural implicit surfaces by volume rendering for multi-view reconstruction. In _NeurIPS_, 2021.\n' +
+      '* [48] Peng Wang, Yuan Liu, Zhaoxi Chen, Lingjie Liu, Ziwei Liu, Taku Komura, Christian Theobalt, and Wenping Wang. F2-nerf: Fast neural radiance field training with free camera trajectories. In _CVPR_, 2023.\n' +
+      '* [49] Yiming Wang, Qin Han, Marc Habermann, Kostas Daniilidis, Christian Theobalt, and Lingjie Liu. Neus2: Fast learning of neural implicit surfaces for multi-view reconstruction. In _ICCV_, 2023.\n' +
+      '* [50] Chung-Yi Weng, Brian Curless, Pratul P. Srinivasan, Jonathan T. Barron, and Ira Kemelmacher-Shlizerman. Humanerf: Free-viewpoint rendering of moving people from monocular video. In _CVPR_, 2022.\n' +
+      '* [51] Guanjun Wu, Taoran Yi, Jiemin Fang, Lingxi Xie, Xiaopeng Zhang, Wei Wei, Wenyu Liu, Qi Tian, and Xinggang Wang. 4d gaussian splatting for real-time dynamic scene rendering. _arXiv preprint arXiv:2310.08528_, 2023.\n' +
+      '* [52] Yuanbo Xiangli, Linning Xu, Xingang Pan, Nanxuan Zhao, Anyi Rao, Christian Theobalt, Bo Dai, and Dahua Lin. Bungeenerf: Progressive neural radiance field for extreme multi-scale scene rendering. In _ECCV_, 2022.\n' +
+      '* [53] Linning Xu, Yuanbo Xiangli, Sida Peng, Xingang Pan, Nanxuan Zhao, Christian Theobalt, Bo Dai, and Dahua Lin. Grid-guided neural radiance fields for large urban scenes. In _CVPR_, 2023.\n' +
+      '* [54] Zhenpei Yang, Yuning Chai, Dragomir Anguelov, Yin Zhou, Pei Sun, Dumitru Erhan, Sean Rafferty, and Henrik Kretzschmar. Surfelgan: Synthesizing realistic sensor data for autonomous driving. In _CVPR_, 2020.\n' +
+      '* [55] Ziyi Yang, Xinyu Gao, Wen Zhou, Shaohui Jiao, Yuqing Zhang, and Xiaogang Jin. Deformable 3d gaussians for high-fidelity monocular dynamic scene reconstruction. _arXiv preprint arXiv:2309.13101_, 2023.\n' +
+      '* [56] Zeyu Yang, Hongye Yang, Zijie Pan, Xiatian Zhu, and Li Zhang. Real-time photorealistic dynamic scene representation and rendering with 4d gaussian splatting. _arXiv preprint arXiv:2310.10642_, 2023.\n' +
+      '* [57] Lior Yariv, Jiatao Gu, Yoni Kasten, and Yaron Lipman. Volume rendering of neural implicit surfaces. In _NeurIPS_, 2021.\n' +
+      '* [58] Lior Yariv, Peter Hedman, Christian Reiser, Dor Verbin, Pratul P Srinivasan, Richard Szeliski, Jonathan T Barron, and Ben Mildenhall. Bakedsdf: Meshing neural sdfs for real-time view synthesis. _arXiv preprint arXiv:2302.14859_, 2023.\n' +
+      '* [59] Taoran Yi, Jiemin Fang, Guanjun Wu, Lingxi Xie, Xiaopeng Zhang, Wenyu Liu, Qi Tian, and Xinggang Wang. Gaussian-dreamer: Fast generation from text to 3d gaussian splatting with point cloud priors. _arXiv preprint arXiv:2310.08529_, 2023.\n' +
+      '* [60] Alex Yu, Ruilong Li, Matthew Tancik, Hao Li, Ren Ng, and Angjoo Kanazawa. Plencotrees for real-time rendering of neural radiance fields. In _ICCV_, 2021.\n' +
+      '* [61] MI Zhenxing and Dan Xu. Switch-nerf: Learning scene decomposition with mixture of experts for large-scale neural radiance fields. In _ICLR_, 2022.\n' +
+      '* [62] Siyu Zhu, Runze Zhang, Lei Zhou, Tianwei Shen, Tian Fang, Ping Tan, and Long Quan. Very large-scale global sfm by distributed motion averaging. In _CVPR_, 2018.\n' +
+      '* [63] Matthias Zwicker, Hanspeter Pfister, Jeroen Van Baar, and Markus Gross. Ewa volume splatting. In _VIS_, 2001.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:11]\n' +
+      '\n' +
+      '그림 10: 최적화 과정에서 변환 맵(\\(\\mathcal{M}_{i}\\) 및 \\(\\mathcal{M}_{i+1}\\)), 렌더링된 이미지(\\(\\mathcal{I}_{i}^{r}\\) 및 \\(\\mathcal{I}_{i+1}^{r}\\)), 및 조정된 이미지(\\(\\mathcal{I}_{i}^{a}\\) 및 \\(\\mathcal{I}_{i+1}^{a}\\))의 진화.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
