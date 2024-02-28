@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# Disentangled 3D Scene Generation with Layout Learning\n' +
+      '\n' +
+      ' Dave Epstein\n' +
+      '\n' +
+      'Ben Poole\n' +
+      '\n' +
+      'Ben Mildenhall\n' +
+      '\n' +
+      'Alexei A. Efros\n' +
+      '\n' +
+      'Aleksander Holynski\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      'We introduce a method to generate 3D scenes that are disentangled into their component objects. This disentanglement is unsupervised, relying only on the knowledge of a large pretrained text-to-image model. Our key insight is that objects can be discovered by finding parts of a 3D scene that, when rearranged spatially, still produce valid configurations of the same scene. Concretely, our method jointly optimizes multiple NeRFs from scratch--each representing its own object--along with a _set of layouts_ that composite these objects into scenes. We then encourage these composited scenes to be in-distribution according to the image generator. We show that despite its simplicity, our approach successfully generates 3D scenes decomposed into individual objects, enabling new capabilities in text-to-3D content creation. See our project page for results and an interactive demo: [https://dave.ml/layoutlearning/](https://dave.ml/layoutlearning/)\n' +
+      '\n' +
+      'Machine Learning, ICML\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      'A remarkable ability of many seeing organisms is object individuation (Piaget et al., 1952), the ability to discern separate objects from light projected onto the retina (Wertheimer, 1938). Indeed, from a very young age, humans and other creatures are able to organize the physical world they perceive into the three-dimensional entities that comprise it (Spelke, 1990; Wilcox, 1999; Hoffmann et al., 2011). The analogous task of object discovery has captured the attention of the artificial intelligence community from its very inception (Roberts, 1963; Ohta et al., 1978), since agents that can autonomously parse 3D scenes into their component objects are better able to navigate and interact with their surroundings.\n' +
+      '\n' +
+      'Fifty years later, generative models of images are advancing at a frenzied pace (Nichol et al., 2021; Ramesh et al., 2022; Saharia et al., 2022; Yu et al., 2022; Chang et al., 2023). While these models can generate high-quality samples, their internal workings are hard to interpret, and they do not explicitly represent the distinct 3D entities that make up the images they create. Nevertheless, the priors learned by these models have proven incredibly useful across various tasks involving 3D reasoning (Hedlin et al., 2023; Ke et al., 2023; Liu et al., 2023; Luo et al., 2023; Wu et al., 2023), suggesting that they may indeed be capable of decomposing generated content into the underlying 3D objects depicted.\n' +
+      '\n' +
+      'One particularly exciting application of these text-to-image networks is 3D generation, leveraging the rich distribution learned by a diffusion model to optimize a 3D representation, _e.g_. a neural radiance field (NeRF, Mildenhall et al., 2020), such that rendered views resemble samples from the prior. This technique allows for text-to-3D generation without any 3D supervision (Poole et al., 2022; Wang et al., 2023b), but most results focus on simple prompts depicting just one or two isolated objects (Lin et al., 2023; Wang et al., 2023c).\n' +
+      '\n' +
+      'Our method builds on this work to generate complex scenes that are automatically disentangled into the objects they contain. To do so, we instantiate and render _multiple NeRFs_ for a given scene instead of just one, encouraging the model to use each NeRF to represent a separate 3D entity. At the crux of our approach is an intuitive definition of objects as parts of a scene that can be manipulated independently of others while keeping the scene "well-formed" (Biederman, 1981). We implement this by learning a set of different layouts--3D affine transformations of every NeRF--which must yield composited scenes that render into in-distribution 2D images given a text prompt (Poole et al., 2022).\n' +
+      '\n' +
+      'We find that this lightweight inductive bias, which we term _layout learning_, results in surprisingly effective object disentanglement in generated 3D scenes (Figure 1), enabling object-level scene manipulation in the text-to-3D pipeline. We demonstrate the utility of layout learning on several tasks, such as building a scene around a 3D asset of interest, sampling different plausible arrangements for a given set of assets, and even parsing a provided NeRF into the objects it contains, all without any supervision beyond just a text prompt. We further quantitatively verify that, despite requiring no auxiliary models or per-example human annotation, the object-level decomposition that emerges through layout learning is meaningful and outperforms baselines.\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      'Figure 1: **Layout learning generates disentangled 3D scenes** given a text prompt and a pretrained text-to-image diffusion model. We learn an entire 3D scene (left, shown from two views along with surface normals and a textureless render) that is composed of multiple NeRFs (right) representing different objects and arranged according to a learned layout.\n' +
+      '\n' +
+      'Our key contributions are as follows:\n' +
+      '\n' +
+      '* We introduce a simple, tractable definition of objects as portions of a scene that can be manipulated independently of each other and still produce valid scenes.\n' +
+      '* We incorporate this notion into the architecture of a neural network, enabling the compositional generation of 3D scenes by optimizing a set of NeRFs as well as a set of layouts for these NeRFs.\n' +
+      '* We apply layout learning to a range of novel 3D scene generation and editing tasks, demonstrating its ability to disentangle complex data despite requiring no object labels, bounding boxes, fine-tuning, external models, or any other form of additional supervision.\n' +
+      '\n' +
+      '## 2 Background\n' +
+      '\n' +
+      '### Neural 3D representations\n' +
+      '\n' +
+      'To output three-dimensional scenes, we must use an architecture capable of modeling 3D data, such as a neural radiance field (NeRF, Mildenhall et al., 2020). We build on MLP-based NeRFs (Barron et al., 2021), that represent a volume using an MLP \\(f\\) that maps from a point in 3D space \\(\\mathbf{\\mu}\\) to a density \\(\\tau\\) and albedo \\(\\mathbf{\\rho}\\):\n' +
+      '\n' +
+      '\\[(\\tau,\\mathbf{\\rho})=f(\\mathbf{\\mu};\\theta).\\]\n' +
+      '\n' +
+      'We can differentiably render this volume by casting a ray \\(\\mathbf{r}\\) into the scene, and then alpha-compositing the densities and colors at sampled points along the ray to produce a color and accumulated alpha value. For 3D reconstruction, we would optimize the colors for the rendered rays to match a known pixel value at an observed image and camera pose, but for 3D generation we sample a random camera pose, render the corresponding rays, and score the resulting image using a generative model.\n' +
+      '\n' +
+      '### Text-to-3D using 2D diffusion models\n' +
+      '\n' +
+      'Our work builds on text-to-3D generation using 2D diffusion priors (Poole et al., 2022). These methods turn a diffusion model into a loss function that can be used to optimize the parameters of a 3D representation. Given an initially random set of parameters \\(\\theta\\), at each iteration we randomly sample a camera \\(c\\) and render the 3D model to get an image \\(x=g(\\theta,c)\\). We can then score the quality of this rendered image given some conditioning text \\(y\\) by evaluating the score function of a noised version of the image \\(z_{t}=\\alpha_{t}x+\\sigma_{t}\\epsilon\\) using the pretrained diffusion model \\(\\hat{\\epsilon}(z_{t};y,t)\\). We update the parameters of the 3D representation using score distillation:\n' +
+      '\n' +
+      '\\[\\nabla_{\\theta}\\mathcal{L}_{\\text{SDS}}(\\theta)=\\mathbb{E}_{t,\\epsilon,c}\\left[ w(t)(\\hat{\\epsilon}(z_{t};y,t)-\\epsilon)\\frac{\\partial x}{\\partial\\theta}\\right] \\tag{1}\\]\n' +
+      '\n' +
+      'where \\(w(t)\\) is a noise-level dependent weighting.\n' +
+      '\n' +
+      'SDS and related methods enable the use of rich 2D priors obtained from large text-image datasets to inform the structure of 3D representations. However, they often require careful tuning of initialization and hyperparameters to yield high quality 3D models, and past work has optimized these towards object generation. The NeRF is initialized with a Gaussian blob of density at the origin, biasing the optimization process to favor an object at the center instead of placing density in a skybox-like environment in the periphery of the 3D representation. Additionally, bounding spheres are used to prevent creation of density in the background. The resulting 3D models can produce high-quality individual objects, but often fail to generate interesting scenes, and the resulting 3D models are a single representation that cannot be easily split apart into constituent entities.\n' +
+      '\n' +
+      '## 3 Method\n' +
+      '\n' +
+      'To bridge the gap from monolithic 3D representations to scenes with multiple objects, we introduce a more expressive 3D representation. Here, we learn multiple NeRFs along with a set of layouts, _i.e._ valid ways to arrange these NeRFs in 3D space. We transform the NeRFs according to these layouts and composite them, training them to form high-quality scenes as evaluated by the SDS loss with a text-to-image prior. This structure causes each individual NeRF to represent a different object while ensuring that the composite NeRF represents a high-quality scene. See Figure 2 for an overview of our approach.\n' +
+      '\n' +
+      '### Compositing multiple volumes\n' +
+      '\n' +
+      'We begin by considering perhaps the most naive approach to generating 3D scenes disentangled into separate entities. We simply declare \\(K\\) NeRFs \\(\\{f_{k}\\}\\)--each one intended to house its own object--and jointly accumulate densities from all NeRFs along a ray, proceeding with training as normal by rendering the composite volume. This can be seen as an analogy to set-latent representations (Locatello et al., 2020; Jaegle et al., 2021; Jabri et al., 2023), which have been widely explored in other contexts. In this case, rather than arriving at the final albedo \\(\\mathbf{\\rho}\\) and density \\(\\tau\\) of a point \\(\\mathbf{\\mu}\\) by querying one 3D representation, we query \\(K\\) such representations, obtaining a set \\(\\{\\mathbf{\\rho}_{k},\\tau_{k}\\}_{k=1}^{K}\\). The final density at \\(\\mathbf{\\mu}\\) is then \\(\\tau^{\\prime}=\\sum\\tau_{k}\\) and the final albedo is the density-weighted average \\(\\mathbf{\\rho}^{\\prime}=\\sum\\frac{\\tau_{k}}{\\tau^{\\prime}}\\mathbf{\\rho}_{k}\\).\n' +
+      '\n' +
+      'This formulation provides several potential benefits. First, it may be easier to optimize this representation to generate a larger set of objects, since there are \\(K\\) distinct 3D Gaussian density spheres to deform at initialization, not just one. Second, many representations implicitly contain a local smoothness bias (Tancik et al., 2020) which is helpful for generating objects but not spatially discontinuous scenes. Thus, our representation might be inclined toward allocating each representation toward a spatially smooth entity, _i.e._ an object.\n' +
+      '\n' +
+      'However, just as unregularized sets of latents are often highly uninterpretable, simply spawning \\(K\\) instances of a NeRF does not produce meaningful decompositions. In practice, we find each NeRF often represents a random point-cloud-like subset of 3D space (Fig. 3).\n' +
+      '\n' +
+      'To produce scenes with disentangled objects, we need a method to encourage each 3D instance to represent a coherent object, not just a different part of 3D space.\n' +
+      '\n' +
+      '### Layout learning\n' +
+      '\n' +
+      'We are inspired by other unsupervised definitions of objects that operate by imposing a simple inductive bias or regularization in the structure of a model\'s latent space, _e.g._ query-axis softmax attention (Locatello et al., 2020), spatial ellipsoid feature maps (Epstein et al., 2022), and diagonal Hessian matrices (Peebles et al., 2020). In particular, Niemeyer and Geiger (2021) learn a 3D-aware GAN that composites multiple NeRF volumes in the forward pass, where the latent code contains a random affine transform for each NeRF\'s output. Through this structure, each NeRF learns to associate itself with a different object, facilitating the kind of disentanglement we are after. However, their approach relies on pre-specified independent distributions of each object\'s location, pose, and size, preventing scaling beyond narrow datasets of images with one or two objects and minimal variation in layout.\n' +
+      '\n' +
+      'In our setting, not only does the desired output comprise numerous open-vocabulary, arbitrary objects, but these objects _must be arranged in a particular way_ for the resultant scene to be valid or "well-formed" (Biederman et al., 1982). Why not simply learn this arrangement?\n' +
+      '\n' +
+      'To do this, we equip each individual NeRF \\(f_{k}\\) with its own learnable affine transform \\(\\mathbf{T}_{k}\\), and denote the set of transforms across all volumes a layout \\(\\mathbf{L}\\equiv\\{\\mathbf{T}_{k}\\}_{k=1}^{K}\\). Each \\(\\mathbf{T}_{k}\\) has a rotation \\(\\mathbf{R}_{k}\\in\\mathbb{R}^{3\\times 3}\\) (in practice expressed via a quaternion \\(\\mathbf{q}\\in\\mathbb{R}^{4}\\) for ease of optimization), translation \\(\\mathbf{t}_{k}\\in\\mathbb{R}^{3}\\), and scale \\(s_{k}\\in\\mathbb{R}\\). We apply this affine transform to the camera-to-world rays \\(\\mathbf{r}\\) before sampling the points used to query \\(f_{k}\\). This implementation is simple, makes no assumptions about the underlying form of \\(f\\), and updates parameters with standard backpropagation, as sampling and embedding points along the ray is fully differentiable (Lin et al., 2021). Concretely, a ray \\(\\mathbf{r}\\) with origin \\(\\mathbf{o}\\) and direction \\(\\mathbf{d}\\) is transformed into an instance-specific ray \\(\\mathbf{r}_{k}\\) via the following transformations:\n' +
+      '\n' +
+      '\\[\\mathbf{o}_{k} =s_{k}\\left(\\mathbf{R}_{k}\\mathbf{o}-\\mathbf{t}_{k}\\right) \\tag{2}\\] \\[\\mathbf{d}_{k} =s_{k}\\mathbf{R}_{k}\\mathbf{d}\\] (3) \\[\\mathbf{r}_{k}(t) =\\mathbf{o}_{k}+t\\mathbf{d}_{k} \\tag{4}\\]\n' +
+      '\n' +
+      'Though we input a different \\(H\\times W\\) grid of rays to each \\(f_{k}\\), we composite their outputs as if they all sit in the same\n' +
+      '\n' +
+      'Figure 2: **Method. Layout learning works by optimizing \\(K\\) NeRFs \\(f_{k}\\) and learning \\(N\\) different layouts \\(\\mathbf{L}_{n}\\) for them, each consisting of per-NeRF affine transforms \\(\\mathbf{T}_{k}\\). Every iteration, a random layout is sampled and used to transform all NeRFs into a shared coordinate space. The resultant volume is rendered and optimized with score distillation sampling (Poole et al., 2022) as well as per-NeRF regularizations to prevent degenerate decompositions and geometries (Barron et al., 2022). This simple structure causes object disentanglement to emerge in generated 3D scenes.**\n' +
+      '\n' +
+      'coordinate space--for example, the final density at \\(\\mathbf{\\mu}=\\mathbf{r}(t)\\) is the sum of densities output by every \\(f_{k}\\) at \\(\\mathbf{\\mu}_{k}=\\mathbf{r}_{k}(t)\\).\n' +
+      '\n' +
+      'Compared to the naive formulation that instantiates \\(K\\) models with identical initial densities, learning the size, orientation, and position of each model makes it easier to place density in different parts of 3D space. In addition, the inherent stochasticity of optimization may further dissuade degenerate solutions.\n' +
+      '\n' +
+      'While introducing layout learning significantly increases the quality of object disentanglement (Tbl. 3b), the model is still able to adjoin and utilize individual NeRFs in undesirable ways. For example, it can still place object parts next to each other in the same way as K NeRFs without layout learning.\n' +
+      '\n' +
+      '**Learning multiple layouts.** We return to our statement that objects must be "arranged in a particular way" to form scenes that render to in-distribution images. While we already enable this with layout learning in its current form, we are not taking advantage of one key fact: there are many "particular ways" to arrange a set of objects, each of which gives an equally valid composition. Rather than only learning one layout, we instead learn a distribution over layouts \\(P(\\mathbf{L})\\) or a set of \\(N\\) randomly initialized layouts \\(\\{\\mathbf{L}_{n}\\}_{n=1}^{N}\\). We opt for the latter, and sample one of the \\(N\\) layouts from the set at each training step to yield transformed rays \\(\\mathbf{r}_{k}\\).\n' +
+      '\n' +
+      'With this in place, we have arrived at our final definition of objectness (Figure 2): **objects are parts of a scene that can be arranged in different ways to form valid compositions.** We have "parts" by incorporating multiple volumes, and "arranging in different ways" through multiple-layout learning. This simple approach is easy to implement (Fig. 9), adds very few parameters (\\(8NK\\) to be exact), requires no fine-tuning or manual annotation, and is agnostic to choices of text-to-image and 3D model. In Section 4, we verify that layout learning enables the generation and disentanglement of complex 3D scenes.\n' +
+      '\n' +
+      '**Regularization.** We build on Mip-NeRF 360 (Barron et al., 2022) as our 3D backbone, inheriting their orientation, distortion, and accumulation losses to improve visual quality of renderings and minimize artifacts. However, rather than computing these losses on the final composited scene, we apply them on a per-NeRF basis. Importantly, we add a loss penalizing degenerate empty NeRFs by regularizing the soft-binarized version of each NeRF\'s accumulated density, \\(\\mathbf{\\alpha}_{\\text{bin}}\\), to occupy at least 10% of the canvas:\n' +
+      '\n' +
+      '\\[\\mathcal{L}_{\\text{empty}}=\\max\\left(0.1-\\bar{\\mathbf{\\alpha}}_{\\text{bin}},0\\right) \\tag{5}\\]\n' +
+      '\n' +
+      'We initialize parameters \\(s\\sim\\mathcal{N}(1,0.3)\\), \\(\\mathbf{t}^{(i)}\\sim\\mathcal{N}(0,0.3)\\), and \\(\\mathbf{q}^{(i)}\\sim\\mathcal{N}(\\mu_{i},0.1)\\) where \\(\\mu_{i}\\) is 1 for the last element and 0 for all others. We use a \\(10\\times\\) higher learning rate to train layout parameters. See Appendix A.1 for more details.\n' +
+      '\n' +
+      '## 4 Experiments\n' +
+      '\n' +
+      'We examine the ability of layout learning to generate and disentangle 3D scenes across a wide range of text prompts. We\n' +
+      '\n' +
+      'Figure 3: **Evaluating disentanglement and quality.** We optimize a model with \\(K=3\\) NeRFs on a list of 30 prompts, each containing three objects. We then automatically pair each NeRF with a description of one of the objects in the prompt and report average NeRF-object CLIP score (see text for details). We also generate each of the \\(30\\times 3=90\\) objects from the prompt list individually and compute its score with both the corresponding prompt and a random other one, providing upper and lower bounds for performance on this task. Training \\(K\\) NeRFs provides some decomposition, but most objects are scattered across 2 or 3 models. Learning one layout alleviates some of these issues, but only with multiple layouts do we see strong disentanglement. We show two representative examples of emergent objects to visualize these differences.\n' +
+      '\n' +
+      'first verify our method\'s effectiveness through an ablation study and comparison to baselines, and then demonstrate various applications enabled by layout learning.\n' +
+      '\n' +
+      '### Qualitative evaluation\n' +
+      '\n' +
+      'In Figure 1, we demonstrate several examples of our full system with layout learning. In each scene, we find that the composited 3D generation is high-quality and matches the text prompt, while the individual NeRFs learn to correspond to objects within the scene. Interestingly, since our approach does not directly rely on the input prompt, we can disentangle entities not mentioned in the text, such as a basket filled with easter eggs, a chef\'s hat, and a picnic table.\n' +
+      '\n' +
+      '### Quantitative evaluation\n' +
+      '\n' +
+      'Measuring the quality of text-to-3D generation remains an open problem due to a lack of ground truth data--there is no "true" scene corresponding to a given prompt. Similarly, there is no true disentanglement for a certain text description. Following Park et al. (2021); Jain et al. (2022); Poole et al. (2022), we attempt to capture both of these aspects using scores from a pretrained CLIP model (Radford et al., 2021; Li et al., 2017). Specifically, we create a diverse list of 30 prompts, each containing 3 objects, and optimize a model with \\(K=3\\) NeRFs on each prompt. We compute the 3\\(\\times\\)3 matrix of CLIP scores (\\(100\\times\\) cosine similarity) for each NeRF with descriptions "a DSLR photo of [object 1/2/3]", finding the optimal NeRF-to-object matching and reporting the average score across all 3 objects.\n' +
+      '\n' +
+      'We also run SDS on the \\(30\\times 3=90\\) per-object prompts individually and compute scores, representing a maximum attainable CLIP score under perfect disentanglement (we equalize parameter counts across all models for fairness).\n' +
+      '\n' +
+      'Figure 4: **Conditional optimization. We can take advantage of our structured representation to learn a scene given a 3D asset in addition to a text prompt, such as a specific cat or motorcycle (a). By freezing the NeRF weights but not the layout weights, the model learns to arrange the provided asset in the context of the other objects it discovers (b). We show the entire composite scenes the model creates in (c) from two views, along with surface normals and a textureless render.**\n' +
+      '\n' +
+      'As a low-water mark, we compute scores between per-object NeRFs and a random other prompt from the pool of 90.\n' +
+      '\n' +
+      'The results in Table 2(b) show these CLIP scores, computed both on textured ("Color") and textureless, geometry-only ("Geo") renders. The final variant of layout learning achieves competitive performance, only 0.1 points away from supervised per-object rendering when using the largest CLIP model as an oracle, indicating high quality of both object disentanglement and appearance. Please see Appendix A.3 for a complete list of prompts and more details.\n' +
+      '\n' +
+      '**Ablation.** We justify the sequence of design decisions presented in Section 3 by evaluating different variants of layout learning, starting from a simple collection of \\(K\\) NeRFs and building up to our final architecture. The simple setting leads to some non-trivial separation (Figure 2(a)) but parts of objects are randomly distributed across NeRFs--CLIP scores are significantly above random, but far below the upper bound. Adding regularization losses improve scores somewhat, but the biggest gains come from introducing layout learning and then co-learning \\(N\\) different arrangements, validating our approach.\n' +
+      '\n' +
+      '### Applications of layout learning\n' +
+      '\n' +
+      'To highlight the utility of the disentanglement given by layout learning beyond generation, we apply it to various 3D editing tasks. First, we show further results on object disentanglement in Figure 4, but in a scenario where one NeRF is frozen to contain an object of interest, and the rest of the scene must be constructed around it. This object\'s layout parameters can also be frozen, for example, if a specific position or size is desired. We examine the more challenging setting where layout parameters must also be learned, and show results incorporating a grumpy cat and green motorbike into different contexts. Our model learns plausible transformations to incorporate provided assets into scenes, while still discovering the other objects necessary to complete the prompt.\n' +
+      '\n' +
+      'In Figure 5, we visualize the different layouts learned in a single training run. The variation in discovered layouts is significant, indicating that our formulation can find various meaningful arrangements of objects in a scene. This allows users of our method to explore different permutations of the same content in the scenes they generate.\n' +
+      '\n' +
+      'Inspired by this, and to test gradient flow into layout parameters, we also examine whether our method can be used to arrange off-the-shelf, frozen 3D assets into semantically valid configurations (Figure 6). Starting from random positions, sizes, and orientations, layouts are updated using signal backpropagated from the image model. This learns reasonable transformations, such as a rubber duck shrinking and moving inside a tub, and a shower head moving upwards and pointing so its stream is going into the tub.\n' +
+      '\n' +
+      'Finally, we use layout learning to disentangle a pre-existing NeRF containing multiple entities, without any per-object supervision (Fig. 8). We do this by randomly initializing a new model and training it with a caption describing the target NeRF. We require the first layout \\(\\mathbf{L}_{1}\\) to create a scene that faithfully reconstructs the target NeRF in RGB space, allowing all other layouts to vary freely. We find that layout learning arrives at reasonable decompositions of the scenes it is tasked with reconstructing.\n' +
+      '\n' +
+      '## 5 Related work\n' +
+      '\n' +
+      '**Object recognition and discovery.** The predominant way to identify the objects present in a scene is to segment two-dimensional images using extensive manual annotation (Kirillov et al., 2023; Li et al., 2022; Wang et al., 2023), but relying on human supervision introduces challenges and scales poorly to 3D data. As an alternative, an extensive line of work on _unsupervised_ object discovery (Russell et al., 2006; Rubinstein et al., 2013; Oktay et al., 2018; Henaff et al., 2022; Smith et al., 2022; Ye et al., 2022; Monnier et al., 2023) proposes different inductive biases (Locatello et al., 2019) that encourage awareness of objects in a scene. However, these approaches are largely restricted to either 2D images or constrained 3D data (Yu et al., 2021; Sajjadi et al., 2022), limiting their applicability to complex 3D scenes. At the same time, large text-to-image models have been shown to implicitly encode an understanding of entities in their\n' +
+      '\n' +
+      'Figure 5: **Layout diversity.** Our method discovers different plausible arrangements for objects. Here, we optimize each example over \\(N=4\\) layouts and show differences in composited scenes, _e.g._ flamingos wading inside vs. beside the pond, and cats in different poses around the snooker table.\n' +
+      '\n' +
+      'internals Epstein et al. (2023), motivating their use for the difficult problem of explicit object disentanglement.\n' +
+      '\n' +
+      '**Compositional 3D generation.** There are many benefits to generating 3D scenes separated into objects beyond just better control. For example, generating objects one at a time and compositing them manually provides no guarantees about compatibility in appearance or pose, such as "dogs in matching outfits" in Figure 1 or a lion holding the handlebars of a motorcycle in Figure 4. Previous and concurrent work explores this area, but either requires users to painstakingly annotate 3D bounding boxes and per-object labels Cohen-Bar et al. (2023); Po and Wetzstein (2023) or uses external supervision such as LLMs to propose objects and layouts Yang et al. (2023); Zhang et al. (2023), significantly slowing down the generation process and hindering quality. We show that this entire process can be solved without any additional models or labels, simply using the signal provided by a pretrained image generator.\n' +
+      '\n' +
+      '## 6 Discussion\n' +
+      '\n' +
+      'We present layout learning, a simple method for generating disentangled 3D scenes given a text prompt. By optimizing multiple NeRFs to form valid scenes across multiple layouts, we encourage each NeRF to contain its own object. This approach requires no additional supervision or auxiliary models, yet performs quite well. By generating scenes that are decomposed into objects, we provide users of text-to-3D systems with more granular, local control over the complex creations output by a black-box neural network.\n' +
+      '\n' +
+      'Though layout learning is surprisingly effective on a wide variety of text prompts, the problem of object disentanglement in 3D is inherently ill-posed, and our definition of objects is simple. As a result, many undesirable solutions exist that satisfy the constraints we pose.\n' +
+      '\n' +
+      'Despite our best efforts, the compositional scenes output by our model do occasionally suffer from failures (Fig. 7) such as over- or under-segmentation and the "Janus problem" (where objects are depicted so that salient features appear from all views, _e.g._ an animal with a face on the back of its head) as well as other undesirable geometries. Further, though layouts are initialized with high standard deviation and trained with an increased learning rate, they occasionally converge to near-identical values, minimizing the effectiveness of our method. In general, we find that failures to disentangle are accompanied by an overall decrease in visual quality.\n' +
+      '\n' +
+      'Figure 6: **Optimizing layout.** Allowing gradients to flow only into layout parameters while freezing a set of provided 3D assets results in reasonable object configurations, such as a chair tucked into a table with spaghetti on it, despite no such guidance being provided in the text conditioning.\n' +
+      '\n' +
+      'Figure 7: **Limitations.** Layout learning inherits failure modes from SDS, such as bad geometry of a cabin with oddly intersecting exterior walls **(a)**. It also may undesirably group objects that always move together **(b)** such as a horse and its rider, and **(c)** for certain prompts that generate many small objects, choosing \\(K\\) correctly is challenging, hurting disentanglement. In some cases **(d)**, despite different initial values, layouts converge to very similar final configurations.\n' +
+      '\n' +
+      '## Acknowledgements\n' +
+      '\n' +
+      'We thank Dor Verbin, Ruiqi Gao, Lucy Chai, and Minyoung Huh for their helpful comments, and Arthur Brussee for help with an NGP implementation. DE was partly supported by the PD Soros Fellowship. DE conducted part of this research at Google, with additional funding from an ONR MURI grant.\n' +
+      '\n' +
+      '## Impact statement\n' +
+      '\n' +
+      'Generative models present many ethical concerns over data attribution, nefarious applications, and longer-term societal effects. Though we build on a text-to-image model trained on data that has been filtered to remove concerning imagery and captions, recent work has shown that popular datasets contain dangerous depictions of undesirable content1 which may leak into model weights.\n' +
+      '\n' +
+      'Footnote 1: [https://crsreports.congress.gov/product/pdf/R/R47569](https://crsreports.congress.gov/product/pdf/R/R47569)\n' +
+      '\n' +
+      'Further, since we distill the distribution learned by an image generator, we inherit the potential negative use-cases enabled by the original model. By facilitating the creation of more complex, compositional 3D scenes, we perhaps expand the scope of potential issues associated with text-to-3D technologies. Taking care to minimize potential harmful deployment of our generative models through using ethically-sourced and well-curated data is of the utmost importance as our field continues to grow in size and influence.\n' +
+      '\n' +
+      'Further, by introducing an unsupervised method to disentangle 3D scenes into objects, we possibly contribute to the displacement of creative workers such as video game asset designers via increased automation. However, at the same time, methods like the one we propose have the potential to become valuable tools at the artist\'s disposal, providing much more control over outputs and helping create new, more engaging forms of content.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* Barron et al. (2021) Barron, J. T., Mildenhall, B., Tancik, M., Hedman, P., Martin-Brualla, R., and Srinivasan, P. P. Mip-nerf: A multiscale representation for anti-aliasing neural radiance fields. In _Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)_, pp. 5855-5864, October 2021.\n' +
+      '* Barron et al. (2022) Barron, J. T., Mildenhall, B., Verbin, D., Srinivasan, P. P., and Hedman, P. Mip-nerf 360: Unbounded anti-aliased neural radiance fields. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_, pp. 5470-5479, June 2022.\n' +
+      '* Biederman (1981) Biederman, I. On the semantics of a glance at a scene. In _Perceptual organization_, pp. 213-253. Routledge, 1981.\n' +
+      '* Biederman et al. (1982) Biederman, I., Mezzanotte, R. J., and Rabinowitz, J. C. Scene perception: Detecting and judging objects undergoing relational violations. _Cognitive psychology_, 14(2):143-177, 1982.\n' +
+      '* Chang et al. (2023) Chang, H., Zhang, H., Barber, J., Maschinot, A., Lezama, J., Jiang, L., Yang, M.-H., Murphy, K., Freeman, W. T., Rubinstein, M., et al. Muse: Text-to-image generation via masked generative transformers. In _ICML_, 2023.\n' +
+      '* Cohen-Bar et al. (2023) Cohen-Bar, D., Richardson, E., Metzer, G., Giryes, R., and Cohen-Or, D. Set-the-scene: Global-local training for generating controllable nerf scenes. In _ICCV_, 2023.\n' +
+      '* Epstein et al. (2022) Epstein, D., Park, T., Zhang, R., Shechtman, E., and Efros, A. A. Blobgan: Spatially disentangled scene representations. In _European Conference on Computer Vision_, pp. 616-635. Springer, 2022.\n' +
+      '* Epstein et al. (2023) Epstein, D., Jabri, A., Poole, B., Efros, A. A., and Holynski, A. Diffusion self-guidance for controllable image generation. In _Advances in Neural Information Processing Systems_, 2023.\n' +
+      '* Gupta et al. (2018) Gupta, V., Koren, T., and Singer, Y. Shampoo: Preconditioned stochastic tensor optimization. In _ICML_, 2018.\n' +
+      '* Hedlin et al. (2023) Hedlin, E., Sharma, G., Mahajan, S., Isack, H., Kar, A., Tagliasacchi, A., and Yi, K. M. Unsupervised semantic correspondence using stable diffusion. _arXiv preprint arXiv:2305.15581_, 2023.\n' +
+      '* Henaff et al. (2022) Henaff, O. J., Koppula, S., Shelhamer, E., Zoran, D., Jaegle, A., Zisserman, A., Carreira, J., and Arandjelovic, R. Object discovery and representation networks. In _European Conference on Computer Vision_, pp. 123-143. Springer, 2022.\n' +
+      '* Hoffmann et al. (2011) Hoffmann, A., Ruttler, V., and Nieder, A. Ontogeny of object permanence and object tracking in the carrion crow, corvus corone. _Animal behaviour_, 82(2):359-367, 2011.\n' +
+      '* Jabri et al. (2023) Jabri, A., Fleet, D., and Chen, T. Scalable adaptive computation for iterative generation. In _ICML_, 2023.\n' +
+      '* Jaegle et al. (2021a) Jaegle, A., Borgeaud, S., Alayrac, J.-B., Doersch, C., Ionescu, C., Ding, D., Koppula, S., Zoran, D., Brock, A., Shelhamer, E., et al. Perceiver io: A general architecture for structured inputs & outputs. _arXiv preprint arXiv:2107.14795_, 2021a.\n' +
+      '* Jaegle et al. (2021b) Jaegle, A., Gimeno, F., Brock, A., Vinyals, O., Zisserman, A., and Carreira, J. Perceiver: General perception with iterative attention. In _International conference on machine learning_, pp. 4651-4664. PMLR, 2021b.\n' +
+      '* Jain et al. (2022) Jain, A., Mildenhall, B., Barron, J. T., Abbeel, P., and Poole, B. Zero-shot text-guided object generation with dream fields. In _CVPR_, 2022.\n' +
+      '* Jain et al. (2022)* Ke et al. (2023) Ke, B., Obukhov, A., Huang, S., Metzger, N., Daudt, R. C., and Schindler, K. Repurposing diffusion-based image generators for monocular depth estimation. _arXiv preprint arXiv:2312.02145_, 2023.\n' +
+      '* Kirillov et al. (2023) Kirillov, A., Mintun, E., Ravi, N., Mao, H., Rolland, C., Gustafson, L., Xiao, T., Whitehead, S., Berg, A. C., Lo, W.-Y., et al. Segment anything. _arXiv preprint arXiv:2304.02643_, 2023.\n' +
+      '* Li et al. (2017) Li, A., Jabri, A., Joulin, A., and van der Maaten, L. Learning visual n-grams from web data. In _ICCV_, 2017.\n' +
+      '* Li et al. (2022) Li, Y., Mao, H., Girshick, R., and He, K. Exploring plain vision transformer backbones for object detection. In _European Conference on Computer Vision_, pp. 280-296. Springer, 2022.\n' +
+      '* Lin et al. (2021) Lin, C.-H., Ma, W.-C., Torralba, A., and Lucey, S. Barf: Bundle-adjusting neural radiance fields. In _ICCV_, 2021.\n' +
+      '* Lin et al. (2023) Lin, C.-H., Gao, J., Tang, L., Takikawa, T., Zeng, X., Huang, X., Kreis, K., Fidler, S., Liu, M.-Y., and Lin, T.-Y. Magic3d: High-resolution text-to-3d content creation. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pp. 300-309, 2023.\n' +
+      '* Liu et al. (2023) Liu, R., Wu, R., Van Hoorick, B., Tokmakov, P., Zakharov, S., and Vondrick, C. Zero-1-to-3: Zero-shot one image to 3d object. In _Proceedings of the IEEE/CVF International Conference on Computer Vision_, pp. 9298-9309, 2023.\n' +
+      '* Locatello et al. (2019) Locatello, F., Bauer, S., Lucic, M., Raetsch, G., Gelly, S., Scholkopf, B., and Bachem, O. Challenging common assumptions in the unsupervised learning of disentangled representations. In _international conference on machine learning_, pp. 4114-4124. PMLR, 2019.\n' +
+      '* Locatello et al. (2020) Locatello, F., Weissenborn, D., Unterthiner, T., Mahendran, A., Heigold, G., Uszkoreit, J., Dosovitskiy, A., and Kipf, T. Object-centric learning with slot attention. _Advances in Neural Information Processing Systems_, 33:11525-11538, 2020.\n' +
+      '* Luo et al. (2023) Luo, G., Dunlap, L., Park, D. H., Holynski, A., and Darrell, T. Diffusion hyperfeatures: Searching through time and space for semantic correspondence. _arXiv preprint arXiv:2305.14334_, 2023.\n' +
+      '* Mildenhall et al. (2020) Mildenhall, B., Srinivasan, P. P., Tancik, M., Barron, J. T., Ramamoorthi, R., and Ng, R. Nerf: Representing scenes as neural radiance fields for view synthesis. In _ECCV_, 2020.\n' +
+      '* Monnier et al. (2023) Monnier, T., Austin, J., Kanazawa, A., Efros, A. A., and Aubry, M. Differentiable Blocks World: Qualitative 3D Decomposition by Rendering Primitives. In _Neural Information Processing Systems_, 2023.\n' +
+      '* Muller et al. (2022) Muller, T., Evans, A., Schied, C., and Keller, A. Instant neural graphics primitives with a multiresolution hash encoding. _ACM Trans. Graph._, 41(4):102:1-102:15, July 2022. doi: 10.1145/3528223.3530127. URL [https://doi.org/10.1145/3528223.3530127](https://doi.org/10.1145/3528223.3530127).\n' +
+      '* Nichol et al. (2021) Nichol, A., Dhariwal, P., Ramesh, A., Shyam, P., Mishkin, P., McGrew, B., Sutskever, I., and Chen, M. Glide: Towards photorealistic image generation and editing with text-guided diffusion models. _arXiv preprint arXiv:2112.10741_, 2021.\n' +
+      '* Niemeyer & Geiger (2021) Niemeyer, M. and Geiger, A. Giraffe: Representing scenes as compositional generative neural feature fields. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pp. 11453-11464, 2021.\n' +
+      '* Ohta et al. (1978) Ohta, Y.-i., Kanade, T., and Sakai, T. An analysis system for scenes containing objects with substructures. In _Proceedings of the Fourth International Joint Conference on Pattern Recognitions_, pp. 752-754, 1978.\n' +
+      '* Oktay et al. (2018) Oktay, D., Vondrick, C., and Torralba, A. Counterfactual image networks, 2018. URL [https://openreview.net/forum?id=SyYPRg0-](https://openreview.net/forum?id=SyYPRg0-).\n' +
+      '* Park et al. (2021) Park, D. H., Azadi, S., Liu, X., Darrell, T., and Rohrbach, A. Benchmark for compositional text-to-image synthesis. In _Thirty-fifth Conference on Neural Information Processing Systems Datasets and Benchmarks Track (Round 1)_, 2021.\n' +
+      '* Peebles et al. (2020) Peebles, W., Peebles, J., Zhu, J.-Y., Efros, A., and Torralba, A. The hessian penalty: A weak prior for unsupervised disentanglement. In _ECCV_, 2020.\n' +
+      '* Piaget et al. (1952) Piaget, J., Cook, M., et al. _The origins of intelligence in children_, volume 8. International Universities Press New York, 1952.\n' +
+      '* Po & Wetzstein (2023) Po, R. and Wetzstein, G. Compositional 3d scene generation using locally conditioned diffusion. _arXiv preprint arXiv:2303.12218_, 2023.\n' +
+      '* Poole et al. (2022) Poole, B., Jain, A., Barron, J. T., and Mildenhall, B. Dreamfusion: Text-to-3d using 2d diffusion. _arXiv preprint arXiv:2209.14988_, 2022.\n' +
+      '* Radford et al. (2021) Radford, A., Kim, J. W., Hallacy, C., Ramesh, A., Goh, G., Agarwal, S., Sastry, G., Askell, A., Mishkin, P., Clark, J., Krueger, G., and Sutskever, I. Learning transferable visual models from natural language supervision. In _ICML_, 2021.\n' +
+      '* Ramesh et al. (2022) Ramesh, A., Dhariwal, P., Nichol, A., Chu, C., and Chen, M. Hierarchical text-conditional image generation with clip latents. _arXiv preprint arXiv:2204.06125_, 1(2):3, 2022.\n' +
+      '\n' +
+      '* Roberts (1963) Roberts, L. G. _Machine perception of three-dimensional solids_. PhD thesis, Massachusetts Institute of Technology, 1963.\n' +
+      '* Rubinstein et al. (2013) Rubinstein, M., Joulin, A., Kopf, J., and Liu, C. Unsupervised joint object discovery and segmentation in internet images. In _Proceedings of the IEEE conference on computer vision and pattern recognition_, pp. 1939-1946, 2013.\n' +
+      '* Russell et al. (2006) Russell, B. C., Freeman, W. T., Efros, A. A., Sivic, J., and Zisserman, A. Using multiple segmentations to discover objects and their extent in image collections. In _2006 IEEE Computer Society Conference on Computer Vision and Pattern Recognition (CVPR\'06)_, volume 2, pp. 1605-1614. IEEE, 2006.\n' +
+      '* Saharia et al. (2022) Saharia, C., Chan, W., Saxena, S., Li, L., Whang, J., Denton, E. L., Ghasemipour, K., Gontijo Lopes, R., Karagol Ayan, B., Salimans, T., et al. Photorealistic text-to-image diffusion models with deep language understanding. _Advances in Neural Information Processing Systems_, 35:36479-36494, 2022.\n' +
+      '* Sajjadi et al. (2022) Sajjadi, M. S., Duckworth, D., Mahendran, A., van Steenkiste, S., Pavetic, F., Lucic, M., Guibas, L. J., Greff, K., and Kipf, T. Object scene representation transformer. _Advances in Neural Information Processing Systems_, 35:9512-9524, 2022.\n' +
+      '* Smith et al. (2022) Smith, C., Yu, H.-X., Zakharov, S., Durand, F., Tenenbaum, J. B., Wu, J., and Sitzmann, V. Unsupervised discovery and composition of object light fields. _arXiv preprint arXiv:2205.03923_, 2022.\n' +
+      '* Spelke (1990) Spelke, E. S. Principles of object perception. _Cognitive science_, 14(1):29-56, 1990.\n' +
+      '* Tancik et al. (2020) Tancik, M., Srinivasan, P. P., Mildenhall, B., Fridovich-Keil, S., Raghavan, N., Singhal, U., Ramamoorthi, R., Barron, J. T., and Ng, R. Fourier features let networks learn high frequency functions in low dimensional domains. In _Neural Information Processing Systems_, 2020.\n' +
+      '* Wang et al. (2023a) Wang, C.-Y., Bochkovskiy, A., and Liao, H.-Y. M. Yolov7: Trainable bag-of-freebies sets new state-of-the-art for real-time object detectors. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pp. 7464-7475, 2023a.\n' +
+      '* Wang et al. (2023b) Wang, H., Du, X., Li, J., Yeh, R. A., and Shakhnarovich, G. Score jacobian chaining: Lifting pretrained 2d diffusion models for 3d generation. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pp. 12619-12629, 2023b.\n' +
+      '* Wang et al. (2023c) Wang, Z., Lu, C., Wang, Y., Bao, F., Li, C., Su, H., and Zhu, J. Prolificdreamer: High-fidelity and diverse text-to-3d generation with variational score distillation. _arXiv preprint arXiv:2305.16213_, 2023c.\n' +
+      '* Wertheimer (1938) Wertheimer, M. Laws of organization in perceptual forms. 1938.\n' +
+      '* Wilcox (1999) Wilcox, T. Object individuation: Infants\' use of shape, size, pattern, and color. _Cognition_, 72(2):125-166, 1999.\n' +
+      '* Wu et al. (2023) Wu, R., Mildenhall, B., Henzler, P., Park, K., Gao, R., Watson, D., Srinivasan, P. P., Verbin, D., Barron, J. T., Poole, B., et al. Reconfusion: 3d reconstruction with diffusion priors. _arXiv preprint arXiv:2312.02981_, 2023.\n' +
+      '* Yang et al. (2023) Yang, Y., Sun, F.-Y., Weihs, L., VanderBilt, E., Herrasti, A., Han, W., Wu, J., Haber, N., Krishna, R., Liu, L., et al. Holodeck: Language guided generation of 3d embodied ai environments. _arXiv preprint arXiv:2312.09067_, 2023.\n' +
+      '* Ye et al. (2022) Ye, V., Li, Z., Tucker, R., Kanazawa, A., and Snavely, N. Deformable sprites for unsupervised video decomposition. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pp. 2657-2666, 2022.\n' +
+      '* Yu et al. (2021) Yu, H.-X., Guibas, L. J., and Wu, J. Unsupervised discovery of object radiance fields. _arXiv preprint arXiv:2107.07905_, 2021.\n' +
+      '* Yu et al. (2022) Yu, J., Xu, Y., Koh, J. Y., Luong, T., Baid, G., Wang, Z., Vasudevan, V., Ku, A., Yang, Y., Ayan, B. K., et al. Scaling autoregressive models for content-rich text-to-image generation. _arXiv preprint arXiv:2206.10789_, 2(3):5, 2022.\n' +
+      '* Zhang et al. (2023) Zhang, Q., Wang, C., Siarohin, A., Zhuang, P., Xu, Y., Yang, C., Lin, D., Zhou, B., Tulyakov, S., and Lee, H.-Y. Scenewiz3d: Towards text-guided 3d scene composition. _arXiv preprint arXiv:2312.08885_, 2023.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:12]\n' +
+      '\n' +
+      'by a pretrained contrastive text-image model (Radford et al., 2021), which have been shown to correlate with human judgments on the quality of compositional generation (Park et al., 2021). However, rather than compute a retrieval-based metric such as precision or recall, we report the raw (\\(100\\times\\) upscaled, as is common practice) cosine similarities. In addition to being a more granular metric, this avoids the dependency of retrieval on the size and difficulty of the test set (typically only a few hundred text prompts).\n' +
+      '\n' +
+      'We devise a list of 30 prompts (Fig. 11), each of which lists three objects, spanning a wide range of data, from animals to food to sports equipment to musical instruments. As described in Section 4, we then train models with \\(K=3\\) NeRFs and layout learning and test whether each NeRF contains a different object mentioned in the prompt. We compute CLIP scores for each NeRF with a query prompt "a DSLR photo of [A/B/C]", yielding a \\(3\\times 3\\) score matrix. To compute NeRF-prompt CLIP scores, we average text-image similarity across 12 uniformly sampled views, each 30 degrees apart, at \\(-30^{\\circ}\\) elevation. We then select the best NeRF-prompt assignment (using brute force, as there are only \\(3!=6\\) possible choices), and run this process across 3 different seeds, choosing the one with the highest mean NeRF-prompt score.\n' +
+      '\n' +
+      'Figure 11: **Prompts used for CLIP evaluation.** Each prompt is injected into the template “a DSLR photo of {prompt}, plain solid color background”. To generate individual objects, the three objects in each prompt are separated into three new prompts and optimized independently.\n' +
+      '\n' +
+      'Figure 10: **Pseudocode for empty NeRF regularization,** where soft_bin_acc computes \\(\\tilde{\\alpha}_{\\text{bin}}\\) in Equation 5.\n' +
+      '\n' +
+      'Figure 9: **Pseudocode for layout learning,** with segments inherited from previous work abstracted into functions.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
