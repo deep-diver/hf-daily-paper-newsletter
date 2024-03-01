@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '[MISSING_PAGE_EMPTY:1]\n' +
+      '\n' +
+      '3. 모델 스케일의 범위에서 300B 토큰에서 호크와 그리핀을 추월한다. Hawk-3B는 절반의 토큰으로 훈련되었음에도 불구하고 다운스트림 작업에서 Mamba-3B(Gu and Dao, 2023)의 보고된 성능을 초과한다. 그리핀-7B 및 그리핀-14B는 대략 7배 더 적은 토큰(섹션 3.2)에 대해 트레이닝됨에도 불구하고 Llama-2(Touvron et al., 2023)의 성능과 일치한다.\n' +
+      '4. 호크와 그리핀 모두 TPU-v3 상의 트랜스포머와 비교 가능한 트레이닝 효율을 달성한다. 대각선 RNN 레이어는 메모리 바인딩이므로, 메모리 전송을 최소화하는 Pallas(Bradbury et al., 2018)에서 구현된 RG-LRU 레이어를 위한 커널로 이를 달성한다(섹션 4).\n' +
+      '5. 추론 동안, 호크와 그리핀 둘 다 MQA 트랜스포머(도 1(b)), 긴 시퀀스들을 샘플링할 때 더 낮은 레이턴시를 달성한다(섹션 5).\n' +
+      '6. 그리핀은 훈련 중에 보이는 것보다 긴 시퀀스에 대해 평가될 때 트랜스포머보다 더 나은 성능을 수행하며, 또한 훈련 데이터로부터 복사 및 검색 작업을 효율적으로 학습할 수 있다(섹션 6). 그러나 미조정 없이 복사 및 정확한 검색 작업에 대해 미리 훈련된 모델을 평가할 때 호크와 그리핀이 트랜스포머보다 성능이 떨어진다.\n' +
+      '\n' +
+      '##2 모델 아키텍처\n' +
+      '\n' +
+      '우리의 모든 모델은 (i) _a 잔차 블록_, (ii) _an MLP 블록_ 및 (iii) _a 시간적 혼합 블록_의 구성 요소를 포함한다. (i)와 (ii)는 모든 모델에서 동일하지만, 우리는 _global Multi-Query Attention_ (MQA), _local (sliding-window) MQA_ 및 제안된 _recurrent block_의 세 가지 시간적 혼합 블록을 고려한다. 순환 블록의 일부로서, 우리는 RG-LRU(Real-Gated Linear Recurrent Unit)-Linear Recurrent Unit(Orvieto et al., 2023)에 의해 영감을 받은 새로운 순환 계층을 사용한다.\n' +
+      '\n' +
+      '잔차 블록은, 도 2(a)에 도시된 바와 같이, 우리의 모델들의 글로벌 구조를 정의하며 프리-노어 트랜스포머(Xiong et al., 2020)에 의해 영감을 받는다. 입력 시퀀스를 삽입한 후 모델 깊이를 나타내는 블록(\\(N\\)을 통과시킨 후 RMSNorm(Zhang and Sennrich, 2019)을 적용하여 최종 액티베이션을 생성하였다. 토큰 확률을 계산하기 위해 우리는 최종 선형 계층과 소프트맥스를 적용한다. 이 레이어의 가중치는 입력 임베딩 레이어와 공유된다.\n' +
+      '\n' +
+      '### Residual block\n' +
+      '\n' +
+      '잔차 블록에는 순서대로 적용된 두 개의 구성 요소가 포함되어 있습니다. 첫 번째 성분은 은닉 상태 \\(x\\)를 취하여 RMSNorm(Zhang and Sennrich, 2019)을 적용한 후 시간 혼합 블록을 적용한다.\n' +
+      '\n' +
+      '그림 1:1 a) 호크, 그리핀 및 MQA 트랜스포머 기준선은 모두 보류 손실과 훈련 FLOP 사이의 파워 법칙 스케일링을 보여주며 그리핀은 모든 FLOP 예산에서 가장 낮은 보류 손실을 달성했다. 표시된 가장 큰 그리핀 모델은 14B 매개변수를 가지고 있다. b) 호크와 그리핀은 특히 샘플의 길이가 증가할 때 MQA 트랜스포머보다 상당히 높은 처리량을 달성한다.\n' +
+      '\n' +
+      '그런 다음 덧셈을 통해 \\(x\\)에서 스킵 연결로 출력을 병합한다. 유사하게, 제2 컴포넌트는 RMSNorm을 적용하고, 이어서 MLP 블록을 적용한 다음, RMSNorm의 입력으로부터 스킵 연결로 그의 출력을 병합한다. 이 블록은 도 2의 (a)에 예시되어 있다.\n' +
+      '\n' +
+      '### MLP block\n' +
+      '\n' +
+      '우리는 Gated MLP 블록(Dauphin et al., 2017)(도 2(b)에 도시됨)을 사용하며, 이는 차원 \\(D\\)의 입력으로부터 두 개의 가지를 생성한다. 각 가지에 출력치수가 \\(MD\\)인 선형층을 적용하였으며, 여기서 \\(M\\)은 팽창계수를 나타낸다. 단순화를 위해 \\(M\\!=\\!3\\)을 사용한다. 이 일을 통해. GeGeLU(Shazeer, 2020)와 유사하게 원소별 곱셈으로 병합하기 전에 가지들 중 하나에 GeLU 비선형성(Hendrycks and Gimpel, 2016)을 적용한다. 그러나, MLP 블록에서는 GeGeLU 층의 출력들에 출력 차원 \\(D\\)을 갖는 최종 선형 층을 적용한다.\n' +
+      '\n' +
+      '### Temporal-mixing blocks\n' +
+      '\n' +
+      '시간 혼합 블록은 시퀀스의 다른 시간 위치에서 숨겨진 층 활성화를 집계하는 모델의 구성 요소이다. 본 논문에서는 전역 MQA (Shazeer, 2019), 지역 MQA (Beltagy et al., 2020) 및 제안된 _Recurrent block_의 세 가지 시간적 혼합 블록을 고려한다.\n' +
+      '\n' +
+      '달리 명시되지 않는 한, 우리는 트랜스포머 베이스라인(Shazeer, 2019)의 추론 속도를 향상시키기 위해 MHA보다는 MQA를 사용한다. 우리는 고정된 머리 치수\\(D_{head}\\!=\\)을 사용한다. 128\\(HD_{head}\\!=\\!D\\)이 되도록 주의 헤드 수\\(H\\)을 고정한다. 이것은 모델 차원 \\(D\\)이 \\(128\\)의 배수여야 한다. 절대적 위치 임베딩은 사용하지 않지만, 상대적 위치 임베딩으로서 RoPE(Rotary Position Embedding)(Su et al., 2021)를 사용한다.\n' +
+      '\n' +
+      '로컬 슬라이딩 윈도우 어텐션 글로벌 어텐션을 사용하는 주요 단점 중 하나는 시퀀스 길이에서 계산 복잡도가 2차적으로 증가한다는 것이다. 이를 해결하기 위해, 슬라이딩 윈도우 어텐션이라고도 알려진 _local attention_(Beltagy et al., 2020)를 채택하기 시작한 여러 연구가 있다. 과거에 고정된 수의 토큰에만 각 포지션이 참석할 수 있도록 합니다. 이는 계산 FLOP를 감소시킬 뿐만 아니라 KV 캐시의 크기를 윈도우의 크기로 제한하여 시퀀스 길이에서 더 이상 2차적이지 않게 한다. 다른 모든 세부 사항은 글로벌 MQA와 동일합니다.\n' +
+      '\n' +
+      '그림 2: a) 우리 모드 아키텍처의 주요 백본은 잔여 블록이며, 이는 \\(N\\)번 적층된다. b) 우리가 사용하는 게이트 MLP 블록입니다. c) MQA(Multi Query Attention)의 대안으로 제안하는 recurrent block. 그것은 섹션 2.4에 정의된 제안된 RG-LRU 계층을 사용한다.\n' +
+      '\n' +
+      'Recurrent block our recurrent block(도 2(c))은 GSS block(Mehta et al., 2022) 및 Mamba(Gu and Dao, 2023)에 의해 사용되는 block과 유사하다. 우리는 차원 \\(D\\)의 입력을 취하고 출력 차원 \\(D_{RNN}\\)을 갖는 두 개의 선형 층을 병렬로 적용하여 두 개의 가지를 생성한다. 첫 번째 분기에서는 H3(Dao et al., 2022)의 Shift-SSM에서 영감을 받은 작은 분리 가능한 Conv1D 레이어를 적용하고, 시간적 필터 치수는 4이다. 이 Conv1D 레이어는 단지 \\(4D_{RNN}\\) 파라미터로 매우 작다는 점에 유의한다. 제안된 RG-LRU(이하 정의) 계층으로 Conv1D 계층을 따르며, 두 번째 분기에서는 GeLU 비선형성을 적용하고 요소별 곱셈으로 분기들을 병합한다. 그런 다음 출력 차원이 \\(D\\)인 최종 선형 레이어를 적용한다.\n' +
+      '\n' +
+      '### RG-LRU(Real-Gated Linear Recurrent Unit)\n' +
+      '\n' +
+      '우리의 제안된 RG-LRU 계층은 선형 순환 유닛(LRU)(Orvieto et al., 2023)에서 영감을 받은 간단한 재발을 갖지만, 비선형 RNN, 특히 LSTM(Hochreiter and Schmidhuber, 1997) 및 GRU(Chung et al., 2014)에 관한 문헌에 의해 동기화된 게이팅 메커니즘을 통합한다. 상기 층을 기술하는 수학식들은 다음과 같다:\n' +
+      '\n' +
+      '\\sigma(W_{a}x_{t}+b_{a}),\\quad recurrence\\,gate\\tag{1}\\] \\sigma(W_{x}x_{t}+b_{x}),\\quad input\\,gate\\] (2) \\[a_{t} = a^{\\sigma_{t},\\] (3) \\[h_{t} = a_{t}\\odot h_{t-1}+\\sqrt{1-a_{t}^{2}}\\odot(i_{t}x_{t}}),\\quad recurrence\\,gate\\tag{1}\\sigma(W_{x}x_{t}+b_{x}),\\quad input\\,gate\\] (2) \\[a_{t} = a^{\\sigma_{t}},\\] (3) \\[h_{t} = a_{t}\\odot h_{t-1}+\\sqrt{1-a\n' +
+      '\n' +
+      '층의 출력은 \\(y_{t}=h_{t}\\)이고, 방정식의 비선형성 \\(\\sigma\\)은 시그모이드 함수이다. 식 (4)의 반복 가중치 \\(a\\)는 대각선이다. 따라서 모든 작업은 요소별입니다. 우리는 식 (3)의 \\(a\\)을 \\(a=\\sigma(\\Lambda)\\)로 모수화하는데, 여기서 \\(\\Lambda\\)은 학습 가능한 모수이다. 이것은 \\(0\\leq a\\leq 1\\)을 보장하여 재발이 안정적이다. 변수 \\(c\\)는 8로 설정된 스칼라 값 상수이며, 수치적 안정성을 위해 실제 로그 공간에서 \\(a^{c_{x_{t}}}\\)을 계산한다(부록 A 참조). 이 층에는 입력\\(x\\)과 반복 가중치\\(a\\)에 게이트가 있다. 그러나 두 게이트 모두 반복상태\\(h_{t-1}\\)에 의존하지 않으므로 계산이 장치상에서 효율적으로 실행될 수 있다. LeCun init(LeCun et al., 2002)를 이용하여 \\(W_{a}\\)와 \\(W_{x}\\)을 초기화한다. 우리는 Orvieto et al.(2023)과 유사하게 훈련 시작 시 \\(a^{c}\\)이 0.9에서 0.999 사이에 균일하게 분포하도록 \\(\\Lambda\\)을 초기화한다. RSM 문헌의 많은 최근 작업과 달리 RG-LRU는 직교 다항식 이론에서 영감을 얻은 초기화를 사용하지 않으며(Gu et al., 2020), 또한 기본 연속 시스템의 이산화로 정의되지 않는다(Gu et al., 2021). 원래의 LRU 계층과 달리, 우리는 반복에서 복소 대수를 사용하지 않는다. 복잡한 재발을 사용하는 것은 더 표현력이 높은 계층으로 이어질 것이다(Orvieto et al., 2023). 우리는 구와 다오(2023)에서도 관찰된 바와 같이 복잡한 재발이 실제로 언어 모델링에 유익하지 않다는 것을 발견했다.\n' +
+      '\n' +
+      '각주 1: 우리는 다른 양식에 대한 복소수의 사용을 줄이고 부록 B에서 RG-LRU 레이어의 복소 값 버전에 대한 더 많은 정보를 제공할 것을 제안한다.\n' +
+      '\n' +
+      '입력 게이트_\\(i_{t}\\)는 입력 게이트_\\(x_{t}\\)을 필터링(또는 스케일 다운)할 수 있는 LSTM과 유사하다. 그러나, 우리가 아는 한, 우리의 재발 게이트 \\(r_{t}\\)는 문헌의 다른 게이팅 메커니즘과 다르다. 예를 들어, Mamba(Gu and Dao, 2023)에서 제안된 _selection mechanism_는 이전 상태와 현재 관측치 \\(x_{t}\\) 사이를 보간하는 GRU들의 _update gate_와 비슷하다. 은닉 상태에 대한 그것의 영향은 LSTM에서의 망각 게이트와 유사하게, 자신의 상태를 _리셋하고 과거_로부터 보유하는 임의의 정보를 망각할 수 있게 한다. 대조적으로, 우리의 재발 게이트는 Orvieto et al.(2023)로부터의 표준 LRU 업데이트와 이전의 은닉 상태 사이에 대략적으로 보간할 수 있으며, 이는 입력을 효과적으로 _discard하고 이전의 history_로부터의 모든 정보를 보존할 수 있게 한다(추가 상세를 위해 부록 A를 참조). 우리는 이 게이트의 핵심 역할이 정보가 없는 입력의 영향을 줄임으로써 모델이 초지수 메모리를 달성할 수 있도록 하는 것이라고 믿는다.\n' +
+      '\n' +
+      '##3 Recurrent Models Scale as efficient as transformer\n' +
+      '\n' +
+      '스케일링 연구는 모델의 하이퍼파라미터와 모델의 동작을 스케일에서 조정하는 방법에 대한 중요한 통찰력을 제공한다. 여기에서 연구에서 평가된 모델을 정의하고 7B 매개변수까지의 스케일링 곡선을 제공한다. 마지막으로 다운스트림 작업에 대한 모델의 성능을 평가합니다. 우리는 이 작업에서 3개의 모델 패밀리를 고려한다; (1) MQA-트랜스포머 기준선, (2) 호크; 우리의 순수 RNN 모델 및 (3) 그리핀; 우리의 반복 블록을 국소 주의와 혼합하는 하이브리드 모델. 부록 C의 척도 범위에 걸쳐 모델에 대한 핵심 모델 하이퍼 매개변수를 정의한다.\n' +
+      '\n' +
+      'MQA 트랜스포머 베이스라인 우리 트랜스포머 베이스라인은 MQA(Shazeer, 2019) 및 RoPE(Su et al., 2021)와 결합하여 섹션 2에 설명된 잔류 패턴 및 게이티드 MLP 블록을 사용한다.\n' +
+      '\n' +
+      '호크 더 호크 아키텍처는 트랜스포머 기준선과 동일한 잔류 패턴과 MLP 블록을 사용하지만, MQA 대신 RG-LRU 계층(섹션 2.4 참조)을 시간적 혼합 블록으로 사용하여 섹션 2.3에 도입된 반복 블록을 사용한다. MHA 블록의 파라미터 수를 근사적으로 맞추기 위해 반복 블록의 폭을 약 \\(\\frac{4}{3}\\)(즉, \\(D_{RNN}\\approx 4D/3\\))으로 확장한다.\n' +
+      '\n' +
+      '각주 2: 우리의 트랜스포머 베이스라인과 그리핀이 추론 효율을 향상시키기 위해 MQA 어텐션에 의존하게 되었지만, 파라미터와 MHA 어텐션 블록을 일치시킨다는 점에 유의한다. 이는 반복 블록이 해당 MQA 블록보다 약간 더 많은 매개변수를 가지고 있음을 의미한다.\n' +
+      '\n' +
+      '그리핀은 트랜스포머 기준선과 동일한 잔류 패턴과 MLP 블록을 사용합니다. 그러나 MQA 트랜스포머 기준선과 호크 모델과는 달리 그리핀은 반복 블록과 MQA 블록의 혼합을 사용한다. 구체적으로, 섹션 2.3에 설명된 로컬(MQA) 어텐션 블록을 사용하는 하나의 잔차 블록이 뒤따르는 순환 블록과 두 개의 잔차 블록을 교대로 사용하여 계층 구조를 사용한다. 달리 명시되지 않는 한, 로컬 어텐션 윈도우 크기는 1024 토큰으로 고정된다.\n' +
+      '\n' +
+      '### Scaling curves\n' +
+      '\n' +
+      '우리는 그림 1(a)에 우리의 주요 스케일링 결과를 제시한다. 세 가지 모델 패밀리는 모두 100M에서 7B 매개변수까지의 모델 척도 범위에서 훈련되며 140억 매개변수가 있는 추가 그리핀 모델이 있다. 우리는 Chinchilla scaling laws (Hoffmann et al., 2022)에 규정된 바와 같이, 모델의 파라미터 수에 대략 비례하도록 트레이닝 토큰의 수를 증가시킨다. 모델들은 비록 약간 상이한 데이터 서브세트 분포를 사용하지만, 이전에 고퍼(Rae et al., 2021) 및 친칠라(Hoffmann et al., 2022)를 트레이닝하기 위해 사용된 매시브텍스트 데이터세트(Hoffmann et al., 2022)에 대해 트레이닝된다. 2048개의 토큰의 시퀀스 길이가 사용되었다(더 긴 시퀀스를 갖는 결과는 섹션 6 참조). 모든 실험은 AdamW 최적화기(Loshchilov and Hutter, 2017)를 사용한다. 우리는 작은 모델에 대한 학습률, 가중치 감소 및 \\(\\beta_{2}\\) 파라미터를 조정하고, 이 런을 사용하여 7B 및 14B 모델에 대한 최적의 값을 예측하는 이러한 하이퍼 파라미터에 대한 스케일링 규칙을 식별한다.\n' +
+      '\n' +
+      '세 가지 모델 패밀리는 모두 검증 손실과 훈련 FLOP 사이의 선형 스케일링 관계를 보여준다(그림 1(a) 참조). 두 축은 이전에 브라운 외(2020)에 의해 트랜스포머에 대해 관찰된 바와 같이 로그 스케일에 있다. 특히, 그리핀은 글로벌 주의 계층을 사용하지 않았음에도 불구하고 모든 FLOPs 예산에서 트랜스포머 기준선보다 낮은 검증 손실을 달성한다. 반면에 호크는 약간 더 높은 검증 손실을 달성하지만 이 격차는 훈련 예산이 증가함에 따라 닫히는 것으로 판단된다.\n' +
+      '\n' +
+      '### 다운스트림 작업의 평가\n' +
+      '\n' +
+      '문헌의 다른 모델과 비교하기 위해 다운스트림 작업에 대해 평가하기 전에 300B 토큰에 대해 모든 모델을 훈련한다. 우리가 비교하는 두 가지 외부 기준선은 현재까지 문헌에 보고된 가장 강력한 소형 반복 모델인 Mamba-3B(Gu and Dao, 2023)와 널리 사용되는 개방형 트랜스포머 모델인 Llama-2(Touvron et al., 2023)이다. 두 외부 기준선 모두 300B 이상의 토큰에 대해 훈련되었으며, 맘바는 600B 토큰에 대해 2배, 라마-2는 2T 토큰에 대해 거의 7배 더 훈련되었다. 그러나 우리는 맘바와 라마-2가 모두 다른 데이터 세트와 다른 하이퍼 매개변수 조정 전략으로 훈련되어 우리의 강력한 성능을 부분적으로 설명할 수 있다는 점에 주목한다. 따라서 우리는 또한 호크 및 그리핀과 동일한 데이터 및 동일한 하이퍼 파라미터 튜닝 예산으로 훈련된 자체 MQA 변압기 기준선을 포함한다.\n' +
+      '\n' +
+      '우리는 표 1의 다운스트림 작업에 대한 평가를 제공하며 호크와 그리핀 모두 매우 강력한 성능을 달성한다는 것을 발견했다. 다른 연구에 따르면, MMLU, HellaSwag, PIQA, ARC-E 및 ARC-C에 대해 문자 정규화 정확도를 보고하고, 위노그란데에 대해 부분 채점을 통해 절대 정확도를 보고한다. 호크의 성능은 모델 크기가 증가함에 따라 크게 향상되며, 호크-3B는 절반의 토큰으로 훈련되었음에도 불구하고 Mamba-3B보다 다운스트림 태스크에서 더 강한 성능을 달성한다. 그리핀-3B는 Mamba-3B를 크게 능가하며, 그리핀-7B 및 그리핀-14B는 거의 7배 적은 토큰으로 훈련됨에도 불구하고 Llama-2와 경쟁적인 성능을 달성한다. 호크는 또한 우리의 MQA 트랜스포머 기준선과 경쟁력이 있는 반면 그리핀은 이 기준선을 능가한다.\n' +
+      '\n' +
+      '##4 디바이스 상에서 효율적인 학습 재귀 모델\n' +
+      '\n' +
+      '우리는 모델을 개발하고 확장할 때 두 가지 주요 엔지니어링 문제에 직면했습니다. 첫째, 여러 장치에 걸쳐 모델을 효율적으로 조각내는 방법. 둘째, TPU에 대한 훈련 효율성을 극대화하기 위해 선형 재발을 효율적으로 구현하는 방법. 우리는 그리핀의 훈련 속도와 MQA 기준선의 경험적 비교를 제공하기 전에 이 섹션에서 이러한 두 가지 문제를 모두 해결한다.\n' +
+      '\n' +
+      '### 대규모 훈련을 위한 모델 병렬화\n' +
+      '\n' +
+      '모델이 크기가 증가함에 따라 장치당 배치 크기가 1인 경우에도 훈련 중 단일 장치에 모델을 맞출 수 없다. 따라서 우리는 모델 병렬성을 사용하여 훈련 중에 장치에 걸쳐 큰 모델을 조각낸다. 다양한 훈련 장치에 걸친 통신 비용은 비싸기 때문에, 모델을 효율적으로 샤딩하는 것은 규모에서 빠른 훈련에 매우 중요하다.\n' +
+      '\n' +
+      'MLP와 MQA blockFor our gated-MLP block for we use Megatron-style sharding (Shoeybi et al., 2019)은 Forward 패스와 Backward 패스에서 모두 단일 올-리듀스 연산을 필요로 한다. 유사하게, 우리는 어텐션 블록 내의 선형 층들에 동일한 전략을 적용하고, 그 머리 위에 어텐션 메커니즘을 추가로 샤드한다(Narayanan et al., 2021).\n' +
+      '\n' +
+      '순환 블록 순환 블록은 분기당 두 개의 선형 레이어를 포함한다. 이를 통해 메가트론 샤딩을 이러한 레이어에 동등한 방식으로 적용할 수 있다. Conv1D 계층은 채널에 걸쳐 독립적으로 작동하여 통신 오버헤드를 발생시키지 않고 장치에 걸쳐 파라미터를 분할할 수 있다. 추가적인 교차 장치 통신을 피하기 위해, 우리는 조밀한 행렬 대신 RG-LRU(식 1 및 2 참조)의 게이트에 대한 블록 대각 가중치를 사용한다. 본 논문의 모든 실험을 위해 반복 게이트와 입력 게이트(\\(W_{x}\\)와 \\(W_{a}\\)에 각각 \\(D_{RNN}^{2}/16\\)의 파라미터를 갖는 16개의 블록을 사용하였다. 반복의 대각선 구조는 Conv1D와 동일한 이점을 제공하여 아무런 통신 없이 파라미터 샤딩 및 계산을 허용한다. 이 전략을 사용하면 반복 블록의 통신 요구 사항은 MLP 블록의 요구 사항과 동일하다.\n' +
+      '\n' +
+      '다른 고려 사항 최적화기 상태는 모델 매개 변수 자체의 크기를 초과하여 상당한 메모리를 소비할 수 있다. 이를 해결하기 위해 ZeRO 병렬(Rajbhandari et al., 2020)을 사용하여 최적화 상태 및 모델 파라미터를 배치 샤드에 모두 배포한다. 또한 모델 매개변수 및 활성화에 대해 bfloat16 표현을 사용하여 데이터 전송 오버헤드를 최소화한다.\n' +
+      '\n' +
+      '### 장치의 효율적인 선형 재발\n' +
+      '\n' +
+      '현재 딥러닝 가속기는 행렬 곱셈과 컨볼루션으로 구성된 고전적 아키텍처에 최적화되어 있다. 이러한 동작들은 높은 FLOPs-to-바이트 비율을 가지며, Nvidia GPU들의 텐서코어들(Markidis et al., 2018) 및 구글 TPUs들의 MXU들(Norrie et al., 2021; Jouppi et al., 2021, 2023)과 같은 특수 하드웨어 유닛들의 개발을 동기시킨다. 고전적인 RNN은 또한 조밀한 반복 행렬로 인해 이것으로부터 이익을 얻는다. 대조적으로, 제안된 RG-LRU 계층은 다른 대각 RNN 모델과 마찬가지로 FLOP 대 바이트 비율이 낮다. 기존 가속기에는 이러한 워크로드에 대한 최적화가 부족하기 때문에 이러한 근본적인 차이는 계산상의 문제를 제기한다. TPU-v3에 대한 모든 실험을 실행하므로 이 장치3에 맞춘 효율적인 구현을 개발하는 데 중점을 둔다.\n' +
+      '\n' +
+      '각주 3: 여기서 도출된 결론이 반드시 다른 가속기에 적용되는 것은 아니다.\n' +
+      '\n' +
+      '선형 대각선 RNNs에 대한 도전 중 하나는 RG-LRU에 대한 TPU-v3와 같은 장치를 사용하는 주요 과제 중 하나는 eq에서 숨겨진 상태의 업데이트 방정식이다. (4)는 순수한 원소별 연산이다. 각 요소 업데이트에 대해 6 바이트(bfloat16이라고 가정하면 변수 \\(h_{t-1}\\),\\(a_{t}\\),\\(x_{t}\\))를 로드하고 2 바이트(숨겨진 상태 \\(h_{t}\\))를 라이트해야 하며 계산은 6 FLOP(식 4의 산술 연산 수)만 실행한다. 요소당. 이것은 0.75의 낮은 FLOP 대 바이트 비율 - 4.2의 요소별 동작에 대한 장치의 용량보다 상당히 낮다(부록 3 참조). 따라서 실행 시간은 HBM과 VMEM 사이의 메모리 전송에 의해 지배되어 계산 메모리를 제한한다.\n' +
+      '\n' +
+      '이를 해결하기 위한 맞춤형 선형 스캔은 eq 계산을 위한 맞춤형 팔라스 커널을 작성했다. (4) _linear scan_를 사용하는 단계를 포함하는 것을 특징으로 하는 방법. 이를 통해 VMEM에 숨겨진 상태를 항상 유지함으로써 메모리 전송을 최소화하고 한 번에 하나씩이 아닌 더 큰 청크로 메모리 전송을 수행할 수 있다. 실제로, 이것은 선형 스캔의 네이티브 Jax 구현보다 거의 3배 빠른 속도로 해석된다. 또한 네이티브 Jax 구현을 사용하여 동일한 모델에 비해 전체 호크 모델의 단계당 10-20% 더 낮은 훈련 시간을 관찰한다(자세한 내용은 부록 D.2 참조).\n' +
+      '\n' +
+      '왜 우리는 컨볼루션이나 연관 스캔을 사용하지 않는가?선형 반복 모델의 초기 매력은 계산의 연관성에 의해 가능하게 하는 높은 병렬화 가능성에서 비롯된다. 이것은 컨볼루션들(Gu et al., 2021b) 또는 접두사-합 알고리즘들(연관 스캔)(Smith et al., 2022)을 통해 디바이스 상에서 효율적인 실행을 허용하였다. 그러나, \\(a_{t}\\)에 대한 RG-LRU의 게이팅 메커니즘은 컨볼루션 뷰와 호환되지 않는다. 비록 우리가 여전히 원칙적으로 연관 스캔을 사용할 수 있지만, 연관 스캔은 필요한 FLOP의 수를 감소시키지만 실제로 우리의 주요 병목 현상인 메모리 오버헤드를 감소시키지 않는다. 경험적으로 우리는 TPU-v3에서 연관 스캔이 네이티브 Jax 선형 스캔보다 상당히 느리다는 것을 관찰한다(자세한 내용은 부록 D.2 참조). 우리는 병렬 프리픽스-합 알고리즘의 트리 재조합의 랜덤 액세스 특성이 TPU 아키텍처에 적합하지 않아 이 작업의 주요 병목 현상인 더 느린 메모리 전달을 초래한다고 추측한다.\n' +
+      '\n' +
+      '### 더 긴 시퀀스에서의 훈련 속도\n' +
+      '\n' +
+      '우리는 훈련 중 모델의 계산 이점을 조사하기 위해 다양한 모델 크기와 시퀀스 길이에 걸쳐 훈련 속도를 비교한다. 각 모델 크기에 대해 배치당 총 토큰 수를 고정으로 유지하는데, 이는 시퀀스 길이가 증가함에 따라 시퀀스 수를 비례적으로 감소시킨다는 것을 의미한다. 그림 3에서 2048 서열 길이에서 MQA 기준선과 비교하여 그리핀 모델의 상대적 런타임을 표시한다. 가장 낮은 시퀀스 길이에서, 두 모델은 유사한 트레이닝 시간을 갖지만, 시퀀스 길이를 증가시키면 트랜스포머는 느려지는 반면 그리핀의 런타임은 동일하게 유지된다. 기준선의 속도 감소는 더 작은 모델 크기에서 더 두드러지고 더 큰 모델 크기에서 감소한다. 이는 모든 모델들이 많은 수의 선형 층들을 포함하고 있다는 사실로 설명될 수 있다. 이들의 계산규모는 \\(O(TD^{2})\\), RG-LRU는 \\(O(TD)\\) vs \\(O(T^{2}D)\\ 이다. 이는 시퀀스 길이\\(T\\)에 비해 모델 폭\\(D\\)을 증가시킴에 따라 선형 층들이 일차적인 계산 병목 현상이 되어 RNN 블록으로부터의 효율 이득을 최소화한다는 것을 의미한다. 따라서 트랜스포머를 호크 또는 그리핀으로 교체하면 모델 폭에 비해 시퀀스 길이가 충분히 커서 주의 계산이 전체 계산 시간의 주요 부분을 구성할 때 가장 중요한 벽-시계 시간 개선을 제공한다. 또한 실제로 MQA\n' +
+      '\n' +
+      '그림 3: 그리핀 및 MQA에 대한 모델 크기와 서열 길이를 변경함에 따라 2K 서열 길이에서 MQA 기준선에 대해 계산된 단계당 훈련 기간이다. 시퀀스 길이를 늘리면 배치당 총 토큰 수가 고정적으로 유지되도록 배치 크기를 비례적으로 낮춘다는 점에 유의하자.\n' +
+      '\n' +
+      '기준선은 동일한 모델 척도에서 그리핀보다 약간 적은 매개변수를 가지고 있다(그리고 더 적은 FLOP를 수행한다). 이것은 그리핀이 짧은 시퀀스에 대해 7B에서 MQA 기준선보다 약간 느리게 훈련하는 이유를 설명한다.\n' +
+      '\n' +
+      '##5 추론속도\n' +
+      '\n' +
+      'LLM의 추론은 두 단계로 구성된다. "사전 채우기" 단계에서, 우리는 프롬프트를 수신하고 처리한다. 이 단계는 모델의 전진 패스를 효과적으로 수행하고 있습니다. 프롬프트는 시퀀스에 걸쳐 병렬로 처리될 수 있기 때문에, 대부분의 모델 연산은 이 단계 동안 계산 바인딩된다. 따라서 프리필 단계에서 트랜스포머 및 반복 모델의 상대 속도는 섹션 4에서 논의한 훈련 중 동일한 모델의 상대 속도와 유사할 것으로 예상한다.\n' +
+      '\n' +
+      '프리필 다음에는 "디코드" 단계가 뒤따르며, 이 단계에서 우리는 모형에서 자동 회귀적으로 토큰을 샘플링한다. 아래에서 보여지는 바와 같이, 반복 모델은 디코딩 단계에서 더 낮은 대기 시간과 더 높은 처리량을 가지며, 특히 주의에서 사용되는 키-값(KV) 캐시가 커질 수 있는 더 긴 시퀀스 길이에 대해 더 높은 처리량을 갖는다.\n' +
+      '\n' +
+      '추론 속도를 평가할 때 고려해야 할 주요 메트릭은 두 가지이다. 첫 번째는 대기 시간이며, 이는 특정 배치 크기에서 지정된 수의 토큰을 생성하는 데 걸리는 시간을 측정한다. 두 번째는 처리량이며, 지정된 수의 토큰을 샘플링할 때 단일 장치에서 생성될 수 있는 초당 가장 많은 수의 토큰을 측정한다. 처리량은 샘플링된 시간들의 배치 크기를 레이턴시로 나눈 토큰들에 의해 주어지기 때문에, 디바이스 상에서 더 큰 배치 크기들의 사용을 가능하게 하기 위해 레이턴시를 감소시키거나 메모리 사용량을 감소시킴으로써 처리량을 향상시킬 수 있다. 지연 시간은 빠른 응답 시간이 필요한 실시간 응용 프로그램에 대해 고려하는 데 유용할 수 있다. 처리량은 주어진 시간에 특정 모델에서 샘플링할 수 있는 최대 토큰 수를 알려줄 수 있기 때문에 고려하는 데도 유용합니다. 이 속성은 주어진 시간에 많은 수의 토큰을 출력할 수 있는 AlphaCode(Li et al., 2022)에서 행해진 것과 같은 스코어링 언어 모델 출력과 같은 다른 언어 애플리케이션을 고려할 때 유용하다.\n' +
+      '\n' +
+      '### 디코드 단계의 간단한 모델\n' +
+      '\n' +
+      '언어 모델의 모든 구성 요소는 배치 크기가 너무 크지 않은 한 디코딩 동안 메모리 바인딩되며(즉, \\(B\\lesssim 128\\) 자세한 내용은 부록 F.1 참조) 이 섹션의 나머지 부분에 대해 이를 가정한다. 트랜스포머의 가장 큰 메모리 오버헤드는 일반적으로 매개변수 자체 및 KV 캐시에서 발생합니다. 따라서 이 두 양을 메모리에서 로드하는 데 필요한 시간으로 디코딩하는 동안 배치 \\(B\\)에서 각 시퀀스에 대한 단일 토큰을 생성하는 데 필요한 시간을 근사화할 수 있다:\n' +
+      '\n' +
+      '\\[\\textit{Time to sample next token}\\approx\\frac{\\textit{param size}+\\textit{batch size}\\times\\textit{cache size}{\\textit{memory bandwidth}}. \\tag{5}\\textit}\n' +
+      '\n' +
+      '여기서, _cache size_는 배치 크기 1에서의 KV 캐시의 크기(트랜스포머의 경우) 또는 배치 크기 1에서의 리커런트 상태의 크기(RNN의 경우) 중 어느 하나를 의미한다.\n' +
+      '\n' +
+      '캐시 크기 모델 매개변수에 대한 캐시 크기의 차이는 샘플링 효율성에 중요한 의미를 갖는다. 재발성 및 국부 주의 블록에서, 파라미터 로딩은 (캐시 크기가 실질적으로 더 작기 때문에) 주요 병목 현상이다. 대조적으로, 글로벌 어텐션의 KV 캐시 스케일은 시퀀스 길이\\(T\\)를 가지며 모델 파라미터의 크기와 비슷하거나 심지어 초과할 수 있다. 이것은 시퀀스 길이 \\(T\\)가 충분히 클 때(F.4에 도시된 바와 같이) 상당한 오버헤드를 도입한다. 결과적으로, 동일한 크기의 순환 모델은 \\(T\\)이 클 때 트랜스포머보다 실질적으로 낮은 대기시간을 나타낼 수 있다. 그러나 모델 크기가 증가함에 따라 레이턴시 이점(KV 캐시 크기가 매개변수 크기와 비슷함)이 나타나는 시퀀스 길이도 증가합니다. 작은 리커런트 상태를 갖는 레이턴시를 개선하는 것뿐만 아니라, 단일 디바이스 상의 메모리에 맞는 가장 큰 배치 크기를 증가시켜, 더 높은 처리량을 유도할 수 있다는 점에 주목하는 것이 중요하다.\n' +
+      '\n' +
+      '### Results\n' +
+      '\n' +
+      '여기서는 크기 1B 파라미터의 모델에 대한 추론 결과를 살펴본다. 기준선의 경우, 문헌에서 자주 사용되는 표준 MHA 트랜스포머보다 추론하는 동안 훨씬 더 빠른 MQA 트랜스포머와 비교한다. 우리가 비교하는 모델은 i) _MQA 트랜스포머_, ii) 호크 및 iii) 그리핀이다. 서로 다른 모델을 비교하기 위해 지연 시간과 처리량을 모두 보고합니다.\n' +
+      '\n' +
+      '레이턴시 그림 4에서 볼 수 있듯이 4096 토큰의 프리필뿐만 아니라 빈 프리필이 있는 배치 크기가 16인 모델에 대한 레이턴시를 비교한다. 호크와 그리핀은 긴 시퀀스에 대해 MQA 트랜스포머보다 더 빠른 샘플링 레이턴시를 달성한다. 이는 시퀀스 길이 및 프리필 길이(KV 캐시의 크기에 영향을 미치는)가 증가함에 따라 특히 두드러진다. 그리핀은 호크와 유사한 대기 시간을 달성하여 선형 재발과 국소 주의의 우수한 호환성을 보여준다.\n' +
+      '\n' +
+      'Throughput우리는 그림 1(b)의 빈 프롬프트에 따라 512, 1024, 2048 및 4196 토큰을 샘플링할 때 동일한 모델에 대한 최대 처리량(토큰/s)을 비교한다. 우리는 그리핀과 호크가 MQA 트랜스포머 기준선보다 훨씬 더 높은 처리량을 달성한다는 것을 안다. 이는 부분적으로 지연 시간이 낮은 반복 모델 때문이기도 하지만, 그리핀과 호크가 캐시 크기가 작기 때문에 단일 장치에서 MQA 트랜스포머보다 더 큰 배치 크기에 맞출 수 있기 때문에 주로 발생한다. Hawk는 GRiffin보다 더 높은 처리량을 달성하는데, 그 이유는 로컬 어텐션 캐시의 크기가 결국 배치 크기가 클 때 파라미터들의 크기와 비슷해지기 때문이다.\n' +
+      '\n' +
+      '##6 롱컨텍스트 모델링\n' +
+      '\n' +
+      '이 섹션에서는 호크와 그리핀의 다음 토큰 예측을 개선하기 위해 더 긴 컨텍스트를 사용하는 효과를 탐색하고 추론 중 외삽 능력을 조사한다. 또한, 사전 훈련된 언어 모델로 이러한 기능을 테스트할 때뿐만 아니라 그러한 작업에 대해 훈련된 모델에 대해 복사 및 검색 기능이 필요한 작업에 대한 모델의 성능을 탐색한다.\n' +
+      '\n' +
+      '###더 긴 컨텍스트를 갖는 다음 토큰 예측 개선\n' +
+      '\n' +
+      '우리는 호크와 그리핀이 더 긴 맥락에서 예측을 개선하는 능력을 조사한다. 특히, 우리는 일련의 길이에 걸쳐 보류된 책 데이터 세트의 손실을 측정하여 훈련된 모델을 평가한다. 이 긴 문서를 사용하면 모델의 능력을 평가할 수 있습니다.\n' +
+      '\n' +
+      '도 4: (a) 빈 프리필로부터의 샘플링 및 (b) 4k 토큰의 프리필로부터의 샘플링을 위한 시퀀스 길이의 범위에 대한 상이한 1B 파라미터 모델의 레이턴시.\n' +
+      '\n' +
+      '즉, 훈련 중에 볼 수 있는 것보다 더 긴 다음 토큰 주어진 컨텍스트를 정확하게 예측하는 능력을 외삽한다.\n' +
+      '\n' +
+      '트랜스포머에서, 외삽하는 이러한 능력은 주로 어텐션 계층들에 사용되는 위치 인코딩에 의해 결정된다(Kazemnejad et al., 2024). 재발성 모델의 경우, 컨텍스트가 길어짐에 따라 재발 상태에 저장된 표현을 계속 정제하는 것이 모델의 용량에 의해 대신 지시된다. 그림 5의 왼쪽 도표에서 최대 길이까지 호크와 그리핀이 더 긴 컨텍스트가 주어진 다음 토큰 예측을 개선하고 전반적으로 훈련된 것보다 훨씬 더 긴 서열(최소 4배 더 길다)로 외삽할 수 있음을 관찰한다. 특히, Griffin은 국소 주의층에 RoPE(Su et al., 2021)를 사용하는 경우에도 현저하게 잘 외삽한다.\n' +
+      '\n' +
+      '지금까지의 결과는 2048개의 토큰의 시퀀스에 대해 훈련된 모델을 평가한다. 모델이 더 긴 컨텍스트에서도 효과적으로 학습할 수 있는지 평가하기 위해 매시브텍스트에서 8192(8k) 토큰의 시퀀스에 대해 1B 매개변수 모델을 훈련하고 동일한 데이터 세트에서 훈련되었지만 길이 2048(2k) 토큰의 시퀀스에 대해 훈련된 모델과 비교한다. 우리는 8192의 시퀀스 길이에 대해 훈련된 모델들에 대해 배치 크기를 4배 감소시킴으로써 (훈련 단계들의 수를 고정시키면서) 모델들에 걸쳐 훈련 토큰들의 총 수를 동일하게 유지한다. 그림 5의 오른쪽 그림에서 볼 수 있듯이, 우리는 호크-8k 및 그리핀-8k가 호크-2k 및 그리핀-2k에 비해 길이 8192 이상의 서열에 대해 더 낮은 평가 손실을 달성한다는 것을 발견했다. 이것은 호크와 그리핀이 훈련 중에 더 긴 맥락을 사용하는 법을 배울 수 있다는 것을 나타낸다. 흥미로운 사실은 짧은 서열 길이에서 평가할 때 호크-2k와 그리핀-2k가 호크-8k 및 그리핀-8k보다 약간 더 나은 성능을 보인다는 것을 발견했다. 이는 훈련 시퀀스 길이가 모델의 의도된 다운스트림 사용에 따라 신중하게 선택되어야 함을 시사한다.\n' +
+      '\n' +
+      '### 복사 및 검색 기능\n' +
+      '\n' +
+      '최근 작업(Jelassi et al., 2024)은 트랜스포머가 컨텍스트를 복사하거나 컨텍스트로부터 관련 토큰을 검색하는 것과 같은 합성 작업을 학습하는 데 있어서 RNN의 인기 있는 새로운 패밀리인 상태 공간 모델(SSM)보다 상당히 더 효율적일 수 있다는 것을 보여주었다. 또한, Jelassi et al.(2024)은 Pythia(Biderman et al., 2023)와 같은 사전 훈련된 트랜스포머가 Mamba(Gu and Dao, 2023)와 같은 사전 훈련된 SSM 모델에 비해 평가 시간에서의 복사 및 검색 작업에 훨씬 더 우수하다는 것을 보여주었다. 본 절에서는 컨텍스트에서 토큰을 복사하고 검색하는 방법을 학습하는 데 있어서 그리핀과 호크의 효율성을 조사한다. 또한, 복사 및 검색 기능을 모두 테스트하기 위해 설계된 전화번호 조회 태스크에 대해 미리 훈련된 호크와 그리핀 모델을 평가한다.\n' +
+      '\n' +
+      '그림 5: 보류된 책 평가 세트에 대한 다양한 1B 매개변수 모델의 성능. 좌측에서는 시퀀스 길이 2048로, 우측에서는 시퀀스 길이 2048(2k) 및 8192(8k)로 모델을 학습시켰다. 호크와 그리핀은 트랜스포머 기준선보다 훨씬 긴 시퀀스로 외삽할 수 있으며, 더 긴 시퀀스에 대해 훈련될 때 성능을 더욱 향상시킬 수 있다.\n' +
+      '\n' +
+      '합성 태스크에 대한 훈련은 문맥에서 관련 토큰을 복사하고 검색하는 방법을 배우는 효율성을 조사하기 위해 선택적 복사 및 유도 헤드의 두 가지 합성 태스크에 대해 훈련한다. 트랜스포머를 호크 및 그리핀과 비교하기 위해 모델 차원 64의 5블록 심층 네트워크를 고려하며, 그리핀이 네트워크 중간에 단일 로컬 주의를 사용하는 약 250K 매개 변수를 세 번째 블록에서 고려한다.\n' +
+      '\n' +
+      '**선택적 복사 태스크**: 이 태스크에서, 모델은 컨텍스트로부터 노이즈 토큰들을 무시하면서 시퀀스로부터 데이터 토큰들을 복사하는 것을 학습할 필요가 있다. 이 작업에 대한 설정에 대한 자세한 내용은 부록 H를 참조하십시오. 이 작업은 구와 도(2023)에서 영감을 얻었으며, 저자들은 Mampa가 이전에 제안된 SSM보다 이 작업을 더 잘 해결할 수 있음을 보여주었다. 우리는 16의 어휘 크기를 사용하고 16개의 데이터 토큰(어휘에서 무작위로 샘플링되고 무작위 위치에서)을 포함하는 길이 1024의 시퀀스에 대해 훈련하고 나머지 토큰은 노이즈 토큰으로 설정한다. 그리핀은 512의 로컬 주의 윈도우 크기를 사용한다.\n' +
+      '***인덕션 헤드**: 이 작업에서, 모델은 특별한 토큰에 바로 뒤따르는 토큰을 리콜하는 것을 배울 필요가 있다. 이를 위해서는 모델이 특수 토큰을 학습하고 컨텍스트에서 바로 다음 토큰을 검색해야 합니다. 모델이 작업을 학습할 수 있다면 훈련된 것보다 훨씬 더 긴 시퀀스로 외삽할 수 있어야 한다. 우리는 16의 어휘 크기를 사용하고 토큰이 무작위로 샘플링되는 길이 256의 시퀀스에 대해 훈련하고 시퀀스에서 특수 토큰의 위치를 무작위로 샘플링한다. 그리핀은 128 크기의 로컬 주의 창을 사용한다.\n' +
+      '\n' +
+      '그 결과를 그림 6에 나타내었으며, 선택적 복사 작업에서 3가지 모델 모두 완벽하게 작업을 해결할 수 있음을 알 수 있었다. 이 과제에 대한 학습 속도를 비교할 때, 우리는 호크가 트랜스포머보다 상당히 느리다는 것을 발견하는데, Jelassi et al.(2024)의 관찰과 유사하며, 여기서 저자들은 Mampa가 유사한 과제에 대해 학습하는 것이 상당히 느리다는 것을 보여주었다. 그러나 흥미롭게도 그리핀은 단 하나의 국부 주의층만을 사용함에도 불구하고 트랜스포머의 학습 속도와 효과적으로 일치하는 거의 둔화를 보이지 않는다.\n' +
+      '\n' +
+      '인덕션 헤드 작업에서 3개의 모델 모두 훈련 시퀀스 길이까지 작업을 완벽하게 해결할 수 있지만, 본 논문에서 제안하는 트랜스포머 베이스라인은 평가 시 더 긴 시퀀스로 외삽할 수 없다. MQA 기준선은 RoPE를 사용하는 반면 구와 다오(2023)는 위치 부호화 범위가 다양한 트랜스포머에 대해 유사한 관찰을 보였다. 우리는 호크가 훈련 시퀀스 길이보다 몇 배 더 긴 시퀀스를 평가하기 위해 이 작업을 완벽하게 추론할 수 있음을 발견했다. 특히, 그리핀은 지역적인 관심을 가지고 이 작업을 추론하는 탁월한 능력을 보여주었다.\n' +
+      '\n' +
+      '그림 6: 세 가지 합성 작업에 대한 호크와 그리핀의 복사 및 검색 기능을 탐색한다. 그림 (a)와 (b)는 이러한 작업에 대해 명시적으로 훈련될 때 보류 평가 세트에 대한 5개 레이어 심층 모델의 성능을 보여준다. 그림 (c)는 사전 훈련된 7B 호크 및 그리핀 모델을 6B MQA 트랜스포머 기준선에 대해 평가할 때 전화 번호 조회 작업에 대한 성능을 보여준다.\n' +
+      '\n' +
+      '사전 훈련된 모델을 평가하는 것은 이제 사전 훈련된 모델에서 복사 및 검색 기능이 자연스럽게 나타나는지 여부를 평가한다. 우리는 7B 호크 및 그리핀 모델과 6B MQA 트랜스포머 기준선을 고려하며, 모두 매시브텍스트 데이터 세트의 300B 토큰으로 훈련된다. 우리는 Jelassi et al.(2024)에 소개된 동일한 폰북 조회 작업을 고려하며, 여기서 모델에게 이름과 번호가 포함된 합성 폰북을 제공하고 모델이 이름이 주어진 정확한 전화 번호를 검색하도록 요청된다. 모델에 대한 프롬프트는 랜덤하게 샘플링된 특정 길이의 이름 및 숫자의 리스트로 구성된 폰북이고, 이어서 태스크의 두 개의 랜덤하게 샘플링된 예들이 뒤따르고, 이어서 모델이 정확한 전화 번호를 검색할 필요가 있는 폰북으로부터 랜덤하게 샘플링된 이름이 뒤따른다.\n' +
+      '\n' +
+      '도 6(c)로부터, 우리는 호크가 매우 짧은 폰북 길이에 대해 태스크에 대해 합리적으로 잘 할 수 있지만, 이 태스크에 대한 맘보 모델의 성능에 대해 Jelassi et al.(2024)이 수행한 관찰과 유사하게 폰북 길이가 커지면 정확한 전화 번호를 암기하고 검색하지 못한다는 것을 알 수 있다. 호크가 작은 고정 크기 상태를 사용하기 때문에 이것은 특별히 놀라운 일이 아니다. 트랜스포머 베이스라인은 훈련 시퀀스 길이까지 이 작업을 거의 완벽하게 해결할 수 있지만, 훈련 시퀀스 길이보다 긴 컨텍스트 길이에 대한 정확한 전화 번호를 검색하지 못한다. 흥미롭게도 그리핀은 단일 로컬 주의 계층만을 사용함에도 불구하고 1024의 로컬 주의 윈도우 크기와 일치하는 컨텍스트 길이까지 이 작업을 완벽하게 해결할 수 있다. 일단 컨텍스트 길이가 로컬 주의 윈도우가 전체 폰북을 커버하지 않을 정도로 충분히 길면, 성능은 저하되기 시작한다. 그리핀은 또한 트랜스포머에 비해 더 긴 서열 길이로 더 잘 추론할 수 있다. 그리핀의 성능은 복제 및 검색 작업을 해결할 수 있는 고정 크기 상태의 모델의 능력에 유망하지만, 본 연구의 결과는 이러한 모델의 능력을 향상시키기 위해 더 많은 작업이 필요함을 시사한다.\n' +
+      '\n' +
+      '##7 관련 작품\n' +
+      '\n' +
+      '트랜스포머 아키텍처는 RNN에 대한 보다 확장 가능한 대안이 되었다. 트랜스포머는 RNN의 고유한 한계와 대조적으로 완전히 병렬화된 훈련을 통해 우수한 확장성을 달성한다. 순차적인 처리 구조로 인해, 고전적인 RNN은 순방향 및 역방향 전파 동안 느린 트레이닝 속도를 겪는다(Werbos, 1990). 이 문제를 완화하기 위해 연구자들은 대체 RNN 기반 방법을 탐구했다. 주목할 만한 예는 더 큰 병렬화를 위해 컨볼루션과 선형 RNN을 결합하는 Quasi-RNN(Bradbury et al., 2016)과 선형 RNN 트레이닝을 병렬화하기 위한 입력 기반 게이팅 메커니즘의 사용(Martin and Cundy, 2017)을 포함한다.\n' +
+      '\n' +
+      '상태 공간 모델(State-space Models, SSMs)은 최근 긴 입력 시퀀스를 모델링하는 강력한 도구로 등장하였다. 그들은 장거리 경기장 벤치마크(Tay et al., 2020), 오디오 생성(Goel et al., 2022)의 작업에 대해 강력한 성능을 보여주었다. SSM은 고전적 상태 공간 모델(칼만, 1960)의 개념을 RNN의 개념과 성공적으로 통합했다. 선형 재발에 대한 의존성은 병렬 스캔 연산 또는 회선을 통해 효율적인 은닉 상태 계산을 가능하게 하여 트랜스포머 모델에 필적하는 학습 속도를 초래한다. S4(Gu et al., 2021) 모델은 재발 계산을 대각화하기 위해 **normal plus low-rank**라는 정교한 파라미터화를 제안하였다. S4D는 대각 상태 행렬로 직접 SSM을 매개변수화했으며 훨씬 단순하면서도 잘 수행되었음을 보여주었다(Gu et al., 2022). S5는 또한 재발을 대각화하고, 연관 스캔을 사용하여 재발을 계산할 수 있음을 보여주었다(Smith et al., 2022). H3 모델(Dao et al., 2022)은 선형 주의의 반복 해석을 일반화한다(Katharopoulos et al., 2020). Hyena(Poli et al., 2023)는 유사한 아키텍처를 사용하지만, S4D 레이어를 MLP에 의해 파라미터화된 글로벌 컨볼루션 커널로 대체한다. RetNet(Sun et al., 2023)은 다중 헤드 어텐션의 변형을 사용하여 계산을 병렬화할 수 있게 하는 게이팅 메커니즘을 갖는 더 간단한 SSM 설계를 사용한다. Orvieto et al. (2023)은 표준 RNN들에 대한 다수의 수정들을 체계적으로 분석 및 절제하였다. 그들의 발견은 더 나은 매개변수화 및 초기화를 통해 단순화된 선형 RNN(LRU)이 다양한 장거리 작업에서 다른 SSM 변형뿐만 아니라 수행한다는 것을 보여주었다. RWKV(Peng et al., 2023)는 최근 RNN으로서, 어텐션 프리 트랜스포머(Zhai et al., 2021)에 의해 영감을 받은 또 다른 선형 어텐션 근사치에 기초하여, 언어 모델링 작업에서 경쟁력이 있는 것으로 보여진다. 이와 함께 구와 도(2023)는 입력 의존 선택 메커니즘으로 Mamba라는 SSM 아키텍처를 개발하였으며, 효율적인 추론으로 트랜스포머에 필적하는 성능을 달성함을 보였다. 다양한 응용을 위해 Mamba의 여러 확장이 제안되었다(Wang et al., 2024; Zhu et al., 2024). Mamba와 유사한 입력 종속 게이팅도 Gateloop(Katsch, 2023)에 의해 제안되었다.\n' +
+      '\n' +
+      '선형 어텐션(Katharopoulos et al., 2020)은 어텐션을 선형화함으로써 자기-어텐션 메커니즘의 계산적으로 효율적인 근사치를 제공하며, 이는 선형 RNN으로서 반복적으로 계산될 수 있다. 이 접근법은 전체 주의에 비해 계산 비용을 크게 감소시키지만 종종 모델 성능의 절충과 함께 제공된다. 플래시 어텐션(Dao et al., 2022)은 메모리 계층을 효율적으로 사용함으로써 GPU들에 대한 어텐션의 트레이닝 속도를 향상시킨다. 점점 더 대중화되고 있는 글로벌 주의의 계산 비용을 감소시키기 위한 또 다른 접근법은 희소-로컬 주의(Child et al., 2019) 또는 슬라이딩 윈도우 주의(Jiang et al., 2023)를 사용하는 것이다.\n' +
+      '\n' +
+      '## 8 Conclusion\n' +
+      '\n' +
+      '이 작업은 새로운 게이트 선형 순환 계층인 RG-LRU를 통합하는 순환 모델인 호크를 소개한다. 우리는 또한 RG-LRU 층과 국부적 관심을 혼합하는 하이브리드 모델인 그리핀을 소개한다. 이러한 모델은 다양한 스케일에 걸쳐 탁월한 언어 모델링 성능을 보여주며, 컴퓨팅 리소스가 증가함에 따라 파워-로프 스케일링을 나타낸다. 호크는 절반 이상의 토큰으로 훈련될 때 다운스트림 작업에서 Mamba의 보고된 성능을 초과하는 반면, 그리핀은 6배 이상의 적은 토큰으로 훈련될 때 Llama-2의 성능을 약간 초과한다. 또한, 호크와 그리핀의 추론-시간 장점을 경험적으로 검증하고 트랜스포머 베이스라인에 비해 지연 시간이 감소하고 처리량이 크게 증가하는 것을 관찰한다. 마지막으로 호크와 그리핀은 훈련된 것보다 더 긴 순서로 추론하는 능력을 나타내며 긴 지평에 걸쳐 데이터를 복사하고 검색하는 것을 효율적으로 학습할 수 있다. 이러한 연구 결과는 제안된 모델이 전 세계적인 관심을 가진 트랜스포머에게 강력하고 효율적인 대안을 제공한다는 것을 강력하게 시사한다.\n' +
+      '\n' +
+      '## Acknowledgements\n' +
+      '\n' +
+      '우리는 애덤 패스케, 샤라드 비크람, 트레버 게일, 세바스티안 보르헤오, 조지 스크리베너, 라이아 해델, 오리올 빈날스, 토비 보이드, 지펑 첸, 크리스 다이어, 켈빈 쉬, 안드리 므니에게 그들의 안내와 충고에 감사한다. 우리는 DeepMind Jax 생태계(Bradbury et al., 2018)를 이용하며, 특히 앤디 브록이 우리가 훈련하고 모델을 평가하기 위해 사용한 내부 프레임워크를 구축해준 것에 대해 감사한다.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* Achiam et al.(2023) J. Achiam, S. S. 애들러 L. 애거월 Ahmad, I. Akkaya, F. L. Aleman, D. Almeida, J. Altenschmidt, S. 알트만 Anadkat, et al. GPT-4 technical report. _ arXiv preprint arXiv:2303.08774_, 2023.\n' +
+      '* Bahdanau et al.(2014) D. Bahdanau, K. 조영섭 벵지오 정렬 및 번역을 공동으로 학습하는 신경망 기계 번역. _ ArXiv:1409.0473_, 2014.\n' +
+      '*Beltagy et al. (2020) I. Beltagy, M. E. Peters, and A. Cohan. Longformer: The long-document transformer _ arXiv preprint arXiv:2004.05150_, 2020.\n' +
+      '* Biderman et al.(2023) S. Biderman, H. Schoelkopf, Q. G. Anthony, H. Bradley, K. 오브라이언, E. 한라한, M. A. 칸, S. Purohit, U. S. Prashanth, E. Raff, et al. Pythia: A suite for analyzing large language models across training and scaling. _International Conference on Machine Learning_, pages 2397-2430. PMLR, 2023.\n' +
+      '* Bradbury et al. (2016) J. Bradbury, S. Merity, C. Xiong, R. 소셔 준순환 신경망. _ ArXiv:1611.01576_, 2016.\n' +
+      '\n' +
+      'J 브래드베리, R Frostig, P. Hawkins, M. J. Johnson, C. Leary, D. Maclaurin, G. Necula, A. Paszke, J. VanderPlas, S. Wanderman-Milne, and Q. 장 JAX: composable transformations of Python+NumPy programs, 2018. URL[http://github.com/google/jax](http://github.com/google/jax).\n' +
+      '* Brown et al. [2020] T. Brown, B. Mann, N. Ryder, M. Subbiah, J. D. Kaplan, P. Dhariwal, A. Neelakantan, P. Shyam, G. Sastry, A. Askell, et al. Language models are few-shot learners. In _Advances in Neural Information Processing Systems_, volume 33, pages 1877-1901, 2020.\n' +
+      '* Child et al. [2019] R. Child, S. Gray, A. Radford, and I. Sutskever. Generating long sequences with sparse transformers. _arXiv preprint arXiv:1904.10509_, 2019.\n' +
+      '* Chung et al. [2014] J. Chung, C. Gulcehre, K. Cho, and Y. Bengio. Empirical evaluation of gated recurrent neural networks on sequence modeling. _arXiv preprint arXiv:1412.3555_, 2014.\n' +
+      '* Dao et al. [2022a] T. 다오대복 Ermon, A. Rudra, C. Re. 플래시어텐션:io-awareness로 빠르고 기억력이 효율적인 정확한 주의력. In _Advances in Neural Information Processing Systems_, volume 35, pages 16344-16359, 2022a.\n' +
+      '*Dao 등 [2022b] T. 다오, D. Y. Fu, K. K. Saab, A. W. Thomas, A. Rudra, and C. Re. 배고픈 하마: 상태 공간 모델을 사용한 언어 모델링을 향한. _ arXiv preprint arXiv:2212.14052_, 2022b.\n' +
+      '* Dauphin et al. [2017] Y. N. Dauphin, A. Fan, M. Auli, and D. Grangier. Language modeling with gated convolutional networks. In _International Conference on Machine Learning_, pages 933-941. PMLR, 2017.\n' +
+      '* Elman[1990] J. L. Elman. 시간 안에 구조를 찾아내는 것 Cognitive Science_, 14(2):179-211, 1990.\n' +
+      '* 구글[2023] 쌍둥이자리 팀 구글. 쌍둥이자리: 매우 유능한 멀티모달 모델 가족 arXiv preprint arXiv:2312.11805_, 2023.\n' +
+      '* Goel et al. [2022] K. Goel, A. Gu, C. Donahue, and C. Re. It\'s raw! audio generation with state-space models. In _International Conference on Machine Learning_, pages 7616-7633, 2022.\n' +
+      '* 구와 도[2023] A. 구와 T. 다오 Mamba: 선택적 상태 공간을 갖는 선형-시간 시퀀스 모델링 _ arXiv preprint arXiv:2312.00752_, 2023.\n' +
+      '* Gu et al. [2020] A. Gu, T. Dao, S. Ermon, A. Rudra, and C. Re. Hippo: Recurrent memory with optimal polynomial projections. In _Advances in Neural Information Processing Systems_, volume 33, pages 1474-1487, 2020.\n' +
+      '* Gu et al. [2021a] A. Gu, K. Goel and C. Re. 구조화된 상태 공간으로 긴 시퀀스를 효율적으로 모델링합니다. _ arXiv preprint arXiv:2111.00396_, 2021a.\n' +
+      '* Gu et al. [2021b] A. Gu, I. Johnson, K. 고경 사브태 다오, A. 루드라, C. 레. 순환, 컨볼루션 및 연속 시간 모델을 선형 상태 공간 계층과 결합합니다. In _Advances in Neural Information Processing Systems_, volume 34, pages 572-585, 2021b.\n' +
+      '* Gu et al. [2022] A. Gu, A. Gupta, K. Goel, and C. Re. On the parameterization and initialization of diagonal state space models. _arXiv preprint arXiv:2206.11893_, 2022.\n' +
+      '* Hendrycks and Gimpel [2016] D. Hendrycks and K. 짐펠 가우시안 오차 선형 단위(gelus) _ ArXiv:1606.08415_, 2016.\n' +
+      '* Hochreiter and Schmidhuber [1997] S. 호크라이터와 J. 슈미트후버 장단기 기억력 Neural Computation_, 9(8):1735-1780, 1997.\n' +
+      '* Hoffmann et al. [2022] J. Hoffmann, S. Borgeaud, A. Mensch, E. Buchatskaya, T. Cai, E. Rutherford, D. d. L. Casas, L. A. Hendricks, J. Welbl, A. Clark, et al. Training compute-optimal large language models. _arXiv preprint arXiv:2203.15556_, 2022.\n' +
+      '\n' +
+      '* Jelassi et al.(2024) S. 젤라시, D. 브랜폰브레너, S. M. 카카데, E. 말라흐 나를 따라 해라: 트랜스포머는 복사할 때 상태 공간 모델보다 낫다. _ arXiv preprint arXiv:2402.01032_, 2024.\n' +
+      '* Jiang et al. (2023) A. Q. Jiang, A. Sablayrolles, A. Mensch, C. Bamford, D. S. Chaplot, D. d. l. Casas, F. Bressand, G. Lengyel, G. Lample, L. Saulnier, et al. Mistral 7b. _ arXiv preprint arXiv:2310.06825_, 2023.\n' +
+      '* Jouppi et al.(2023) N. 주피규리안 이필마 나가라잔 나남 파틸성 Subramanian, A. Swing, B. Towles, et al. Tpu v4: a optically reconfigurable supercomputer for machine learning with hardware support for embedding. [Proceedings of the 50th Annual International Symposium on Computer Architecture_, pages 1-14, 2023].\n' +
+      '* Jouppi et al. (2021) N. P. Jouppi, D. H. Yoon, M. 애쉬크래프트 고츠초, T. B. 자블린, G. 쿠리안, J. 로돈, S. 이필마 Ma, et al. Ten lessons from three generations shaped google\'s tpuv4i:Industrial product. _2021 ACM/IEEE 48th Annual International Symposium on Computer Architecture (ISCA)_, pages 1-14. IEEE, 2021.\n' +
+      '* 칼만(1960) R. E. 칼만. 선형 필터링 및 예측 문제에 대한 새로운 접근법. _ Journal of Basic Engineering_, 82, 1960.\n' +
+      '* Kaplan 등(2020) J. Kaplan, S. 맥캔디스, T. Henighan, T. B. Brown, B. Ches, R. 차순 그레이, A. 래드포드, J. 우, D. 아모디 신경 언어 모델의 법칙을 확장합니다. _ arXiv preprint arXiv:2001.08361_, 2020.\n' +
+      '* Katharopoulos et al. (2020) A. Katharopoulos, A. Vyas, N. 파파스, F. 플뢰렛 트랜스포머는 선형 주의를 갖는 고속 자기회귀 변압기(RNN: Fast autoregressive transformer)이다. _International Conference on Machine Learning_, pages 5156-5165. PMLR, 2020.\n' +
+      '* Katsch(2023) T. 캐치 Gateloop: 시퀀스 모델링을 위한 완전한 데이터 제어 선형 재발 arXiv preprint arXiv:2311.01927_, 2023.\n' +
+      '* Kazemnejad et al. (2024) A. Kazemnejad, I. Padhi, K. 나산 라무르티, P. 다스, S. 레디 변압기의 길이일반화에 대한 위치부호화의 영향 신경 정보 처리 시스템_, 36, 2024의 발전.\n' +
+      '* LeCun et al.(2002) Y. 르쿤 보토우, G. B. Orr, K. - R. 뮬러 효율적인 백프롭 _Neural Networks: Tricks of the Trade_, pages 9-50. Springer, 2002.\n' +
+      '*Li 등(2022) Y. 이정남 Kushman, J. Schrittwieser, R. 르블론드, T Eccles, J. Keeling, F. Kimeno, A. Dal Lago, et al. Competition-level code generation with alphacode. _ Science_, 378(6624):1092-1097, 2022.\n' +
+      '* Loshchilov and Hutter (2017) I. Loshchilov and F. Hutter. Decoupled weight decay regularization. _ arXiv preprint arXiv:1711.05101_, 2017.\n' +
+      '* Markidis et al. (2018) S. Markidis, S. W. Der Chien, E. Laure, I. B. Peng, and J. S. Vetter. 엔비디아 텐서 코어 프로그래밍 가능성, 성능 및 정밀도입니다. _2018 IEEE 국제 병렬 및 분산 처리 심포지엄 워크숍(IPDPSW)_에서, 페이지 522-531. IEEE, 2018.\n' +
+      '* Martin and Cundy (2017) E. Martin and C. Cundy. 순서 길이에 걸쳐 선형 순환 신경망들을 병렬화하는 단계; _ ArXiv:1709.04057_, 2017.\n' +
+      '* Mehta et al. (2022) H. Mehta, A. Gupta, A. Cutkosky, and B. Neyshabur. 게이티드 상태 공간을 통한 장거리 언어 모델링 ArXiv:2206.13947_, 2022.\n' +
+      '* Mikolov et al.(2010) T. 미콜로프 카라피아, L. Burget, J. Cernocky, S. 쿠단푸르 순환 신경망 기반 언어 모델. _INTERSPEECH 11th Annual Conference of the International Speech Communication Association_, pages 1045-1048, 2010.\n' +
+      '\n' +
+      '* Narayanan et al. [2021] D. Narayanan, M. Shoeybi, J. Casper, P. LeGresley, M. Patwary, V. Korthikanti, D. Vainbrand, P. Kashinkunti, J. Bernauer, B. Catanzaro, et al. Efficient large-scale language model training on gpu clusters using megatron-lm. In _Proceedings of the International Conference for High Performance Computing, Networking, Storage and Analysis_, pages 1-15, 2021.\n' +
+      '* Norrie et al. [2021] T. Norrie, N. Patil, D. H. Yoon, G. Kurian, S. Li, J. Laudon, C. Young, N. Jouppi, and D. Patterson. The design process for Google\'s training chips: TPUv2 and TPUv3. _IEEE Micro_, 41(2):56-63, 2021.\n' +
+      '* Orvieto et al. [2023a] A. Orvieto, S. D, C. 굴체르, R 파스카누, S. L. 스미스 비선형 투영이 뒤따르는 선형 재발의 보편성에 대해. _ arXiv preprint arXiv:2307.11888_, 2023a.\n' +
+      '* Orvieto et al. [2023b] A. Orvieto, S. L. Smith, A. Gu, A. Fernando, C. Gulcehre, R. 파스카누, S. 디 긴 시퀀스에 대한 순환 신경망을 부활시킨다. _ arXiv preprint arXiv:2303.06349_, 2023b.\n' +
+      '* Peng et al. [2023] B. Peng, E. Alcaide, Q. Anthony, A. Albalak, S. Arcadinho, H. Cao, X. Cheng, M. Chung, M. Grella, K. K. GV, et al. Rwkv: Reinventing RNNs for the transformer era. _arXiv preprint arXiv:2305.13048_, 2023.\n' +
+      '* Poli et al. [2023] M. Poli, S. Massaroli, E. Nguyen, D. Y. Fu, T. Dao, S. Baccus, Y. Bengio, S. Ermon, and C. Re. Hyena hierarchy: Towards larger convolutional language models. _arXiv preprint arXiv:2302.10866_, 2023.\n' +
+      '* Rae et al. [2021] J. W. Rae, S. Borgeaud, T. Cai, K. Millican, J. Hoffmann, F. Song, J. Aslanides, S. Henderson, R. Ring, S. Young, et al. Scaling language models: Methods, analysis & insights from training Gopher. _arXiv preprint arXiv:2112.11446_, 2021.\n' +
+      '* Rajbhandari et al. [2020] S. Rajbhandari, J. Rasley, O. Ruwase, and Y. He. Zero: Memory optimizations toward training trillion parameter models. In _SC20: International Conference for High Performance Computing, Networking, Storage and Analysis_, pages 1-16. IEEE, 2020.\n' +
+      '* Shazeer [2019] N. 셰이저 고속 트랜스포머 디코딩: 쓰기 헤드 하나만 있으면 됩니다. _ ArXiv preprint arXiv:1911.02150_, 2019.\n' +
+      '* Shazeer[2020]N. 셰이저 Glu 변형은 변압기를 개선한다. _ arXiv preprint arXiv:2002.05202_, 2020.\n' +
+      '* Shoeybi et al. [2019] M. Shoeybi, M. Patwary, R. Puri, P. LeGresley, J. Casper, and B. Catanzaro. Megatron-lm: Training multi-billion parameter language models using model parallelism. _arXiv preprint arXiv:1909.08053_, 2019.\n' +
+      '* Siegelmann and Sontag[1991] H. T. Siegelmann and E. D. Sontag. 신경망으로 연산성을 조정합니다. _ Application Mathematics Letters_, 4(6):77-80, 1991. ISSN 0893-9659.\n' +
+      '* Smith et al. [2022] J. T. Smith, A. Warrington, and S. W. Linderman. Simplified state space layers for sequence modeling. _arXiv preprint arXiv:2208.04933_, 2022.\n' +
+      '* Su et al. [2021] J. Su, Y. Lu, S. Pan, A. Murtadha, B. Wen, and Y. Liu. Roformer: Enhanced transformer with rotary position embedding. _arXiv preprint arXiv:2104.09864_, 2021.\n' +
+      '* Sun et al. [2023] Y. Sun, L. Dong, S. Huang, S. Ma, Y. Xia, J. Xue, J. Wang, and F. Wei. Retentive network: A successor to transformer for large language models. _arXiv preprint arXiv:2307.08621_, 2023.\n' +
+      '* Sutskever et al. [2014] I. Sutskever, O. Vinyals, and Q. V. Le. Sequence to sequence learning with neural networks. In _Advances in Neural Information Processing Systems_, pages 3104-3112, 2014.\n' +
+      '* Tay et al. [2020] Y. Tay, M. Dehghani, S. Abnar, Y. Shen, D. Bahri, P. Pham, J. Rao, L. Yang, S. Ruder, and D. Metzler. Long range arena: A benchmark for efficient transformers. _arXiv preprint arXiv:2011.04006_, 2020.\n' +
+      '\n' +
+      'H. 투브론, T. 라브릴, G. 이자카드, X. 마티넷 - A. 라초, T. 라크루아, B. 로지에르, N. Goyal, E. Hambro, F. Azhar, et al. LLama: Open and efficient foundation language models. _ arXiv preprint arXiv:2302.13971_, 2023.\n' +
+      '* Vaswani et al. (2017) A. Vaswani, N. N. 쉐이저 파마르, J. 우즈코리트, L. 존스, A. N. 고메즈, L. 카이저, 나 폴로수킨 주목만 해주시면 됩니다. In _Advances in Neural Information Processing Systems_, volume 30, 2017.\n' +
+      '* Wang et al. (2024) J. Wang, T. Gangavarapu, J. N. Yan, and A. M. Rush. Mambabyte: Token-free selective state space model. _ arXiv preprint arXiv:2401.13660_, 2024.\n' +
+      '* Werbos(1990) P. J. Werbos. 시간을 통한 역전파: 그것이 하는 일과 그것을 하는 방법. _ Proceedings of the IEEE_, 78(10):1550-1560, 1990.\n' +
+      '* Wu et al.(2016) Y. 우민 슈스터, 지 진규배 노루지 매케리 권윤 조규 가오경 Macherey, et al. Google의 신경 기계 번역 시스템: 인간과 기계 번역 사이의 갭을 브리지하는 것. _ ArXiv:1609.08144_, 2016.\n' +
+      '* Xiong et al.(2020) R. 시온 양동희 정승 정창창 란락 왕, T 류 트랜스포머 아키텍처에서 온 레이어 정규화. _International Conference on Machine Learning_, pages 10524-10533. PMLR, 2020.\n' +
+      '* Zhai et al.(2021) S. 자이원 N. 탈보트 Srivastava, C. Huang, H. Goh, R. 장, 그리고 J. 서스킨트 무관중 변압기요 arXiv preprint arXiv:2105.14103_, 2021.\n' +
+      '* Zhang and Sennrich (2019) B. Zhang and R. 센리히 Root mean square layer normalization. _ Neural Information Processing Systems_, 32, 2019에서의 발전\n' +
+      '* Zhu et al.(2024) L. 주병열 장진 왕욱 류, X 왕 Vision mamba: 양방향 상태 공간 모델을 이용한 효율적인 시각적 표현 학습 arXiv preprint arXiv:2401.09417_, 2024.\n' +
+      '\n' +
+      '## 부록 RG-LRU 재발 게이트\n' +
+      '\n' +
+      '그림 7에서 우리는 반복 중량 \\(a\\)에 적용된 다양한 게이팅 메커니즘의 거동을 보여준다.\n' +
+      '\n' +
+      '구현은 섹션 2.4에 정의된 바와 같이 수치 안정성을 위해 약간 다르지만 수학적으로 동등한 형태로 반복 게이트를 구현한다. 특히, 우리는 시그모이드를 계산하는 대신 \\(a_{t}\\)의 로그를 계산하고 이를 지수화한다.\n' +
+      '\n' +
+      '\\[\\log a_{t}=\\log a^{\\alpha_{t}=\\log\\sigma(\\Lambda)^{\\alpha_{t}=-c\\text{softplus}(\\Lambda)\\odot r_{t}. \\tag{6}\\\\tag{t}\n' +
+      '\n' +
+      '게이트 행동 우리의 게이트는 문헌의 다른 표준 게이트와 상당히 다르다. 특히, Mampa 및 GRU에서 사용되는 것과 같은 대부분의 게이팅 메커니즘은 게이트를 통해 숨겨진 상태와 새로운 관찰 사이를 완전히 보간할 수 있게 한다. 반면에 우리의 정보는 정보를 유지하는 쪽으로 편향되어 있으며 \\(h_{t-1}\\)의 기여도를 완전히 버릴 수는 없다(그러나 이것은 \\(\\람다\\)의 값에 달려 있다). 이를 증명하기 위해 출력 \\(y_{t}\\)에서 \\(h_{t-1}\\)과 비교하여 \\(x_{t}\\)의 상대적 가중치를 분석한다. 일반적인 재발을 위해 우리는 이것을 다음과 같이 정의한다.\n' +
+      '\n' +
+      '\\[h_{t}=\\alpha(r_{t})h_{t-1}+\\beta(r_{t})x_{t}. \\tag{7}\\]\n' +
+      '\n' +
+      '모델은 \\(\\alpha(r_{t})=a_{t}=a^{\\alpha_{t}}\\)와 \\(\\beta(r_{t})=\\sqrt{1-\\alpha(r_{t})^{2}}\\을 갖는다. 표준 GRU형 게이팅의 경우 \\(\\alpha(r_{t})=1-r_{t}\\)와 \\(\\beta(r_{t})=r_{t}\\)가 있다. Mampa의 경우 표기법 \\(B=1,C=1\\)을 가정하면 \\(\\alpha(r_{t})=(1-r_{t})^{-A}\\)와 \\(\\beta(r_{t})=(1-\\alpha)/A\\이 된다. 다른 게이팅 메커니즘의 행동은 그림 7에 나와 있으며, 명확성을 위해 우리는 게이팅이 없는 LRU(Orvieto et al., 2023)의 업데이트 값도 포함했다. Mampa 게이팅은 \\(1\\)에 가까운 \\(A\\) 값에 대해 GRU와 거의 동일하며 더 작은 값에서 약간의 편차가 있다. 반면에, 게이팅 메커니즘은 입력 \\(x_{t}\\)을 완전히 폐기하는 것과 LRU의 업데이트 사이의 매우 다른 비선형 보간을 수행한다.\n' +
+      '\n' +
+      '## 부록 B 복합 게이트 선형 순환 유닛(CG-LRU)\n' +
+      '\n' +
+      '섹션 2.4에서 우리는 순환 계층을 정의했지만 복소수를 사용하기 위해 더 확장될 수 있다. 이를 위해 먼저 \\(\\tilde{a}=\\sigma(\\Lambda)e^{i\\theta}\\)를 통해 복잡한 대각선 재발을 매개변수화하는데, 여기서 \\(\\theta\\)은 학습 가능한 매개변수이다. 또한 입력 \\(x_{t}\\)을 채널 차원에 따라 분할하고 해석한다.\n' +
+      '\n' +
+      '그림 7: 반복 체중 \\(a\\)에 적용된 다른 게이팅 메커니즘의 행동 (Mampa의 표기에서 이것은 \\(-A\\))\n' +
+      '\n' +
+      '처음 절반은 복소 벡터의 실수 부분이고, 두 번째 부분은 동일한 복소 벡터의 허수 부분이다:\n' +
+      '\n' +
+      '[x_{t} =\\begin{bmatrix}x_{t}^{1}\\\\x_{t}^{2}\\end{bmatrix}\\tag{8}\\] \\[\\tilde{x}_{t} =x_{t}^{1}+i\\tilde{x}_{t}^{2}. \\tag{9}\\]\n' +
+      '\n' +
+      '이것으로 LRU에 대한 방정식을 다시 쓴다(식 4 참조). as:\n' +
+      '\n' +
+      '\\sigma(W_{a}x_{t}+b_{a}),\\quad recurrence\\,gate \\tag{10}\\sigma(W_{x}x_{t}+b_{x}),\\quad input\\,gate\\](11)\\[\\tilde{a}_{t} = \\tilde{a}^{\\alpha_{t},\\](12)\\[\\tilde{h}_t} = \\tilde{a}_{t}\\odot\\tde{h}_{t}+\\sqrt{1-|\\todot(i_{t}\\tot\\tt}}}\\odot(i_{13}\\tt}+\\sqrt{1-|sqrt{t}}\\sigma(W_{x}+b_{x}),\\quad input\\,gate\\](11)\\[\\tilde{a}_{t} = \\tilde{a}^{\\alpha\n' +
+      '\n' +
+      '우리는 모든 복잡한 변수를 명확성을 위해 \\(\\tilde{\\cdot}\\)로 표시한다. \\(r_{t}\\),\\(i_{t}\\),\\(\\tilde{a}_{t}\\) 및\\(\\tilde{h}_{t}\\)의 차원 수는 실제 입력\\(x_{t}\\)의 절반이라는 점에 유의한다. 마지막으로, 출력을 계산하기 위해 \\(h_{t}\\)의 실수 부분과 허수 부분을 단일 벡터 \\(y_{t}\\)으로 적층한다:\n' +
+      '\n' +
+      '\\begin{bmatrix}\\text{Real}(\\tilde{h}_{t})\\\\text{Imaginary}(\\tilde{h}_{t})\\end{bmatrix}\\tag{14}\\t}\n' +
+      '\n' +
+      '## 부록 C 모델 스케일 하이퍼-파라미터\n' +
+      '\n' +
+      '표 2에서 우리는 다른 척도에서 모델의 하이퍼 매개변수를 제시한다. 이러한 하이퍼파라미터는 이 논문에서 탐색한 모든 모델 패밀리에 대해 공유된다.\n' +
+      '\n' +
+      '표 2 | 상이한 모델 크기에 대해 고려된 키 모델 하이퍼-파라미터. 이러한 하이퍼파라미터는 우리가 테스트한 다양한 아키텍처에 걸쳐 공유됩니다.\n' +
+      '\n' +
+      '## 부록 D 효율적인 디바이스에서의 선형 재현\n' +
+      '\n' +
+      '계산 최적화의 초기 단계는 대상 하드웨어에서 주요 성능 병목 현상을 식별하는 데 있다. 대부분의 가속기에서 주요 제한 요소는 계산 처리량(FLOPs/s) 및 고대역폭 메모리(HBM)와 고속 벡터 메모리(VMEM) 사이의 메모리 대역폭이다. HBM 용량 및 호스트 장치 통신과 같은 요인이 관련이 있지만 ZeRO 샤딩 및 파이프라인 데이터 전송과 같은 기술은 실용적인 완화를 제공한다. 현대의 가속기 설계는 종종 계산이 메모리 전송 수를 크게 능가하는 워크로드를 수용하기 위해 높은 FLOP 대 바이트 비율을 우선시한다. 우리는 모든 실험에 사용하는 표 3의 TPU-v3 포드(포드당 2개의 칩)의 주요 사양을 보여준다.\n' +
+      '\n' +
+      '###### 행렬 곱셈 연산\n' +
+      '\n' +
+      '\\(D\\times D\\) 행렬과 \\(D\\times N\\) 행렬의 일반적인 행렬 곱셈은 \\(2ND^{2}\\) FLOPs와 \\(2(D^{2}+2ND)\\) 바이트를 가지고 있으며, 이는 \\(\\frac{ND}{D+N}\\) FLOPs/바이트 비로 변환된다. TPU-v3에서 실행되는 \\(D>>N\\)일 때 이것은 장치를 포화시키기 위해 차원 \\(N\\)이 최소 136이어야 함을 의미하며, 이 경우 동작은 "계산 바인딩"이거나 그렇지 않으면 대부분의 시간이 메모리 전송을 기다리는 데 소비되며, 이 경우 동작은 "메모리 바인딩"이다.\n' +
+      '\n' +
+      '### Scan runtimes\n' +
+      '\n' +
+      '그림 8(a)에서 우리는 TPU-v3에서 팔라스 커널이 순진한 Jax 구현에 비해 거의 x3 속도를 달성한다는 것을 보여준다. 또한, 결합 스캔은 bfloat16 정밀도로 완전히 실행되더라도 상당히 느리다. 그림 8(b)는 이러한 이득이 7b 척도에서도 전체 호크 모델의 단계당 전체 훈련 시간의 상당한 개선으로 해석된다는 것을 보여준다. 완전성을 위해 최대 50% 더 느릴 수 있는 연관 스캔의 런타임도 추가했다.\n' +
+      '\n' +
+      '## 부록 E 그리핀의 로컬 어텐션 윈도우 크기\n' +
+      '\n' +
+      '그리핀은 그것의 시간적 혼합 블록들에서 국부적 주의 층들뿐만 아니라 순환 블록들을 모두 사용한다. 2048의 트레이닝 시퀀스 길이를 사용하여 이전에 보여졌던 모든 실험들에 대해, 우리는 1024의 로컬 어텐션 윈도우 사이즈를 사용하고, 이제 로컬 어텐션 레이어에 대한 상이한 윈도우 사이즈들의 성능이 트레이닝 시퀀스 길이에 따라 어떻게 달라지는지 조사한다.\n' +
+      '\n' +
+      '2048, 4096, 8192 토큰의 시퀀스 길이에 대해 학습된 400M 파라미터 모델을 고려한다.\n' +
+      '\n' +
+      '도 8: a) 상이한 시퀀스 길이들에서 TPU-v3 상의 스캔 동작의 상이한 구현들의 런타임들. 입력의 배치 크기는 8로 고정되고 각 토큰의 치수는 1024이다. b) 네이티브 Jax 스캔 구현을 갖는 것과 관련하여 스캔 동작의 상이한 구현을 사용할 때 호크 모델의 상대적 런타임이다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l l} \\hline \\hline\n' +
+      '**Specification** & **TPU-v3 Pod** \\\\ \\hline HBM capacity & 32 GB \\\\ HBM bandwidth & 900 GB/s \\\\ Peak MXU compute & 123 TFLOPs/s (bfloat16) \\\\ Peak MXU FLOPs-to-byte-ratio & 136 \\\\ Peak VPU compute & 3.8 TFLOPs/s \\\\ Peak VPU FLOPs-to-byte-ratio & 4.2 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 3: TPU-v3 포드에 대한 하드웨어 사양.\n' +
+      '\n' +
+      '여기서 우리는 훈련 토큰의 총 수를 고정한다. 각 시퀀스 길이에 대해 서로 다른 로컬 주의 창 크기를 사용하여 그리핀 모델을 훈련한다. 기준선으로는 글로벌 어텐션 레이어를 이용한 MQA 트랜스포머와 윈도우 크기가 다른 로컬 어텐션 레이어를 이용한 MQA 트랜스포머를 학습한다. 결과는 도 9에 도시되어 있으며, 여기서 사용된 윈도우 크기는 각 바의 상부에 도시되어 있다(트레이닝 시퀀스 길이와 동일한 윈도우 크기를 갖는 MQA 트랜스포머 바는 글로벌 어텐션 MQA 트랜스포머 베이스라인이다).\n' +
+      '\n' +
+      '그림 9에서 그리핀의 국부 주의 레이어에 대해 1024의 고정된 윈도우 크기를 사용하는 경우에도 검사된 모든 시퀀스 길이에 걸쳐 전역 주의 MQA 트랜스포머 기준선을 능가한다는 것을 알 수 있다. 그러나, 로컬 어텐션 윈도우(1024)를 갖는 그리핀과 글로벌 어텐션 MQA 트랜스포머 사이의 성능 갭은 시퀀스 길이가 증가함에 따라 감소한다는 점에 주목할 필요가 있다. 따라서 시퀀스 길이가 더 커지면 국소 주의 창 크기도 천천히 성장하는 것이 중요할 수 있다. 실제로, 사용된 하드웨어는 또한 트레이닝 및 추론 속도 측면에서 최적의 로컬 주의 윈도우 크기를 크게 결정할 것이다. 마지막으로, 순전히 로컬 어텐션(트레이닝 시퀀스 길이보다 작은 윈도우 크기)을 사용하는 MQA 트랜스포머는 글로벌 어텐션 MQA 트랜스포머뿐만 아니라 그리핀보다 훨씬 더 나쁜 성능을 수행한다는 점에 주목한다.\n' +
+      '\n' +
+      '## 부록 F 추론 속도\n' +
+      '\n' +
+      '### Estimating memory-boundedness\n' +
+      '\n' +
+      '디코드 시간에서의 언어 모델들의 추론 속도는 메모리 로딩에 의해 제한된다. 4.2에서 이미 설명된 바와 같이 선형 RNN은 메모리 바인딩이다. 다음에서 우리는 순환 모델과 트랜스포머 모델의 다른 구성 요소(선형 레이어 및 자기 주의)에 대해 이것이 사실임을 보여줄 것이다.\n' +
+      '\n' +
+      '### 선형 레이어의 메모리 경계성 추정\n' +
+      '\n' +
+      'D.1에 나타난 바와 같이 외부 치수(일반적으로 배치 \\(B\\) 및 서열 길이 \\(T\\) 치수로 구성됨)를 계산하려면 최소 136이어야 한다. 디코드 시간\\(T=1\\)에서, 그리고 만약 우리가 \\(B\\lesssim 128\\)이라고 가정한다면, 어떤 선형 계층도 디코드 시간에서 메모리가 바인딩될 것이다.\n' +
+      '\n' +
+      '도 9: 상이한 로컬 어텐션 윈도우 크기 및 상이한 트레이닝 시퀀스 길이를 사용하는 400M 파라미터 그리핀 및 MQA 트랜스포머 모델의 성능. 로컬 주의 도면층의 창 크기는 그림의 각 막대 위에 표시됩니다. 우리는 전역 주의력 MQA Transformer가 MQA Transformer의 국부 주의력 변형(윈도우 크기가 트레이닝 시퀀스 길이보다 작은 경우)보다 훨씬 더 우수하다는 것을 알아챘다. 또한, 그리핀 모델에 대해 1024의 고정된 로컬 주의 윈도우 크기(플롯에서 \'1K\'로 표시됨)를 사용하는 것이 모든 트레이닝 시퀀스 길이에서 모든 글로벌 주의 및 로컬 주의 MQA 트랜스포머 기준선을 능가하는 것을 알 수 있다.\n' +
+      '\n' +
+      '자기 주의의 기억 한계 추정\n' +
+      '\n' +
+      '다음에서는 \\(L\\)번째 디코드 단계의 어텐션 연산을 위해 산술 연산에 대한 메모리 접근의 비율을 계산하여 메모리 바인딩임을 보인다.\n' +
+      '\n' +
+      '다음 분석을 단순화하기 위해 빈 프롬프트에서 시작한다고 가정(또는 프리필에 0개의 토큰이 포함되어 있다고 가정)합니다.\n' +
+      '\n' +
+      'MHA 또는 MQA에서 자동 회귀적으로 샘플링할 때 표준 관행은 키 및 값 벡터를 키-값(KV) 캐시에 저장하는 것이다. 따라서 이미 샘플링된 토큰의 경우, KV 캐시는 배치에서 각 시퀀스에 대해 크기\\(2\\times L\\times H_{k}\\times d_{head}\\)일 것이며, 여기서 \\(H_{k}\\)은 키와 값에 사용되는 헤드의 수를 나타내고, \\(d_{head}\\)은 각 헤드의 키와 값 벡터의 차원을 나타낸다.\n' +
+      '\n' +
+      '우리는 \\(L\\)번째 토큰의 샘플링을 위해, 일단 \\(L\\)번째 토큰에 해당하는 쿼리, 키 및 값 벡터를 계산한다. 그리고 KV 캐쉬에서 \\(L\\)번째 키와 값 벡터를 이용하여 어텐션 가중치와 어텐션 레이어의 출력을 계산한다. 이것은 전체적으로 \\(O(LD)\\) 연산을 필요로 하며, 각 시퀀스에 대해 HBM으로부터 \\(O(L\\times H_{k}\\times d_{head})\\) 크기의 KV 캐시를 로딩해야 한다. KV 캐시의 크기와 FLOP의 수는 배치 크기\\(B\\)에 따라 선형적으로 확장된다.\n' +
+      '\n' +
+      'MHA의 경우 키 및 값 \\(H_{k}\\)에 대한 헤드의 수는 일반적으로 쿼리 \\(H\\)에 사용되는 헤드의 수와 동일하다. MQA의 경우 키 및 값, 즉 \\(H_{k}\\!=\\!1\\)에 단일 헤드가 사용된다. 따라서 MQA의 경우, KV 캐시의 크기는 \\(H_{k}\\) 더 작은 (즉, \\(2\\times L\\times d_{head}\\)의 인자이다.\n' +
+      '\n' +
+      '```\n' +
+      'defattention_sampling(q,k,v): """Auto-regressivesamplingviaattention.  For MQA,h_k=h. For MQA,h_k=1. Args:  q: Theq vector for current of shape[b,h,k] k: current+ previous token[b,L,h_k,k] v: current+ previous token[b,L,h_k,v]의 값들[b,L,h_k,v]#O(bhLv)의 값들=softmax(logits)  output=einsum("bhk,bLk->bhLv", weights,v)#O(bhLv)  returnoutput"\n' +
+      '```\n' +
+      '\n' +
+      '배치 크기\\(B\\)의 경우, 주의 계산에 대한 FLOPs 비에 대한 메모리 액세스는 \\(O(\\frac{B\\times L\\times H_{k}\\times d_{head}}{B\\times L\\times D})\\)로 된다. 전형적인 트랜스포머 구조의 경우, MHA의 경우 \\(D=H\\times d_{head}\\) 및 MHA의 경우 \\(H_{k}=H\\) 및 MQA의 경우 \\(H_{k}=1\\)이다. 따라서 플롭스 비에 대한 메모리 액세스는 MHA에서는 \\(O(1)\\), MQA에서는 \\(O(1/H)\\이다. 3에서 설명한 대로 TPU-v3에 계산 결합하려면 136의 FLOP 대 바이트 비율이 필요하므로 MHA와 MQA 모두 일반적으로 메모리 결합이다. 그럼에도 불구하고, MQA는 메모리 경계성을 \\(H\\)의 인수로 낮추기 때문에 (MHA와 비교할 때) 트랜스포머 추론을 상당히 빠르게 한다.\n' +
+      '\n' +
+      '### Cache sizes\n' +
+      '\n' +
+      '다음에서는 순환 및 변압기에서 사용되는 캐시의 상대적 크기를 분석합니다. 모든 캐시 크기는 배치 크기에 따라 선형으로 축척되며 다음에서는 \\(B\\!=\\!1\\)을 가정한다.\n' +
+      '\n' +
+      'KV 캐쉬의 크기\n' +
+      '\n' +
+      '어텐션을 위해 KV 캐시는 크기\\(2NTh_{k}d_{head}\\)를 가지며, 여기서 \\(N\\)은 어텐션 레이어의 수(깊이), \\(T\\)는 시퀀스의 길이, \\(h_{k}\\)는 KV 헤드의 수, \\(d_{head}\\)는 헤드 차원을 나타낸다. 이 작업을 통해 \\(d_{head}\\!=\\!128\\). MHA에 대하여 \\(h_{k}d_{head}\\!=\\!D\\) 한편, MQA의 경우 \\(h_{k}\\!=\\!1\\)이다. (따라서, 우리는 KV 캐시의 크기가 상당히 작고 메모리가 이동될 필요가 적기 때문에, MHA보다 긴 시퀀스들을 디코딩할 때 MQA가 더 빠를 것으로 기대한다.)\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:24]\n' +
+      '\n' +
+      '인덕션 헤드 태스크에서, 모델은 특수 토큰(도 11의 블랙 토큰) 바로 다음에 오는 토큰을 리콜하는 것을 학습할 필요가 있다. 이전과 같이 출력에서 크로스아웃된 토큰은 손실에서 마스킹된 토큰을 나타낸다.\n' +
+      '\n' +
+      '도 11: 선택적 복사(왼쪽) 및 유도 헤드 작업(오른쪽)의 예시.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>

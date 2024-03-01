@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# ViewFusion: Towards Multi-View Consistency via Interpolated Denoising\n' +
+      '\n' +
+      'Xianghui Yang\\({}^{1,2}\\), Yan Zuo\\({}^{1}\\), Sameera Ramasinghe\\({}^{1}\\), Loris Bazzani\\({}^{1}\\), Gil Avraham\\({}^{1}\\), Anton van den Hengel\\({}^{1,3}\\)\n' +
+      '\n' +
+      '\\({}^{1}\\)Amazon, \\({}^{2}\\)The University of Sydney, \\({}^{3}\\)The University of Adelaide\n' +
+      '\n' +
+      'Work done during internship at Amazon\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      'Novel-view synthesis through diffusion models has demonstrated remarkable potential for generating diverse and high-quality images. Yet, the independent process of image generation in these prevailing methods leads to challenges in maintaining multiple view consistency. To address this, we introduce ViewFusion, a novel, training-free algorithm that can be seamlessly integrated into existing pre-trained diffusion models. Our approach adopts an auto-regressive method that implicitly leverages previously generated views as context for next view generation, ensuring robust multi-view consistency during the novel-view generation process. Through a diffusion process that fuses known-view information via interpolated denoising, our framework successfully extends single-view conditioned models to work in multiple-view conditional settings without any additional fine-tuning. Extensive experimental results demonstrate the effectiveness of ViewFusion in generating consistent and detailed novel views.\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      'Humans have a remarkable capacity for visualizing unseen perspectives from just a single image view - an intuitive process that remains complex to model. Such an ability is known as Novel View Synthesis (NVS) and necessitates robust geometric priors to accurately infer three-dimensional details from flat imagery; lifting from a two-dimensional projection to a three-dimensional form involves assumptions and knowledge about the nature of the object and space. Recently, significant advancements in NVS have been brought forward by neural networks [15, 16, 31, 42, 61, 65, 66, 73, 76, 77], where novel view generation for downstream reconstruction shows promising potential [35, 70].\n' +
+      '\n' +
+      'Specifically, diffusion models [20, 52] and their ability to generate high-quality 2D images have garnered significant attention in the 3D domain, where pre-trained, text-conditioned 2D diffusion models have been re-purposed for 3D applications via distillation [4, 32, 41, 48, 50, 58, 64, 69, 74]. Follow-up approaches [35, 70] remove the requirement of text conditioning and instead take an image and target pose as conditions for NVS. However, distillation [64] is still required as the diffusion model cannot produce the multi-view consistent outputs that are appropriate for certain downstream tasks (_e.g._, optimizing Neural Radiance Fields (NeRFs) [42]).\n' +
+      '\n' +
+      'Under the single-view setting, maintaining multi-view consistency remains particularly challenging since there may exist several plausible outputs for a novel view that are aligned with the given input image. For diffusion-based approaches which generate novel views in an independent manner [35, 70], this results in synthesized views containing artifacts of multi-view inconsistency (Fig. 1a). Previous work [34, 37, 39, 54, 75, 78] focuses on improving the robustness of the downstream reconstruction to address the inconsistency issue, including feature projection layers in the NeRF [34] or utilising three-dimensional priors to constrain NeRF optimization [37, 78], yet these techniques require training or fine-tuning to align additional modules to the original diffusion models.\n' +
+      '\n' +
+      'In this work, we address the multi-view inconsistency that arises during the process of view synthesis. Rather than\n' +
+      '\n' +
+      'Figure 1: The cause of multi-view inconsistency in diffusion-based novel-view synthesis models. (a) Diffusion models incorporate randomness for diversity and better distribution modeling; this independent generation process produces realistic views under specific instances but may produce different plausible views for various instances, lacking alignment across adjacent views. (b) In contrast, ViewFusion incorporates an auto-regressive process to reduce uncertainty and achieve multi-view consistency, by ensuring a correlated denoising process that ends at the same high-density area, fostering consistency across views.\n' +
+      '\n' +
+      'independently synthesizing views conditioned only on the initial reference image, we develop a novel approach where each subsequently generated view is also conditioned on the _entire set_ of previously generated views. Specifically, our method incorporates an auto-regressive process into the diffusion process to model the joint distribution of views, guiding our novel-view synthesis by maintaining the denoising direction towards the same high density area of already generated views (Fig. 1b).\n' +
+      '\n' +
+      'Our framework, named ViewFusion, relaxes the single-view conditioning requirement of typical diffusion models through an interpolated denoising process. ViewFusion offers several additional advantages: 1) it can utilize all available views as guidance, thereby enhancing the quality of generated images by incorporating more information; 2) it does not require any additional fine-tuning, effortlessly converting pre-trained single-view conditioned diffusion models into multi-view conditioned diffusion models; 3) it provides greater flexibility in setting adaptive weights for condition images based on their relative view distance to the target view.\n' +
+      '\n' +
+      'The contributions of this paper are the following:\n' +
+      '\n' +
+      '* We propose a _training-free_ algorithm which can be directly applied to pre-trained diffusion models to improve multi-view consistency of synthesized views and supports multiple conditional inputs.\n' +
+      '* Our method utilizes a novel, auto-regressive approach which we call _Interpolated Denoising_, that implicitly addresses key limitations of previous auto-regressive approaches for view synthesis.\n' +
+      '* Extensive empirical analysis on ABO [6] and GSO [10] show that our method is able to achieve better 3D consistency in image generation, leading to significant improvements in novel view synthesis and 3D reconstruction of shapes under single-view and multi-view image settings over other baseline methods.\n' +
+      '\n' +
+      '## 2 Related Work\n' +
+      '\n' +
+      '### 3D-adapted Diffusion Models\n' +
+      '\n' +
+      'Diffusion models have excelled in image generation using conditional inputs [21, 47, 51, 85] and given this success in the 2D domain, recent works have tried to extend diffusion models to 3D content generation [1, 3, 5, 11, 17, 19, 23, 25, 26, 28, 38, 44, 45, 67, 83, 84, 46] - although the scarcity of 3D data presents a significant challenge to directly train these diffusion models. Nonetheless, pioneer works such as DreamFusion [48] and Score Jacobian Chaining [64] leverage pre-trained text-conditioned diffusion models to craft 3D models via distillation. Follow-up approaches [4, 32, 58, 69] improve this distillation in terms of speed, resolution and shape quality. Approaches such as [41, 50, 58, 74] extend upon this to support image conditions through the use of captions with limited success due to the non-trivial nature of textual inversion [14].\n' +
+      '\n' +
+      '### Novel View Synthesis Diffusion Models\n' +
+      '\n' +
+      'Another line of research [2, 9, 18, 29, 36, 57, 59, 62, 63, 70, 72, 79, 81, 87] directly applies 2D diffusion models to generate multi-view images for shape reconstruction. To circumvent the weakness of text-conditioned diffusion models, novel-view synthesis diffusion models [35, 70] have also been explored, which take an image and target pose as conditions to generate novel views. However, for these approaches, recovering a 3D consistent shape is still a key challenge. To mitigate 3D inconsistency, Liu et al. [34] suggests training a Neural Radiance Field (NeRF) with feature projection layers. Concurrently, other works [75, 75, 39, 71, 37] add modules to original diffusion models for multi-view consistency, including epipolar attention [78], synchronized multi-view noise predictor [37] and cross-view attention [71, 39]; although these methods require fine-tuning an already pre-trained model. We adopt a different paradigm, instead of extending a single-view diffusion model with additional trainable models that incorporate multi-view conditions, our training-free method enables pre-trained diffusion models to incorporate previously generated views via the denoising step and holistically extends these models into multi-view settings.\n' +
+      '\n' +
+      '### Other Single-view Reconstruction Methods\n' +
+      '\n' +
+      'Before the prosperity of generative models used in 3D reconstruction, many works [12, 13, 15, 16, 27, 30, 31, 60, 65, 76] reconstructed 3D shapes from single-view images using regression [15, 16, 30, 65, 76] or retrieval [60], both of which face difficulties in generalizing to real data or new categories. Methods based on Neural Radiance Fields (NeRFs) [42] have found success in novel-view synthesis, but these approaches typically depend on densely captured images with accurately calibrated camera positions. Currently, several studies are investigating the adaptation of NeRF to single-view settings [22, 33, 53, 80]; although, reconstructing arbitrary objects from single-view images is still a challenging problem.\n' +
+      '\n' +
+      '## 3 Method\n' +
+      '\n' +
+      '### Denoising Diffusion Probabilistic Models\n' +
+      '\n' +
+      'Denoising diffusion probabilistic models (DDPM) [20, 55] are a class of generative models that model the real data distribution \\(q(x_{0})\\) with a tractable model distribution \\(p_{\\theta}(x_{0})\\) by learning to iteratively denoise samples. It learns a probability model \\(p_{\\theta}(\\mathbf{x}_{0})=\\int p_{\\theta}(\\mathbf{x}_{0:T})d\\mathbf{x}_{1:T}\\) to convert unstructured noise \\(\\mathbf{x}_{T}\\) to real samples \\(\\mathbf{x}_{0}\\) in the form of a Markov chain, with Gaussian transitions. The Gaussian transition is defined as:\n' +
+      '\n' +
+      '\\[q(\\mathbf{x}_{T}|\\mathbf{x}_{0})=\\prod_{t=1}^{T}q(\\mathbf{x}_{t}|\\mathbf{x}_{t-1}) =\\prod_{t=1}^{T}\\mathcal{N}(\\mathbf{x}_{t};\\sqrt{1-\\beta_{t}}\\mathbf{x}_{t-1}, \\beta_{t}\\mathbf{I}), \\tag{1}\\]\n' +
+      '\n' +
+      'where \\(\\beta_{t},t\\in\\{1,...,T\\}\\) are the variance schedule parameter and timestep in the denoising process respectively. The reverse denoising process starts from a noise sampled from a Gaussian distribution \\(q(\\mathbf{x}_{T})=\\mathcal{N}(\\mathbf{0},\\mathbf{I})\\) and is constructed as:\n' +
+      '\n' +
+      '\\[p_{\\theta}(\\mathbf{x}_{0}|\\mathbf{x}_{T})=\\prod_{t=1}^{T}p_{\\theta}(\\mathbf{x }_{t-1}|\\mathbf{x}_{t})=\\prod_{t=1}^{T}\\mathcal{N}(\\mathbf{x}_{t-1};\\mu_{ \\theta}(\\mathbf{x}_{t},t),\\sigma_{t}^{2}\\mathbf{I}), \\tag{2}\\]\n' +
+      '\n' +
+      'where the variance \\(\\sigma_{t}^{2}\\) is a time-dependent constant [20], and \\(\\mu_{\\theta}(\\mathbf{x}_{t},t)\\) is the mean from the learned _noise predictor_\\(\\epsilon_{\\theta}\\):\n' +
+      '\n' +
+      '\\[\\mu_{\\theta}(\\mathbf{x}_{t},t)=\\frac{1}{\\sqrt{\\alpha_{t}}}\\left(\\mathbf{x}_ {t}-\\frac{\\beta_{t}}{\\sqrt{1-\\bar{\\alpha}_{t}}}\\epsilon_{\\theta}(\\mathbf{x}_ {t},t)\\right). \\tag{3}\\]\n' +
+      '\n' +
+      'Here, \\(\\alpha_{t}\\) and \\(\\bar{\\alpha}_{t}\\) are constants derived from \\(\\beta_{t}\\). The objective of noise predictor \\(\\epsilon_{\\theta}\\) is simplified to:\n' +
+      '\n' +
+      '\\[\\ell=\\mathbb{E}_{t,\\mathbf{x}_{0},\\epsilon}\\left[\\|\\epsilon-\\epsilon_{\\theta }(\\sqrt{\\bar{\\alpha}_{t}}\\mathbf{x}_{0}+\\sqrt{1-\\bar{\\alpha}_{t}}\\epsilon,t) \\|_{2}\\right], \\tag{4}\\]\n' +
+      '\n' +
+      'where \\(\\epsilon\\) is a random variable sampled from \\(\\mathcal{N}(\\mathbf{0},\\mathbf{I})\\)[20].\n' +
+      '\n' +
+      '### Pose-Conditional Diffusion Models\n' +
+      '\n' +
+      'Similar to other generative models [43, 56], diffusion models inherently possess the capability to model conditional distributions of the form \\(p_{\\theta}(x_{t-1}|x_{t},y)\\) where \\(y\\) is the condition. We employ a conditional denoising autoencoder, denoted as \\(\\epsilon_{\\theta}(\\mathbf{x}_{t},t,y)\\) which enables controlling the synthesis process through a variety of input modalities, including textual descriptions [51], semantic maps [21, 47], or other image-to-image translation tasks [21]. In the following, we present a range of approaches to novel-view synthesis, exploring how various works, including our own, approach the concept of a single reverse diffusion step. Through this comparison, we clarify and establish the underlying relationships between these different methodologies. The notation will follow that bottom subscript \\((\\cdot)_{t}\\) indicates the diffusion step and upper subscript \\((\\cdot)^{i}\\) relates to the view index. Subsequently, the \\(i\\)-th condition image and its relative pose to the target view are defined as \\(\\mathbf{y}^{i}\\) and \\(\\pi^{i}\\), respectively, and the noisy image to be denoised at timestep \\(t\\) is defined as \\(\\mathbf{x}_{t}\\).\n' +
+      '\n' +
+      'Direct conditionwas applied by Zero 1-to-3 [35] to the reverse process when given a single input image and target pose \\(\\mathbf{y}^{1},\\pi^{1}\\):\n' +
+      '\n' +
+      '\\[p(\\mathbf{x}_{t-1}|\\mathbf{x}_{t},\\mathbf{y}^{1},\\pi^{1}). \\tag{5}\\]\n' +
+      '\n' +
+      'Stochastic conditioningwas formulated by [70] which can leverage multiple views sampled from a collection of views \\(p_{\\mathbf{y},\\pi}(\\mathcal{Y},\\pi)\\):\n' +
+      '\n' +
+      '\\[p(\\mathbf{x}_{t-1}|\\mathbf{x}_{t},\\mathbf{y}^{i},\\pi^{i}),\\{\\mathbf{y}^{i},\\pi ^{i}\\}\\sim p_{\\mathbf{y},\\pi}(\\mathcal{Y},\\pi), \\tag{6}\\]\n' +
+      '\n' +
+      'Figure 2: Illustration of the Auto-Regressive Generation Process. In our approach, we extend a pre-trained diffusion model from single-stage to multi-stage generation and we maintain a view set that contains all generated views. For each stage, we construct \\(N\\) reverse diffusion processes and sharing a common starting noise. At each time step within this generation stage, the diffusion model predicts \\(N\\) noises individually. These \\(N\\) noises are then subjected to weighted interpolation through the _Noise Interpolation Module_, concluding the denoising step with the a shared interpolated noise for subsequent denoising steps.\n' +
+      '\n' +
+      'where the sampling of image and pose happens at each diffusion step \\(t\\).\n' +
+      '\n' +
+      'Joint output distributionwas shown in SyncDreamer[37] which learns a joint distribution of many views given an image condition \\(y^{1}\\):\n' +
+      '\n' +
+      '\\[p(\\mathbf{x}_{t-1}^{1:N}|\\mathbf{x}_{t}^{1:N},\\mathbf{y}^{1},e^{1}), \\tag{7}\\]\n' +
+      '\n' +
+      'where \\(N\\) is the number of generated novel views and \\(e\\) is the elevation condition (partial pose information). We note that in this formulation the target poses are not fully specified as part of the condition allowing for diverse pose generation of outputs.\n' +
+      '\n' +
+      'Auto-regressive distributionis an auto-regressive distribution setting which can generate an arbitrary number of views given a single or multiple condition images and poses contained in the set of \\(\\mathbf{y}^{1:N-1},\\pi^{1:N-1}\\):\n' +
+      '\n' +
+      '\\[p(\\mathbf{x}_{t-1}^{N}|\\mathbf{x}_{t}^{N},\\mathbf{y}^{1:N-1},\\pi^{1:N-1}). \\tag{8}\\]\n' +
+      '\n' +
+      'Our approach falls in the auto-regressive category and for the remainder of this section we detail the implementation to achieve this sampling strategy.\n' +
+      '\n' +
+      '### Interpolated Denoising\n' +
+      '\n' +
+      'The standard DDPM model has been adapted for novel-view image synthesis by using an image and target pose (_i.e_., rotation and translation offsets) as conditional inputs [70]. Following training on a large-scale dataset, this approach has demonstrated the capability for zero-shot reconstruction [35]. To address the challenge of maintaining multi-view consistency, we employ an auto-regressive approach for generating sequential frames (See Fig. 2). Instead of independently producing each frame from just the input images - a process prone to significant variations between adjacent images - we integrate an auto-regressive algorithm into the diffusion process. This integration enables us to model a conditional joint distribution, ensuring smoother and more consistent transitions between frames.\n' +
+      '\n' +
+      'To guide the synthesis of novel views using images under different views, we design an interpolated denoising process. For the purpose of this derivation, we assume access to an image set containing \\(N-1\\) images denoted as \\(\\{\\mathbf{y}^{1},...,\\mathbf{y}^{N-1}\\}\\). We want to model the distribution of the \\(N\\)-th view image conditioned on these \\(N-1\\) views \\(q(\\mathbf{x}_{1:T}^{N}|\\mathbf{y}^{1:N-1})\\), where the relative pose offsets \\(\\pi^{i},i\\in\\{1,N-1\\}\\) between the condition images \\(\\{\\mathbf{y}^{1},...,\\mathbf{y}^{N-1}\\}\\) and target image \\(\\mathbf{x}_{0}^{N}\\) are omitted for simplicity. The forward process of the multi-view conditioned diffusion model is a direct extension of the vanilla DDPM in Eq. 1, where noises are added to every view independently by\n' +
+      '\n' +
+      '\\[q(\\mathbf{x}_{1:T}^{N}|\\mathbf{y}^{1:N})=\\prod_{t=1}^{T}q(\\mathbf{x}_{t}^{N}| \\mathbf{x}_{t-1}^{N},\\mathbf{y}^{1:N}) \\tag{9}\\]\n' +
+      '\n' +
+      'where \\(q(\\mathbf{x}_{t}^{N}|\\mathbf{x}_{t-1}^{N},\\mathbf{y}^{1:N})=\\mathcal{N}( \\mathbf{x}_{t}^{N};\\sqrt{1-\\beta_{t}}\\mathbf{x}_{t-1}^{N},\\beta_{t}\\mathbf{I})\\). The initial is defined as \\(\\mathbf{x}_{0}^{N}:=\\mathbf{y}^{N}\\). Similarly, following Eq. 2, the \\(\\log\\) reverse process is constructed as\n' +
+      '\n' +
+      '\\[\\begin{split}\\log p_{\\theta}(\\mathbf{x}_{0}^{N}|& \\mathbf{x}_{T}^{N},\\mathbf{y}^{1:N-1})=\\sum_{t=1}^{T}\\log p_{\\theta}( \\mathbf{x}_{t-1}^{N}|\\mathbf{x}_{t}^{N},\\mathbf{y}^{1:N-1})\\\\ &\\mathop{\\approx}_{(1)}\\sum_{t=1}^{T}\\log\\prod_{n=1}^{N-1}p_{ \\theta}(\\mathbf{x}_{t-1}^{N}|\\mathbf{x}_{t}^{N},\\mathbf{y}^{n})\\\\ &=\\sum_{t=1}^{T}\\sum_{n=1}^{N-1}\\log\\mathcal{N}(\\mathbf{x}_{t-1}^ {N};\\mu_{\\theta}^{n}(\\mathbf{x}_{t}^{N},\\mathbf{y}^{n},t),\\sigma_{t}^{2} \\mathbf{I})\\\\ &=\\sum_{t=1}^{T}\\mathcal{N}\\left(\\mathbf{x}_{t-1}^{N};\\bar{\\mu}_ {\\theta}(\\mathbf{x}_{t}^{N},\\mathbf{y}^{1:N-1},t),\\bar{\\sigma_{t}}^{2}\\mathbf{ I}\\right).\\end{split} \\tag{10}\\]\n' +
+      '\n' +
+      'Where \\(\\bar{\\mu}_{\\theta},\\bar{\\sigma_{t}}^{2}\\) are taken as the mean and variance of the summation of \\(N-1\\)_log_-normal distributions. A note on subscript \\((1)\\) in Eq.10; to avoid cluttering the derivation, we assume \\(N-1\\) independent inferences of the same random variable \\(\\mathbf{x}_{t-1}^{N}\\) using _a different_\\(\\mathbf{y}^{n}\\) that results in \\(N-1\\) independent normal distributions, which would require an additional subscript that we omitted for clarity.\n' +
+      '\n' +
+      '### Single and Multi-view Denoising\n' +
+      '\n' +
+      '_In practice_, however, we may not have all \\(N-1\\) views but a single view or a handful of views. For the reminder of this section, we treat an estimated view as \\(\\mathbf{x}_{0}^{n}\\), to be the \\(n\\)-th view \\(\\mathbf{y}^{n}\\) after a full reverse diffusion process. We use \\(\\bar{\\mu}_{\\theta}(\\mathbf{x}_{t},\\mathbf{y}^{1:N-1},t)\\) as the weighted average of \\(\\mu_{\\theta}^{n}(\\mathbf{x}_{t},\\mathbf{y}^{n},t)\\). For computing \\(\\bar{\\mu}_{\\theta}\\) using both given views and estimated views we adopt an approach where different views contribute differently to the target view, and we assign the weight \\(\\omega_{n}\\) for the \\(n\\)-th view in practice while satisfying the constraint \\(\\sum_{n=1}^{N-1}w_{n}=1\\). The _Noise Interpolation Module_ in Fig. 2 is modeled as:\n' +
+      '\n' +
+      '\\[\\begin{split}\\bar{\\mu}_{\\theta}(\\mathbf{x}_{t},\\mathbf{y}^{1:N-1 },& t)=\\sum_{n=1}^{N-1}\\omega_{n}\\mu_{\\theta}^{n}(\\mathbf{x}_{t}, \\mathbf{y}^{n},t)\\\\ &=\\sum_{n=1}^{N-1}\\omega_{n}\\frac{1}{\\sqrt{\\alpha_{t}}}\\left( \\mathbf{x}_{t}-\\frac{\\beta_{t}}{\\sqrt{1-\\bar{\\alpha}_{t}}}\\epsilon_{\\theta}( \\mathbf{x}_{t},\\mathbf{y}^{n},t)\\right)\\\\ &=\\!\\frac{1}{\\sqrt{\\alpha_{t}}}\\left(\\mathbf{x}_{t}-\\frac{\\beta_{t }}{\\sqrt{1-\\bar{\\alpha}_{t}}}\\sum_{n=1}^{N}\\omega_{n}\\epsilon_{\\theta}( \\mathbf{x}_{t},\\mathbf{y}^{n},t)\\right).\\end{split} \\tag{11}\\]\n' +
+      '\n' +
+      'In our approach, as the full view set is not given to us, we approximate this process by an auto-regressive way and grow the condition set during the generation. We define the weight parameter \\(\\omega_{n}\\) based on the angle offset, _i.e_., azimuth (\\(\\Delta_{a}^{n}\\)), elevation (\\(\\Delta_{e}^{n}\\)), and distance (\\(\\Delta_{d}^{n}\\)), between the target view and the \\(n-th\\) condition view. The core idea is to assign higher importance to near-view images during the denoising process while ensuring that the weight for the initial condition image does not diminish too rapidly, even when the target view is positioned at a nearly opposite angle. We use an exponential decay weight function for the initial condition image, defined as \\(\\omega_{n}=e^{-\\frac{\\Delta_{a}^{n}}{\\tau_{c}}}\\). Here, \\(\\tau_{c}\\) is the temperature parameter that regulates the decay speed, and \\(\\Delta^{n}\\) is the sum of the absolute relative azimuth (\\(\\Delta_{a}^{n}\\)), elevation (\\(\\Delta_{e}^{n}\\)), and distance (\\(\\Delta_{d}^{n}\\)) between the target and condition poses. We calculate \\(\\Delta^{n}\\) as \\(\\Delta^{n}=|\\Delta_{a}^{n}|/\\pi+|\\Delta_{e}^{n}|/\\pi+|\\Delta_{d}^{n}|\\).\n' +
+      '\n' +
+      'For the weights of the remaining images denoted as \\(\\{x_{0}^{2},...,x_{0}^{N}\\}\\), all generated from the initial condition image \\(y^{1}:=x_{0}^{1}\\), we use a softmax function to define the weights \\(\\omega_{n}\\):\n' +
+      '\n' +
+      '\\[\\omega_{n}=\\text{Softmax}(\\frac{e^{-\\frac{\\Delta^{n}}{\\tau_{g}}}}{\\sum_{n=2} ^{N}e^{-\\frac{\\Delta^{n}}{\\tau_{g}}}}),n=2,...,N \\tag{12}\\]\n' +
+      '\n' +
+      'Similarly, \\(\\Delta_{n}\\) represents the relative pose offset between target view and the \\(n\\)-th generated view, and \\(\\tau_{g}\\) represents the temperature parameter for generated views. As an example, in the single-view case, the weights are expressed as follows,\n' +
+      '\n' +
+      '\\[\\omega_{n}=\\begin{cases}exp(-\\frac{\\Delta^{n}}{\\tau_{c}}),&n=1\\\\ (1-\\omega_{1})\\text{Softmax}(\\frac{e^{-\\frac{\\Delta^{n}}{\\tau_{g}}}}{\\sum_{n=2} ^{N}e^{-\\frac{\\Delta^{n}}{\\tau_{g}}}}),&n\\neq 1\\end{cases} \\tag{13}\\]\n' +
+      '\n' +
+      'we apply the term \\(1-\\omega_{1}\\) on the generated image weights to ensure the requirement of \\(\\sum_{n=1}^{N-1}w_{n}=1\\) will be met. In practice, Eq.16 is generalised to allow the condition set can be larger than \\(1\\), _i.e_., multi-view generation (see supplementary).\n' +
+      '\n' +
+      '### Step-by-step Generation\n' +
+      '\n' +
+      '**Single image generation.** When applying the auto-regressive approach to image generation, we have devised a generation trajectory, as illustrated in Fig. 2(a). We uniformly sample views along this trajectory in sequence. Each previously generated view image on this trajectory is incorporated into the condition set, providing guidance for the subsequent denoising process via our interpolated denoising method. To determine the number of steps, denoted as \\(S\\), needed for this trajectory, we use the following formula:\n' +
+      '\n' +
+      '\\[S=max\\left(\\lceil\\frac{\\Delta_{a}^{N}}{\\delta}\\rceil,\\lceil\\frac{\\Delta_{e}^ {N}}{\\delta}\\rceil\\right). \\tag{14}\\]\n' +
+      '\n' +
+      'Here, we set the maximum offset per step \\(\\delta\\) to determine the step count \\(S\\), also based on the target view offsets \\(\\Delta_{a}^{N}\\) and \\(\\Delta_{e}^{N}\\). We then proceed to sample the \\(n\\)-th view using the following equation:\n' +
+      '\n' +
+      '\\[(\\Delta_{a}^{n},\\Delta_{e}^{n},\\Delta_{d}^{n})=(\\frac{\\Delta_{a}^{N}}{S}*n, \\frac{\\Delta_{e}^{N}}{S}*n,\\frac{\\Delta_{d}^{N}}{S}*n) \\tag{15}\\]\n' +
+      '\n' +
+      '**Spin videos generation.** In contrast to generating a single target image, the process of spin video generation begins from an initial image and concludes at the same position. To achieve this, we need to modify the generation order to leverage the broad range of rotation images, rather than simply following the rotation degree range of \\([0^{\\circ},360^{\\circ}]\\) in sequence. This is because, at \\(\\Delta_{a}=\\pi\\), the view is opposite to the conditioning view, marking the end of the generation process. To establish the generation order for spin video generation, we introduce the minimum azimuth offset, denoted as \\(\\delta\\), and employ a skip trajectory with the following order: \\(\\{\\delta,-\\delta,2\\delta,-2\\delta...,N\\delta\\}\\), shown in Fig. 2(b). For simplicity, we only consider rotation along the azimuth dimension in this context.\n' +
+      '\n' +
+      '## 4 Experiments\n' +
+      '\n' +
+      '**Datasets.** We evaluate our method and compare to baselines on the ABO [6] and GSO [10] datasets. These datasets are out-of-the-distribution as all baselines are trained on the Objavverse [8]. We also provide qualitative results on real images to showcase performance of our method on in-the-wild images in the supplementary. For additional results, please refer to the videos contained in the supplementary.\n' +
+      '\n' +
+      '**Metrics.** We assess our novel-view synthesis on three main criteria:\n' +
+      '\n' +
+      '1. [leftmargin=*]\n' +
+      '2. _Image Quality:_ LPIPS [86], PSNR, and SSIM [68] metrics to help gauge the similarity between synthesized and ground-truth views.\n' +
+      '\n' +
+      'Figure 3: Illustration of Step-by-step Generation. (a) we uniformly sample views along this trajectory in sequence to generate a novel-view image; (b) we sample views from nearest to furthest views according to to view distance to generate a \\(360^{\\circ}\\) spin video.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:6]\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:7]\n' +
+      '\n' +
+      'dard auto-regression, interpolated conditions, interpolated outputs, and stochastic conditioning which was proposed in [70].\n' +
+      '\n' +
+      'Standard Auto-regression.One initial approach to auto-regression involves using the last generated view as the subsequent conditioning. However, this method exhibits bad generation quality, due to the accumulation of errors during the sequential generation process. As each subsequent view relies on the accuracy of the previous one, any inaccuracies or imperfections in earlier stages can compound, leading to a degradation in overall image quality. This limitation highlights the need for more sophisticated auto-regressive strategies to address the issue of error propagation and enhance the quality of generated views.\n' +
+      '\n' +
+      'Interpolated Conditions and Interpolated Outputs.Interpolated Conditions and Interpolated Outputs are two straightforward approaches to introduce auto-regressive generation into an existing diffusion model. The former method involves interpolating feature embeddings from condition images and poses, while the latter interpolates the final image feature maps produced by the model. Despite SSIM and PSNR metrics showing favorable results for Interpolated Outputs over others in Tab. 5, as illustrated in visual comparisons in Fig. 7 shows that it leads to blurring of the output views and this is corroborated by larger LPIPS distance.\n' +
+      '\n' +
+      'Stochastic Conditioning.We also explore the application of the Stochastic Conditioning Sampler proposed by [70] to the Zero-1-to-3 model. We observe that Stochastic Conditioning fails to deliver the desired auto-regressive generation results; this may be attributed to the specific category on which the diffusion model used by Watson et al. [70] was trained, allowing it to handle plausible condition images more effectively. By contrast, Zero-1-to-3 [35] was trained on a cross-category dataset and designed for zero-shot reconstruction. Additionally, our evaluation data contains out-of-the-distribution data (_i.e_., ABO [6] and GSO [10]).\n' +
+      '\n' +
+      '## 5 Conclusion\n' +
+      '\n' +
+      'In this work, we have developed ViewFusion, a novel algorithm that addresses the challenge of multi-view consistency in novel-view synthesis with diffusion models. Our approach circumvents the need for fine-tuning or additional modules by integrating an auto-regressive mechanism that incrementally refines view synthesis, utilizing the entire history of previously generated views. Our proposed diffusion interpolation technique extends the denoising process in pre-trained diffusion models from a single-view setting to a multi-view setting without training requirements. Empirical evidence underscores ViewFusion\'s capability to produce consistently high-quality views, and we achieve significant steps forward in novel view synthesis and 3D reconstruction applications.\n' +
+      '\n' +
+      'Figure 6: Qualitative results for single-view (1 condition image) and multi-view (3 condition images) 3D Reconstruction. Our method offers the most consistent results across a variety of different reconstructed shapes.\n' +
+      '\n' +
+      'Figure 7: Qualitative comparison for different auto-regressive generations.\n' +
+      '\n' +
+      '[MISSING_PAGE_EMPTY:9]\n' +
+      '\n' +
+      '* [31] Chen-Hsuan Lin, Chaoyang Wang, and Simon Lucey. Soff-srn: Learning signed distance 3d object reconstruction from static images. In _Advances in Neural Information Processing Systems (NeurIPS)_, 2020.\n' +
+      '* [32] Chen-Hsuan Lin, Jun Gao, Luming Tang, Towaki Takikawa, Xiaohui Zeng, Xun Huang, Karsten Kreis, Sanja Fidler, Ming-Yu Liu, and Tsung-Yi Lin. Magic3d: High-resolution text-to-3d content creation. In _CVPR_, 2023.\n' +
+      '* [33] Kai-En Lin, Lin Yen-Chen, Wei-Sheng Lai, Tsung-Yi Lin, Yi-Chang Shih, and Ravi Ramamoorthi. Vision transformer for nerf-based view synthesis from a single input image. In _WACV_, 2023.\n' +
+      '* [34] Minghua Liu, Chao Xu, Haien Jin, Linghao Chen, Mukund Varma T, Zexiang Xu, and Hao Su. One-2-3-45: Any single image to 3d mesh in 45 seconds without per-shape optimization, 2023.\n' +
+      '* [35] Ruoshi Liu, Rundi Wu, Basile Van Hoorick, Pavel Tokmakov, Sergey Zakharov, and Carl Vondrick. Zero-1-to-3: Zero-shot one image to 3d object. In _Proceedings of the IEEE/CVF International Conference on Computer Vision_, pages 9298-9309, 2023.\n' +
+      '* [36] Xinhang Liu, Shiu-hong Kao, Jiaben Chen, Yu-Wing Tai, and Chi-Keung Tang. Deceptive-nerf: Enhancing nerf reconstruction using pseudo-observations from diffusion models. _arXiv preprint arXiv:2305.15171_, 2023.\n' +
+      '* [37] Yuan Liu, Cheng Lin, Zijiao Zeng, Xiaoxiao Long, Lingjie Liu, Taku Komura, and Wenping Wang. Syncderamer: Learning to generate multiview-consistent images from a single-view image. _arXiv preprint arXiv:2309.03453_, 2023.\n' +
+      '* [38] Zhen Liu, Yao Feng, Michael J Black, Derek Nowrouzezahrai, Liam Paull, and Weiyang Liu. Meshdiffusion: Score-based generative 3d mesh modeling. In _ICLR_, 2023.\n' +
+      '* [39] Xiaoxiao Long, Yuan-Chen Guo, Cheng Lin, Yuan Liu, Zhiyang Dou, Lingjie Liu, Yuexin Ma, Song-Hai Zhang, Marc Habermann, Christian Theobalt, and Wenping Wang. Wonder3d: Single image to 3d using cross-domain diffusion, 2023.\n' +
+      '* [40] D.G. Lowe. Object recognition from local scale-invariant features. In _Proceedings of the Seventh IEEE International Conference on Computer Vision_, pages 1150-1157 vol.2, 1999.\n' +
+      '* [41] Luke Melas-Kyriazi, Iro Laina, Christian Rupprecht, and Andrea Vedaldi. Realfusion: 360deg reconstruction of any object from a single image. In _CVPR_, 2023.\n' +
+      '* [42] Ben Mildenhall, Pratul P. Srinivasan, Matthew Tancik, Jonathan T. Barron, Ravi Ramamoorthi, and Ren Ng. Nerf: Representing scenes as neural radiance fields for view synthesis. In _ECCV_, 2020.\n' +
+      '* [43] Mehdi Mirza and Simon Osindero. Conditional generative adversarial nets. _CoRR_, abs/1411.1784, 2014.\n' +
+      '* [44] Norman Muller, Yawar Siddiqui, Lorenzo Porzi, Samuel Rota Bulo, Peter Kontschieder, and Matthias Niessner. Diffrf: Rendering-guided 3d radiance field diffusion. In _CVPR_, 2023.\n' +
+      '* [45] Alex Nichol, Heewoo Jun, Prafulla Dhariwal, Pamela Mishkin, and Mark Chen. Point-e: A system for generating 3d point clouds from complex prompts. _arXiv preprint arXiv:2212.08751_, 2022.\n' +
+      '* [46] Evangelos Navelis, Aliaksandr Siarohin, Kyle Olszewski, Chaoyang Wang, Luc Van Gool, and Sergey Tulyakov. Autodecoding latent 3d diffusion models. _arXiv preprint arXiv:2307.05445_, 2023.\n' +
+      '* [47] Taesung Park, Ming-Yu Liu, Ting-Chun Wang, and Jun-Yan Zhu. Semantic image synthesis with spatially-adaptive normalization. _2019 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_, 2019.\n' +
+      '* [48] Ben Poole, Ajay Jain, Jonathan T Barron, and Ben Mildenhall. Dreamfusion: Text-to-3d using 2d diffusion. In _ICLR_, 2023.\n' +
+      '* [49] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, et al. Learning transferable visual models from natural language supervision. In _ICML_, 2021.\n' +
+      '* [50] Amit Raj, Srinivas Kaza, Ben Poole, Michael Niemeyer, Nataniel Ruiz, Ben Mildenhall, Shiran Zada, Kfir Aberman, Michael Rubinstein, Jonathan Barron, et al. Dream-booth3d: Subject-driven text-to-3d generation. _arXiv preprint arXiv:2303.13508_, 2023.\n' +
+      '* [51] Scott Reed, Zeynep Akata, Xinchen Yan, Lajanugen Logeswaran, Bernt Schiele, and Honglak Lee. Generative adversarial text to image synthesis. In _International conference on machine learning_, pages 1060-1069. PMLR, 2016.\n' +
+      '* [52] Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Bjorn Ommer. High-resolution image synthesis with latent diffusion models. In _CVPR_, 2022.\n' +
+      '* [53] Kyle Sargent, Jing Yu Koh, Han Zhang, Huiwen Chang, Charles Herrmann, Pratul Srinivasan, Jiajun Wu, and Deqing Sun. Vq3d: Learning a 3d-aware generative model on imagenet. _arXiv preprint arXiv:2302.06833_, 2023.\n' +
+      '* [54] Yichun Shi, Peng Wang, Jianglong Ye, Mai Long, Kejie Li, and Xiao Yang. Mvdream: Multi-view diffusion for 3d generation, 2023.\n' +
+      '* [55] Jascha Sohl-Dickstein, Eric Weiss, Niru Maheswaranathan, and Surya Ganguli. Deep unsupervised learning using nonequilibrium thermodynamics. In _ICML_, 2015.\n' +
+      '* [56] Kihyuk Sohn, Honglak Lee, and Xinchen Yan. Learning structured output representation using deep conditional generative models. In _Neural Information Processing Systems_, 2015.\n' +
+      '* [57] Stanislaw Szymanowicz, Christian Rupprecht, and Andrea Vedaldi. Viewset diffusion:(0-) image-conditioned 3d generative models from 2d data. _arXiv preprint arXiv:2306.07881_, 2023.\n' +
+      '* [58] Junshu Tang, Tengfei Wang, Bo Zhang, Ting Zhang, Ran Yi, Lizhuang Ma, and Dong Chen. Make-it-3d: High-fidelity 3d creation from a single image with diffusion prior. In _ICCV_, 2023.\n' +
+      '* [59] Shitao Tang, Fuyang Zhang, Jiacheng Chen, Peng Wang, and Yasutaka Furukawa. Mvdiffusion: Enabling holistic multi-view image generation with correspondence-aware diffusion. _arXiv preprint arXiv:2307.01097_, 2023.\n' +
+      '\n' +
+      '* [60] Maxim Tatarchenko, Stephan R Richter, Rene Ranftl, Zhuwen Li, Vladlen Koltun, and Thomas Brox. What do single-view 3d reconstruction networks learn? In _CVPR_, 2019.\n' +
+      '* [61] A. Tewari, O. Fried, J. Thies, V. Sitzmann, S. Lombardi, K. Sunkavalli, R. Martin-Brualla, T. Simon, J. Saragih, M. Niessner, R. Pandey, S. Fanello, G. Wetzstein, J.-Y. Zhu, C. Theobalt, M. Agrawala, E. Shechtman, D. B Goldman, and M. Zollhofer. State of the art on neural rendering. _Computer Graphics Forum_, 39(2):701-727, 2020.\n' +
+      '* [62] Ayush Tewari, Tianwei Yin, George Cazenavette, Semon Rezchikov, Joshua B Tenenbaum, Fredo Durand, William T Freeman, and Vincent Sitzmann. Diffusion with forward models: Solving stochastic inverse problems without direct supervision. _arXiv preprint arXiv:2306.11719_, 2023.\n' +
+      '* [63] Hung-Yu Tseng, Qinbo Li, Changil Kim, Suhib Alsisan, Jia-Bin Huang, and Johannes Kopf. Consistent view synthesis with pose-guided diffusion models. In _CVPR_, 2023.\n' +
+      '* [64] Haochen Wang, Xiaodan Du, Jiahao Li, Raymond A Yeh, and Greg Shakhnarovich. Score jacobian chaining: Lifting pretrained 2d diffusion models for 3d generation. In _CVPR_, 2023.\n' +
+      '* [65] Nanyang Wang, Yinda Zhang, Zhuwen Li, Yanwei Fu, Wei Liu, and Yu-Gang Jiang. Pixel2mesh: Generating 3d mesh models from single rgb images. In _ECCV_, 2018.\n' +
+      '* [66] Peng Wang, Lingjie Liu, Yuan Liu, Christian Theobalt, Taku Komura, and Wenping Wang. Neus: Learning neural implicit surfaces by volume rendering for multi-view reconstruction. In _NeurIPS_, 2021.\n' +
+      '* [67] Tengfei Wang, Bo Zhang, Ting Zhang, Shuyang Gu, Jianmin Bao, Tadas Baltrusaitis, Jingjing Shen, Dong Chen, Fang Wen, Qifeng Chen, et al. Rodin: A generative model for sculpting 3d digital avatars using diffusion. In _CVPR_, 2023.\n' +
+      '* [68] Zhou Wang, A.C. Bovik, H.R. Sheikh, and E.P. Simoncelli. Image quality assessment: from error visibility to structural similarity. _IEEE Transactions on Image Processing_, 13(4):600-612, 2004.\n' +
+      '* [69] Zhengyi Wang, Cheng Lu, Yikai Wang, Fan Bao, Chongxuan Li, Hang Su, and Jun Zhu. Prolificdreamer: High-fidelity and diverse text-to-3d generation with variational score distillation. _arXiv preprint arXiv:2305.16213_, 2023.\n' +
+      '* [70] Daniel Watson, William Chan, Ricardo Martin-Brualla, Jonathan Ho, Andrea Tagliasacchi, and Mohammad Norouzi. Novel view synthesis with diffusion models. _arXiv preprint arXiv:2210.04628_, 2022.\n' +
+      '* [71] Haohan Weng, Tianyu Yang, Jianan Wang, Yu Li, Tong Zhang, C. L. Philip Chen, and Lei Zhang. Consistent123: Improve consistency for one image to 3d object synthesis, 2023.\n' +
+      '* [72] Jianfeng Xiang, Jiaolong Yang, Binbin Huang, and Xin Tong. 3d-aware image generation using 2d diffusion models. _arXiv preprint arXiv:2303.17905_, 2023.\n' +
+      '* [73] Yiheng Xie, Towaki Takikawa, Shunsuke Saito, Or Litany, Shiqin Yan, Numair Khan, Federico Tombari, James Tompkin, Vincent Sitzmann, and Srinath Sridhar. Neural fields in visual computing and beyond. In _Computer Graphics Forum_, 2022.\n' +
+      '* [74] Dejia Xu, Yifan Jiang, Peihao Wang, Zhiwen Fan, Yi Wang, and Zhangyang Wang. Neurallift-360: Lifting an in-the-wild 2d photo to a 3d object with 360 views. _arXiv e-prints_, pages arXiv-2211, 2022.\n' +
+      '* [75] Jiayu Yang, Ziang Cheng, Yunfei Duan, Pan Ji, and Hongdong Li. Consistent: Enforcing 3d consistency for multi-view images diffusion, 2023.\n' +
+      '* [76] Xianghui Yang, Guosheng Lin, and Luping Zhou. Single-view 3d mesh reconstruction for seen and unseen categories. _IEEE Transactions on Image Processing_, pages 1-1, 2023.\n' +
+      '* [77] Yao Yao, Zixin Luo, Shiwei Li, Tian Fang, and Long Quan. Mvsnet: Depth inference for unstructured multi-view stereo. In _ECCV_, 2018.\n' +
+      '* [78] Jianglong Ye, Peng Wang, Kejie Li, Yichun Shi, and Heng Wang. Consistent-1-to-3: Consistent image to 3d view synthesis via geometry-aware diffusion models, 2023.\n' +
+      '* [79] Paul Yoo, Jiaxian Guo, Yutaka Matsuo, and Shixiang Shane Gu. Dreamsparse: Escaping from plato\'s cave with 2d frozen diffusion model given sparse views. _CoRR_, 2023.\n' +
+      '* [80] Alex Yu, Vickie Ye, Matthew Tancik, and Angjoo Kanazawa. pixelnerf: Neural radiance fields from one or few images. _2021 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)_, 2021.\n' +
+      '* [81] Jason J. Yu, Fereshteh Forghani, Konstantinos G. Derpanis, and Marcus A. Brubaker. Long-term photometric consistent novel view synthesis with diffusion models. In _ICCV_, 2023.\n' +
+      '* [82] Zehao Yu, Songyou Peng, Michael Niemeyer, Torsten Sattler, and Andreas Geiger. Monosdf: Exploring monocular geometric cues for neural implicit surface reconstruction. _Advances in Neural Information Processing Systems (NeurIPS)_, 2022.\n' +
+      '* [83] Xiaohui Zeng, Arash Vahdat, Francis Williams, Zan Gojcic, Or Litany, Sanja Fidler, and Karsten Kreis. Lion: Latent point diffusion models for 3d shape generation. In _NeurIPS_, 2022.\n' +
+      '* [84] Biao Zhang, Jiapeng Tang, Matthias Niessner, and Peter Wonka. 3dshape2vecset: A 3d shape representation for neural fields and generative diffusion models. In _SIGGRAPH_, 2023.\n' +
+      '* [85] Lvmin Zhang, Anyi Rao, and Maneesh Agrawala. Adding conditional control to text-to-image diffusion models, 2023.\n' +
+      '* [86] Richard Zhang, Phillip Isola, Alexei A Efros, Eli Shechtman, and Oliver Wang. The unreasonable effectiveness of deep features as a perceptual metric. In _CVPR_, 2018.\n' +
+      '* [87] Zhizhuo Zhou and Shubham Tulsiani. Sparsefusion: Distilling view-conditioned diffusion for 3d reconstruction. In _CVPR_, 2023.\n' +
+      '\n' +
+      '## 7 Multi-view generation.\n' +
+      '\n' +
+      'We formulate the weights to single-view generation in Eq 13. In the general case, when given k views, the weights are expressed as follows,\n' +
+      '\n' +
+      '\\[\\omega_{n}=\\begin{cases}exp(-\\frac{\\Delta^{n}}{\\tau_{c}})\\text{Softmax}(\\frac{e ^{-\\frac{\\Delta^{n}}{\\tau_{c}}}}{\\sum_{n=1}^{k}e^{-\\frac{\\Delta^{n}}{\\tau_{c}} }})&n=1,\\dots,k\\\\ (1-\\sum_{i=1}^{k}\\omega_{i})\\text{Softmax}(\\frac{e^{-\\frac{\\Delta^{n}}{\\tau_{g }}}}{\\sum_{n=k+1}^{N}e^{-\\frac{\\Delta^{n}}{\\tau_{g}}}}),&n>k\\end{cases} \\tag{16}\\]\n' +
+      '\n' +
+      'where we apply the term \\(1-\\sum_{i=1}^{k}\\omega_{i}\\) on the generated image weights to ensure sum of all weights equals \\(1\\) as a requirement for the objective \\(\\sum_{n=1}^{N}w_{n}=1\\).\n' +
+      '\n' +
+      '## 8 Image Rendering\n' +
+      '\n' +
+      'We organize the testing data by using the rendering scripts provided by both Zero-1-to-3 and SyncDreamer respectively. It\'s important to note that there are slight variations in the camera and lighting settings between the two approaches.\n' +
+      '\n' +
+      '**Camera.** Zero-1-to-3 employs random sampling for the camera distance within a range of \\([1.5,2.2]\\). The azimuth and elevation angles for both condition and target images are randomly selected. SyncDreamer maintains a fixed camera distance of 1.5 and samples azimuth angles from a discrete angle set \\(\\{0^{\\circ},22.5^{\\circ},45^{\\circ},...,337.5^{\\circ}\\}\\) for both condition and target images. The condition elevation is randomly sampled within the range of \\([0^{\\circ},30^{\\circ}]\\), while the target elevation is fixed at \\(30^{\\circ}\\).\n' +
+      '\n' +
+      '**Lighting.** Zero-1-to-3 uses point light as its lighting model. SyncDreamer, on the other hand, employs a uniform environment light setup. This choice of lighting leads to differences in the rendering results. Specifically, renderings from Zero-1-to-3 exhibit shadows on the backside of the objects, whereas those from SyncDreamer do not.\n' +
+      '\n' +
+      'These discrepancies in rendering impact the evaluation of 3D reconstructions. As we take Zero-1-to-3 as our baseline, we adopt the consistent rendering settings with Zero-1-to-3 to organize test data for fair comparison.\n' +
+      '\n' +
+      '## 9 SSIM and PSNR\n' +
+      '\n' +
+      'In the main manuscript, we mentioned the limitations of SSIM and PSNR in effectively capturing blur, as detailed in Tab. 5. We further underscore these limitations with illustrative examples, as depicted in Fig. 8, where images with higher SSIM and PSNR scores exhibit pronounced bluriness. Our findings highlight the comparative shortcomings of output interpolation when compared with diffusion interpolation. Importantly, we stress that LPIPS provides a more precise assessment of image quality.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:13]\n' +
+      '\n' +
+      '## 11 Application\n' +
+      '\n' +
+      '**Multi-view generation.** As mentioned in the main manuscript, thanks to the multi-view conditioned ability by the introduced interpolated denoising process, we could extend the single-view conditioned model into multi-view conditioned model easily, thus enabling support for multi-view reconstruction. The quantities results presented in Tab. 3 and we provide qualitative comparison in Fig. 11 here to further demonstrate the advantages of our method, as it consistently yields improved reconstructions with an increasing number of views. This clear improvement demonstrate the effectiveness of our proposed techniques in handling multi-view condition images.\n' +
+      '\n' +
+      '**Consistent BRDF decomposition.** In our experimental observations, we identified a particular challenge encountered by the pre-trained decoder, which often struggles to effectively distinguish between shadows and surface textures in images. To overcome this limitation, we introduced a dedicated decomposition decoder, specifically designed to meticulously separate these visual elements. When this decomposition decoder is integrated with our interpolated denoising approach, it not only upholds multi-view consistency but also exhibits the potential to excel in novel-view decomposition and rendering tasks.\n' +
+      '\n' +
+      'This novel combination of techniques offers promising possibilities. By leveraging decomposed BRDF (Bidirectional Reflectance Distribution Function) maps, we gain greater control over the lighting and shape geometry of the scenes. The availability of normal maps enhances our ability to manipulate the lighting conditions, promising more flexibility in rendering as shown in Fig. 13. With this level of control, we can explore various exciting applications, such as dynamic relighting, creative scene composition, and the generation of captivating visual effects. This opens up new avenues for artistic and practical image and video manipulation, granting artists and professionals the tools to craft engaging and visually stunning content.\n' +
+      '\n' +
+      'Figure 9: Visual examples for failure cases. The failure cases mainly includes failure under specific views (1st and 2nd rows), face (3rd row), detailed textures (4th row), complex scenes (5th row), and elevation angle ambiguity (6th row)Figure 10: Visualization on real images. Images were downloaded online, where foreground objects were segmented and the image was resized to be aligned with pre-training images.\n' +
+      '\n' +
+      'Figure 12: Qualitative comparison for BRDF decomposition w/o vs w/ autoregression.\n' +
+      '\n' +
+      'Figure 13: Qualitative comparison for relighting.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>

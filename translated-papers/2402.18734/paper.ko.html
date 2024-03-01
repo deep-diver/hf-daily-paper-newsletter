@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# 컴파일러를 위한 대용량 언어 모델의 우선순위 샘플링\n' +
+      '\n' +
+      ' 데얀 그루비시\n' +
+      '\n' +
+      '메타AI 라이스대학교\n' +
+      '\n' +
+      '교신저자 : dx4@rice.edu\n' +
+      '\n' +
+      'Chris Cummins\n' +
+      '\n' +
+      'Meta AI\n' +
+      '\n' +
+      'Volker Seeker\n' +
+      '\n' +
+      'Meta AI\n' +
+      '\n' +
+      'Hugh Leather\n' +
+      '\n' +
+      'Meta AI\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      '대용량 언어 모델은 코드를 생성하고 최적화하는 데 큰 잠재력을 보여준다. 핵 샘플링과 같이 널리 사용되는 샘플링 방법은 생성의 다양성을 증가시키지만 종종 저온에 대해 반복되는 샘플과 고온에 대해 일관성이 없는 샘플을 생성한다. 또한 각 작업에 대해 온도 계수를 조정해야 하므로 사용성이 제한됩니다. 우리는 모델의 신뢰도에 의해 정렬된 고유한 샘플을 생성하는 간단하고 결정론적 샘플링 기법인 _우선 샘플링_을 제시한다. 각각의 새로운 샘플은 증강된 검색 트리에서 가장 높은 확률로 확장되지 않은 토큰을 확장한다. 또한, Priority Sampling은 제어 가능하고 구조화된 탐색 과정을 제공하는 정규식을 기반으로 생성을 지원한다. 우선 순위 샘플링은 모든 수의 샘플에 대해 핵 샘플링을 능가하여 원래 모델의 성능을 -Oz에 비해 2.87%에서 5% 개선으로 향상시켰다. 또한, 30개의 샘플에서만 원본 모델의 학습을 위한 레이블 생성에 사용되는 자동 튜너를 능가한다.\n' +
+      '\n' +
+      '##1 소개 및 동기부여\n' +
+      '\n' +
+      '대규모 언어 모델(LLM)은 소프트웨어 엔지니어링 도메인에서 코드 및 문서[16; 2], 프로그래밍 언어 간의 코드 변환[13; 3], 쓰기 단위 테스트[8; 23], 버그를 탐지 및 수정[1; 29]하는 능력을 입증했다. CodeLlama[22], ChatGPT[20], Codex[5]는 다양한 코드 조작 작업에서 탁월하여 코딩 경험을 크게 향상시킨다. 알파코드[17]와 같은 일부 모델은 여러 언어에 대해 소스 레벨에서 코드를 최적화할 수 있는 경쟁 프로그래밍 작업에 대해 사전 훈련된다.\n' +
+      '\n' +
+      '이 모든 모델은 우리가 가장 잘 평가하고 선택하는 다양한 솔루션의 앙상블을 생성함으로써 LLM의 성능을 향상시킬 수 있다. 이것은 일반적으로 생성[21; 15]의 엔트로피를 증가시키거나, 검색 트리[30; 12; 26; 24]를 확장시킴으로써 행해진다. 샘플링을 통해 주어진 작업에서 LLM의 용량과 가능한 솔루션 범위를 더 잘 이해할 수 있다. 이것은 다양한 응답을 생성하는 것이 상이한 구현 아이디어를 탐색하는 데 가치가 있을 수 있는 코드 생성에서 특히 중요하다.\n' +
+      '\n' +
+      '현재 샘플링 접근법은 큰 문제가 거의 없다. 온도 기반 샘플링[21; 15]은 최적의 온도를 찾기 위해 상당한 양의 계산이 필요하다. 최적의 온도는 또한 컨텍스트에 의존할 수 있으며, 이는 추가적인 평가를 필요로 한다. 온도를 설정하면 샘플링은 종종 많은 중복 및 의미적으로 의미 없는 답변을 생성하여 사용 가능한 샘플을 낭비한다.\n' +
+      '\n' +
+      '접근법에 동기를 부여하기 위해 우선 샘플링과 비교하여 핵 샘플링에 의해 생성된 고유 샘플의 평균 수를 보여준다(그림 1). 50k개의 테스트 예에서, Nucleus Sampling은 100개의 샘플에 대해 평균적으로 5개 미만의 고유 예제를 생성하는 반면, Priority Sampling은 100개를 생성한다. 그 이유는 Nucleus Sampling은 높은 확률 생성을 반복적으로 선택하거나 의미 있는 고유 샘플로 간주하지 않는 비간섭성 출력을 출력하기 때문이다.\n' +
+      '\n' +
+      '이 작업에서는 모델이 가장 높은 신뢰도를 갖는 고유한 샘플을 보장하는 결정론적 샘플링 기법인 우선 샘플링(Priority Sampling)을 제시한다. 또한, 생산된 샘플이 코드 생성 및 코드 최적화에 특히 중요한 정규식(윌러드[28]에서 영감을 받은)을 준수할 것임을 보장합니다.\n' +
+      '\n' +
+      '우리는 LLVM 최적화 패스[7]를 최적화하는 작업에 대한 우선순위 샘플링을 평가하며, 이 모델은 장기 자동 조정기에 의해 발견된 최적화를 예측하도록 훈련된다. 우선 순위 샘플링은 임의의 수의 샘플에 대해 핵 샘플링[21]보다 우수하고, 단지 5개의 샘플에서 -Oz에 비해 오토튜너 개선의 91%에 도달하며, 심지어 30개의 샘플로 원래 모델을 미세 조정하기 위한 라벨을 생성하는 데 사용되는 오토튜너보다 우수하다(도 3).\n' +
+      '\n' +
+      '##2 LLM의 우선순위 샘플링\n' +
+      '\n' +
+      '높은 레벨에서, 우선순위 샘플링 알고리즘은 탐색 트리를 증강하고 모델의 가장 높은 신뢰도에 기초하여 다음에 확장될 어떤 미탐색 경로를 결정하는 것에 의해 동작한다. 우리의 아이디어는 간단합니다. 이를 사전에 판단하기보다는 항상 이전 표본을 기준으로 가장 흥미로운 방향으로 검색에 집중한다. 또한 샘플 반복을 피하여 샘플링 전력을 줄입니다.\n' +
+      '\n' +
+      '그림 2에서 우선 샘플링을 위한 알고리즘을 스케치한다. 첫 번째 샘플의 경우 모델은 Greedy Decoding과 동일하지만 중요한 추가가 있다. 각 세대에 따라 토큰의 확률을 메트릭으로 하여 우선순위 큐에 상위 \\(K\\) 대체 토큰과 이전 토큰을 함께 저장한다. 샘플이 완전히 생성되면, 우리는 가장 높은 확률을 갖는 토큰 프리픽스를 빠르게 찾을 수 있고, 그로부터 검색 트리를 확장할 수 있다. 확장되지 않은 토큰을 큐에 한 번만 추가하기 때문에 각 새 샘플은 고유합니다. 추가적으로, 우리는 검색 트리에서 생성된 토큰의 수와 동일한 수의 추론이 필요하다.\n' +
+      '\n' +
+      '보다 상세하게, 알고리즘 1은 우선순위_queue 및 token_mask를 정의하며, 이는 토큰 생성을 그 지점까지 확장 및 조향하기 위한 최상의 토큰 프리픽스-시퀀스를 결정하는 데 사용될 것이다. 우리가 생성하는 샘플의 개수를 알기 때문에 priority_queue의 길이와 set token_mask 길이를 모델의 생성 길이로 고정할 수 있다.\n' +
+      '\n' +
+      '두 개의 _for_ 루프를 사용하여 주어진 샘플에 대해 이전에 생성된 토큰을 추적하면서 샘플 공간과 각 샘플에 대한 토큰 생성을 반복한다. 다음 토큰을 결정하기 위해, 우리는 토큰_마스크로부터 분기점에 도달할 때까지의 시퀀스를 따르거나 추론을 적용하여 검색 트리를 확장한다.\n' +
+      '\n' +
+      '그림 1: 보이지 않는 50k 테스트 프로그램에서 생성된 평균 고유 샘플 수. 우선 샘플링은 핵 샘플링보다 고유 샘플의 비율이 더 높다.\n' +
+      '\n' +
+      '추론을 통해 토큰의 확률 분포를 구하고, 이로부터 가장 높은 확률을 갖는 \\(K\\) 토큰을 선택한다. 여기서 중요한 추가 사항은 이전 토큰과 결합할 때 정의하는 정규식을 만족하지 않는 모든 토큰을 제외한다는 것이다. 이는 이전 작업 [28]에서 설명한 바와 같이 유한 상태 머신을 사용하여 일정한 시간 내에 이루어질 수 있다. 이 기술을 사용하면 코드 생성에 특히 유용한 법적 형식으로만 생성을 조정할 수 있다.\n' +
+      '\n' +
+      '가장 좋은 토큰을 선택하면 가장 좋은 토큰으로 검색 트리를 직접 확장하고 나머지 토큰을 큐에 넣는다. 우리는 현재 샘플의 생성을 완료할 때까지 이것을 반복한다. 확장 가능한 모든 토큰이 큐에 저장된 후 가장 높은 확률로 토큰 프리픽스로 _token_mask_를 업데이트한다. 마지막으로, 토큰 프리픽스를 사용하여 확장해야 하는 노드를 찾고 그로부터 새로운 샘플 생성을 시작한다.\n' +
+      '\n' +
+      '우선 샘플링은 _O(T*(추론 + Klog(V))_의 알고리즘 복잡도를 가지며, 여기서 T는 생성된 토큰의 수이고, K는 우리가 고려하는 top-k 샘플의 수이며, V는 어휘 크기이다. 실제적으로, 이것은 추론 비용이 _Klog(V)_보다 훨씬 높기 때문에 Nucleus Sampling과 유사하며 Priority Sampling은 동일한 접두사를 가진 샘플들에 대한 추론을 재사용한다.\n' +
+      '\n' +
+      '또한, 우선 순위 큐의 크기를 우리가 생성하는 샘플의 수와 동일하게 유지함으로써 메모리 요구 사항을 상당히 감소시킨다. 이러한 방식으로, 우리는 검색 트리 내의 각 노드에 대한 어휘 내의 모든 토큰들의 확률을 저장하는 것을 피하면서, 검색 트리를 분기하기 위한 충분한 후보들이 있을 것을 보장한다.\n' +
+      '\n' +
+      '도 2: 우선순위 샘플링 트리 확장. 각 노드는 추론에 의해 생성된 토큰과 다음 잠재적 토큰의 확률을 포함한다. 첫 번째 샘플에서는 루트로부터 EOS(end-of-sequence) 토큰까지의 분기를 생성하고, 그 확률이 있는 모든 유효한 잠재적 토큰을 우선 순위 큐에 넣는다. 다음 단계마다 확률이 가장 높은 토큰을 분기하고 EOS까지 해당 분기를 생성합니다.\n' +
+      '\n' +
+      '```\n' +
+      '1:\\(priority\\_queue\\gets queue()\\)\n' +
+      '2:\\(token\\_mask\\gets list()\\)\n' +
+      '3:\\(sample\\_tokens\\gets list()\\)\n' +
+      '4:for\\(sample:\\) range(sample) do\n' +
+      '5:\\(generated\\_tokens=list()\\)\n' +
+      '6:for\\(pos:\\) range(generation_length do)\n' +
+      '7:if\\(pos<\\) len(token_mask) then\n' +
+      '8:\\(next\\_token\\leftarrow\\) token_mask[pos]\n' +
+      '9:else\n' +
+      '10:\\(logits\\gets inference(generated\\_tokens)\\)\n' +
+      '11:\\(best\\_tokens\\leftarrow\\) choose_best_tokens(logits, generated_tokens, regex)\n' +
+      '12:\\(next\\_probability,next\\_token\\gets best\\_tokens[0]\\)\n' +
+      '13:for\\(probability,token:\\) best_tokens[1:] do\n' +
+      '14:\\(priority\\_queue.push(probability,generated\\_tokens+[token])\\)\n' +
+      '15:endfor\n' +
+      '16:endif\n' +
+      '17:\\(generated\\_tokens.append(next\\_token)\\)\n' +
+      '18:endfor\n' +
+      '19:\\(sample\\_tokens.append(generated\\_tokens)\\)\n' +
+      '20:\\(token\\_mask\\gets priority\\_queue.pop()\\)\n' +
+      '21:endfor\n' +
+      '22:return\\(sample\\_tokens\\)\n' +
+      '```\n' +
+      '\n' +
+      '**알고리즘 1** 우선순위 샘플링\n' +
+      '\n' +
+      '## 3 Evaluation\n' +
+      '\n' +
+      '우리는 코드 크기를 줄이는 LLM을 사용하여 효율적인 LLVM 최적화 패스를 생성하는 작업에 대한 우선순위 샘플링 기법을 평가한다[7]. 먼저, 64 V100s에서 3만 단계 동안 Llama2 아키텍처를 사용하여 총 620 GPU 일 동안 7B 파라미터 모델을 학습한다. 트레이닝 데이터 세트는 자동튜너가 발견한 LLVM 최적화 시퀀스로 라벨링된 1M LLVM IR로 구성된다. 각 예제에 대한 레이블을 생성하기 위해 자동 조정기는 평균 37,424개의 최적화를 탐색하는 데 13분을 소요합니다. 마지막으로, 우리는 -Oz에 비해 4.98%의 총 개선을 위해 13분 동안 보이지 않는 50k 테스트 예를 자동 조정한다.\n' +
+      '\n' +
+      '우선 샘플링의 효율성을 평가하기 위해 100단계의 랜덤 샘플링, 탐욕 디코딩 및 핵 샘플링과 비교한다. 랜덤 샘플링은 무작위 100개의 최적화 패스를 평가하고 각 샘플에 대해 지금까지 최상의 최적화 패스를 계산한다. 그리디 디코딩은 가장 높은 확률로 다음 토큰을 결정적으로 예측하여 최적화 시퀀스를 생성한다. 핵 샘플링의 경우 {0.2, 0.4, 0.6, 0.8, 1, 1.2, 1.4, 1.6} 범위의 온도에 대한 모델을 평가한다. 우리는 우리의 문제와 모델 아키텍처에 대해 20개 샘플에서 온도 1.2가 가장 효과적인 반면 20개 이상의 샘플에서 온도 1.4가 가장 효과적이라는 것을 발견했다.\n' +
+      '\n' +
+      '우리는 그림 3의 비교를 제시한다. 우선 샘플링은 임의의 수의 샘플에 대해 랜덤 샘플링, 그리디 디코딩 및 핵 샘플링을 능가한다. 또한, 우선 샘플링은 30단계의 자동튜너 성능에서도 Nucleus 샘플링보다 훨씬 더 효율적이다. 샘플 30개만으로 원본 모델의 성능을 2.87%에서 5% 이상으로 증가시킨다는 것은 검색 트리를 현명하게 확장함으로써 지식의 상당 부분을 접근할 수 있다는 것을 의미한다.\n' +
+      '\n' +
+      '이것은 오토튜너가 오토튜너의 행동을 모방하도록 훈련되었고, 그것을 능가하지 않도록 훈련되었기 때문에 놀라운 결과이다. 자동 조정기는 입력 프로그램의 구조와 연결된 복잡한 LLVM 최적화 세트에서 작동하기 때문에 본 모델은 이러한 패턴을 일반화하고 보이지 않는 프로그램에서 새로운 방식으로 결합하여 더 높은 성능을 초래하는 것으로 판단된다.\n' +
+      '\n' +
+      '## 4 Ablations\n' +
+      '\n' +
+      '절제(표 1)에 대해, 만약 프로그램의 성능이 어떻게 변하는지를 보여준다:\n' +
+      '\n' +
+      '1. 정규식 필터링을 사용하지 않고,\n' +
+      '2. 우선 순위 큐에 대한 메트릭으로서 이전에 생성된 토큰들의 확률들의 기하학적 평균을 사용하고,\n' +
+      '3. 각 노드에 대한 확장을 3과 5로 제한한다.\n' +
+      '\n' +
+      '정규식 생성을 시행하지 않으면 생성된 샘플링 트리는 더 높은 확률을 갖지만 생성된 샘플은 잘못된 생성으로 이어질 수 있다. 이를 해결하기 위해 모든 패스가 불법인 경우 유효하지 않은 최적화 패스와 기본값을 모두 제거하는 추가 패스를 -Oz에 적용한다. 1개 및 100개의 샘플에 대해 이 기술은 유익한 반면 정규 표현을 시행하는 것이 그렇지 않으면 약간 구속되지 않은 버전을 능가한다.\n' +
+      '\n' +
+      '다음으로, 우선 순위_queue에 대한 메트릭으로 기하 평균을 사용하여 평가한다. 이것은 다음 토큰의 확률이 이전 토큰이 거의 없는 고도로 편향되어 있기 때문에 흥미로운 아이디어일 수 있다. 예를 들어, prefix _-mem2_는 _-mem2reg_가 적용하기에 좋은 최적화라면 독립적으로 토큰 _reg_에 높은 확률을 넣을 것이다. 반면에, 기하학적 평균을 계산하는 것은 각각의 생성된 토큰에 확률을 저장해야 하기 때문에 메모리 요구 사항을 두 배로 증가시킨다. 우리는 이것이 최종 성과에 큰 영향을 미치지 않는다는 것을 발견했다.\n' +
+      '\n' +
+      '마지막으로, 분기 크기가 제한될 때 방법의 성능을 평가한다. 이 아이디어는 샘플 다양성을 늘리고 동일한 접두사를 가진 많은 노드의 생성을 피하는 데 중점을 둔다. 주어진 접두사의 경우 처음 몇 개의 샘플이 최적화 전략을 완성하기에 충분해야 하며 다른 샘플을 사용하여 대안을 탐색해야 한다. 우리의 결과는 우리의 문제에 대해 분기 인자를 5로 제한하는 이점이 있지만 유의하지 않음을 시사한다.\n' +
+      '\n' +
+      '도 3: 보이지 않는 50k 테스트 예제에 대한 -Oz 최적화보다 코드 크기의 평균 개선. 오토튜너는 각 예제를 최적화하기 위해 760을 사용하고 LLM 미세 조정을 위한 레이블을 설정합니다[7]. 탐욕스러운 디코딩, 핵 샘플링 및 우선순위 샘플링은 미세 조정된 모델을 활용한다. 랜덤 샘플링은 각 샘플에 대해 100개의 랜덤 플래그를 선택한다. 우선 순위 샘플링은 레이블링에 사용된 자동 튜너를 포함한 이전 모든 방법을 능가한다.\n' +
+      '\n' +
+      '## 5 관련 업무\n' +
+      '\n' +
+      '**확률적 방법** 다음 토큰을 선택하는 과정에서 잡음을 도입하여 생성의 다양성을 증가시킨다. Top-k 샘플링은 다음 토큰의 선택을 최상위 k개의 가장 가능성 있는 토큰으로 좁힌다[9]. 핵 샘플링[11]은 분포의 낮은 확률 테일을 제거하고 합이 _top-p=0.95_ 확률보다 큰 토큰에서 샘플링하여 다양성을 보존한다. Mirostat[4]는 생성된 텍스트의 당혹감을 제어하기 위한 메커니즘을 제공한다. Noisy Parallel Approximate Decoding[6]은 각 레이어에 비구조화된 가우시안 잡음을 삽입하여 다양한 샘플을 생성한다. 확률적 방법과 달리 우선 샘플링은 다양한 샘플 세트를 결정적으로 보장한다.\n' +
+      '\n' +
+      '**Beam Methods**는 탐색 트리를 구성하고 탐색의 방향을 집중하여 확장 메커니즘을 조작한다. 다양한 빔 탐색[25]은 빔 예산을 그룹으로 나누고 빔 그룹 간의 다양성을 강화함으로써 다양한 목록을 디코딩한다. 결정적 빔 탐색[18]은 빔 탐색을 반복적 하위 결정적 최대화 문제로 정의하고 다이버시티를 최적화 메트릭으로 인코딩한다. 조건부 포아송 확률 빔 탐색[19]은 조건부 포아송 샘플링 설계에 따라 대체 없이 K개의 후보를 샘플링하여 저분산 일관성 추정량을 생성한다.\n' +
+      '\n' +
+      '다양성에 기초한 보상 함수를 형성하는 대신에, 확률적 빔 탐색[12]은 Gumbel-Max 트릭[10]을 사용하여 가장 높은 확률을 갖는 top-k 토큰들을 미분 가능한 방식으로 샘플링한다. Gumbel-Max Trick은 Gumbel 분포 잡음을 로짓(우도 점수)에 추가한 후 softmax를 적용하고 top-k 후보를 선택한다. 이 절차를 각 다음 토큰에 대해 재귀적으로 적용하여 확률적 빔 검색은 고정된 크기의 샘플 배치를 반환합니다.\n' +
+      '\n' +
+      '확률적 빔 탐색과 Gumbel top-k 샘플링은 빔 요소마다 다른 출력을 보장하지만 병렬화가 쉽지 않다. 산술 샘플링[26]은 균일(0, 1) 분포로부터 N개의 숫자를 먼저 샘플링한 다음 확률 간격이 주어진 숫자 중 하나를 포함하는 토큰을 재귀적으로 확장함으로써 이 문제를 해결한다. 이 방법은 중복을 포함할 수 있지만 병렬화하기 쉬운 높은 확률로 다양한 샘플 세트를 보장한다.\n' +
+      '\n' +
+      '고유랜덤라이저[24]는 각 샘플의 고유성을 보장하면서 점진적으로 시퀀스 모델을 샘플링한다. 고유 랜덤화기는 각 토큰에 대한 확률 분포 질량을 추적하기 위해 트라이를 구성한다. 샘플이 완전히 생성될 때마다 상위 노드에서 해당 확률을 차감하여 향후 샘플이 선택되지 않도록 보장합니다.\n' +
+      '\n' +
+      '우리는 작업에서 핵심 차이가 거의 없는 고유 랜덤화기의 개념을 더 확장한다. 먼저, 각 토큰의 확률을 프리픽스와 함께 유지하는 우선 순위 큐를 사용하여 생성된 토큰의 트리(trie)를 증가시킨다. 이를 통해 우리는 노드에서 빠르고 결정적으로 노드를 찾을 수 있다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{|c|c|c|c|c|c|c|} \\hline  & \\multicolumn{6}{c|}{Improvement over -Oz [\\%]} \\\\ \\hline Method & Sample 1 & Sample 3 & Sample 5 & Sample 10 & Sample 30 & Sample 100 \\\\ \\hline Random Sampling & -12.56\\% & 1.15\\% & 1.60\\% & 1.97\\% & 2.36\\% & 2.76\\% \\\\ Temp0 & 2.87\\% & - & - & - & - & - \\\\ Temp1.2 & 1.80\\% & 3.74\\% & 4.05\\% & 4.31\\% & 4.61\\% & 4.80\\% \\\\ Temp1.4 & -1.19\\% & 3.52\\% & 3.99\\% & 4.28\\% & 4.63\\% & 4.86\\% \\\\ Temp1.6 & -10.06\\% & 0.75\\% & 2.65\\% & 3.81\\% & 4.46\\% & 4.82\\% \\\\ \\hline \\multicolumn{6}{|c|}{4.98\\%} \\\\ \\hline Priority Sampling (PS) & 2.69\\% & **4.23\\%** & 4.55\\% & 4.82\\% & **5.00\\%** & 5.09\\% \\\\ \\hline PS (no regex) & **3.17\\%** & 4.18\\% & 4.41\\% & 4.64\\% & 4.93\\% & **5.12\\%** \\\\ PS (max\\_branch 3) & 2.62\\% & 4.22\\% & 4.56\\% & 4.83\\% & 4.99\\% & 5.09\\% \\\\ PS (max\\_branch 5) & 2.62\\% & 4.22\\% & **4.61\\%** & **4.85\\%** & 4.99\\% & 5.09\\% \\\\ PS geometric (PSG) & 2.68\\% & 4.17\\% & 4.45\\% & 4.75\\% & 4.96\\% & 5.07\\% \\\\ PSG (max\\_branch 3) & 2.62\\% & 4.17\\% & 4.52\\% & 4.77\\% & 4.98\\% & 5.11\\% \\\\ PSG (max\\_branch 5) & 2.62\\% & 4.17\\% & 4.56\\% & 4.80\\% & 4.98\\% & **5.12\\%** \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 1: 우선 샘플링의 실험 결과 및 절제 실험. 평가에는 컴파일러(기본 -Oz 최적화)에 대한 랜덤 샘플링, 핵 샘플링 및 자동튜너의 개선이 포함된다. 절제는 정규식의 사용, 분기 인자의 제한 및 기하학적 평균을 우선 순위 샘플링에서 우선 순위 메트릭으로 사용하는 것을 평가한다.\n' +
+      '\n' +
+      '프리픽스 토큰에 대한 추론을 피하면서 다음에 확장될 필요가 있는 트라이. 또한 프리픽스와 함께 제공하는 정규식을 만족하는 토큰으로 우선 순위 큐를 확장하여 트라이의 크기를 최소화한다.\n' +
+      '\n' +
+      '**제어가능한 텍스트 생성.** Zhang et. al [31]은 제어가능한 텍스트 생성을 위한 도전들의 포괄적인 리스트를 기술한다. 연령 훈련과는 달리 [27]은 가능성이 낮은 세대의 확률을 명시적으로 감소시키는 새로운 훈련 목표를 도입한다. 라구틴 et. al [14]는 생성된 텍스트의 반복을 줄이기 위해 정책 기울기 강화 학습을 사용하는 암시적 비유사성 훈련을 제안했다. 윌러드 등 al [28]은 정규식을 기반으로 LLM의 추론을 안내하는 효율적인 안내 알고리즘을 도입하였다. 이 연구 방향은 우리의 접근법과 직교하며 우선 샘플링과 함께 사용할 수 있다.\n' +
+      '\n' +
+      '## 6 Limitations\n' +
+      '\n' +
+      '우선 샘플링은 고품질의 다양한 샘플을 얻을 수 있는 효율적인 방법을 제공하지만 몇 가지 제한 사항이 있다. 현재의 구현은 본질적으로 순차적이다. 다음으로 확장할 분기를 결정하려면 증강 검색 트리를 구성해야 합니다. 우선 순위 샘플링을 병렬화하는 한 가지 방법은 우선 순위 큐를 태스크 생성기로 처리하는 것이며, 여기서 스레드는 유휴 상태일 때마다 다음 분기 위치를 취한다. 둘째, Priority Sampling은 정규식과 일치하는 상위 N개의 다음 토큰을 찾아야 하는데, 이는 Unique Randomizer[24], Arithmetic Sampling[26]과 같은 샘플링 방법보다 시간이 많이 소요된다. 그러나 이것은 순서대로 샘플을 생성하기 위해 필요한 단계이다.\n' +
+      '\n' +
+      '## 7 Conclusion\n' +
+      '\n' +
+      '우리는 LLM이 가장 자신 있는 고유한 샘플을 생성하는 결정적이고 제어 가능한 방법을 제공하는 간단한 추론 기법인 우선 샘플링(Priority Sampling)을 제시한다. 우선 표본 추출은 널리 사용되는 핵 표본 추출보다 훨씬 더 효율적이고 모든 수의 표본에 대해 능가한다.\n' +
+      '\n' +
+      '우리는 LLVM 패스 오더링 태스크에서 모델을 평가하며, 이 태스크에서 모델은 장기간 실행되는 자동 튜너에 의해 발견되는 최적화 패스를 예측하도록 훈련된다. 우리의 모델은 기본 최적화 -Oz에 비해 원래 모델의 성능을 2.87%에서 5% 향상으로 30단계로 향상시킬 수 있었고 훈련 레이블을 생성하는 데 사용된 자동 튜너를 훨씬 능가할 수 있었다.\n' +
+      '\n' +
+      '이는 LLM이 검색 트리의 영리한 확장으로 접근할 수 있는 많은 양의 지식을 저장한다는 주장을 뒷받침하는 놀라운 결과이다. 추가적으로 Priority Sampling은 제어 가능하고 구조화된 탐색 과정을 제공하는 정규 표현 생성에 대한 지원을 포함한다.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '*[1]B. 아흐마드 타쿠르, B탄, R Karri와 H. Pearce(2023)는 하드웨어 보안 버그를 대형 언어 모델로 수정한다. ArXiv:2302.01215. 인용: SS1.\n' +
+      '*[2]L. 벤 알 Li, D. Kocetkov, C. Mou, C. Akiki, C. M. Ferrandis, N. Muennighoff 미쉬라 A구 Dy, L. K. Umapathi, C. J. Anderson, Y. 지재일 포이리에 트로신, 아불카노프, M. 로메로 래퍼트, F. 드 토니, B. 가르시아 델 리오, Q. 류승 보세우 T. Bhattacharyya 주인유 조카성 Mangrulkar, D. Lansky, H. Nguyen, D. Contractor, L. 빌라, J. 리, D. 바다나우, Y. 제르나이트 Hughes, D. Fried, A. Guha, H. de Vries, L. 본 웨라(2023) 산타코더: 별을 향해 손을 뻗지 마세요! ArXiv:2301.03988. 인용: SS1.\n' +
+      '*[3]J. Armengol-Estape and M. F. O\'Boyle (2021) Learning C to x86 Translation: a Experiment in Neural Compilation. ArXiv:2108.07639. 인용: SS1.\n' +
+      '*[4]S. 바수, 사키타난담 라마찬드란, N. Shirish Keskar, and L. R. Varshney(2020) Mirostat: perplexity를 직접 제어하는 뉴럴 텍스트 디코딩 알고리즘. ArXiv:2007.14966. 인용: SS1.\n' +
+      '*[5]M. 천진욱 Wuan, H. Ponde de Oliveira Pinto, J. Kaplan, H. Edwards, Y. 부르다 Joseph, G. Brockman, A. Ray, R. 푸리, G. 크루거, M. 페트로프, H. 칼랏, G. 사스트리, P. 미슈킨, B. 찬, S. 회색남 라이더 파블로프 A. 파워 L. 카이저 바이에른, C. 윈터, P. 틸레트, F. Such, D. 커밍스, M. Plappert, F. Chantzis, E. Barnes, A. Herbert-Voss, W. Hebgen Guss, A. Nichol, A. Paino, N. Tezak, J. Tang, I. Babuschkin, S 발라지 제인성 제인원 손더스, C. 헤세, A. N. Carr, J. Leike, J. Achiam, V. Misra, E. Morikawa, A. Radford, M. 나이트민 황폐화 무라티 Mayer, P. Welinder, B. McGrew, D. Amodei, S. McCandlish, I. Sutskever, W. 자렘바(2021) 코드에서 훈련된 대규모 언어 모델을 평가한다. ArXiv:2107.03374. 인용: SS1.\n' +
+      '*[6]K. Cho(2016) Noisy parallel approximate decoding for conditional recurrent language model. ArXiv:1605.03835. 인용: SS1.\n' +
+      '*[7]C. 커민스, V. 시커, D. 그루비스치, M. 엘호시 Lang, B. Roziere, J. Gehring, F. Gloeckle, K. Hazelwood, G. Synnaeve, et al.(2023) Large language models for compiler optimization. ArXiv:2309.07062. 인용: SS1.\n' +
+      '*[8]Y. Deng, C. S. Xia, H. Peng, C. Yang, L. Zhang(2023) 대규모 언어 모델은 제로샷 퍼저이다: 대규모 언어 모델을 통해 딥 러닝 라이브러리를 퍼징한다. ISSTA에서 인용: SS1.\n' +
+      '*[9]A. 판민 루이스와 Y 도핀(2018) 계층적 신경망 스토리 생성. ArXiv:1805.04833. 인용: SS1.\n' +
+      '*[10]E. 줄리어스 검벨(1954) 극단치에 대한 통계 이론과 몇 가지 실제적인 응용. Nat. 버 표준 Appl. 수학 Ser.33. 인용: SS1.\n' +
+      '*[11]A. 홀츠만, J. 바이즈, L. 두명 포브스, Y. 최(2019) 신경 텍스트 변성의 기이한 사례. ArXiv:1904.09751. 인용: SS1.\n' +
+      '*[12]W. 쿨, H. 반 후프, M. Welling (2019) Stochastic beam and where to find them: Gumbel-top-k trick for sampling sequence without replacement. In International Conference on Machine Learning, pp. 3499-3508. Cited by: SS1.\n' +
+      '*[13]M. 라초, B. 로지에, L. Chanussot, and G. Lample(2020) Unsupervised Translation of Programming Languages. ArXiv:2006.03511. 인용: SS1.\n' +
+      '*[14]E. 라구틴, D. 가브릴로프, 및 P. 칼라이딘(2021) 암시적 비우도 훈련: 강화 학습으로 신경 텍스트 생성을 개선한다. ArXiv:2101.04229. 인용: SS1.\n' +
+      '*[15]D. 이룡 진진가오, Z. Liu(2020) On sampling top-k 추천 평가. In Proceedings of the 26th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining, pp. 2114-2124. Cited by: SS1.\n' +
+      '\n' +
+      '* [16] Raymond Li, Loughna Ben Allal, Yangtian Zi, Niklas Muennighoff, Denis Kocetkov, Chenghao Mou, Marc Marone, Christopher Akiki, Jia Li, Jenny Chim, Qian Liu, Evgenii Zheltonozhskii, Terry Yue Zhuo, Thomas Wang, Olivier Dehaene, Mishig Davaadorj, Joel Lamy-Poirier, Joao Monteiro, Ohel Shliazhko, Nicolas Gontier, Nicholas Meade, Armel Zebaze, Ming-Ho Yee, Logesh Kumar Umapathi, Jian Zhu, Benjamin Lipkin, Muthasham Obolukov, Zhiruo Wang, Rudra Murthy, Jason Stillerman, Siva Sankalp Patel, Dmitry Abulkhanov, Marco Zocca, Manan Dey, Zhihan Zhang, Nour Fahmy, Urvashi Bhattacharyya, Wenhao Yu, Swayam Singh, Sasha Luccioni, Paulo Villegas, Maxim Kunakov, Fedor Zhdanov, Manuel Romero, Tony Lee, Nadav Timor, Jennifer Ding, Claire Schlesinger, Hailey Schoelkopf, Jan Ebert, Tri Dao, Mayank Mishra, Alex Gu, Jennifer Robinson, Carolyn Jane Anderson, Brendan Dolan-Gavitt, Danish Contractor, Siva Reddy, Daniel Fried, Dzmitry Bahdanau, Yacine Jernite, Carlos Munoz Ferrandis, Sean Hughes, Thomas Wolf, Arjun Guha, Leandro von Werra, and Harm de Vries. StarCoder: may the source be with you! _arXiv:2305.06161_, 2023.\n' +
+      '* [17] Yujia Li, David Choi, Junyoung Chung, Nate Kushman, Julian Schrittwieser, Remi Leblond, Tom Eccles, James Keeling, Felix Gimeno, Agustin Dal Lago, Thomas Hubert, Peter Choy, Cyprien de Masson d\'Autume, Igor Babuschkin, Xinyun Chen, Po-Sen Huang, Johannes Welbl, Sven Gowal, Alexey Cherepanov, James Molloy, Daniel J. Mankowitz, Esme Sutherland Robson, Pushmeet Kohli, Nando de Freitas, Koray Kavukcuoglu, and Oriol Vinyals. Competition-level code generation with AlphaCode. _Science_, 378(6624), 2022.\n' +
+      '* [18] Clara Meister, Martina Forster, and Ryan Cotterell. Determinantal beam search. _arXiv preprint arXiv:2106.07400_, 2021.\n' +
+      '* [19] Clara Meister, Tiago Pimentel, Gian Wiher, and Ryan Cotterell. Typical decoding for natural language generation. _arXiv preprint arXiv:2202.00666_, 2022.\n' +
+      '* [20] OpenAI. GPT-4 Technical Report. _arXiv:2303.08774_, 2023.\n' +
+      '* [21] Shauli Ravfogel, Yoav Goldberg, and Jacob Goldberger. Conformal nucleus sampling. _arXiv preprint arXiv:2305.02633_, 2023.\n' +
+      '* [22] Baptiste Roziere, Jonas Gehring, Fabian Gloeckle, Sten Sootla, Itai Gat, Xiaoqing Ellen Tan, Yossi Adi, Jingyu Liu, Tal Remez, Jeremy Rapin, Artyom Kozhevnikov, Ivan Evtimov, Joanna Bitton, Manish Bhatt, Cristian Canton Ferrer, Aaron Grattafiori, Wenhan Xiong, Alexandre Defossez, Jade Copet, Faisal Azhar, Hugo Touvron, Louis Martin, Nicolas Usunier, Thomas Scialom, and Gabriel Synnaeve. Code Llama: Open Foundation Models for Code. _arXiv:2308.12950_, 2023.\n' +
+      '* [23] Max Schafer, Sarah Nadi, Aryaz Eghbali, and Frank Tip. Adaptive Test Generation Using a Large Language Model. _arXiv:2302.06527_, 2023.\n' +
+      '* [24] Kensen Shi, David Bieber, and Charles Sutton. Incremental sampling without replacement for sequence models. In _International Conference on Machine Learning_, pages 8785-8795. PMLR, 2020.\n' +
+      '* [25] Ashwin K Vijayakumar, Michael Cogswell, Ramprasath R Selvaraju, Qing Sun, Stefan Lee, David Crandall, and Dhruv Batra. Diverse beam search: Decoding diverse solutions from neural sequence models. _arXiv preprint arXiv:1610.02424_, 2016.\n' +
+      '* [26] Luke Vilnis, Yury Zemlyanskiy, Patrick Murray, Alexandre Tachard Passos, and Sumit Sanghai. Arithmetic sampling: parallel diverse decoding for large language models. In _International Conference on Machine Learning_, pages 35120-35136. PMLR, 2023.\n' +
+      '* [27] Sean Welleck, Ilia Kulikov, Stephen Roller, Emily Dinan, Kyunghyun Cho, and Jason Weston. Neural text generation with unlikelihood training. _arXiv preprint arXiv:1908.04319_, 2019.\n' +
+      '* [28] Brandon T Willard and Remi Louf. Efficient guided generation for large language models. _arXiv e-prints_, pages arXiv-2307, 2023.\n' +
+      '* [29] Chunqiu Steven Xia, Yuxiang Wei, and Lingming Zhang. Automated program repair in the era of large pre-trained language models. In _Proceedings of the 45th International Conference on Software Engineering (ICSE 2023). Association for Computing Machinery_, 2023.\n' +
+      '* [30] Yuxi Xie, Kenji Kawaguchi, Yiran Zhao, Xu Zhao, Min-Yen Kan, Junxian He, and Qizhe Xie. Self-evaluation guided beam search for reasoning. In _Thirty-seventh Conference on Neural Information Processing Systems_, 2023.\n' +
+      '\n' +
+      '* [31] Hanqing Zhang, Haolin Song, Shaoyu Li, Ming Zhou, and Dawei Song. A survey of controllable text generation using transformer-based pre-trained language models. _ACM Computing Surveys_, 56(3):1-37, 2023.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
