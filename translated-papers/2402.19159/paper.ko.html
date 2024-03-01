@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# 궤적 일관성 증류\n' +
+      '\n' +
+      'Jianbin Zheng\n' +
+      '\n' +
+      'Minghui Hu\n' +
+      '\n' +
+      'Zhongyi Fan\n' +
+      '\n' +
+      'Chaoyue Wang\n' +
+      '\n' +
+      'Changxing Ding\n' +
+      '\n' +
+      'Dacheng Tao\n' +
+      '\n' +
+      'Tat-Jen Cham\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      '잠재 일관성 모델(Latent Consistency Model, LCM)은 일관성 모델을 잠재 공간으로 확장하고 유도 일관성 증류 기술을 활용하여 텍스트-이미지 합성을 가속화하는 데 인상적인 성능을 달성한다. 그러나 우리는 LCM이 선명도와 상세한 복잡성을 모두 가진 이미지를 생성하는 데 어려움을 겪는다는 것을 관찰했다. 이러한 한계를 해결하기 위해 우리는 처음에 근본적인 원인을 조사하고 설명한다. 우리의 조사는 주요 문제가 세 가지 별개의 영역의 오류에서 비롯되었음을 식별한다. 결과적으로, 우리는 _trajectory consistency function_와 _strategic stochastic sampling_를 포괄하는 Trajectory Consistency Distillation (TCD)을 소개한다. 궤적 일관성 함수는 자기 일관성 경계 조건의 범위를 넓히고 TCD에 확률 흐름 ODE의 전체 궤적을 정확하게 추적할 수 있는 능력을 부여함으로써 증류 오류를 감소시킨다. 또한 전략적 확률적 샘플링은 TCD 모델을 보완하기 위해 세심하게 조정된 다단계 일관성 샘플링에 내재된 누적된 오류를 우회하도록 특별히 설계되었다. 실험은 TCD가 낮은 NFE에서 이미지 품질을 크게 향상시킬 뿐만 아니라 높은 NFE에서 교사 모델에 비해 더 상세한 결과를 산출한다는 것을 보여준다.\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      '또한 일반적으로 확산 모델(Sohl-Dickstein et al., 2015; Song and Ermon, 2019; Song et al., 2020; Ho et al., 2020)로 알려진 스코어 기반 생성 모델(SGMs)은 이미지(Dhariwal and Nichol, 2021; Ramesh et al., 2022; Rombach et al., 2022), 비디오(Ho et al., 2020; Wu et al., 2023; Guo et al., 2023) 및 오디오(Kong et al., 2020; Chen et al., 2020; Popov et al., 2021), 특히 텍스트 대 이미지 합성(Nichol et al., 2022; Ramesh et al., 2022; Saharia et al., 2022; Podell et al., 2023)와 같은 다양한 생성 모델링 도메인에서 그들의 숙련도를 입증했다. SGM의 주목할 만한 측면은 데이터를 반복적으로 교란하고 노이즈를 제거하기 위해 확률 미분 방정식(SDE)과 해당 한계 보존 상미분 방정식(ODE)을 활용하는 것이다(Song et al., 2020). 이는 생성 비용과 샘플링 품질 사이의 효과적인 절충을 촉진하지만 느린 추론 속도에 의해 제약을 받으므로 만족스러운 결과를 얻기 위해 상당한 수의 함수 평가(NFE)가 필요하다.\n' +
+      '\n' +
+      '이러한 한계를 극복하기 위해 Song et al. (2023)은 적대적 훈련이 필요 없이 단일 단계 또는 소수 단계 샘플링으로 고품질 데이터를 생성할 수 있는 강력한 생성 모델의 새로운 클래스인 일관성 모델(Consistency Models, CM)을 제안했다. CM은 기본적인 수학적 기반에서 SGM과 불가분의 관계에 있으며, 동일한 확률 흐름 보통 미분 방정식(PF ODE)의 궤적 상의 임의의 점을 궤적의 원점에 매핑함으로써 자기 일치 특성을 강제하는 것을 목표로 한다(Song et al., 2020). CM은 일관성 증류로 훈련되거나 독립형 생성 모델로 처리될 수 있다. Song et al.(2023)은 픽셀 공간에서의 광범위한 실험을 통해 그 우수성을 입증하였다. LMM(Latent Consistency Models)(Luo et al., 2023)은 LDM(Latent Diffusion Models)(Rombach et al., 2022)을 CM과 추가로 통합하여 텍스트 상에 조건화된 고해상도 이미지를 신속하게 합성하는 데 현저한 성공을 달성했다. 더욱이, LCM-LoRA(Luo et al., 2023)는 LCM의 증류 공정에 LoRA(Hu et al., 2021)를 도입함으로써 LCM의 훈련 효율을 향상시키고 범용 신경 PF ODE 솔버로 변환한다. 이러한 모든 일관성-유형 모델들이 여전히 Multistep Consistency Sampling을 사용하여 계산과 샘플 품질 사이의 균형을 맞추는 것을 허용한다는 점은 주목할 만하다(Song et al., 2023). 특히, 더 많은 반복들을 위해 추가적인 컴퓨트를 할당하는 것은 이론적으로 더 높은 품질의 샘플들을 산출할 수 있다.\n' +
+      '\n' +
+      '사전 학습된 확산 모델로부터 지식을 효과적으로 증류하기 위해 LCM에 의한 유도 증류법 및 생략 단계 기술(Luo et al., 2023)이 도입되었음에도 불구하고, LCM에 의해 생성된 이미지의 품질은 단일 단계 또는 최소 단계(4\\(\\sim\\)8)로도 여전히 교사 모델의 수렴에 크게 뒤처진다. 본 연구는 실제적으로 추론 반복 횟수를 늘리면 그림 1과 같이 결과의 시각적 복잡성과 품질이 감소한다는 것을 밝혀냈으며, 이는 LCM이 교사 모델과 지각적으로 유사한 샘플을 합성할 수 있는 능력이 떨어짐을 보여준다. EDM(Karras et al., 2022)에 의한 최근의 발견들은 과도한 Langevin-like 추가 및 랜덤 노이즈의 제거가 생성된 이미지들에서 디테일의 점진적인 손실을 초래한다는 것을 확인하였다. 추가로, Li 등(2023)은 다중 단계 샘플링의 프로세스 동안, 이산 에러들이 반복들에 걸쳐 누적되어, 궁극적으로 생성된 이미지들이 타겟 분포로부터 이탈하게 한다는 증거를 보여주었다.\n' +
+      '\n' +
+      '관찰에서 영감을 얻어 먼저 훈련 절차를 꼼꼼하게 살펴보고 다단계 일관성 샘플링 절차를 파헤쳐 근본 원인을 파악한다. 우리의 조사에 따르면 이 문제는 다단계 샘플링 프로세스에 내재된 누적 오류에서 비롯된다. 이러한 오차는 주로 1) 원래 점수 매칭 모델_의 추정 오차, 2) 일관성 모델_의 증류 오차 및 3) 샘플링 단계_ 동안 축적된 이산화 오차의 세 가지 출처에서 비롯된다. 종합적으로 이러한 오류는 다단계 샘플링 일관성 모델의 유효성을 크게 훼손하여 기대에 크게 미치지 못하는 성능을 초래한다.\n' +
+      '\n' +
+      '이러한 오류를 억제하기 위해 그림 2에 요약된 바와 같이 궤적 일관성 증류(Trajectory Consistency Distillation, TCD)를 도입하며, 이는 _trajectory consistency function_와 _strategic stochastic sampling_의 두 가지 핵심 요소로 구성된다. 구체적으로, 지수 적분기의 형태에서 영감을 받아, 궤적 일관성 함수(TCF)는 그림에서 입증된 바와 같이 일관성 모델의 경계 조건을 확장하고 PF ODE에 의해 지배되는 궤적을 따라 임의의 지점에서 끊김 없는 전이를 가능하게 함으로써 증류 오류를 감소시킨다.\n' +
+      '\n' +
+      '그림 1: TCD와 다른 최첨단 방법의 비교. TCD는 품질과 속도 면에서 탁월한 결과를 제공하여 LCM을 완전히 능가합니다. 특히, LCM은 높은 NFE에서 품질의 현저한 감소를 경험한다. 대조적으로, TCD는 원점 SDXL을 갖는 DPM-Solver++(2S)의 성능을 능가하는 높은 NFE에서 우수한 생성 품질을 유지한다.\n' +
+      '\n' +
+      'ure 2a. 나아가 전략적 확률적 샘플링(SSS)은 그림 2b와 같이 좁아진 양방향 반복에 따른 누적 이산화 오차와 추정 오차를 억제한다.\n' +
+      '\n' +
+      '실험은 TCD가 LCM에 의해 생성된 이미지의 품질을 상당히 향상시켜 성능에서 능가할 수 있음을 보여준다. 또한, TCD는 충분한 반복(20 NFE)으로 샘플링할 때 교사 모델(DPMSolver++)을 갖는 SDXL보다 성능이 우수할 수 있다.\n' +
+      '\n' +
+      '## 2 Preliminaries\n' +
+      '\n' +
+      '### Diffusion Models\n' +
+      '\n' +
+      '확산 모델(DMs)은 가우시안 섭동을 통해 데이터에 점진적으로 잡음을 부가하는 연속 시간 변수 \\(T>0\\)에 의해 인덱싱된 미리 정의된 순방향 프로세스 \\(\\{\\mathbf{x}_{t}\\}_{t\\in[0,T]}\\)으로 시작한다. 전진 과정은 널리 사용되는 확률 미분 방정식(SDE)으로 모델링될 수 있다(Song et al., 2020; Karras et al., 2022):\n' +
+      '\n' +
+      '\\[\\text{d}\\mathbf{x}_{t}=\\mu(t)\\mathbf{x}_{t}\\text{d}t+\\nu(t)\\text{d}\\mathbf{w}_{t}, \\tag{1}\\]\n' +
+      '\n' +
+      '여기서 \\(\\mathbf{w}_{t}\\)는 \\(d\\)차원 표준 브라운 운동을 나타내고 \\(\\mu(t)\\colon\\mathbbb{R}\\to\\mathbb{R}\\) 및 \\(\\nu(t)\\colon\\mathbbb{R}\\to\\mathbb{R}\\)은 각각 드리프트 및 확산 계수이며, 여기서 \\(d\\)은 데이터세트의 차원이다. 정방향 과정 이후의 \\(\\mathbf{x}_{t}\\(p_{t}(\\mathbf{x}_{t}))의 한계 분포를 \\(p_{t}(\\mathbf{x})\\)으로 표기하고, 이러한 Ito SDE는 경험적 데이터 분포 \\(p_{0}(\\mathbf{x})=p_{text{data}(\\mathbf{x})\\)을 이전 분포 \\(p_{T}(\\mathbf{x})\\approx\\pi(\\mathbf{x})\\)로 점진적으로 교란시키며, 여기서 \\(\\pi(\\mathbf{x})는 다루기 쉬운 가우시안 분포이다.\n' +
+      '\n' +
+      '놀랍게도, Song et al. (2020)은 궤도들이 순방향 SDE와 동일한 한계 확률 밀도 \\(\\{p_{t}(\\mathbf{x})\\}_{t\\in[0,T]}\\)를 공유하는 _probability flow_ (PF) ODE로 불리는 상미분 방정식 (ODE)이 존재한다는 것을 증명하였다.\n' +
+      '\n' +
+      '\\mu(t)\\frac{\\text{d}\\mathbf{x}_{t}{\\text{d}t}=\\mu(t)\\mathbff{x}_{t}-\\frac{1}{2}\\nu(t)^{2}\\nabla_{\\mathbf{x}}\\log p_{t}(\\mathbf{x}_{t}}}\\tag{2}\\t}\n' +
+      '\n' +
+      '표집의 경우, 식 (2)의 지상진리 점수는 점수 매칭을 통해 학습된 점수 모델 \\(\\mathbf{s}_{\\mathbf{\\theta}(\\mathbf{x},t)\\approx\\nabla_{\\mathbf{x}}\\log p_{t}(\\mathbf{x})\\로 근사화된다(Hyvarinen et al., 2009; Song and Ermon, 2019; Ho et al., 2020). 이것은 _경험적 PF ODE_로 지칭되는 PF ODE의 경험적 추정치를 산출한다:\n' +
+      '\n' +
+      '\\mu(t)\\tilde{\\text{d}\\tilde{\\mathbf{x}_{t}{\\text{d}t}=\\mu(t)\\tilde{\\mathbf{x}_{t}-\\frac{1}{2}\\nu(t)^{2}\\mathbf{s}_{\\mathbf{\\theta}(\\tilde{\\mathbf{x}_{t},t)\\tag{3}\\t}\n' +
+      '\n' +
+      '그런 다음 경험적 PF ODE를 \\(T\\)에서 0까지 풀어서 샘플을 추출할 수 있다. 정확한 해를 근사하기 위해 직접 적용할 수 있는 기성 ODE 솔버(Song et al., 2020;a; Karras et al., 2022) 또는 효율적인 수치 솔버(Lu et al., 2022;b; Zhang and Chen, 2022)가 이미 존재한다.\n' +
+      '\n' +
+      '### Consistency Models\n' +
+      '\n' +
+      '식 (3)을 해결하는 것은 전형적으로 괜찮은 샘플들을 생성하기 위해 수많은 신경망 평가들을 포함한다. 따라서, PF ODE의 궤적\\(\\{\\mathbf{x}_{t}\\}_{t\\in[0,T]}\\)을 따라 임의의 점들을 그 궤적의 원점에 직접 매핑하여 몇 단계만으로 생성을 용이하게 하는 일관성 모델을 제안한다. 연관된 매핑은 다음과 같이 공식화될 수 있다:\n' +
+      '\n' +
+      '\\mathbf{f}(\\mathbf{x}_{t},t)=\\mathbf{x}_{0}\\quad\\forall t\\in[0,T], \\tag{4}\\\n' +
+      '\n' +
+      '(\\mathbf{f}(\\mathbf{x}_{0},0)=\\mathbf{x}_{0}\\). 식 (4)는 _self-consistency_ 조건과 동등하다는 점에 주목할 필요가 있다:\n' +
+      '\n' +
+      '\\mathbf{f}(\\mathbf{x}_{t},t)=\\mathbf{f}(\\mathbf{x}_{t}^{\\prime},t^{\\prime})\\quad\\forall t,t^{\\prime}\\in[0,T]. \\tag{5}\\t.\n' +
+      '\n' +
+      '자기일관성 특성을 적용하여 일관성 함수\\(\\mathbf{f}_{\\mathbf{\\theta}\\)를 추정하기 위해 파라메트릭 모델\\(\\mathbf{f}_{\\theta}\\)을 구성한다. 전형적으로, \\(\\mathbf{f}\\)는 미리 훈련된 확산 모델 \\(F_{\\mathbf{\\theta}(\\mathbf{x}_{t},t)\\)로부터 증류될 수 있고, 다음과 같이 파라미터화된다:\n' +
+      '\n' +
+      '[\\mathbf{f}_{\\mathbf{\\theta}(\\tilde{\\mathbf{x}}_{t},t)=\\begin{cases}\\mathbf{x}_{0},&t=0\\\\texttt{Solver}(F_{\\mathbf{\\theta}(\\tilde{\\mathbf{x}}_{t},t,0;\\mathbf{\\theta}),&t\\in(0,T]\\end{cases}\\cases}\n' +
+      '\n' +
+      '도 2: baseline Consistency Distillation(Song et al., 2023) 및 제안된 Trajectory Consistency Distillation의 비교 개요는 트레이닝을 위한 Trajectory Consistency Function(TCF) 및 추론을 위한 Strategic Stochastic Sampling(SSS)을 포함한다.\n' +
+      '\n' +
+      '\\(\\texttt{Solver}(\\cdot,t,0;\\theta)\\)는 타임스텝(t\\)에서 미리 훈련된 모델로부터 출력\\(F_{\\theta}(\\tilde{\\mathbf{x}}_{t},t)\\)이 주어졌을 때 \\(\\mathbf{x}_{0}\\)을 추정하는 데 사용되는 ODE 솔버의 갱신 함수이다. 학습 일관성 모델의 경우, 일관성 증류(CD)의 목적은 최소화하는 것으로 정의된다:\n' +
+      '\n' +
+      'mmathcal{L}^{N}_{\\mathrm{CD}(\\mathbf{\\theta},\\mathbf{\\theta}^{-};\\mathbf{\\phi}):=\\\\\\quad\\quad\\quad\\quad\\quad\\quad\\quad\\quad\\quad\\mathbf{f}_{\\mathbf{\\theta}(\\mathbf{x}_{t_{n+1},t_{n+1})-\\mathbf{f}_{\\mathbf{\\theta}^{-}}(\\hat{\\mathbf{x}_{t_{n}}^{\\mathbf{\\phi},t_{n}}\\right\\text{6}\\end{split}\\text{6}\\text{6}\\text{6}\\text{6}\\text{6}\\text{6}\\text{6}\\text{6}\\text{6}\\text{6}\\text{6}\\text{6}\\text{6\n' +
+      '\n' +
+      '여기서 \\(0=t_{1}<t_{2}\\cdots<t_{N}=T\\), \\(n\\)\\\\(\\{1,2,\\cdots,N-1\\}\\), \\(\\lambda(\\cdot)\\in\\mathbb{R}^{+}\\)는 양의 가중 함수이고, \\(\\mathbf{x}\\sim p_{\\mathrm{data}}\\)에 대해 기대가 취해진다. (\\mathbf{x}_{t_{n+1}\\)는 SDE 1을 사용하여 샘플링될 수 있고, \\(\\hat{\\mathbf{x}_{t_{n}^{\\mathbf{\\phi}:=\\Phi(\\mathbf{x}_{t_{n+1},t_{n+1},t_{n};\\mathbf{\\phi})\\)는 경험적 PF ODE 3에 적용된 한 단계 ODE 솔버의 갱신 함수를 나타낸다. 또한, \\(\\mathbf{\\theta}^{-}\\leftarrow\\texttt{SG}(\\mu\\mathbf{\\theta})\\(\\mathbf{x}_{t_{n}^{\\mathbf{\\phi}:=\\Phi(\\mathbf{x}_{t_{n+1},t_{n+1},t_{n};\\mathbf{\\phi})\\(\\cdots;\\mathbf{\\phi})\\(\\mathb\n' +
+      '\n' +
+      '기존 점수 모델이 필요한 증류 전략 외에도 Song et al.(2023)은 일관성 훈련(CT)이라는 사전 훈련된 모델 없이 훈련하는 방법도 소개했다. 이 논문에서 우리의 주요 초점은 CD 목표에 있다.\n' +
+      '\n' +
+      '##3 일관성 모델의 명료화 오류\n' +
+      '\n' +
+      '이 섹션에서는 일관성 모델의 다단계 샘플링에서 발생한 다양한 유형의 오류를 설명하며, 이는 이를 정제하기 위한 해당 솔루션을 제안하도록 동기를 부여한다. 분석 결과, 오차는 주로 일관성 모델의 _distillation error_, 스코어 매칭 모델의 _estimation error_ 및 ODE를 해결하는 동안 누적된 _discretisation error_(일명 _truncation error_)의 세 가지 성분으로 구성된다.\n' +
+      '\n' +
+      '일관성 증류 오차\n' +
+      '\n' +
+      '(Song et al., 2023)은 ODE solver\\(\\Phi(\\cdots;\\mathbf{\\phi})가 국부적 이산화오차를 갖는다고 가정하고, 잘 훈련된 모델\\(\\mathcal{L}N}_{\\mathrm{CD}(\\mathbf{\\theta}^{\\star},\\mathbf{\\theta}^{\\star};\\mathbf{\\phi})=0\\)을 이용하여 정합성 증류오차를 경계로 하고 있음을 보여준다.\n' +
+      '\n' +
+      '\\mathbf{f}_{\\mathbf{\\theta}^{\\star}(\\mathbf{x},t_{n}),\\mathbf{f}(\\mathbf{x},t_{n};\\mathbf{\\phi})\\|_{2}=\\mathcal{O}\\left((\\Delta t}^{p}\\right), \\tag{7}\\t.\n' +
+      '\n' +
+      'with \\(\\Delta t\\) and \\(p\\) in (Song et al., 2023).\n' +
+      '\n' +
+      '다단계 일관성 샘플링에서### 오류 경계\n' +
+      '\n' +
+      '이론적으로 잘 훈련된 일관성 모델\\(\\mathbf{f}_{\\mathbf{\\theta}^{\\star}\\)을 사용하면 정방향 통과 한 번이면 샘플을 생성할 수 있다. 그러나, 상기 1단계 샘플링은 차선의 결과를 산출한다(Luo et al., 2023; Song et al., 2023). 따라서, 다단계 일관성 샘플링은 잡음 제거 및 잡음 주입 단계를 교대로 통해 샘플 품질을 향상시키기 위해 (Song et al., 2023)에 도입되었다. 우리는 이것을 이 원고에서 멀티스텝 샘플링이라고 부른다.\n' +
+      '\n' +
+      '단순화를 위해 본 논문에서는 VP SDE를 고려하므로 SDE(식 (1))의 드리프트 및 확산 계수 \\(\\mu(t)\\) 및 \\(\\nu(t)\\)는 다음과 같이 쓸 수 있다.\n' +
+      '\n' +
+      '\\frac{\\mu(t)=\\frac\\log\\alpha_{t}{\\mathrm{d}t}{\\mathrm{d},\\quad\\nu(t)=\\sqrt{\\frac{\\mathrm{d}\\sigma_{t}^{2}{\\mathrm{d}-2\\frac{\\mathrm\\log\\alpha_{t}{\\mathrm{d}t}\\sigma_{t}^{2},\\tag{8}\\sigma_{t}}\n' +
+      '\n' +
+      '여기서 \\(\\alpha_{t}\\) 및 \\(\\sigma_{t}\\)는 섭동 커널에서 잡음 스케줄을 지정하고,\n' +
+      '\n' +
+      '\\mathbf{x}_{t}|\\mathbf{x}_{0})=\\mathcal{N}(\\mathbf{x}_{t}|\\alpha_{t}\\mathbf{x}_{0}, \\sigma_{t}^{2}\\mathbf{I}). \\tag{9}\\t}\n' +
+      '\n' +
+      '\\(N\\) 샘플링 타임스탬프\\(T=\\tau_{1}>\\tau_{2}>\\cdots>\\tau_{N}\\)과 초기값\\(\\tilde{\\mathbf{x}}_{\\tau_{1}}\\sim\\mathcal{N}(0,\\mathbf{I})\\)의 시퀀스가 주어지면, \\(n\\)번째 단계의 생성 절차는 다음과 같이 작성될 수 있다.\n' +
+      '\n' +
+      'bf{x}_{\\tau_{1}to 0}\\leftarrow\\mathbf{f}{{\\tau_{1}},T),\\\\text{Diffuse:}&\\tilde{\\tau_{n}\\leftarrow\\alpha_{(n-1}\\tau_{n}}\\mathbf{x}_{\\tau_{n}}\\mathbf{n}{n}(\\tilde{\\mathbf{x}}_{\\tau_{n}},\\tau_{n}}\\mathbf{x}_{\\tau_{n}},\\end{split}\\tag{10}}\n' +
+      '\n' +
+      '이 과정은 알고리즘 3에 상세히 설명되어 있다. 우리는 다음과 같이 (Lyu et al., 2023)에서 Corollary 7로부터 추가적인 Corollary를 도출한다:\n' +
+      '\n' +
+      '*Corollary 3.1**.: 식 (10)에 정의된 샘플링 과정과 \\(\\mathbf{x}_{\\tau_{n}\\to 0}\\의 분포를 \\(q_{\\tau_{\\theta}^{\\star},n}\\)으로 표현하면, 우리는 단일 단계 샘플링 결과, \\(q_{\\mathbf{\\theta}^{\\star},1}=\\mathbf{f}_{\\mathbf{\\theta}^{\\theta},T}\\sharp\\mathcal{N}(\\alpha_{\\tau_{N}}) 및 다중 단계 샘플링 결과, \\(q_{\\tau_{n}\\mathbf{x}_{\\tau_{n}\\tau_{n}\\mathbf{x}_{\\tau_{n}\\tau_{n}\\tau_{n}\\tau_{n}\\tau_{n}\\tau_{n}\\tau_{n}\\tau_{n}\\tau_{n}\\ \\(q\\)와 \\(p_{\\mathrm{data}}\\) 사이의 총 변동(TV) 거리는_\n' +
+      '\n' +
+      '\\mathcal{O}\\left(T(\\varepsilon_{cd}+\\mathcal{L}_{f}\\varepsilon_{se})\\right)\\\\&TV(q_{\\mathbf{\\theta}^{\\star},N},p_{\\mathrm{data})=\\mathcal{O}\\left(2^{-N}T(\\varepsilon_{cd}+\\mathcal{L}_{f}\\varepsilon_{se})\\right),\\end{split}\\end{split}\\\\mathcal{L}_{f}\\varepsilon_{se})\\right)\\\\\\&TV(q_{\\mathbf{\\theta}^{\\star},N},p_{\\mathrm{data})=\\mathcal{O}\\left(2^{-N}T(\\varepsilon_{cd}+\\mathcal{L}_{f}\\varepsilon_{se})\\right),\\end\n' +
+      '\n' +
+      '\\(\\mathcal{L}_{f}\\)은 측정 가능한 맵과 관련된 푸시-포워드 연산자이고, \\(\\mathcal{L}_{f}\\)은 일관성 모델의 립시츠 상수이며, \\(\\varepsilon_{cd}\\), \\(\\varepsilon_{se}\\)은 각각 식 (7)의 일관성 증류의 오차 및 점수 매칭 추정을 나타낸다.\n' +
+      '\n' +
+      '상세한 증명은 부록 D.1에서 찾을 수 있으며, Corollary 3.1로부터 다단계 샘플링이 단일 단계보다 더 낮은 오차 한계를 갖는다는 것을 관찰한다. 이 관찰은 (Karras et al., 2022)에 제시된 경험적 발견과 일치하며: 국소 절단 오차 척도는 스텝 크기에 대해 초선형으로 확장되므로 \\(N\\)을 증가시키면 해의 정확도가 향상된다. 또한, 추가적인 감독의 도움 없이 모델 성능이 단일 단계 생성 방법(Sauer et al., 2023; Yin et al., 2023)을 저성능화하는 경향이 있음을 예시한다.\n' +
+      '\n' +
+      '다단계 샘플링에서### 누적 오류\n' +
+      '\n' +
+      '그러나 실제 추정 및 이산화의 오류로 인해 모든 샘플링 단계에서 총 오류가 누적된다. 진정한 일관성 함수 \\(\\mathbf{f}(\\cdot,\\cdot;\\mathbf{\\phi})에 의해 출력되는 \\(\\mathbf{x}_{\\tau_{n}\\to 0}\\)의 분포를 \\(p_{n}\\)으로 표현하면, (Chen et al., 2022)의 정리 2는 \\(q_{\\mathbf{\\theta}^{*},n}\\)와 \\(p_{n}\\) 사이의 TV 오차를 보여준다.\n' +
+      '\n' +
+      '\\[TV(q_{\\mathbf{\\theta}^{*},n},p_{n})=\\mathcal{O}(\\sqrt{\\tau_{n}}), \\tag{11}\\]\n' +
+      '\n' +
+      '각 \\(n\\) 번째 단계의 오차는 \\(N\\) 샘플링 단계에 걸쳐 누적되어 정의된 누적 오차가 발생한다.\n' +
+      '\n' +
+      '[TV(q_{\\mathbf{\\theta}^{*},N},p_{N})=\\mathcal{O}\\left(\\sum_{n=1}^{N}\\sqrt{\\tau_{n}\\right)\\tag{12}\\right)\n' +
+      '\n' +
+      '위의 결과는 정리 4.2의 특별한 경우이며, 그 증명은 부록 D.3에 제시되어 있다. 그 결과, 그림 3과 같이 더 높은 NFE에서 이미지 세부 사항이 크게 감소한다.\n' +
+      '\n' +
+      '##4 궤적 일관성 증류\n' +
+      '\n' +
+      '###궤적 일관성 함수\n' +
+      '\n' +
+      '정의.정합성 모델로부터의 증류 오차는 전체 궤적을 포함하도록 원래의 경계 조건을 확장함으로써 감소될 수 있다. 이를 위해 전체 궤적을 따라 종합적인 추적이 가능하도록 설계된 궤적 일관성 함수(Trajectory Consistency Function, TCF)를 소개한다.\n' +
+      '\n' +
+      '\\[\\mathbf{f}(\\mathbf{x}_{t},t,s)\\mapsto\\mathbf{x}_{s}. \\tag{13}\\]\n' +
+      '\n' +
+      '궤적 일관성 함수는 _trajectory consistency_의 속성을 가지고 있어, 엔드포인트 제한 없는 궤적에서 원래의 자기 일관성 속성을 향상시킨다. 구체적으로, 그 출력은 동일한 PF ODE 궤적에 속하는 주어진 \\(s\\)과 임의의 집합 \\((\\mathbf{x}_{t},t)\\)에 대해 일정하게 유지되며, 여기서 \\(0\\leqslant s\\leqslant t\\leqslant T\\),\n' +
+      '\n' +
+      '\\mathbf{f}(\\mathbf{x}_{t},t,s)=\\mathbf{f}(\\mathbf{x}_{t}^{\\prime},t^{\\prime},s)\\quad\\forall t,t^{\\prime},s\\in[0,T]. \\tag{14}\\tag{14}\\mathbf{f}(\\mathbf{x}_{t},t,s)=\\mathbf{f}(\\mathbf{x}_{t}^{\\prime},t^{\\prime},s\\quad\\forall t,t^{\\prime},s\\in[0,T].\n' +
+      '\n' +
+      'Parameterisation.The _semi-linear_ structure of empirical PF-ODE revealed(Lu et al., 2022; Zhang and Chen, 2022)는 식 (15)와 같이 지수적분자 형태를 이용하여 궤적 일관성 함수를 매개변수화하도록 동기를 부여한다.\n' +
+      '\n' +
+      'f{f}_{\\mathbf{\\theta}(\\mathbf{x}_{t},t,s)=\\frac{\\sigma_{s}{\\sigmabf{x}+\\sigma_{s}\\int_{\\lambda_{t}^{\\lambda_{s}e^{\\lambda}\\hat{\\mathbf{x}_{\\lambda},\\lambda}\\text{d}\\lambda,\\tag{15}\\text{d}\\lambda,\\tag{15}\\text{d}\\lambda}\\text{d}\\lambda}\\lambda}\\lambda}\\lambda}\\lambda}\\lambda}\\lambda}\\lambda}\\lambda}\\lambda}\\lambda}\\lambda}\\lambda}\\lambda}\\lambda}\\lambda}\\lambda}\\lambda}\\lambda}\\lambda}\\lambda}\\\n' +
+      '\n' +
+      '여기서 \\(\\lambda_{t}:=\\log(\\alpha_{t}/\\sigma_{t})\\)는 log-SNR이고, \\(\\mathbf{x}_{\\mathbf{\\theta}\\)는 매개변수 \\(\\mathbf{\\theta}\\)을 갖는 훈련 가능한 네트워크이다.\n' +
+      '\n' +
+      '\\(k\\geqslant 1\\)의 경우,\\(\\mathbf{x}_{\\mathbf{\\theta}\\) w.r.t\\(\\lambda\\in[\\lambda_{s},\\lambda_{t}]\\)에 대한 (\\(k\\)-1)번째 테일러 팽창을 취할 수 있다.\n' +
+      '\n' +
+      '\\mathbf{f}_{\\mathbf{\\theta}(\\mathbf{x}_{t},t,s)=\\frac{\\sigma_{s}\\frac{\\sigma_{s}\\sum_{n=0}^{k-1}\\mathbf{x}_{\\mathbf{\\theta}^{(n}\\text{d}\\lambda+\\mathcal{O}(h^{k+1}),\\tag{16}\\text{d}\\lambda_{t}\\frac{(\\lambda-\\lambda_{t}}e^{n}\n' +
+      '\n' +
+      '여기서 \\(h=\\lambda_{s}-\\lambda_{t}\\) 및 \\(\\mathbf{x}_{\\mathbf{\\theta}^{(n)}(\\cdot,\\cdot)\\)는 \\(n\\)차 총 미분율 \\(\\mathbf{x}_{\\mathbf{\\theta}\\) w.r.t\\(\\lambda_{\\mathbf{\\theta}\\)이다.\n' +
+      '\n' +
+      '여기서는 고차항 \\(\\mathcal{O}(h^{k+1})\\을 생략하여 1차 및 2차 추정을 고려한다.\n' +
+      '\n' +
+      '\\quad\\mathbff{f}_{\\mathbf{\\theta}(\\mathbf{x}_{t},t,s)=\\frac{\\sigma_{s}{\\sigma_{t}\\mathbff{x}_{t}-\\alpha_{s}(e^{-h}-1)\\hat\\mathbf{x}_{\\mathbf{\\theta}(\\mathbf{x}_{t},t).\\tag{17}\\t.\n' +
+      '\n' +
+      '\\(2\\)차 확장을 위해 궤적 일관성 함수를 다음과 같이 쓸 수 있다.\n' +
+      '\n' +
+      '\\quad\\mathbf{f}_{\\mathbf{\\theta}(\\mathbf{x}_{t}, t,s)=\\frac{\\sigma_{s}{\\sigma_{s}(e^{-h}-1)\\] \\[\\left((1-\\frac{1}{2r}\\hat{\\theta}(\\mathbf{x}_{t},t)+\\frac{1}{theta}(\\hat{\\mathbf{x}_{u},u)\\right), \\tag{18}\n' +
+      '\n' +
+      '여기서 \\(u\\)는 mid-timestep w.r.t.\\(t>u>s\\) 및 \\(r:=(\\lambda_{u}-\\lambda_{t})/h\\이다.\n' +
+      '\n' +
+      '또한 식 (16)의 k=1\\일 때 잔차항을 생략하지 않고 \\(\\mathbf{x}_{\\mathbf{\\theta}\\)의 지수 가중 적분을 직접 추정하기 위해 \\(s\\)에 컨디셔닝을 위한 추가 파라미터가 있는 수정된 네트워크 \\(F_{\\mathbf{\\theta}\\)를 제안한다.\n' +
+      '\n' +
+      '\\quad\\mathbff{f}_{\\mathbf{\\theta}(\\mathbf{x}_{t},t,s)=\\frac{\\sigma_{s}{\\sigma_{t}}\\mathbff{x}_{t}-\\alpha_{s}(e^{-h}-1)F_{\\mathbf{\\theta}(\\mathbf{x}_{t},t,s). \\tag{19}\\mag{t}\n' +
+      '\n' +
+      '경계조건의 확장.CM에서의 경계조건은,\n' +
+      '\n' +
+      '그림 3: 다양한 NFE에 걸친 합성 결과. 다중 스텝 샘플링의 누적된 오류로 인해 LCM은 이미지 세부 정보의 손실을 경험하여 성능을 저하시키는 반면 TCD는 이 문제를 해결한다. 추가 샘플은 부록 E.1에서 사용할 수 있다.\n' +
+      '\n' +
+      '원점까지의 솔루션 궤적의 시작점입니다. 반대로 TCF는 이러한 제약조건을 완화하여 PF-ODE 궤적에 따른 임의의 구간을 모델이 처리할 수 있도록 하고 TCD 훈련에서 발생하는 사소한 해\\(\\mathbf{f_{\\theta}}(\\mathbf{x}_{t},t,s)\\equiv 0\\)를 방지한다. 결과적으로, 우리는 궤적 간격의 보다 포괄적인 범위를 포함하도록 경계 조건을 확장하고,\n' +
+      '\n' +
+      '\\[\\mathbf{f_{\\theta}}(\\mathbf{x}_{s},s,s)=\\mathbf{x}_{s}, \\tag{20}\\]\n' +
+      '\n' +
+      '세 가지 유형의 매개변수화는 모두 넓은 경계 조건을 쉽게 충족한다는 것이 분명하다.\n' +
+      '\n' +
+      'Training.\\(0=t_{1}<t_{2}\\cdots<t_{N}=T\\)과 훈련된 PF ODE 해의 1단계 갱신 함수를 \\(\\Phi(\\cdots;\\mathbf{\\phi}\\)으로 매개변수화한 \\(\\mathbf{x}_{t_{n}}\\)을 \\(\\Phi^{(k)}(\\mathbf{\\phi})\\)으로 이산화 단계를 실행함으로써 \\(\\mathbf{x}_{t_{n}\\)으로부터 정확한 추정 \\(\\mathbf{x}_{t_{n}\\)을 얻을 수 있다.\n' +
+      '\n' +
+      '\\[\\hat{\\mathbf{x}}_{t_{n}}^{\\phi,k}=\\Phi^{(k)}(\\mathbf{x}_{t_{n+k}},t_{n+k},t_{n};\\mathbf{ \\phi})\\tag{21}\\\n' +
+      '\n' +
+      '따라서, 우리는 궤적 증류의 대상을 재구성과 정렬하여 표현할 수 있었다:\n' +
+      '\n' +
+      '\\mathcal{L}_{\\text{TCD}}^{N}(\\mathbf{\\theta}, \\mathbf{\\theta}^{-};\\mathbf{\\phi}):=\\mathbb{E}[\\omega(t_{n},t_{m}}\\tag{22}\\\\\\mathbf{f_{\\theta}(\\mathbf{x}_{t_{n+k}},t_{n},t_{m})-\\mathbf{f_{\\theta}}(\\hat{\\mathbf{x}}_{t_{n}}^{\\phi,k},t_{n},t_{m}}\\|_{2}^{2}},\\|\\mathbf{n}}^{n}}}(\\hat{\\mathbf{x}}_{n}}^{n},t_{m}}}\\|_{2}^{2}},\\|\\mathbf{n}}\n' +
+      '\n' +
+      '여기서 \\(n\\sim\\mathcal{U}[1,N-1]\\), \\(m\\sim\\mathcal{U}[1,n]\\), \\(\\mathbf{\\theta}^{-}\\leftarrow\\texttt{sg}(\\mu\\mathbf{\\theta}^{-}+(1-\\mu)\\mathbf{\\theta})\\) 또는 \\(\\texttt{sg}(\\mathbf{\\theta})\\), \\(t_{n},t_{m})\\equiv 1\\)이 우리의 실험에서 잘 수행된다. 또한 수렴을 가속화하기 위해 (Luo et al., 2023a)에서 제안한 스킵-스텝 방법을 사용한다. 자세한 훈련 과정은 알고리즘 1에 요약되어 있다.\n' +
+      '\n' +
+      '아래에서는 궤적 일관성 증류가 증류 오류를 최적화하는 방법을 설명하기 위해 점근적 분석에 기반한 이론적 정당성을 제공한다.\n' +
+      '\n' +
+      '**정리 4.1**: _Let \\(\\Delta t:=\\max_{n\\in\\llbracket 1,\\text{N}-1\\rrbracket}\\{|\\text{t}_{n+1}-\\text{t}_{n}|\\}\\) 및 \\(\\mathbf{f}(\\cdot,\\cdot,\\cdot;\\phi)\\)는 식 (3)의 경험적 PF ODE의 궤적 일관성 함수이다. 즉, 모든 \\(t\\in[0,T]\\), \\(\\mathbf{x}\\) 및 \\(\\mathbf{y}\\)에 대해 \\(\\left\\|\\mathbf{f_{\\theta}}(\\mathbf{x},t,s)-\\mathbf{f_{\\theta}(\\mathbf{y},t,s)\\right\\\\\\leqslant L\\left\\|\\mathbf{x}-\\mathbf{y}\\right\\\\eqslant L\\left\\|\\mathbf{x}-\\mathbf{y}\\eqslant 또한 모든 \\(n\\in\\llbracket 1,N-1\\rrbracket\\)에 대해 \\(t_{n+1}\\)으로 불리는 \\(p\\)차 ODE 솔버는 \\(p\\geqslant 1\\)과 \\(\\mathcal{O}((t_{n+1}-t_{n})^{p+1})\\)로 균일하게 경계되는 국소 오차를 갖는다고 가정한다. 그리고, \\(\\mathcal{L}_{\\text{TCD}}^{N}(\\mathbf{\\theta^{*}},\\mathbf{\\theta^{*};\\mathbf{\\theta^{*};\\mathbf{\\phi})=0\\, 임의의 \\(n\\in\\llbracket 1,N-1\\rrbracket\\)과 \\(m\\in\\llbracket 1,n\\rrrbracket\\)에 대해, 우리는 \\(\\mathcal{L}_{\\text{TCD}}^{N}(\\mathbf{\\theta^{*}},\\mathbf{\\theta^{*}};\\mathbf{\\phi})=0\\)이 존재한다면, 모든 \\(n\\in\\llbracket 1,N-1\\rrrbracket\\)에 대해, 그리고 \\(m\\in\\llbracket 1,n\\rrrbracket\\)에 대해, 우리는 \\(\\mathcal{L}_{\\text{TCD}}\n' +
+      '\n' +
+      '\\mathbf{f_{\\theta^{*}}(\\mathbf{x},t_{n},t_{m}),\\mathbf{f}(\\mathbf{x},t_{n},t_{m};\\phi)\\|_{2}\\]\\[=\\mathcal{O}\\left((\\Delta t}^{p}\\right)(t_{n}-t_{m}))\\mathbf{f}(\\mathbf{x},t_{n},t_{m}),\\mathbf{f}(\\mathbf{x},t_{n},t_{m};\\phi)\\|_{2}\\]\\[=\\mathcal{O}\\left((\\Delta t}^{p}\\right)(t_{n}-t_{m}}).\n' +
+      '\n' +
+      '증거. : 증명은 부록 D.2에 제시되어 있다.\n' +
+      '\n' +
+      '정리 4.1은 식 (7)에 제시된 CD의 증류 오차에 의해 TCF의 증류 오차가 상한임을 의미한다.\n' +
+      '\n' +
+      '전략적 확률 표본 추출\n' +
+      '\n' +
+      '제안된 궤적 일관성 함수는 증류 손실을 최적화할 뿐만 아니라 모델이 PF ODE를 따라 비원산지 목적지에 액세스할 수 있도록 한다. 이 기능을 통해 전략 확률 샘플링(SSS)은 각 샘플링 단계에서 도입된 이산화 오류 및 추정 오류를 더욱 줄일 수 있다.\n' +
+      '\n' +
+      '구체적으로, SSS에서의 매 샘플링 단계는 ODE 솔버에 따른 _denoise sub-step_와 Langevin SDE에 기초한 _diffuse sub-step_를 포함한다. 종점 및 잡음 레벨이 고정된 다단계 일관성 샘플링과 비교하여, SSS는 디노이즈 단계에 대한 목적지 지점을 제어하기 위해 추가 파라미터 \\(\\gamma\\)를 도입하고 그림 1(b) 및 알고리즘 4에 상세히 설명된 바와 같이 확산 단계에 대한 랜덤 잡음 레벨의 조정을 허용한다. 이 파라미터를 _확률 파라미터_라고 한다.\n' +
+      '\n' +
+      '_denoising sub-step_에서 우리는 식 (11)의 \\(n\\)번째 단계에서 발생하는 오차를 \\(\\mathcal{O}(\\sqrt{\\tau_{n}-(1-\\gamma)\\tau_{(n+1)}}))\\(n\\in\\llbracket 1,N-1\\rrbracket\\)일 때 비원인의 예측으로 줄이고, 정리 4.2와 같이 누적오차를 최적화하는 것에 초점을 둔다.\n' +
+      '\n' +
+      '결론 4.2**: 알고리즘 4에 정의된 전략적 확률적 샘플링 과정으로서, 훈련된 궤적 일관성 모델 \\(\\mathbf{f_{\\theta^{*}}\\)을 갖는 \\(\\mathbff{q_{\\theta^{*},N}}=\\mathbf{f_{\\theta^{*},\\tau_{N}}\\texttt{N}(\\alpha_{\\tau_{N}\\tau_{(N-1)}\\tau_{N}\\tau_{I})을 갖는 SSS의 누적 오차는 다음과 같다.\n' +
+      '\n' +
+      '\\[TV(\\mathbf{q_{\\theta^{*},N}},p_{N})=\\mathcal{O}\\left(\\sum_{n=1}^{N-1}\\sqrt{\\tau_{n}-(1-\\gamma)\\tau_{n+1}}+\\sqrt{\\tau_{N}}\\right), \\tag{23}\\w}\n' +
+      '\n' +
+      '는 각 잡음 제거 단계에서 목적지를 제어하는 파라미터이다._gamma\\in[0,1]\\\n' +
+      '\n' +
+      '증거. : 증명은 부록 D.3에 제시되어 있다.\n' +
+      '\n' +
+      '_diffuse sub-step_에서 충분한 확률성은 초기 샘플링 단계에서 축적된 추정 오차와 이산화 모두를 감소시키고 샘플을 원하는 한계 분포로 유도하는 데 도움이 되지만, 유사한 결과가 또한 관찰된다(Karras et al., 2022; Xu et al., 2023b). SSS에서, 우리는 _diffuse sub-step_의 스텝 사이즈가 _the denoise sub-step_의 스텝 사이즈보다 작도록 장려하며, 이는 반대이다(Xu et al., 2023b). 또한 \\(\\gamma\\)이 낮을 때 추정오차가 더 중요한 역할을 한다는 점에 주목할 필요가 있다. 따라서 \\(\\gamma\\)의 최적값은 섹션 5.3에서 볼 수 있듯이 경험적으로 결정되어야 한다.\n' +
+      '\n' +
+      '그림 4: 질적 비교. 각 프롬프트에 대해, 이미지는 체리 피킹 없이 모든 모델에 대해 동일한 랜덤 시드를 사용하여 생성된다. 부록 E.3에 더 많은 결과가 나와 있다.\n' +
+      '\n' +
+      '그림 5: 동일한 NFE에 대한 확률적 매개변수 \\(\\gamma\\)의 정성적 효과. 샘플링 동안 동일한 프롬프트에서 다른 \\(\\gamma\\)을 적용한 이미지이다. 최좌측 이미지는 LCM(Luo et al., 2023b)으로부터 샘플링된다. 더 많은 샘플은 부록 E.2에서 찾을 수 있다.\n' +
+      '\n' +
+      '큰 텍스트 조건 모델에 대한### 확장\n' +
+      '\n' +
+      '조건부 모델들은 종종 그들의 조건부 모델들을 능가하고 더 넓은 범위의 사용 사례들을 나타낸다(Bao et al., 2022; Dhariwal and Nichol, 2021; Ho and Salimans, 2022). 특히, 텍스트 조건부 모델은 최근 주목할 만한 결과를 보여주면서 상당한 주목을 받고 있다(Nichol et al., 2022; Ramesh et al., 2022; Saharia et al., 2022; Podell et al., 2023). 궤적 일관성 함수는 텍스트와 같은 조건 정보를 수용하기 위해 추가 입력인 \\(\\mathbf{c}\\)을 도입함으로써 조건부 모델에 매끄럽게 통합될 수 있다. 이는 궤적 함수를 \\(\\mathbf{f}_{\\theta}(\\mathbf{x}_{t},\\mathbf{c},t,s)\\)로 변환하는 결과를 가져오며, 알고리즘 2에 자세히 설명된 바와 같이 Meng et al., 2023; Luo et al., 2023)이 제안한 유도 증류 방법을 직접 통합할 수 있다.\n' +
+      '\n' +
+      '트랙토리 일관성 증류는 미세 조정 프로세스로서 미리 훈련된 확산 모델의 매개변수 위에서 직접 발생할 수 있다. 메모리 소모가 현저히 감소된 더 큰 모델들(예를 들어, SDXL)로 TCD를 스케일링하기 위해, 우리는 파라미터-효율적인 미세-조정 방법인 Low-Rank Adaptation (LoRA)(Hu et al., 2021)을 증류 공정에 통합한다. 추가적으로, LoRA의 파라미터들은 추가적인 트레이닝의 필요 없이 동일한 베이스 모델을 공유하는 상이한 미세 조정 모델들 또는 LoRA들에 적용가능한 다용도 가속 모듈로서 식별될 수 있으며, 이는 (Luo et al., 2023)의 관찰들과 정렬된다.\n' +
+      '\n' +
+      '## 5 Experiments\n' +
+      '\n' +
+      '### Experimental Setup\n' +
+      '\n' +
+      '우리는 널리 알려진 확산 모델인 SDXL(Podell et al., 2023)을 우리의 백본으로 선택했다. 기본적으로 TCF(1)을 매개변수화로 사용하고 확률적 매개변수 \\(\\gamma\\)를 0.2로 설정하며, \\(\\gamma\\) 및 매개변수화 유형의 영향은 절제 연구에서 탐구되어야 한다. 자세한 구현 정보는 부록 C를 참조하시기 바랍니다.\n' +
+      '\n' +
+      '### Main Results\n' +
+      '\n' +
+      '본 논문에서 제안한 방법의 효용성과 우수성을 입증하기 위해, 오일러(Karras et al., 2022), DDIM(Song et al., 2020) 및 DPM-Solver++(2S)와 같은 효율적인 수치적 ODE 해결기(Lu et al., 2022) 및 관련 작업 LCM(Luo et al., 2023)을 기준점으로 하여 선행 연구와 정성적, 정량적 비교를 수행한다.\n' +
+      '\n' +
+      '정성적 결과.그림 4에서 알 수 있듯이, 이전의 효율적인 수치 방법은 4단계로 차선의 이미지를 생성하는 반면 LCM은 상대적으로 더 나은 이미지를 생성할 수 있다. 당사의 TCD는 시각적 품질을 더욱 향상시킵니다. 기능 평가 횟수(20단계)가 증가함에 따라 DDIM 또는 DPM-Solver++(2S)에 의해 생성된 샘플의 품질이 빠르게 향상된다. 그러나 LCM의 개선은 눈에 띄지 않아 다단계 샘플링의 누적 오류로 인해 더 부드럽고 상세한 이미지가 감소한다. 대조적으로, TCD는 이 결함을 해결하여 보다 자세한 내용을 생성합니다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c c|c c c c} \\hline \\hline \\multirow{2}{*}{METHOD} & \\multicolumn{5}{c|}{FID \\(\\downarrow\\)} & \\multicolumn{5}{c}{Image Complexity Score \\(\\uparrow\\)} \\\\ \\cline{2-9}  & 2 STEPS & 4 STEPS & 8 STEPS & 20 STEPS & 2 STEPS & 4 STEPS & 8 STEPS & 20 STEPS \\\\ \\hline Euler (Karras et al., 2022) & 104.73 & 44.31 & 18.20 & 14.72 & 0.4251 & 0.3639 & 0.4151 & 0.4489 \\\\ DDIM (Song et al., 2020) & 105.98 & 44.86 & 17.62 & 13.60 & 0.4456 & 0.3633 & 0.4148 & 0.4481 \\\\ DPM++(2S) (Lu et al., 2022) & 46.08 & 18.50 & **12.49** & **12.15** & 0.2876 & 0.4496 & 0.4788 & 0.4679 \\\\ LCM (Luo et al., 2023) & 16.15 & 15.03 & 16.93 & 18.13 & 0.4300 & 0.4364 & 0.4260 & 0.4057 \\\\ TCD (Ours) & **14.66** & **12.68** & 13.64 & 13.56 & **0.4701** & **0.5095** & **0.5336** & **0.5563** \\\\ \\hline \\hline \\multicolumn{9}{c}{ImageReward \\(\\uparrow\\)} & \\multicolumn{5}{c}{PickScore \\(\\uparrow\\)} \\\\ \\cline{2-9}  & 2 STEPS & 4 STEPS & 8 STEPS & 20 STEPS & 2 STEPS & 4 STEPS & 8 STEPS & 20 STEPS \\\\ \\hline Euler (Karras et al., 2022) & -227.77 & -189.41 & 12.59 & 65.05 & 16.75 & 18.71 & 21.32 & 22.21 \\\\ DDIM (Song et al., 2020) & -227.75 & -189.96 & 13.45 & 66.14 & 16.74 & 18.68 & 21.31 & 22.16 \\\\ DPM++(2S) (Lu et al., 2022) & -169.21 & -1.27 & 67.58 & **75.8** & 19.05 & 20.68 & 21.9 & 22.33 \\\\ LCM (Luo et al., 2023) & 18.78 & 52.72 & 55.16 & 49.32 & 21.49 & 22.2 & 22.32 & 22.25 \\\\ TCD (Ours) & **34.58** & **68.49** & **73.09** & 74.96 & **21.51** & **22.31** & **22.5** & **22.36** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\n' +
+      '* 최고 점수는 **볼드**로 강조되고, 준우승은 밑줄이 그어져 있습니다.\n' +
+      '\n' +
+      '\\end{table}\n' +
+      '표 1: COCO 유효성 검사 세트에 대한 정량적 비교.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c} \\hline \\hline Para Type & FID \\(\\downarrow\\) & IC Score \\(\\uparrow\\) & ImageReward \\(\\uparrow\\) & PickScore \\(\\uparrow\\) \\\\ \\hline TCF(1) & 12.68 & 0.5095 & 68.49 & 22.31 \\\\ TCF(2) & 13.35 & 0.5037 & 58.13 & 22.07 \\\\ TCF(S+) & 13.03 & 0.4176 & 57.96 & 22.01 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 2: TCF 매개변수화 유형에 대한 정량적 절제.\n' +
+      '\n' +
+      '그림 6: 다른 확률적 매개변수 \\(\\gamma\\)에 대한 정량적 절제.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:9]\n' +
+      '\n' +
+      '페이퍼컷 XL 2, Depth ControlNet 3, Canny ControlNet 4, IP-Adapter 5. 그림 7에 나타난 결과는 TCD를 다양한 모델에 직접 적용하여 2-8단계만으로 고화질로 영상 생성을 가속화할 수 있음을 의미한다. 추가 샘플은 부록 E.4에서 찾을 수 있다.\n' +
+      '\n' +
+      '각주 2: _Papercut_: [https://civitai.com/models/122567/papercut-sdxl](https://civitai.com/models/122567/papercut-sdxl)\n' +
+      '\n' +
+      '각주 3: _Depth ControlNet_: [https://huggingface.co/diffusers/controlnet-depth-sdxl-1.0](https://huggingface.co/diffusers/controlnet-depth-sdxl-1.0)\n' +
+      '\n' +
+      '각주 4: _Canny ControlNet_: [https://huggingface.co/diffusers/controlnet-canny-sdxl-1.0](https://huggingface.co/diffusers/controlnet-canny-sdxl-1.0)\n' +
+      '\n' +
+      '각주 5: _IP-Adapter_: [https://github.com/tencent-ailab/IP-Adapter](https://github.com/tencent-ailab/IP-Adapter)\n' +
+      '\n' +
+      '## 6 Conclusion\n' +
+      '\n' +
+      '이 작업에서는 훈련용 TCF와 샘플링용 SSS를 포함하여 일관성 모델에 존재하는 고유한 오류를 줄이는 새로운 증류 방법인 TCD를 소개한다. TCF는 증류 오류를 줄이고 모델이 PF ODE를 따라 궤적을 추적할 수 있도록 제안된다. 또한, 양방향 탐사에 의한 누적 오차를 줄이기 위해 SSS를 제안한다. 놀랍게도, TCD는 모든 샘플링 단계에서 LCM을 능가하고 교사 모델의 수치 방법에 비해 우수한 성능을 나타낸다. 우리는 TCD가 빠르고 고품질의 이미지 생성을 위한 새로운 관점을 제공할 수 있는 반면, TCD의 특정 캐릭터는 다운스트림 애플리케이션, 예를 들어 초해상도를 위한 향상된 세부 정보 및 편집을 위한 더 나은 중간 다양체에도 귀중한 통찰력을 제공할 수 있다고 믿는다.\n' +
+      '\n' +
+      '한계.우리의 실험에서, 우리는 고차 TCF의 불안정성과 TCF(S+)의 열악한 수렴을 관찰했다. 고차 함수 및 TCF(S+)의 안정성을 확인하기 위해서는 추가 분석이 필요하다. 또한 더 적은 단계 생성, 예를 들어 단일 단계를 달성하기 위해 개선된 설계를 조사할 가치가 있다.\n' +
+      '\n' +
+      '## Impact Statements\n' +
+      '\n' +
+      '샘플 품질과 속도의 발전은 추론 비용을 줄이는 데 도움이 될 수 있지만 허위 정보를 전파하는 것과 같은 부정적인 사회적 효과를 증폭시킬 가능성도 있다. 향후에는 오용 위험을 최소화하기 위해 적절한 가드레일과 탐지 기술을 구현하는 것이 권장된다.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* Agahanyan et al. (2020) Aghahanyan, A., Zettlemoyer, L., and Gupta, S. 내재적 차원성은 언어 모델 미세조정의 효과를 설명한다. _ arXiv preprint arXiv:2012.13255_, 2020.\n' +
+      '* Balaji et al. (2022) Balaji, Y., Nah, S., Huang, X., Vahdat, A., Song, J., Kreis, K., Aittala, M., Aila, T., Laine, S., Catanzaro, B., et al. ediff: Text-to-image diffusion models with ensemble of expert denoisers. _ arXiv preprint arXiv:2211.01324_, 2022.\n' +
+      '* Bao et al. (2022) Bao, F., Li, C., Sun, J., and Zhu, J. 왜 조건부 생성 모델이 무조건적인 모델보다 나은가? _ ARXiv 프리프린트 arXiv:2212.00362_, 2022.\n' +
+      '* Chen et al. (2020) Chen, N., Zhang, Y., Zen, H., Weiss, R. J., Norouzi, M., and Chan, W. Wavegrad: 파형 생성을 위한 기울기 추정 _ arXiv preprint arXiv:2009.00713_, 2020.\n' +
+      '* Chen et al. (2022) Chen, S., Chewi, S., Li, J., Li, Y., Salim, A., and Zhang, A. R. Sampling is easy to learning the score: theory for diffusion models with minimal data assumption. _ ArXiv:2209.11215_, 2022.\n' +
+      '* De Bortoli et al. (2021) De Bortoli, V., Thornton, J., Heng, J., and Doucet, A. Diffusion schrodinger bridge with applications to score-based generative modeling. _ 신경 정보 처리 시스템_, 34:17695-17709, 2021에서의 발전.\n' +
+      '* Dhariwal and Nichol(2021) Dhariwal, P. and Nichol, A. Diffusion model beat gans on image synthesis. _ 신경 정보 처리 시스템_, 34:8780-8794, 2021의 발전.\n' +
+      '* Dieleman(2022) Dieleman, S. Guidance: a cheat code for diffusion models, 2022. URL[https://benanne.github.io/2022/05/26/guidance.html](https://benanne.github.io/2022/05/26/guidance.html).\n' +
+      '* Feng et al. (2022) Feng, T., Zhai, Y., Yang, J., Liang, J., Fan, D.-P., Zhang, J., Shao, L., and Tao, D. Ic9600: Automatic image complexity assessment를 위한 벤치마크 데이터셋. _ IEEE Transactions on Pattern Analysis and Machine Intelligence_, 2022.\n' +
+      '* Guo et al. (2023) Guo, Y., Yang, C., Rao, A., Wang, Y., Qiao, Y., Lin, D., and Dai, B. Animatediff: Animate your personalized text-to-image diffusion models without specific tuning. _ arXiv preprint arXiv:2307.04725_, 2023.\n' +
+      '* Ho & Salimans(2022) Ho, J. and Salimans, T. 분류자가 없는 확산 안내. _ ArXiv:2207.12598_, 2022.\n' +
+      '* Ho et al. (2020) Ho, J., Jain, A., and Abbeel, P. Denoising diffusion probability models. _ 신경 정보 처리 시스템_, 33:6840-6851, 2020에서의 발전.\n' +
+      '* Houlsby et al. (2019) Houlsby, N., Giurgiu, A., Jastrzebski, S., Morrone, B., De Laroussilhe, Q., Gesmundo, A., Attariyan, M., and Gelly, S. nlp를 위한 파라미터 효율적인 전이 학습. In _International Conference on Machine Learning_, pp. 2790-2799. PMLR, 2019.\n' +
+      '* Hu et al. (2021) Hu, E. J., Shen, Y., Wallis, P., Allen-Zhu, Z., Li, Y., Wang, S., Wang, L., and Chen, W. Lora: 대형 언어 모델의 낮은 랭크 적응. _ arXiv preprint arXiv:2106.09685_, 2021.\n' +
+      '\n' +
+      'Hyvarinen, A., Hurri, J., Hoyer, P. O., Hyvarinen, A., Hurri, J., and Hoyer, P. O. Estimation of nonnormalized statistical models. _ Natural Image Statistics: A Probabilistic Approach to Early Computational Vision_, pp. 419-426, 2009.\n' +
+      '* Jolicoeur-Martineau et al. (2021) Jolicoeur-Martineau, A., Li, K., Piche-Taillefer, R., Kachman, T., and Mitliagkas, I. 점수 기반 모델로 데이터를 생성할 때 빨리 가야 한다. _ arXiv preprint arXiv:2105.14080_, 2021.\n' +
+      '* Karras et al. (2022) Karras, T., Aittala, M., Aila, T., and Laine, S. 확산 기반 생성 모델의 설계 공간을 명시합니다. _ 신경 정보 처리 시스템_, 35:26565-26577, 2022에서의 발전.\n' +
+      '* Kim et al. (2023) Kim, D., Lai, C.-H., Liao, W. -H., Murata, N., Takida, Y., Uesaka, T., He, Y., Mitsufuji, Y., and Ermon, S. 일관성 궤적 모델: 확률 흐름을 확산의 궤도로 학습 arXiv preprint arXiv:2310.02279_, 2023.\n' +
+      '* Kirstain et al. (2023) Kirstain, Y., Polyak, A., Singer, U., Matiana, S., Penna, J., and Levy, O. Pick-a-pic: 텍스트 대 이미지 생성을 위한 사용자 선호도의 열린 데이터세트. _ arXiv preprint arXiv:2305.01569_, 2023.\n' +
+      '* Kong & Ping(2021) Kong, Z. 및 핑, W. 확산 확률 모델의 빠른 샘플링에서 _ arXiv preprint arXiv:2106.00132_, 2021.\n' +
+      '* Kong et al. (2020) Kong, Z., Ping, W., Huang, J., Zhao, K., and Catanzaro, B. Diffwave: A versatile diffusion model for audio synthesis. _ arXiv preprint arXiv:2009.09761_, 2020.\n' +
+      '* Lee et al. (2023) Lee, H., Lu, J., and Tan, Y. 일반 데이터 분포에 대한 점수 기반 생성 모델링의 수렴. In _International Conference on Algorithmic Learning Theory_, pp. 946-985. PMLR, 2023.\n' +
+      '* Li 등(2023) Li, Y., Qian, Z., and van der Schaar, M. 확산 모델은 오류 전파를 겪나요? 이론적 분석과 일관성 규칙화. _ arXiv preprint arXiv:2308.05021_, 2023.\n' +
+      '* Lu et al. (2022a) Lu, C., Zhou, Y., Bao, F., Chen, J., Li, C., and Zhu, J. Dpm-solver: 약 10단계에서의 확산 확률 모델 샘플링을 위한 빠른 송가 솔버 _ 신경 정보 처리 시스템_, 35:5775-5787, 2022a에서의 발전.\n' +
+      '* Lu et al. (2022b) Lu, C., Zhou, Y., Bao, F., Chen, J., Li, C., and Zhu, J. Dpm-solver++: Fast Solver for guided sampling of diffusion probability models. _ arXiv preprint arXiv:2211.01095_, 2022b.\n' +
+      '* Luhman & Luhman (2021) Luhman, E. and Luhman, T. 샘플링 속도 향상을 위한 반복 생성 모델에서의 지식 증류 _ arXiv preprint arXiv:2101.02388_, 2021.\n' +
+      '* Luo et al. (2023a) Luo, S., Tan, Y., Huang, L., Li, J., and Zhao, H. Latent consistency models: Synthesizing high resolution images with few-step inference. _ arXiv preprint arXiv:2310.04378_, 2023a.\n' +
+      '* Luo et al. (2023b) Luo, S., Tan, Y., Patil, S., Gu, D., von Platen, P., Passos, A., Huang, L., Li, J., and Zhao, H. Lcm-lora: universal stable-diffusion acceleration module. _ arXiv preprint arXiv:2311.05556_, 2023b.\n' +
+      '* Lyu et al. (2023) Lyu, J., Chen, Z., and Feng, S. 일관성 모델에 대한 수렴 보장. _ arXiv preprint arXiv:2308.11449_, 2023.\n' +
+      '* Meng et al. (2023) Meng, C., Rombach, R., Gao, R., Kingma, D., Ermon, S., Ho, J., and Salimans, T. 유도 확산 모델의 증류에서. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pp. 14297-14306, 2023.\n' +
+      '*Nichol et al. (2022) Nichol, A. Q., Dhariwal, P., Ramesh, A., Shyam, P., Mishkin, P., Mcgrew, B., Sutskever, I., and Chen, M. 글라이드: 텍스트 유도 확산 모델을 사용하여 실제 이미지 생성 및 편집을 진행합니다. In _International Conference on Machine Learning_, pp. 16784-16804. PMLR, 2022.\n' +
+      '* Podell et al. (2023) Podell, D., English, Z., Lacey, K., Blattmann, A., Dockhorn, T., Muller, J., Penna, J., and Rombach, R. Sdxl: 고해상도 영상 합성을 위한 잠재 확산 모델 개선. _ arXiv preprint arXiv:2307.01952_, 2023.\n' +
+      '*Popov et al. (2021) Popov, V., Vovk, I., Gogoryan, V., Sadekova, T., and Kudinov, M. Grad-tts: 텍스트 투 스피치를 위한 확산 확률 모델. In _International Conference on Machine Learning_, pp. 8599-8608. PMLR, 2021.\n' +
+      '* Prasad(1990) Prasad, D. 수치해석에 대한 소개. _ Mathematics and Computers in Simulation_, pp. 319, May 1990. doi: 10.1016/0378-4754(90)90206-x. URL[http://dx.doi.org/10.1016/0378-4754](http://dx.doi.org/10.1016/0378-4754)(90)90206-x.\n' +
+      '* Ramesh et al. (2022) Ramesh, A., Dhariwal, P., Nichol, A., Chu, C., and Chen, M. 클립 래턴트를 사용한 계층적 텍스트 조건 이미지 생성. _ arXiv preprint arXiv:2204.06125_, 1(2):3, 2022.\n' +
+      '* Rombach et al. (2022) Rombach, R., Blattmann, A., Lorenz, D., Esser, P., and Ommer, B. High-resolution image synthesis with latent diffusion models. In _Proceedings of the IEEE/CVF conference on computer vision and pattern recognition_, pp. 10684-10695, 2022.\n' +
+      '* Saharia et al. (2022) Saharia, C., Chan, W., Saxena, S., Li, L., Whang, J., Denton, E. L., Ghasemipour, K., Gontijo Lopes, R., Karagol Ayan, B., Salimans, T., et al. Photorealistic text-to-image diffusion models with deep language understanding. _ 신경 정보 처리 시스템_, 35:36479-36494, 2022에서의 발전.\n' +
+      '\n' +
+      '*Salimans & Ho(2022) Salimans, T. and Ho, J. Progressive distillation for fast sampling of diffusion models. _ arXiv preprint arXiv:2202.00512_, 2022.\n' +
+      '* Sauer et al.(2023) Sauer, A., Lorenz, D., Blattmann, A., and Rombach, R. 적대적 확산 증류. _ arXiv preprint arXiv:2311.17042_, 2023.\n' +
+      '* Schuhmann(2022) Schuhmann, C. Clip+mlp 심미 점수 예측기. [https://github.com/christophschuhmann/ improved-aesthetic-predictor] (https://github.com/christophschuhmann/ improved-aesthetic-predictor), 2022.\n' +
+      '* Schuhmann et al. (2022) Schuhmann, C., Beaumont, R., Vencu, R., Gordon, C., Wightman, R., Cherti, M., Coombes, T., Katta, A., Mullis, C., Wortsman, M., et al. Laion-5b: 차세대 이미지-텍스트 모델을 훈련시키기 위한 개방형 대규모 데이터세트. _ 신경 정보 처리 시스템_, 35:25278-25294, 2022에서의 발전.\n' +
+      '* Sohl-Dickstein et al. (2015) Sohl-Dickstein, J., Weiss, E., Maheswaranathan, N., and Ganguli, S. 평형 열역학을 이용한 심층 비지도 학습 In _International conference on machine learning_, pp. 2256-2265. PMLR, 2015.\n' +
+      '* Song et al. (2020a) Song, J., Meng, C., and Ermon, S. 확산 암시적 모델의 잡음 제거 _International Conference on Learning Representations_, 2020a.\n' +
+      '*Song & Ermon(2019) Song, Y. 및 Ermon, S. 데이터 분포의 기울기를 추정하여 생성 모델링. _ 신경 정보 처리 시스템_, 32, 2019의 발전.\n' +
+      '* Song et al. (2020b) Song, Y., Sohl-Dickstein, J., Kingma, D. P., Kumar, A., Ermon, S., and Poole, B. Score-based generative modeling through stochastic differential equations. _ arXiv preprint arXiv:2011.13456_, 2020b.\n' +
+      '* Song et al. (2023) Song, Y., Dhariwal, P., Chen, M., and Sutskever, I. Consistency models. _ arXiv preprint arXiv:2303.01469_, 2023.\n' +
+      '* Wu et al. (2023) Wu, J. Z., Ge, Y., Wang, X., Lei, S. W., Gu, Y., Shi, Y., Hsu, W., Shan, Y., Qie, X., and Shou, M. Z. Tune-a-video: One-shot tuning of image diffusion models for text-to-video generation. In _Proceedings of the IEEE/CVF International Conference on Computer Vision_, pp. 7623-7633, 2023.\n' +
+      '*Xu et al. (2023a) Xu, J., Liu, X., Wu, Y., Tong, Y., Li, Q., Ding, M., Tang, J., and Dong, Y. Imagenreward: 텍스트 대 이미지 생성에 대한 인간의 선호도를 학습하고 평가한다. _ arXiv preprint arXiv:2304.05977_, 2023a.\n' +
+      '* Xu et al.(2023b) Xu, Y., Deng, M., Cheng, X., Tian, Y., Liu, Z., and Jaakkola, T. 생성 프로세스 개선을 위해 샘플링을 다시 시작합니다. _ arXiv preprint arXiv:2306.14878_, 2023b.\n' +
+      '* Yin et al. (2023) Yin, T., Gharbi, M., Zhang, R., Shechtman, E., Durand, F., Freeman, W. T., and Park, T. 분산정합증류를 이용한 1단계 확산 arXiv preprint arXiv:2311.18828_, 2023.\n' +
+      '* Zhang & Chen(2022) Zhang, Q. 및 천영 지수 적분기를 사용한 확산 모델의 빠른 샘플링 ArXiv:2204.13902_, 2022.\n' +
+      '\n' +
+      '관련 작업\n' +
+      '\n' +
+      '확산 모델.점수 기반 생성 모델이라고도 하는 확산 모델(DM)은 다양한 생성 분야에서 우수한 성능을 보여주었다. Chen et al.(2022)은 이론적 수렴 보장을 제공하며, 이는 DM이 최소한의 데이터 가정 하에서 본질적으로 어떠한 현실적인 데이터 분포로부터 효율적으로 샘플링할 수 있음을 의미한다. ADM(Dhariwal and Nichol, 2021)은 먼저 DM이 GAN을 능가할 가능성을 보여준다. EDM(Karras et al., 2022)은 GM의 설계 공간을 추가로 설명하고, 구체적인 설계 선택을 명확하게 분리하고, 샘플링 프로세스에 대한 모범 사례를 도출하고, 훈련 역학을 개선하여 결과를 획기적으로 개선한다.\n' +
+      '\n' +
+      '텍스트-조건부 확산 모델.DM은 텍스트-투-이미지 합성 영역에서 특별히 큰 성공을 달성하였다(Nichol et al., 2022; Ramesh et al., 2022; Rombach et al., 2022; Saharia et al., 2022; Balaji et al., 2022; Podell et al., 2023). 계산 비용을 감소시키기 위해, 확산 모델들은 전형적으로 잠재 공간 내에서 작동한다(Rombach et al., 2022; Podell et al., 2023). 또는 별도의 초-해상도 단계들을 포함한다(Ramesh et al., 2022; Saharia et al., 2022; Balaji et al., 2022). 샘플링 과정에서 분류기 없는 확산 유도(Ho and Salimans, 2022; Dieleman, 2022)의 통합은 조건부 확산 모델에 의해 생성된 샘플을 거의 추가 비용 없이 극적으로 개선한다.\n' +
+      '\n' +
+      'DM의 빠른 샘플링.DM은 큰 생성 능력을 나타내지만 느린 샘플링 속도에 의해 병목 현상이 발생한다. DM 샘플링 가속화를 위해 DM의 기초가 되는 SDE 수학적 기반에 의해 구동되는 다양한 수치 방법이 제시되었다. DDIM(Song et al., 2020)은 원래 몇 단계 샘플링에 대한 가능성을 보여주었다. 다른 작업은 예측자-보정자 샘플러(Song et al., 2020; Karras et al., 2022), 지수 적분기(Lu et al., 2022; Zhang and Chen, 2022; Lu et al., 2022) 및 솔버를 조정하기 위한 자동화된 방법(Kong and Ping, 2021; Jolicoeur-Martineau et al., 2021)을 포함한다. 이러한 방법들이 빠른 샘플링에서 큰 개선을 달성했음에도 불구하고, 이들은 모든 솔버들에 존재하는 고유한 이산화 에러에 의해 제한된다(De Bortoli et al., 2021). 궁극적으로 NFE가 거의 없는 샘플 품질은 제한적이다. 증류 기술에 의해 예시되는 또 다른 일련의 연구 작업들(Luhman and Luhman, 2021; Salimans and Ho, 2022; Meng et al., 2023). 이러한 방법은 사전 훈련된 모델에서 소수의 샘플러로 지식을 증류하여 소수의 NFE에 대한 효율적인 솔루션을 나타낸다. 그러나, 그들은 엄청난 양의 데이터를 필요로 하고 느린 수렴을 겪는 길고 비용이 많이 드는 프로세스를 경험할 수 있다.\n' +
+      '\n' +
+      '일관성 모델.현재 고속 샘플러의 한계를 극복하기 위해 Song et al. (2023)은 PF ODE의 궤적 상단에 구축된 데이터에 대해 잡음으로부터 직접 매핑을 학습하는 일관성 모델(Consistency Models: CM)을 제안하여, 품질을 위해 다중 단계 샘플링을 거래할 수 있도록 하면서 1단계 생성을 달성한다. Lyu et al.(2023)은 적당한 가정 하에서 CM에 대한 첫 번째 수렴 보증을 제공한다. Kim et al.(2023)은 CM들 및 DM들에 대한 보편적인 프레임워크를 제안한다. 핵심 설계는 CM에서 오류를 줄이고 매개변수화를 위해 PF ODE의 반선형 구조를 미묘하게 활용하며 적대적 훈련의 필요성을 피하는 것이 주요 차이점으로 우리와 유사하다. 잠재 일관성 모델(LCMs)(Luo et al., 2023)은 일관성 증류를 잠재 확산 모델(Rombach et al., 2022)과 통합하여 텍스트-이미지 합성을 가속화하는 데 인상적인 성능을 달성한다. LCM-LoRA(Luo et al., 2023)는 LoRA(Hu et al., 2021)를 증류 공정에 도입함으로써 LCM의 훈련 효율 및 범용성을 더욱 향상시킨다. 그러나 다단계 일관성 샘플링의 고유한 누적 오류로 인해 LCM은 높은 NFE에서 품질의 현저한 감소를 경험한다. 대조적으로, 우리의 TCD는 궤적 일관성과 이중 형용사 횡단을 활용하여 이 결함을 제거한다.\n' +
+      '\n' +
+      '매개변수 효율적인 미세 조정.확산 모델을 훈련하는 것은 자원 집약적이며 환경 친화적이지 않다. 이러한 모델을 미세 조정하는 것은 또한 관련된 방대한 수의 파라미터로 인해 어려울 수 있다(Aghajanyan et al., 2020). 따라서, 훈련에 필요한 제한된 수의 파라미터로 미리 훈련된 모델의 미세 조정을 가능하게 하기 위해 PEFT(Parameter-Efficient Fine-Tuning)(Houlsby et al., 2019)가 제안되었다. 이러한 기법들 중 Low-Rank Adaptation (LoRA)(Hu et al., 2021)은 초월적 성능을 입증하였다. LoRA의 전략은 미리 훈련된 모델 가중치를 동결하고 훈련 가능한 순위 분해 매트릭스를 주입하는 것을 포함하며, 이는 미세 조정을 위한 모델 가중치의 필요한 조정을 간결하게 나타낸다. 이 전략을 통해 LoRA는 수정해야 할 매개변수의 부피를 크게 감소시켜 계산 부하 및 저장 요구량을 모두 실질적으로 감소시킨다.\n' +
+      '\n' +
+      '## 부록 B 알고리즘 세부사항\n' +
+      '\n' +
+      '궤적 일관성 증류에 관한### 알고리즘 세부사항\n' +
+      '\n' +
+      '공간적 제약으로 인해 본체에서 일부 구현 세부 사항을 생략했지만 알고리즘 1로 훈련 중 궤적 일관성 증류에 대한 세부 알고리즘과 알고리즘 2로 조건부 모델에 대한 안내 버전을 제공했다.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:14]\n' +
+      '\n' +
+      '## 부록 C 구현 상세\n' +
+      '\n' +
+      '### Dataset\n' +
+      '\n' +
+      '우리는 LAION5B High-Res 데이터셋(Schuhmann et al., 2022)에 TCD를 학습시켰다. 미학적 점수(슈만, 2022)가 5.8 미만인 이미지를 필터링하였다. 학습을 위해, 모든 이미지는 초기에 더 짧은 변에 의해 1024 픽셀로 크기가 조정되었고, 그 후 무작위로 \\(1024\\times 1024\\)의 치수로 크롭되었다.\n' +
+      '\n' +
+      '### Hyper-parameters\n' +
+      '\n' +
+      '실험에서는 \\(\\beta_{1}=0.9,\\beta_{2}=0.999\\) 및 0.01의 무게감소를 갖는 AdamW 최적화기를 사용하였다. TCF(2) 파라미터화를 위해 식 (18)의 itemidinate timestep \\(u\\)을 \\(u:=t_{\\lambda}(\\lambda_{s}+\\lambda_{t})\\으로 설정하였으며, 여기서 \\(t_{\\lambda}\\)은 \\(\\lambda_{t}\\의 역함수이다. TCF(S+) 파라미터화를 위해 종료 시간\\(s\\)을 TCD 모델로 인코딩하기 위해 (Ho et al., 2020)의 구현과 일치하는 정현파 타임스텝 임베딩을 생성한다. 그 후, 원래의 안정 확산 모델(Rombach et al., 2022)에서의 접근 방식에 따라 시작 시간\\(t\\)-embedding에 projection \\(s\\)-embedding을 추가하여 간단한 MLP로 TCD 백본에 통합한다. ODE solver로 DDIM(Song et al., 2020)을 선택하고 식 (21)에서 생략 단계 \\(k=20\\)을 설정한다. 훈련 시, 우리는 교사 확산 모델과 동일한 파라미터로 궤적 일관성 함수를 초기화한다. 유도증류를 위한 유도척도(Meng et al., 2023)는 \\([2,14]\\)로 설정하였다. 우리는 EDM의 스킵 스케일과 출력 스케일이 어떤 이점도 제공하지 않는다는 것을 발견했기 때문에 사용하지 않았다. TCF(1)과 TCF(2)의 경우 배치크기는 256, 학습률은 4.5e-6, LoRA 순위는 64로 설정하였으며 TCF(1)과 TCF(2)는 EMA를 사용하지 않았다. TCF(S+)의 경우 배치 크기는 192, 학습률은 4.0e-6으로 설정하였으며, TCF(S+)에 대해서는 LoRA를 사용하지 않고 U-Net을 직접 미세 조정하였으며, EMA 붕괴율은 0.95로 설정하였다.\n' +
+      '\n' +
+      '### 하드웨어 및 효율성\n' +
+      '\n' +
+      '우리의 모든 모델은 8 80G A800 유닛을 사용하여 훈련되었습니다. TCF(1)은 15시간이 소요되어 3000회 반복 훈련되어 높은 훈련 효율을 보였다. TCF(2)는 훈련 중 TCF(1)와 동일한 매개변수화 방법을 사용했다. TCF(S+)는 5일 20시간에 걸쳐 43,000번의 반복으로 훈련되었다. TPF(S+)의 낮은 수렴 속도는 추가 매개변수의 도입으로 인해 교사 정보의 증류 효율이 낮기 때문일 수 있다. 우리는 TCF(S+)의 효율성을 높이기 위한 개선된 설계의 탐색을 향후 작업으로 연기한다. 그림 1의 추론 시간은 A800에서 테스트되었으며 평균 16개의 프롬프트에 대해 테스트되었다.\n' +
+      '\n' +
+      '## 부록 D 증명\n' +
+      '\n' +
+      '### 관상동맥 3.1의 증명\n' +
+      '\n' +
+      '결과 3.1을 증명하기 전에 데이터 분포 \\(p_{\\mathrm{data}}\\)(Lee et al., 2023; Chen et al., 2022):\n' +
+      '\n' +
+      '추정 D.1**.: 데이터 분포는 유한한 두 번째 모멘트, 즉 \\(\\mathbb{E}_{\\mathbf{x}_{0}\\sim p_{\\mathrm{data}}[\\|\\mathbf{x}_{0}\\|_{2}^{2}]=m_{2}^{2}<\\infty\\).\n' +
+      '\n' +
+      '추정 D.2**.: 점수 함수 \\(\\nabla\\log p_{t}(\\mathbf{x})\\)는 Lipschitz 상수 \\(L_{s}\\geq 1\\), \\(\\forall t\\in[0,T]\\)을 갖는 변수 \\(\\mathbf{x}\\)에 대한 Lipschitz이다.\n' +
+      '\n' +
+      '우리는 스코어 추정 오차 및 일관성 오차에 대한 경계를 추가로 가정한다(Song et al., 2023; Lyu et al., 2023):\n' +
+      '\n' +
+      '추정 D.3**. : \\(\\mathbb{E}_{\\mathbf{x}_{t_{n}}\\sim p_{t_{n}}[\\|\\mathbf{s}_{\\mathbf{\\phi}(\\mathbf{x}_{t_{n}},t_{n})-\\nabla\\log p_{t_{n}(\\mathbf{x}_{t_{n}}}(\\mathbf{x}_{t_{n}}}}]\\leq\\varepsilon_{ \\mathrm{sc}}^{2},\\forall n\\in[\\![1,N]\\!]]\n' +
+      '\n' +
+      '추정 D.4**.: 추정치 \\(\\mathbbb{E}_{\\mathbf{x}_{t_{n}}\\sim p_{t_{n}}[\\|\\mathbf{f}_{\\mathbf{\\theta}(\\mathbf{x}_{t_{n+1}},t_{n+1})-\\mathbf{f}_{\\mathbf{\\theta}(\\mathbf{\\hat{x}_{t_{n}}^{\\mathbf{\\phi}},t_{n}}\\leq\\varepsilon_{\\mathrm}}^{2}(t_{n+1,N-1]\\!]\n' +
+      '\n' +
+      '추정 D.5**.: 일관성 모델 \\(\\mathbf{f}_{\\mathbf{\\theta}(\\mathbf{x},t_{n})\\)은 Lipschitz 상수 \\(L_{f}>1,\\\\forall n\\in[\\![1,N]\\!]\\을 갖는 변수 \\(\\mathbf{x}\\)에 대한 Lipschitz이다.\n' +
+      '\n' +
+      '우리는 또한 이산 스케줄을 가정하기 위해 (Lyu et al., 2023)을 따른다:\n' +
+      '\n' +
+      '**추정 D.6**.: 이산화 스케쥴 \\(0<\\delta=t_{1}<t_{2}<\\cdots<t_{N}=T\\), \\(h_{k}=t_{k+1}-t_{k}\\)을 식 (3)으로 나누어 두 단계로 구분한다:\n' +
+      '\n' +
+      '1. 모든 \\(k\\in[\\\\])에 대한 \\(h_{k}\\equiv h\\) [N_{1},N-1]\\!]\\), 및 \\((N-N_{1}-1)h<T\\leq(N-N_{1})h\\);\n' +
+      '2. \\(k\\in[\\!])에 대한 \\(h_{k}=2^{-(N_{1}-k)}h=\\frac{h_{k+1}}{2}\\! [1,N_{1}-1]\\!]\\), \\(N_{1}\\)은 \\(h_{2}=2^{-(N_{1}-2)}h\\leq 2\\delta\\)를 만족한다.\n' +
+      '\n' +
+      '그런 다음 몇 가지 속성과 차용된 정보(Lyu et al., 2023)를 소개하며, 이는 TV 오류가 적은 시간 OU 규칙화 후에 제한될 수 있음을 보여준다.\n' +
+      '\n' +
+      '포워드 OU 프로세스는 다음과 같이 정의될 수 있다:\n' +
+      '\n' +
+      '\\[\\mathrm{d}\\mathbf{x}_{t}=-\\mathbf{x}_{t}\\mathrm{d}t+\\sqrt{2}\\mathrm{d}\\mathbf{w}_{t}, \\tag{26}\\]\n' +
+      '\n' +
+      '그리고 식 (26)에 의해 정의될 마코프 커널 \\(P^{s}_{\\text{OU}\\)을 나타낸다. 즉, 어떤 \\(p\\)에 대한 \\(\\mathbb{R}^{d}\\)에 대한 분포인 경우, \\(\\mathbf{x}_{t+s}\\sim pP^{s}_{\\text{OU}\\)이다.\n' +
+      '\n' +
+      '가정 D.1-D.6 하에서, \\(T>L_{s}^{-1}\\)일 때, 원-스텝 생성 에러는 다음과 같이 바운딩된다:\n' +
+      '\n' +
+      '\\mathbf{f}_{\\mathbf{\\theta},T}\\sharp\\mathcal{N}(\\mathbf{0},\\mathbf{I}_{d}),p_{\\text{data})\\lesssim(d^{\\frac{1}{2}}\\lor m_{2})L_{f}e^{-T}+T(\\varepsilon_{\\text{cm}+L_{f}\\varepsilon_{\\text{sc}+L_{f}L_{s}^{\\frac{3}{2}h)+(d^{\\frac{1}{2}}\\delta^{2}}}.\\tag{27}\\text{2}}\\text{l}\\text{2}}\\text{l}\\text{2}}\\text{l}e^{-T}+T(\\varepsilon_{\\text{cm}+L_{f}L_{s}^{\\frac{3}}h)+(d^{\\\n' +
+      '\n' +
+      '**Lemma D.7**.: _임의의 두 분포 \\(p\\) 및 \\(q\\)에 대해, 시간 \\(\\tau>0\\)에 개별적으로 \\(p,q\\)에 대해 식 (26)의 OU 프로세스를 실행하는, 다음의 TV 거리 경계가 성립하고,_\n' +
+      '\n' +
+      '\\[\\text{TV}(pP^{\\tau}_{\\text{OU}},qP^{\\tau}_{\\text{OU}})\\lesssim\\frac{1}{\\sqrt{ \\tau}}W_{1}(p,q)\\leq\\frac{1}{\\sqrt{\\tau}}W_{2}(p,q)\\]\n' +
+      '\n' +
+      '증명: 정규분포에 대한 밀도함수로서 Denote \\(\\psi_{\\sigma^{2}}(\\mathbf{y})\\(\\mathcal{N}(\\mathbf{0},\\sigma^{2}\\mathbf{I}_{d})\\). 우리는 \\(text{TV}(pP^{\\tau}_{\\text{OU}},qP^{\\tau}_{\\text{OU}})\\)를 적분 형태로 다음과 같이 쓴다.\n' +
+      '\n' +
+      '\\mathbf{y}-\\int_{\\text{bb{R}^{d}}\\mathbf{z}(\\mathbf{d})\\psi_{1-e^{-2\\tau}(\\mathbf{z})\\psi_{1-e^{-2\\tau}(\\mathbbb{R}^{d}}p(\\mathbf{d}}|(pP^{\\tau}_{\\text{OU}},\\mathbf{x}}}\n' +
+      '\n' +
+      '커플링 \\(\\gamma\\in\\Gamma(p,q)\\)을 취한 다음\n' +
+      '\n' +
+      '\\mathbf{z}\\gamma(\\mathbf{y},\\mathbf{z})\\mathrm{d}\\mathbf{z}=p(\\mathbf{y}),\\]\\[\\int_{\\mathbbb{R}^{d}}\\gamma(\\mathbf{y},\\mathbf{z}\\mathrm{d}\\mathbf{y}=q(\\mathbf{z}), \\tag{29}\\tag{29}\\mathbf{z}\n' +
+      '\n' +
+      'we have\n' +
+      '\n' +
+      '[\\text{TV}(pP^{\\tau}_{\\text{OU},qP^{\\tau}_{\\text{OU}}}\\mathbf{z}\\frac{1}\\int_{\\times d}}\\gamma(\\mathbf{y}}(\\mathbf{x}-e^{-2\\tau}}\\mathbf{z}}[\\mathbf{x}-e^{-2\\tau}}(\\mathbf{x}\\mathbf{z}}}\\frac{1}\\int_{\\tau}\\mathbf{z}\\tau}(\\mathbf{x}-e^{-2\\tau}} bf{z}\\mathbf{z}[=\\int_{\\tau}\\mathbbb{R}^{d}\\times d}(\\psi_{1}e^{-2\\tau}}(\\mathbf{z})\\text{TV}(\\psi_{1}e^{-2\\tau}}(\\mathbf}\\mathbf{z}}(\\mathbf{x}-e^{-2\\tau}})\\mathm\n' +
+      '\n' +
+      '[\\\\(\\frac{1}{2\\sqrt{e^{2\\tau}-1}}\\leq\\frac{1}{2\\sqrt{2\\tau}}\\), 그리고 \\(\\gamma\\\\(\\gamma\\)을 모든 커플링 \\(\\gamma(p,q)\\)에 걸쳐 가지고 있다.\n' +
+      '\n' +
+      '일단계 정합도 샘플링 결과 또는 \\(k)번째 다중단계 정합도 샘플링 결과 중 어느 하나를 정합도 모델의 출력으로 한다. TV의 오류를 제어하기 위해, 초기 정지 시간과 동일한 작은 시간(\\delta\\)으로 순방향 OU 프로세스로 생성된 샘플을 평활하고, 이어서 \\(q_{k}P_{\\text{OU}}^{\\delta}\\)와 \\(p_{\\text{data}}\\) 사이의 TV 거리를 구할 수 있다.\n' +
+      '\n' +
+      '**Corollary 3.1**의 증명: 삼각 부등식, Lemma D.7 및 식 (27)에 따르면,\n' +
+      '\n' +
+      '\\leq\\text{TV}(q_{1}P_{\\text{OU}}^{\\delta},p_{\\delta}P_{\\text{OU}}^{\\delta})+\\text{TV}(\\varepsilon_{\\text{sc}+L_{f}L_{s}^{{t}{2}}d^{\\frac}}{t}(q_{1},p_{\\text{data})}\\text{TV}(d_{31}\\text{rt}{2}}}\\text{t}{t}{h}}\\text{TV}(\\varepsilon_{\\text{sc}}+L_{f}L_{s}}\\text{TV}(d_{1}{\\sqrt{\\delta},p_{\\text{data}})}\\text{TV}(d_{1}{\\sqrt{\\delta}}\n' +
+      '\n' +
+      '우리가 \\(\\delta\\asymp\\frac{\\varepsilon^{2}}{L_{s}^{2}(d\\lor m_{2}^{2}})}을 취하면, Lemma 6.4, (Lee et al., 2023), \\(\\text{TV}(p_{2\\delta},p_{\\text{data}})\\leq\\varepsilon\\)에 의해 결론지어진다.\n' +
+      '\n' +
+      '\\lesssim\\frac{L_{s}(q_{1}P_{\\text{OU}}^{\\delta},p_{\\text{data})}{\\varepsilon}[(\\log L_{f}+\\frac{T}{2^{k}})(\\varepsilon_{text{cm}+L_{f}L_{s}^{\\frac{3}{2}}d^{\\frac{1}{2}}}}^{t}]+\\varepsilon.\\frac{(d^{\\frac{1}{2}}}}}}{k}e^{t}}}{varepsilon}[(\\log L_{f}+\\frac{T}{k}}}}{k}}}}{k}}}{varepsilon}[(\\log L_{f}+L_{f}L_{s}^{sc}+L_{f}L_{s}^{\\frac{3}{2}}\n' +
+      '\n' +
+      '\\(q_{k}\\)에 대해서도 마찬가지로 \\(\\delta\\asymp\\frac{\\varepsilon^{2}}{L_{s}^{2}(d\\lor m_{2}^{2}}}\\)을 취하면\n' +
+      '\n' +
+      '\\text{TV}(q_{k}P_{\\text{OU}}^{\\delta},p_{\\delta}P_{\\text{OU}}^{delta})+\\text{TV}(p_{delta}P_{\\text{OU}}^{\\delta},p_{f}L_{2}}d^{\\frac{1}{2}}}d^{k}}]+\\varepsilon[(\\log L_{f}+L_{f}L_{f}}{e^{t}}}}\\varepsilon[(d^{\\frac{1}{2}}}})\n' +
+      '\n' +
+      '###정리의 증명 4.1\n' +
+      '\n' +
+      '그 증명은 Song et al.(2023)을 밀접하게 따르고, 유도에 의존하며, 수치적 ODE 해결기들에 대한 전역 오차 한계들의 고전적인 증명(Prasad, 1990)과 평행하다.\n' +
+      '\n' +
+      '증빙: 표기의 단순화를 위해 \\(\\mathbf{\\theta}^{\\star}\\)을 \\(\\mathbf{\\theta}\\)으로 표기한다. \\(\\mathcal{L}_{\\text{TCD}}^{N}(\\mathbf{\\theta},\\mathbf{\\theta};\\mathbf{\\phi})=0\\)으로부터,\n' +
+      '\n' +
+      '\\mathcal{L}_{\\text{TCD}}^{N}=\\mathbbb{E}\\left[\\omega(t_{n},t_{m})\\left\\|\\mathbf{f}_{\\mathbf{\\theta}(\\mathbf{x}_{t_{n+1}},t_{n+1},t_{m})-\\mathbf{f}_{\\mathbf{\\theta}(\\hat{\\mathbf{x}}_{t_{n}}^{\\mathbf{\\phi},t_{n},t_{m}}\\right\\|_{2}^{2}\\right]=0.\\tag{34}\\t{n}},t_{n},t_{m}}\\mathbf{f}_{\\mathbf{\\theta}}(\\hat{\\mathbf{x}}_{t_{n}}^{\\mathbf{\\phi}},t_{n},t_\n' +
+      '\n' +
+      '정의에 따르면, \\(x_{t_{n}}\\)과 \\(1\\leqslant n\\leqslant N\\)마다 \\(p_{t_{n}}(\\mathbf{x}_{t_{n}})>0\\)이 뒤따른다. 따라서, 식 (34)가 수반된다\n' +
+      '\n' +
+      '[\\omega(t_{n},t_{m})\\left\\|\\mathbff{f}_{\\mathbf{\\theta}(\\mathbf{x}_{t_{n+1}},t_{n+1},t_{m})-\\mathbff{f}_{\\mathbf{\\theta}(\\hat{\\mathbf{x}}_{t_{n}}^{\\mathbf{\\phi},t_{n},t_{m}\\right\\|_{2}^{2}\\equiv 0. \\tag{35}\\tag{35}\\mathbf{f}_{\\mathbf{\\theta}}(\\hat{\\mathbf{x}}_{n}}^{\\mathbf{\\phi}},t_{n},t_{m}}\\right\\|_{2}^{2}\\equiv 0.\n' +
+      '\n' +
+      '이는 \\(\\lambda(\\cdot)>0\\)와 \\(\\left\\\\mathbf{x},\\mathbf{y}\\right\\|_{2}^{2}=0\\leftrightarrow\\mathbf{x}=\\mathbf{y}\\mathbf{x}=\\mathbf{y}\\mathbf{x}=\\mathbf{y}\\leftrightarrow\n' +
+      '\n' +
+      '\\\\[\\mathbf{f}_{\\mathbf{\\theta}(\\mathbf{x}_{t_{n+1}},t_{n+1},t_{m})\\equiv\\mathbff{f}_{\\mathbf{\\theta}(\\hat{\\mathbf{x}_{t_{n}}^{\\mathbf{\\phi},t_{n},t_{m}}}\\tag{36}\\text}\n' +
+      '\n' +
+      '\\(\\mathbf{e}_{n}^{s}\\)는 \\(t_{n}\\)에서 \\(x_{s}\\)을 예측할 때 발생하는 오차 벡터를 나타내며, 이는 다음과 같이 정의된다.\n' +
+      '\n' +
+      '\\[\\mathbf{e}_{n,m}:=\\mathbf{f}_{\\mathbf{\\theta}}(\\mathbf{x}_{t_{n}},t_{n},t_{m})-\\mathbf{f}(\\mathbf{x}_{t _{n}},t_{n},t_{m};\\mathbf{\\phi}).\\]\n' +
+      '\n' +
+      '우리는 다음과 같은 재귀 관계를 쉽게 도출할 수 있다.\n' +
+      '\n' +
+      '\\mathbf{f}{t_{n+1},t_{n+1},t_{m})-\\mathbf{f}(\\mathbf{x}_{t_{n}},t_{n},t_{m})-\\mathbf{f}(\\hat{\\mathbf{n}},t_{n},t_{m})-\\mathbf{f}(\\mathbf{x}_{t_{n}}(\\hat{\\mathbf{n}},t_{n},t_{m})} \\(\\mathbf{f}_{\\theta}(\\cdot,t_{n},t_{m}))는 Lipschitz 상수\\(L\\)을 가지므로, 우리는 다음과 같다.\n' +
+      '\n' +
+      'ff{e}_{n+1,m}\\|_{2}+L\\left\\|\\hat{\\mathbff{e}_{n,m}\\|_{2}+L\\left\\hat{\\mathbf{n}-\\mathbf{e}_{n,m}\\|_{2}}\\right\\|_{2}\\mathcal{O}((t_{n+1}-t_{n})^{p+1}}}.\\mathbf{e}_{n,m}\\|_{2}+L\\cdot\\mathcal{O}((t_{n+1}-t_{n}}}}}\\mathbf{e}_{n,m}\\|_{2}+\\mathcal{O}((t_{n+1}-t_{n}}^{p+1}}}}}\\mathbf{e}_{n,m}\\|_{n}}}\\mathccal{O}((t_{n+1}\n' +
+      '\n' +
+      '또한, 우리는 \\(\\mathbf{e}_{m,m}=\\mathbf{0}\\)을 관찰한다.\n' +
+      '\n' +
+      '\\mathbf{e}_{m,m} =\\mathbf{f}_{\\theta}(\\mathbf{x}_{t_{m}},t_{m},t_{m},t_{m};\\mathbf{f}(}\\mathbf{x}_{t_{m}}-\\mathbf{x}_{t_{m}}-\\mathbf{m}}\\[=\\mathbf{0},\\]\n' +
+      '\n' +
+      '여기서 \\(\\mathbf{f}_{\\theta}(\\mathbf{x}_{t_{m}},t_{m},t_{m})=\\mathbf{x}_{t_{m}}\\), \\(ii)\\)는 방정식 (13)의 궤적 함수 \\(\\mathbf{f}(\\cdot,\\cdot,\\cdot;\\mathbf{\\phi})\\)의 정의에 의해 수반되도록 궤적 일관성 증류가 매개변수화된 모델에 대한 경계 조건을 제한하기 때문에 참이다. 이를 통해 우리는 재귀식 식 (37)에 대해 유도를 수행하여 얻을 수 있다.\n' +
+      '\n' +
+      't_{k+1}-t_{k})^{p+1}\\mathcal{O}((t_{k+1}-t_{k})^{p+1}(t_{k+1}-t_{k})\\mathcal{O}((\\Delta t)^{p}\\sum_{k=m}^{n-1}(t_{n}-t_{k})\\mathcal{O}((\\Delta t)^{p}\\sum_{k=m}^{n-1}(t_{n}-t_{m}),\\\n' +
+      '\n' +
+      '그러면 증명이 완료됩니다.\n' +
+      '\n' +
+      '###정리의 증명 4.2\n' +
+      '\n' +
+      '이 절에서 우리의 도출은 주로 Kim et al., 2023; Chen et al., 2022로부터 증명을 차용한다.\n' +
+      '\n' +
+      'DDPM(Chen et al., 2022)에 있어서,\n' +
+      '\n' +
+      '**정리 D.8**. : _ 가정 D.2, D.1, D.3이 성립한다고 가정하자. 시간 \\(T\\)에서 \\(q_{T}\\)을 DDPM 알고리즘의 출력으로 하고, 스텝 크기 \\(h:=T/N\\)이 \\(h\\lesssim 1/L_{s}\\)을 만족한다고 가정하자. 여기서 \\(L_{s}\\geq 1\\)은 점수 함수의 립시츠 상수이다. 그리고, 그_\n' +
+      '\n' +
+      '\\sqrt{D_{\\text{KL}(q_{T},p_{\\text{data})\\lesssim\\underbrace{\\sqrt{N}(\\mathbf{0},\\mathbf{I}_{d}))}\\exp(-T}}_{\\text{convergence of forward process}+\\underbrace{\\left(L_{s}\\sqrt{dh}+L_{s}m_{2}h\\right)\\sqrt{T}_{\\text{discretization error}+\\underbrace{\\epsilon_{\\text{sc}\\sqrt{T}}_{\\text{score estimation error}}}.\n' +
+      '\n' +
+      '단순화를 위해 본 논문에서는 실제 함수(f(\\cdot,t,s))를 복원하는 잘 학습된 \\(\\mathbf{\\theta}^{*}\\equiv f\\)의 최적 TCD(f_{\\mathbf{\\theta}^{*}}\\equiv f\\)를 가정한다. 우리는 임의의 시간\\(t\\)에서 후속 시간\\(s\\)까지 이 최적 TCD 모델에 의해 전파되는 밀도가 고정된 정방향 프로세스에 의해 결정된 미리 정의된 밀도와 일치함을 확립한다.\n' +
+      '\n' +
+      '우리는 이제 전이 밀도의 정렬을 보장하는 제안을 제시한다.\n' +
+      '\n' +
+      '**명제 D.9**.: _\\(\\{p_{t}\\}_{t=0}^{T}\\)을 식 (1)의 확산 과정에 의해 정의되는 밀도로 하고, 여기서 \\(p_{0}:=p_{data}\\) Denote \\(\\mathcal{T}_{t\\to s}(\\cdot):=f(\\cdot,t,s):\\mathbb{R}^{D}\\to\\mathbb{R}^{D}\\) for any \\(t\\geq s\\) 점수\\(\\nabla\\log p_{t}\\)가 함수\\(L(t)\\geq 0\\)이 있다고 가정하면 \\(\\int_{0}^{T}|L(t)|\\mathrm{d}t<\\infty\\) 및_\\\n' +
+      '\n' +
+      '1. _Linear growth:_\\(\\|\\nabla\\log p_{t}(\\mathbf{x})\\|_{2}\\leq L(t)(1+\\|\\mathbf{x}\\|_{2})_, all_\\(\\mathbf{x}\\in\\mathbb{R}^{D}\\)___\n' +
+      '2. _Lipschitz:_\\(\\|\\nabla\\log p_{t}(\\mathbf{x})-\\nabla\\log p_{t}(\\mathbf{y})\\|_{2}\\leq L(t)\\|\\mathbf{x}-\\mathbf{y}\\|_{2}\\)_, for all_\\(\\mathbf{x},\\mathbf{y}\\in\\mathbb{R}^{D}\\)_._\n' +
+      '\n' +
+      '그리고 어떤 \\(t\\in[0,T]\\ 및 \\(s\\in[0,t]\\), \\(p_{s}=\\mathcal{T}_{t\\to s}\\sharp p_{t}\\).\n' +
+      '\n' +
+      '이 정리는 완전한 궤적 정보를 가지고 있는 최적의 TCD를 학습함으로써 TCD를 사용하여 언제든지 모든 진밀도를 검색할 수 있음을 보장한다.\n' +
+      '\n' +
+      '식 (1)의 확산 과정을 통해 \\(t\\)에서 \\(s\\)으로의 오라클 전이 매핑으로 \\(\\mathcal{T}_{t\\to s}\\)을 정의한다. \\(\\mathcal{T}_{t\\to s}^{\\boldsymbol{\\theta}^{*}}(\\cdot)\\)는 최적 TCD 모델로부터의 전이 매핑을 나타내고,\\(\\mathcal{T}_{t\\to s}^{\\boldsymbol{\\phi}(\\cdot)\\)는 경험적 확률 흐름 ODE로부터의 전이 매핑을 나타낸다. 모든 과정은 초기 확률 분포\\(p_{T}\\)와 \\(\\mathcal{T}_{t\\to s}^{\\boldsymbol{\\theta}^{*}}(\\cdot)=\\mathcal{T}_{t\\to s}^{\\boldsymbol{\\phi}(\\cdot)\\), 정리 D.8과 \\(\\mathcal{T}_t\\to t}\\sharp p_{T}=p_{t}\\)을 갖는 점(T\\)에서 시작되므로, 명제 D.9의 정리는 다음과 같다.\n' +
+      '\n' +
+      '\\mathcal{T}_{t\\to s}\\sharp p_{t},\\mathcal{T}_{t\\to s}^{\\boldsymbol{\\theta}^{*}\\sharp p_{t}\\right)=\\text{TV}\\left(\\mathcal{T}_{t\\to s}\\sharp p_{t},\\mathcal{T}_{t\\to s}^{\\boldsymbol{\\phi}\\sharp p_{t}\\right)=\\mathcal{O}(\\sqrt{t-s},\\mathcal{T}_{t\\to s}\\text{TV}\\left(\\mathcal{T}_{t\\to s}\\coldsymbol{\\phi}\\sharp p_{t}\\right)\\mathcal{O}(\\sqrt{t-s},\\mathcal{T}_{t\\to s}\\text{TV}\\left(\\mathcal{T}_{t\\to s}\n' +
+      '\n' +
+      '\\mathcal{T}_{t\\to(1-\\gamma)t}\\mathcal{T}_{t\\to(1-\\gamma)t}\\mathcal{T}_{t\\to(1-\\gamma)t}\\mathcal{T}_{t\\to(1-\\gamma)t}\\mathcal{T}_{t\\to(1-\\gamma)t}\\mathcal{T}_{t\\to(1-\\gamma)t}\\mathcal{T}_{t\\to(1-\\gamma)t}\\mathcal{T}_{t\\to(1-\\gamma)t}\\mathcal{T}_{t\\to(1-\\gamma)t}\\mathcal{T}_{t\\to(1-\\gamma)t}\\mathcal{T}_{t\\to(1-\\gamma)t}\\mathcal{T}_{t\\to(1-\\gamma)t}\\mathcal{\n' +
+      '\n' +
+      '여기서 (a)는 삼각 부등식으로부터 구하고, (b)와 (c)는 제안 D.9로부터 \\(\\mathcal{T}_{(1-\\gamma)t\\to t}\\mathcal{T}_{T\\to(1-\\gamma)t}=\\mathcal{T}_{T\\to t}\\)와 \\(\\mathcal{T}_{T\\to t}\\)에 기인하며, (d)는 식 (38)에서 나온다.\n' +
+      '\n' +
+      '## 부록 추가 결과\n' +
+      '\n' +
+      '### 상이한 NFEs를 갖는 더 많은 샘플들\n' +
+      '\n' +
+      '그림 8에서 다양한 NFE가 있는 LCM 및 TCD에 의해 합성된 추가 샘플을 제시한다. 이러한 샘플은 LCM에 의해 생성된 이미지의 세부 사항이 NFE가 증가함에 따라 사라지는 경향이 있는 반면 TCD는 더 높은 NFE에서 이미지 세부 사항을 유지하거나 향상시킨다는 것을 일관되게 보여준다.\n' +
+      '\n' +
+      '### 확률적 파라미터 \\(\\gamma\\)가 다른 샘플들\n' +
+      '\n' +
+      '그림 9에서 우리는 확률적 매개변수 \\(\\gamma\\)를 변화시키면서 TCD에 의해 생성된 추가 샘플을 보여주며, \\(\\gamma\\)이 증가함에 따라 이미지의 시각적 복잡성과 품질이 점차적으로 향상됨을 보여준다.\n' +
+      '\n' +
+      '더 많은 비교 결과\n' +
+      '\n' +
+      '그림 10 내지 그림 14에서는 최첨단 방법과의 비교를 위한 추가 예를 제시한다. 이 샘플은 TCD가 LCM을 능가하는 NFE가 거의 없는 고품질 이미지를 생성할 수 있음을 보여준다. 또한, DPM-Solver++(2S)의 성능을 능가하는 충분한 NFE로 보다 상세하고 고화질의 영상을 생성할 수 있다.\n' +
+      '\n' +
+      '### A.4 TCD의 다양성 테스트에서 더 많은 샘플\n' +
+      '\n' +
+      'TCD의 범용성을 확인하기 위해 인기 커뮤니티 모델 Animagine XL V3 6, LoRA Papercut XL 7, Depth ControlNet 8, Canny ControlNet 9 및 IP-Adapter 10을 포함한 광범위한 모델에서 테스트한다. 그림 15에서 그림 19에서는 TCD가 모든 모델에 직접 적용되어 _4 단계_만으로 샘플링을 가속화할 수 있음을 관찰한다. 이 실험에서 모든 모델은 동일한 TCD LoRA 매개변수_를 공유한다는 점에 주목할 필요가 있다.\n' +
+      '\n' +
+      '각주 6: _Animagine_의 체크포인트는 [https://civitai.com/models/260267/animagine-xl-v3](https://civitai.com/models/260267/animagine-xl-v3)에서 찾을 수 있다.\n' +
+      '\n' +
+      '각주 7: _Papercut_의 체크포인트는 [https://civitai.com/models/122567/papercut-sdxl](https://civitai.com/models/122567/papercut-sdxl)에서 찾을 수 있다.\n' +
+      '\n' +
+      '각주 8: _Depth ControlNet:_[https://huggingface.co/diffusers/controlnet-depth-sdxl-1.0](https://huggingface.co/diffusers/controlnet-depth-sdxl-1.0)\n' +
+      '\n' +
+      '각주 9: _Canny ControlNet:_[https://huggingface.co/diffusers/controlnet-canny-sdxl-1.0](https://huggingface.co/diffusers/controlnet-canny-sdxl-1.0)\n' +
+      '\n' +
+      '각주 10: _IP-Adapter:_[https://github.com/tencent-ailab/IP-Adapter](https://github.com/tencent-ailab/IP-Adapter)\n' +
+      '도 8: 상이한 NFE들을 갖는 더 많은 샘플들.\n' +
+      '\n' +
+      '그림 9: 다른 확률적 매개변수 \\(\\gamma\\)를 가진 샘플이 더 많다.\n' +
+      '\n' +
+      '그림 10: 더 많은 비교 결과.\n' +
+      '\n' +
+      '그림 11: 더 많은 비교 결과.\n' +
+      '\n' +
+      '그림 12: 더 많은 비교 결과.\n' +
+      '\n' +
+      '그림 13: 더 많은 비교 결과.\n' +
+      '\n' +
+      '도 14: 더 많은 비교 결과.\n' +
+      '\n' +
+      '그림 15: 다른 기본 모델: SDXL 및 Animagine XL V3를 사용한 TCD의 정성적 결과. 두 모델 모두에 대해 동일한 TCD 매개변수를 사용했다는 점에 주목할 가치가 있다. 모든 샘플은 _4 단계_를 사용하여 생성되었다. 각 하위 그림에서 상단 행은 TCD + SDXL에 해당하고 하단 행은 TCD + Animagine XL V3에 해당한다.\n' +
+      '\n' +
+      '그림 16: Papercut XL LoRA가 있거나 없는 TCD의 질적 결과. 우리는 동일한 TCD 파라미터를 사용했다. 모든 샘플은 _4 steps_를 사용하여 생성된다. 각 서브피쳐에서, 상단 행은 페이퍼컷 LoRA가 없는 TCD에 대응하고, 하단 행은 페이퍼컷 LoRA가 있는 TCD에 대응한다. 페이퍼컷의 로라 척도는 실험에서 1.0으로 설정되었다.\n' +
+      '\n' +
+      '그림 19: IP-어댑터를 사용한 TCD의 정성적 결과. 모든 샘플은 _4 steps_를 사용하여 생성된다.\n' +
+      '\n' +
+      '그림 17: Depth ControlNet을 사용한 TCD의 질적 결과. 모든 샘플은 _4 steps_를 사용하여 생성된다.\n' +
+      '\n' +
+      '도 18: Canny ControlNet을 이용한 TCD의 질적 결과. 모든 샘플은 _4 steps_를 사용하여 생성된다.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
