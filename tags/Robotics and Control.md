@@ -20,3 +20,5 @@
 - [CyberDemo: Augmenting Simulated Human Demonstration for Real-World Dexterous Manipulation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/31/2024-02-23+CyberDemo%3A+Augmenting+Simulated+Human+Demonstration+for+Real-World+Dexterous+Manipulation.yaml) / 2024-02-23
 - [Genie: Generative Interactive Environments](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/32/2024-02-26+Genie%3A+Generative+Interactive+Environments.yaml) / 2024-02-26
 - [Video as the New Language for Real-World Decision Making](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/34/2024-02-28+Video+as+the+New+Language+for+Real-World+Decision+Making.yaml) / 2024-02-28
+- [Humanoid Locomotion as Next Token Prediction](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/35/2024-03-01+Humanoid+Locomotion+as+Next+Token+Prediction.yaml) / 2024-03-01
+- [MOSAIC: A Modular System for Assistive and Interactive Cooking](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/35/2024-03-01+MOSAIC%3A+A+Modular+System+for+Assistive+and+Interactive+Cooking.yaml) / 2024-03-01
