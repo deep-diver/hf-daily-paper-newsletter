@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '[MISSING_PAGE_EMPTY:1]\n' +
+      '\n' +
+      'care about a small set of top contributing nodes, so verification is far cheaper than iterating over all nodes.\n' +
+      '\n' +
+      'Our contributions:\n' +
+      '* We investigate the performance of AtP, finding two classes of failure modes which produce false negatives. We propose a variant of AtP called AtP\\({}^{*}\\), with two changes to address these failure modes while retaining scalability:\n' +
+      '* When patching queries and keys, recomputing the attention softmax and using a gradient based approximation from then on, as gradients are a poor approximation to saturated attention.\n' +
+      '* Using dropout on the backwards pass to fix brittle false negatives, where significant positive and negative effects cancel out.\n' +
+      '* We introduce several alternative methods to approximate Activation Patching as baselines to AtP which outperform brute force Activation Patching.\n' +
+      '* We present the first systematic study of AtP and these alternatives and show that AtP significantly outperforms all other investigated methods, with AtP\\({}^{*}\\) providing further significant improvement.\n' +
+      '* To estimate the residual error of AtP\\({}^{*}\\) and statistically bound the sizes of any remaining false negatives we provide a diagnostic method, based on using AtP to filter out high impact nodes, and then patching random subsets of the remainder. Good diagnostics mean that practitioners may still gauge whether AtP is reliable in relevant domains without the costs of exhaustive verification.\n' +
+      '\n' +
+      'Finally, we provide some guidance in Section 5.4 on how to successfully perform causal attribution in practice and what attribution methods are likely to be useful and under what circumstances.\n' +
+      '\n' +
+      '## 2 Background\n' +
+      '\n' +
+      '### Problem Statement\n' +
+      '\n' +
+      'Our goal is to identify the contributions to model behavior by individual model components. We first formalize model components, then formalize model behaviour, and finally state the contribution problem in causal language. While we state the formalism in terms of a decoder-only transformer language model (Radford et al., 2018; Vaswani et al., 2017), and conduct all our experiments on models of that class, the formalism is also straightforwardly applicable to other model classes.\n' +
+      '\n' +
+      'Model components.We are given a model \\(\\mathcal{M}:X\\rightarrow\\mathbb{R}^{V}\\) that maps a prompt (token sequence) \\(x\\in X:=\\{1,\\ldots,V\\}^{T}\\) to output logits over a set of \\(V\\) tokens, aiming to predict the next token in the sequence. We will view the model \\(\\mathcal{M}\\) as a computational graph \\((N,E)\\) where the node set \\(N\\) is the set of model components, and a directed edge \\(e=(n_{1},n_{2})\\in E\\) is present iff the output of \\(n_{1}\\) is a direct input into the computation of \\(n_{2}\\). We will use \\(n(x)\\) to represent the _activation_ (intermediate computation result) of \\(n\\) when computing \\(\\mathcal{M}(x)\\).\n' +
+      '\n' +
+      'The choice of \\(N\\) determines how fine-grained the attribution will be. For example, for transformer models, we could have a relatively coarse-grained attribution where each layer is considered a single node. In this paper we will primarily consider more fine-grained attributions that are more expensive to compute (see Section 4 for details); we revisit this issue in Section 5.\n' +
+      '\n' +
+      'Figure 1 | Costs of finding the most causally-important nodes in Pythia-12B using different methods, on sample prompt pairs (see Table 1). The shading indicates geometric standard deviation. Cost is measured in forward passes, thus each point\'s y-coordinate gives the number of forward passes required to find the top \\(x\\) nodes. Note that each node must be verified, thus \\(y\\geq x\\), so all lines are above the diagonal, and an oracle for the verification order would produce the diagonal line. For a detailed description see Section 4.3.\n' +
+      '\n' +
+      'Figure 2 | Relative costs of methods across models, on sample prompt pairs. The costs are relative to having an oracle, which would verify nodes in decreasing order of true contribution size. Costs are aggregated using an inverse-rank-weighted geometric mean. This means they correspond to the area above the diagonal for each curve in Figure 1 and are relative to the area under the dotted (oracle) line. See Section 4.2 for more details on this metric. Note that GradDrop (difference between AtP+QKfix and AtP+) comes with a noticeable upfront cost and so looks worse in this comparison while still helping avoid false negatives as shown inFigure 1.\n' +
+      '\n' +
+      'Figure 1: Costs of finding the most causally-important nodes in Pythia-12B using different methods, on sample prompt pairs (see Table 1). The shading indicates geometric standard deviation. Cost is measured in forward passes, thus each point’s y-coordinate gives the number of forward passes required to find the top \\(x\\) nodes. Note that each node must be verified, thus \\(y\\geq x\\), so all lines are above the diagonal, and an oracle for the verification order would produce the diagonal line. For a detailed description see Section 4.3.\n' +
+      '\n' +
+      'Model behaviour.Following past work (Chan et al., 2022; Geiger et al., 2022; Wang et al., 2022), we assume a distribution \\(\\mathcal{D}\\) over pairs of inputs \\(x^{\\text{clean}},x^{\\text{noise}}\\), where \\(x^{\\text{clean}}\\) is a prompt on which the behaviour occurs, and \\(x^{\\text{noise}}\\) is a reference prompt which we use as a source of noise to intervene with1. We are also given a metric2\\(\\mathcal{L}:\\mathbb{R}^{\\nu}\\rightarrow\\mathbb{R}\\), which quantifies the behaviour of interest.\n' +
+      '\n' +
+      'Footnote 1: This precludes interventions which use activation values that are never actually realized, such as zero-ablation or mean ablation. An alternative formulation via distributions of activation values is also possible.\n' +
+      '\n' +
+      'Footnote 2: Common metrics in language models are next token prediction loss, difference in log prob between a correct and incorrect next token, probability of the correct next token, etc.\n' +
+      '\n' +
+      'Contribution of a component.Similarly to the work referenced above we define the contribution \\(c(n)\\) of a node \\(n\\) to the model\'s behaviour as the counterfactual absolute3 expected impact of replacing that node on the clean prompt with its value on the reference prompt \\(x^{\\text{noise}}\\).\n' +
+      '\n' +
+      'Footnote 3: The sign of the impact may be of interest, but in this work we’ll focus on the magnitude, as a measure of causal importance.\n' +
+      '\n' +
+      'Using do-calculus notation (Pearl, 2000) this can be expressed as \\(c(n):=|\\mathcal{I}(n)|\\), where\n' +
+      '\n' +
+      '\\[\\mathcal{I}(n):=\\mathbb{E}_{(x^{\\text{clean}},x^{\\text{noise}}) \\sim\\mathcal{D}}\\left[\\mathcal{I}(n;x^{\\text{clean}},x^{\\text{noise}})\\right], \\tag{1}\\]\n' +
+      '\n' +
+      'where we define the intervention effect \\(\\mathcal{I}\\) for \\(x^{\\text{clean}},x^{\\text{noise}}\\) as\n' +
+      '\n' +
+      '\\[\\mathcal{I}(n;x^{\\text{clean}},x^{\\text{noise}}):=\\mathcal{L}( \\mathcal{M}(x^{\\text{clean}}\\mid\\text{do}(n\\gets n(x^{\\text{noise}}))))- \\mathcal{L}(\\mathcal{M}(x^{\\text{clean}})). \\tag{2}\\]\n' +
+      '\n' +
+      'Note that the need to average the effect across a distribution adds a potentially large multiplicative factor to the cost of computing \\(c(n)\\), further motivating this work.\n' +
+      '\n' +
+      'We can also intervene on a set of nodes \\(\\eta=\\{n_{i}\\}\\). To do so, we overwrite the values of all nodes in \\(\\eta\\) with their values from a reference prompt. Abusing notation, we write \\(\\eta(x)\\) as the set of activations of the nodes in \\(\\eta\\), when computing \\(\\mathcal{M}(x)\\).\n' +
+      '\n' +
+      '\\[\\mathcal{I}(\\eta;x^{\\text{clean}},x^{\\text{noise}}):=\\mathcal{L}( \\mathcal{M}(x^{\\text{clean}}\\mid\\text{do}(\\eta\\leftarrow\\eta(x^{\\text{noise}}) )))-\\mathcal{L}(\\mathcal{M}(x^{\\text{clean}})) \\tag{3}\\]\n' +
+      '\n' +
+      'We note that it is also valid to define contribution as the expected impact of replacing a node on the reference prompt with its value on the clean prompt, also known as denoising or knock-in. We follow Chan et al. (2022); Wang et al. (2022) in using noising, however denoising is also widely used in the literature (Lieberum et al., 2023; Meng et al., 2023). We briefly consider how this choice affects AtP in Section 5.2.\n' +
+      '\n' +
+      '### Attribution Patching\n' +
+      '\n' +
+      'On state of the art models, computing \\(c(n)\\) for all \\(n\\) can be prohibitively expensive as there may be billions or more nodes. Furthermore, to compute this value precisely requires evaluating it on all prompt pairs, thus the runtime cost of Equation (1) for each \\(n\\) scales with the size of the support of \\(\\mathcal{D}\\).\n' +
+      '\n' +
+      'We thus turn to a fast approximation of Equation (1). As suggested by Figurnov et al. (2016); Molchanov et al. (2017); Nanda (2022), we can make a first-order Taylor expansion to \\(\\mathcal{I}(n;x^{\\text{clean}},x^{\\text{noise}})\\) around \\(n(x^{\\text{noise}})\\approx n(x^{\\text{clean}})\\):\\[\\hat{I}_{\\text{AtP}}(n;x^{\\text{clean}},x^{\\text{noise}}):=(n(x^{\\text{noise}})-n(x ^{\\text{clean}}))^{\\intercal}\\frac{\\partial\\mathcal{L}(M(x^{\\text{clean}}))}{ \\partial n}\\Big{|}_{n=(x^{\\text{clean}})} \\tag{4}\\]\n' +
+      '\n' +
+      'Then, similarly to Syed et al. (2023), we apply this to a distribution by taking the absolute value inside the expectation in Equation (1) rather than outside; this decreases the chance that estimates across prompt pairs with positive and negative effects might erroneously lead to a significantly smaller estimate. (We briefly explore the amount of cancellation behaviour in the true effect distribution in Appendix B.2.) As a result, we get an estimate\n' +
+      '\n' +
+      '\\[\\hat{c}_{\\text{AtP}}(n):=\\mathbb{E}_{x^{\\text{clean}},x^{\\text{noise}}}\\left[ \\left|\\hat{I}_{\\text{AtP}}(n;x^{\\text{clean}},x^{\\text{noise}})\\right|\\right|. \\tag{5}\\]\n' +
+      '\n' +
+      'This procedure is also called _Attribution Patching_(Nanda, 2022) or _AtP_. AtP requires two forward passes and one backward pass to compute an estimate score for _all nodes_ on a given prompt pair, and so provides a very significant speedup over brute force activation patching.\n' +
+      '\n' +
+      '## 3 Methods\n' +
+      '\n' +
+      'We now describe some failure modes of AtP and address them, yielding an improved method AtP*. We then discuss some alternative methods for estimating \\(c(n)\\), to put AtP(*)\'s performance in context. Finally we discuss how to combine Subsampling, one such alternative method described in Section 3.3, and AtP* to give a diagnostic to statistically test whether AtP* may have missed important false negatives.\n' +
+      '\n' +
+      '### AtP improvements\n' +
+      '\n' +
+      'We identify two common classes of false negatives occurring when using AtP.\n' +
+      '\n' +
+      'The first failure mode occurs when the preactivation on \\(x^{\\text{clean}}\\) is in a flat region of the activation function (e.g. produces a saturated attention weight), but the preactivation on \\(x^{\\text{noise}}\\) is not in that region. As is apparent from Equation (4), AtP uses a linear approximation to the ground truth in Equation (1), so if the non-linear function is badly approximated by the local gradient, AtP ceases to be accurate - see Figure 3 for an illustration and Figure 4 which denotes in color the maximal difference in attention observed between prompt pairs, suggesting that this failure mode occurs in practice.\n' +
+      '\n' +
+      'Another, unrelated failure mode occurs due to cancellation between direct and indirect effects: roughly, if the total effect (on some prompt pair) is a sum of direct and indirect effects (Pearl, 2001)\\(\\mathcal{I}(n)=\\mathcal{I}^{\\text{direct}}(n)+\\mathcal{I}^{\\text{ indirect}}(n)\\), and these are close to cancelling, then a small multiplicative approximation error in \\(\\hat{I}_{\\text{AtP}}^{\\text{indirect}}(n)\\), due to non-linearities such as GELU and softmax, can accidentally cause \\(\\left|\\hat{I}_{\\text{AtP}}^{\\text{direct}}(n)+\\hat{I}_{\\text{AP}}^{\\text{ indirect}}(n)\\right|\\) to be orders of magnitude smaller than \\(\\left|\\mathcal{I}(n)\\right|\\).\n' +
+      '\n' +
+      '#### 3.1.1 False negatives from attention saturation\n' +
+      '\n' +
+      'AtP relies on the gradient at each activation being reflective of the true behaviour of the function with respect to intervention at that activation. In some cases, though, a node may immediately feed into a non-linearity whose effect may not be adequately predicted by the gradient; for example, attention key and query nodes feeding into the attention softmax non-linearity. To showcase this, we plot the true rank of each node\'s effect against its rank assigned by AtP in Figure 4 (left). The plot shows that there are many pronounced false negatives (below the dashed line), especially among keys and queries.\n' +
+      '\n' +
+      'Normal activation patching for queries and keys involves changing a query or key and then re-running the rest of the model, keeping all else the same. AtP takes a linear approximation to the entire rest of the model rather than re-running it. We propose explicitly re-computing the first step of the rest of the model, i.e. the attention softmax, and then taking a linear approximation to the rest. Formally, for attention key and query nodes, instead of using the gradient on those nodes directly, we take the difference in attention weight caused by that key or query, multiplied by the gradient on the attention weights themselves. This requires finding the change in attention weights from each key and query patch -- but that can be done efficiently using (for all keys and queries in total) less compute than two transformer forward passes. This correction avoids the problem of saturated attention, while otherwise retaining the performance of AtP.\n' +
+      '\n' +
+      'QueriesFor the queries, we can easily compute the adjusted effect by running the model on \\(x^{\\text{noise}}\\) and caching the noise queries. We then run the model on \\(x^{\\text{clean}}\\) and cache the attention keys and weights. Finally, we compute the attention weights that result from combining all the keys from the \\(x^{\\text{clean}}\\) forward pass with the queries from the \\(x^{\\text{noise}}\\) forward pass. This costs approximately as much as the unperturbed attention computation of the transformer forward pass. For each query node \\(n\\) we refer to the resulting weight vector as \\(\\operatorname{attn}(n)_{\\text{patch}}\\), in contrast with the weights \\(\\operatorname{attn}(n)(x^{\\text{clean}})\\) from the clean forward pass. The improved attribution estimate for \\(n\\) is then\n' +
+      '\n' +
+      'Figure 3 | A linear approximation to the attention probability is a particularly poor approximation in cases where one or both of the endpoints are in a saturated region of the softmax. Note that when varying only a single key, the softmax becomes a sigmoid of the dot product of that key and the query.\n' +
+      '\n' +
+      '\\[\\hat{I}^{Q}_{\\text{APfix}}(n;x^{\\text{clean}},x^{\\text{noise}}) :=\\sum_{k}\\hat{I}_{\\text{AP}}(\\text{attn}(n)_{k};x^{\\text{clean}},x ^{\\text{noise}}) \\tag{6}\\] \\[=(\\text{attn}(n)_{\\text{patch}}-\\text{attn}(n)(x^{\\text{clean}})) ^{\\intercal}\\frac{\\partial\\mathcal{L}(\\mathcal{M}(x^{\\text{clean}}))}{ \\partial\\,\\text{attn}(n)}\\Big{|}_{\\text{attn}(n)=\\text{attn}(n)\\,(x^{\\text {clean}})} \\tag{7}\\]\n' +
+      '\n' +
+      'KeysFor the keys we first describe a simple but inefficient method. We again run the model on \\(x^{\\text{noise}}\\), caching the noise keys. We also run it on \\(x^{\\text{clean}}\\), caching the clean queries and attention probabilities. Let key nodes for a single attention head be \\(n_{1}^{k},\\dots,n_{T}^{k}\\) and let \\(\\text{queries}(n_{t}^{k})=\\{n_{1}^{q},\\dots,n_{T}^{q}\\}\\) be the set of query nodes for the same head as node \\(n_{t}^{k}\\). We then define\n' +
+      '\n' +
+      '\\[\\text{attn}^{t}_{\\text{patch}}(n^{q}) :=\\text{attn}(n^{q})(x^{\\text{clean}}\\mid\\text{do}(n_{t}^{k} \\gets n_{t}^{k}(x^{\\text{noise}}))) \\tag{8}\\] \\[\\Delta_{t}\\,\\text{attn}(n^{q}) :=\\text{attn}^{t}_{\\text{patch}}(n^{q})-\\text{attn}(n^{q})(x^{ \\text{clean}}) \\tag{9}\\]\n' +
+      '\n' +
+      'The improved attribution estimate for \\(n_{t}^{k}\\) is then\n' +
+      '\n' +
+      '\\[\\hat{I}^{K}_{\\text{APfix}}(n_{t}^{k};x^{\\text{clean}},x^{\\text{noise}}):=\\sum_ {n^{\\prime}\\in\\text{queries}(n_{t}^{k})}\\Delta_{t}\\,\\text{attn}(n^{q})^{ \\intercal}\\frac{\\partial\\mathcal{L}(\\mathcal{M}(x^{\\text{clean}}))}{\\partial \\,\\text{attn}(n^{q})}\\Big{|}_{\\text{attn}(n^{q})=\\text{attn}(n^{q})\\,(x^{ \\text{clean}})} \\tag{10}\\]\n' +
+      '\n' +
+      'However, the procedure we just described is costly to execute as it requires O(\\(T^{3}\\)) flops to naively compute Equation (9) for all \\(T\\) keys. In Appendix A.2.1 we describe a more efficient variant that takes no more compute than the forward pass attention computation itself (requiring O(\\(T^{2}\\)) flops). Since Equation (6) is also cheaper to compute than a forward pass, the full QK fix requires less than two transformer forward passes (since the latter also includes MLP computations).\n' +
+      '\n' +
+      'For attention nodes we show the effects of applying the query and key fixes in Figure 4 (middle). We observe that the propagation of Q/K effects has a major impact on reducing the false negative rate.\n' +
+      '\n' +
+      '#### 3.1.2 False negatives from cancellation\n' +
+      '\n' +
+      'This form of cancellation occurs when the backpropagated gradient from indirect effects is combined with the gradient from the direct effect. We propose a way to modify the backpropagation within the attribution patching to reduce this issue. If we artificially zero out the gradient at a downstream layer that contributes to the indirect effect, the cancellation is disrupted. (This is also equivalent to patching in clean activations at the outputs of the layer.) Thus we propose to do this iteratively, sweeping across the layers. Any node whose effect does not route through the layer being gradient-zeroed will have its estimate unaffected.\n' +
+      '\n' +
+      'We call this method _GradDrop_. For every layer \\(\\ell\\in\\{1,\\dots,L\\}\\) in the model, GradDrop computes an AtP estimate for all nodes, where gradients on the residual contribution from \\(\\ell\\) are set to 0, including the propagation to earlier layers. This provides a different estimate for all nodes, for each layer that was dropped. We call the so-modified gradient \\(\\frac{\\partial\\,\\ell^{\\ell}}{\\partial n}=\\frac{\\partial\\,\\ell}{\\partial n}( \\mathcal{M}(x^{\\text{clean}}\\mid\\text{do}(n_{\\ell}^{\\text{out}}\\gets n_{ \\ell}^{\\text{out}}(x^{\\text{clean}}))))\\) when dropping layer \\(\\ell\\), where \\(n_{\\ell}^{\\text{out}}\\) is the contribution to the residual stream across all positions. Using \\(\\frac{\\partial\\,\\ell^{\\ell}}{\\partial n}\\) in place of \\(\\frac{\\partial\\,\\ell^{\\ell}}{\\partial n}\\) in the AtP formula produces an estimate \\(\\hat{I}_{\\text{AP+GD}_{\\ell}}(n)\\). Then, the estimates are aggregatedby averaging their absolute values, and then scaling by \\(\\frac{L}{L-1}\\) to avoid changing the direct-effect path\'s contribution (which is otherwise zeroed out when dropping the layer the node is in).\n' +
+      '\n' +
+      '\\[\\hat{\\varepsilon}_{\\text{AP+GD}}(n):=\\mathbb{E}_{x^{\\text{clean}},x^{\\text{ noise}}}\\left[\\frac{1}{L-1}\\sum_{\\ell=1}^{L}\\left|\\hat{I}_{\\text{AP+GD}_{\\ell}}(n;x^{ \\text{clean}},x^{\\text{noise}})\\right|\\right] \\tag{11}\\]\n' +
+      '\n' +
+      'Note that the forward passes required for computing \\(\\hat{I}_{\\text{AP+GD}_{\\ell}}(n;x^{\\text{clean}},x^{\\text{noise}})\\) don\'t depend on \\(\\ell\\), so the extra compute needed for GradDrop is \\(L\\) backwards passes from the same intermediate activations on a clean forward pass. This is also the case with the QK fix: the corrected attributions \\(\\hat{I}_{\\text{APfix}}\\) are dot products with the attention weight gradients, so the only thing that needs to be recomputed for \\(\\hat{I}_{\\text{APFix+GD}_{\\ell}}(n)\\) is the modified gradient \\(\\frac{\\partial\\mathcal{L}^{\\ell}}{\\partial\\text{attn}(n)}\\). Thus, computing Equation (11) takes \\(L\\) backwards passes4 on top of the costs for AtP.\n' +
+      '\n' +
+      'Footnote 4: This can be reduced to \\((L+1)/2\\) by reusing intermediate results.\n' +
+      '\n' +
+      'We show the result of applying GradDrop on attention nodes in Figure 4 (right) and on MLP nodes in Figure 5. In Figure 5, we show the true effect magnitude rank against the AtP+GradDrop rank, while highlighting nodes which improved drastically by applying GradDrop. We give some arguments and intuitions on the benefit of GradDrop in Appendix A.2.2.\n' +
+      '\n' +
+      'Direct Effect RatioTo provide some evidence that the observed false negatives are due to cancellation, we compute the ratio between the direct effect \\(c^{\\text{direct}}(n)\\) and the total effect \\(c(n)\\). A higher direct effect ratio indicates more cancellation. We observe that the most significant false negatives corrected by GradDrop in Figure 5 (highlighted) have high direct effect ratios of 5.35, 12.2, and 0 (no direct effect), while the median direct effect ratio of all nodes is 0 (if counting all nodes) or 0.77 (if only counting nodes that have direct effect). Note that direct effect ratio is only applicable to nodes which\n' +
+      '\n' +
+      'Figure 4: \\(|\\) Ranks of \\(c(n)\\) against ranks of \\(\\hat{\\varepsilon}_{\\text{AP}}(n)\\), on Pythia-12B on CITY–PP. Both improvements to AtP reduce the number of false negatives (bottom right triangle area), where in this case most improvements come from the QK fix. Coloration indicates the maximum absolute difference in attention probability when comparing \\(x^{\\text{clean}}\\) and patching a given query or key. Many false negatives are keys and queries with significant maximum difference in attention probability, suggesting they are due to attention saturation as illustrated in Figure 3. Output and value nodes are colored in grey as they do not contribute to the attention probability.\n' +
+      '\n' +
+      'in fact have a direct connection to the output, and not e.g. to MLP nodes at non-final token positions, since all disconnected nodes have a direct effect of 0 by definition.\n' +
+      '\n' +
+      '### Diagnostics\n' +
+      '\n' +
+      'Despite the improvements we have proposed in Section 3.1, there is no guarantee that AtP* produces no false negatives. Thus, it is desirable to obtain an upper confidence bound on the effect size of nodes that might be missed by AtP*, i.e. that aren\'t in the top \\(K\\) AtP* estimates, for some \\(K\\). Let the top \\(K\\) nodes be \\(\\mathrm{Top}_{AtP*}^{K}\\). It so happens that we can use subset sampling to obtain such a bound.\n' +
+      '\n' +
+      'As described in Algorithm 1 and Section 3.3, the subset sampling algorithm returns summary statistics: \\(\\tilde{i}_{\\pm}^{n}\\), \\(s_{\\pm}^{n}\\) and \\(\\mathrm{count}_{\\pm}^{n}\\) for each node \\(n\\): the average effect size \\(\\tilde{i}_{\\pm}^{n}\\) of a subset conditional on the node being contained in that subset (+) or not (-), the sample standard deviations \\(s_{\\pm}^{n}\\), and the sample sizes \\(\\mathrm{count}_{\\pm}^{n}\\). Given these, consider a null hypothesis5\\(H_{0}^{n}\\) that \\(\\left|\\mathcal{I}\\left(n\\right)\\right|\\geq\\theta\\), for some threshold \\(\\theta\\), versus the alternative hypothesis \\(H_{1}^{n}\\) that \\(\\left|\\mathcal{I}\\left(n\\right)\\right|<\\theta\\). We use a one-sided Welch\'s t-test6 to test this hypothesis; the general practice with a compound null hypothesis is to select the simple sub-hypothesis that gives the greatest \\(p\\)-value, so to be conservative, the simple null hypothesis is that \\(\\mathcal{I}\\left(n\\right)=\\theta\\,\\mathrm{sign}(\\tilde{i}_{+}^{n}-\\tilde{i}_{ -}^{n})\\), giving a test statistic of \\(t^{n}=(\\theta-|\\tilde{i}_{+}^{n}-\\tilde{i}_{-}^{n}|)/s_{\\mathrm{Welch}}^{n}\\), which gives a \\(p\\)-value of \\(p^{n}=\\mathbb{P}_{T\\sim t_{\\mathrm{Welch}}^{n}}(T>t^{n})\\).\n' +
+      '\n' +
+      'Footnote 5: This is an unconventional form of \\(H_{0}\\) – typically a null hypothesis will say that an effect is insignificant. However, the framework of statistical hypothesis testing is based on determining whether the data let us reject the null hypothesis, and in this case the hypothesis we want to reject is the presence, rather than the absence, of a significant false negative.\n' +
+      '\n' +
+      'Footnote 6: This relies on the populations being approximately unbiased and normally distributed, and not skewed. This tended to be true on inspection, and it’s what the additivity assumption (see Section 3.3) predicts for a single prompt pair — but a nonparametric bootstrap test may be more reliable, at the cost of additional compute.\n' +
+      '\n' +
+      'To get a combined conclusion across all nodes in \\(N\\setminus\\mathrm{Top}_{AtP*}^{K}\\), let\'s consider the hypothesis \\(H_{0}=\\bigvee_{n\\in N\\cap\\mathrm{Top}_{AtP*}^{K}}\\), \\(H_{0}^{n}\\) that _any_ of those nodes has true effect \\(\\left|\\mathcal{I}\\left(n\\right)\\right|>\\theta\\). Since this is also a compound null hypothesis, \\(\\max_{n}p^{n}\\) is the corresponding \\(p\\)-value. Then, to find an upper confidence bound with\n' +
+      '\n' +
+      'Figure 5: True rank and rank of AtP estimates with and without GradDrop, using Pythia-12B on the CITY-PP distribution with NeuronNodes. GradDrop provides a significant improvement to the largest neuron false negatives (red circles) relative to Default AtP (orange crosses).\n' +
+      '\n' +
+      'specified confidence level \\(1-p\\), we invert this procedure to find the lowest \\(\\theta\\) for which we still have at least that level of confidence. We repeat this for various settings of the sample size \\(m\\) in Algorithm 1. The exact algorithm is described in Appendix A.3.\n' +
+      '\n' +
+      'In Figure 6, we report the upper confidence bounds at confidence levels 90%, 99%, 99.9% from running Algorithm 1 with a given \\(m\\) (right subplots), as well as the number of nodes that have a true contribution \\(c(n)\\) greater than \\(\\theta\\) (left subplots).\n' +
+      '\n' +
+      '### Baselines\n' +
+      '\n' +
+      'IterativeThe most straightforward method is to directly do Activation Patching to find the true effect \\(c(n)\\) of each node, in some uninformed random order. This is necessarily inefficient.\n' +
+      '\n' +
+      'However, if we are scaling to a distribution, it is possible to improve on this, by alternating between phases of (i) for each unverified node, picking a not-yet-measured prompt pair on which to patch it, (ii) ranking the not-yet-verified nodes by the average observed patch effect magnitudes, taking the top \\(|N|/|\\mathcal{D}|\\) nodes, and verifying them. This balances the computational expenditure on the two tasks, and allows us to find large nodes sooner, at least as long as their large effect shows up on many prompt pairs.\n' +
+      '\n' +
+      'Our remaining baseline methods rely on an approximate _node additivity assumption_: that when intervening on a set of nodes \\(\\eta\\), the measured effect \\(\\mathcal{I}(\\eta;x^{\\text{clean}},x^{\\text{noise}})\\) is approximately equal to \\(\\sum_{n\\in\\eta}\\mathcal{I}(n;x^{\\text{clean}},x^{\\text{noise}})\\).\n' +
+      '\n' +
+      'SubsamplingUnder the approximate node additivity assumption, we can construct an approximately unbiased estimator of \\(c(n)\\). We select the sets \\(\\eta_{k}\\) to contain each node independently with\n' +
+      '\n' +
+      'Figure 6: Upper confidence bounds on effect magnitudes of false negatives (i.e. nodes not in the top 1024 nodes according to AtP\\({}^{*}\\)), at 3 confidence levels, varying the sampling budget. On the left we show in red the true effect of the nodes which are ranked highest by AtP\\({}^{*}\\). We also show the true effect magnitude at various ranks of the remaining nodes in orange.\n' +
+      '\n' +
+      'some probability \\(p\\), and additionally sample prompt pairs \\(x_{k}^{\\text{clean}},x_{k}^{\\text{noise}}\\sim\\mathcal{D}\\). For any node \\(n\\), and sets of nodes \\(\\eta_{k}\\subset N\\), let \\(\\eta^{+}(n)\\) be the collection of all those that contain \\(n\\), and \\(\\eta^{-}(n)\\) be the collection of those that don\'t contain \\(n\\); we\'ll write these node sets as \\(\\eta_{k}^{+}(n)\\) and \\(\\eta_{k}^{-}(n)\\), and the corresponding prompt pairs as \\(x_{k}^{\\text{clean}^{+}}(n),x_{k}^{\\text{noise}^{+}}(n)\\) and \\(x_{k}^{\\text{clean}^{-}}(n),x_{k}^{\\text{noise}^{-}}(n)\\). The subsampling (or subset sampling) estimator is then given by\n' +
+      '\n' +
+      '\\[\\hat{\\mathcal{I}}_{\\text{SS}}(n) :=\\frac{1}{|\\eta^{+}(n)|}\\sum_{k=1}^{|\\eta^{+}(n)|}\\mathcal{I}( \\eta_{k}^{+}(n);x_{k}^{\\text{clean}^{+}}(n),x_{k}^{\\text{noise}^{+}}(n))-\\frac {1}{|\\eta^{-}(n)|}\\sum_{k=1}^{|\\eta^{-}(n)|}\\mathcal{I}(\\eta_{k}^{-}(n);x_{k}^ {\\text{clean}^{-}}(n),x_{k}^{\\text{noise}^{-}}(n)) \\tag{12}\\] \\[\\hat{\\mathcal{E}}_{\\text{SS}}(n) :=|\\hat{\\mathcal{I}}_{\\text{SS}}(n)| \\tag{13}\\]\n' +
+      '\n' +
+      'The estimator \\(\\hat{\\mathcal{I}}_{\\text{SS}}(n)\\) is unbiased if there are no interaction effects, and has a small bias proportional to \\(p\\) under a simple interaction model (see SectionA.1.1 for proof).\n' +
+      '\n' +
+      'In practice, we compute all the estimates \\(\\hat{\\mathcal{E}}_{\\text{SS}}(n)\\) by sampling a binary mask over all nodes from i.i.d. Bernoulli\\({}^{|N|}(p)\\) - each binary mask can be identified with a node set \\(\\eta\\). In Algorithm1, we describe how to compute summary statistics related to Equation13 efficiently for all nodes \\(n\\in N\\). The means \\(\\tilde{i}^{\\pm}\\) are enough to compute \\(\\hat{\\mathcal{E}}_{\\text{SS}}(n)\\), while other summary statistics are involved in bounding the magnitude of a false negative (cf. Section3.2). (Note, \\(\\text{count}_{n}^{\\pm}\\) is just an alternate notation for \\(|\\eta^{\\pm}(n)|\\).)\n' +
+      '\n' +
+      '```\n' +
+      '0:\\(p\\in(0,1)\\), model \\(\\mathcal{M}\\), metric \\(\\mathcal{L}\\), prompt pair distribution \\(\\mathcal{D}\\), num samples \\(m\\)\n' +
+      '1:count\\({}^{\\pm}\\), runSum\\({}^{\\pm}\\), runSquaredSum\\({}^{\\pm}\\gets 0^{|N|}\\)\\(\\triangleright\\) Init counts and running sums to 0 vectors\n' +
+      '2:for\\(i\\gets 1\\) to \\(m\\)do\n' +
+      '3:\\(x^{\\text{clean}},x^{\\text{noise}}\\sim\\mathcal{D}\\)\n' +
+      '4:\\(\\text{mask}^{+}\\leftarrow\\text{Bernoulli}^{|N|}(p)\\)\\(\\triangleright\\) Sample binary mask for patching\n' +
+      '5:\\(\\text{mask}^{-}\\gets 1-\\text{mask}^{+}\\)\n' +
+      '6:\\(i\\gets I(\\{n\\in N:\\text{mask}_{n}^{+}=1\\};\\times x^{\\text{clean}},x^{ \\text{noise}})\\)\\(\\triangleright\\)\\(\\eta^{+}=\\{n\\in N:\\text{mask}_{n}^{+}=1\\}\\)\n' +
+      '7:count\\({}^{\\pm}\\leftarrow\\text{count}^{\\pm}+\\text{mask}^{\\pm}\\)\n' +
+      '8:runSum\\({}^{\\pm}\\leftarrow\\text{runSum}^{\\pm}+i\\cdot\\text{mask}^{\\pm}\\)\n' +
+      '9:runSquaredSum\\({}^{\\pm}\\leftarrow\\text{runSquaredSum}^{\\pm}+i^{2}\\cdot\\text{mask}^{\\pm}\\)\n' +
+      '10:\\(\\tilde{i}^{\\pm}\\leftarrow\\text{runSum}^{\\pm}/\\text{count}^{\\pm}\\)\n' +
+      '11:\\(\\tilde{s}^{\\pm}\\leftarrow\\sqrt{(\\text{runSquaredSum}^{\\pm}-(\\tilde{i}^{\\pm})^ {2})/(\\text{count}^{\\pm}-1)}\\)\n' +
+      '12:return\\(\\text{count}^{\\pm}\\), \\(\\tilde{i}^{\\pm}\\), \\(s^{\\pm}\\)\\(\\triangleright\\) If diagnostics are not required, \\(\\tilde{i}^{\\pm}\\) is sufficient.\n' +
+      '```\n' +
+      '\n' +
+      '**Algorithm 1** Subsampling\n' +
+      '\n' +
+      'Blocks & HierarchicalInstead of sampling each \\(\\eta\\) independently, we can group nodes into fixed "blocks" \\(\\eta\\) of some size, and patch each block to find its aggregated contribution \\(c(\\eta)\\); we can then traverse the nodes, starting with high-contribution blocks and proceeding from there.\n' +
+      '\n' +
+      'There is a tradeoff in terms of the block size: using large blocks increases the compute required to traverse a high-contribution block, but using small blocks increases the compute required to finish traversing all of the blocks. We refer to the fixed block size setting as _Blocks_. Another way to handle this tradeoff is to add recursion: the blocks can be grouped into higher-level blocks, and so forth. We call this method _Hierarchical_.\n' +
+      '\n' +
+      'We present results from both methods in our comparison plots, but relegate details to SectionA.1.2. Relative to subsampling, these grouping-based methods have the disadvantage that on distributions, their cost scales linearly with size of \\(\\mathcal{D}\\)\'s support, in addition to scaling with the number of nodes7.\n' +
+      '\n' +
+      'Footnote 7: AtP* also scales linearly in the same way, but with far fewer forward passes per prompt pair.\n' +
+      '\n' +
+      '## 4 Experiments\n' +
+      '\n' +
+      '### Setup\n' +
+      '\n' +
+      'NodesWhen attributing model behavior to components, an important choice is the partition of the model\'s computational graph into units of analysis or \'nodes\' \\(N\\ni n\\) (cf. Section 2.1). We investigate two settings for the choice of \\(N\\), _AttentionNodes_ and _NeuronNodes_. For NeuronNodes, each MLP neuron8 is a separate node. For AttentionNodes, we consider the query, key, and value vector for each head as distinct nodes, as well as the pre-linear per-head attention output9. We also refer to these units as\'sites\'. For each site, we consider each copy of that site at different token positions as a separate node. As a result, we can identify each node \\(n\\in N\\) with a pair \\((T,S)\\) from the product TokenPosition \\(\\times\\) Site. Since our two settings for \\(N\\) are using a different level of granularity and are expected to have different per-node effect magnitudes, we present results on them separately.\n' +
+      '\n' +
+      'Footnote 8: We use the neuron post-activation for the node; this makes no difference when causally intervening, but for AtP it’s beneficial, because it makes the \\(n\\mapsto\\mathcal{L}(n)\\) function more linear.\n' +
+      '\n' +
+      'Footnote 9: We include the output node because it provides additional information about what function an attention head is serving, particularly in the case where its queries have negligible patch effects relative to its keys and/or values. This may happen as a result of choosing \\(x^{\\text{clean}}\\), \\(x^{\\text{noise}}\\) such that the query does not differ across the prompts.\n' +
+      '\n' +
+      'ModelsWe investigate transformer language models from the Pythia suite (Biderman et al., 2023) of sizes between 410M and 12B parameters. This allows us to demonstrate that our methods are applicable across scale. Our cost-of-verified-recall plots in Figures 1, 7 and 8 refer to Pythia-12B. Results for other model sizes are presented via the relative-cost (cf. Section 4.2) plots in the main body Figure 9 and disaggregated via cost-of-verified recall in Appendix B.3.\n' +
+      '\n' +
+      'Effect Metric \\(\\mathcal{L}\\)All reported results use the negative log probability10 as their loss function \\(\\mathcal{L}\\). We compute \\(\\mathcal{L}\\) relative to targets from the clean prompt \\(x^{\\text{clean}}\\). We briefly explore other metrics in Appendix B.4.\n' +
+      '\n' +
+      'Footnote 10: Another popular metric is the difference in logits between the clean and noise target. As opposed to the negative logprob, the logit difference is linear in the final logits and thus might favor AtP. A downside of logit difference is that it is sensitive to the noise target, which may not be meaningful if there are multiple plausible completions, such as in IOI.\n' +
+      '\n' +
+      '### Measuring Effectiveness and Efficiency\n' +
+      '\n' +
+      'Cost of verified recallAs mentioned in the introduction, we\'re primarily interested in finding the largest-effect nodes - see Appendix D for the distribution of \\(c(n)\\) across models and distributions. Once we have obtained node estimates via a given method, it is relatively cheap to directly measure true effects of top nodes one at a time; we refer to this as "verification". Incorporating this into our methodology, we find that false positives are typically not a big issue; they are simply revealed during verification. In contrast, false negatives are not so easy to remedy without verifying all nodes, which is what we were trying to avoid.\n' +
+      '\n' +
+      'We compare methods on the basis of total compute cost (in # of forward passes) to verify the \\(K\\) nodes with biggest true effect magnitude, for varying \\(K\\). The procedure being measured is to first compute estimates (incurring an estimation cost), and then sweep through nodes in decreasing order of estimated magnitude, measuring their individual effects \\(c(n)\\) (i.e. verifying them), and incurring a verification cost. Then the total cost is the sum of these two costs.\n' +
+      '\n' +
+      'Inverse-rank-weighted geometric mean costSometimes we find it useful to summarize the method performance with a scalar; this is useful for comparing methods at a glance across different settings (e.g. model sizes, as in Figure 2), or for selecting hyperparameters (cf. Appendix B.5). The cost of verified recall of the top \\(K\\) nodes is of interest for \\(K\\) at varying orders of magnitude. In order to avoid the performance metric being dominated by small or large \\(K\\), we assign similar total weight to different orders of magnitude: we use a weighted average with weight \\(1/K\\) for the cost of the top \\(K\\) nodes. Similarly, since the costs themselves may have different orders of magnitude, we average them on a log scale - i.e., we take a geometric mean.\n' +
+      '\n' +
+      'This metric is also proportional to the area under the curve in plots like Figure 1. To produce a more understandable result, we always report it relative to (i.e. divided by) the oracle verification cost on the same metric; the diagonal line is the oracle, with relative cost 1. We refer to this as the IRWRGM (inverse-rank-weighted relative geometric mean) cost, or the relative cost.\n' +
+      '\n' +
+      'Note that the preference of the individual practitioner may be different such that this metric is no longer accurately measuring the important rank regime. For example, AtP* pays a notable upfront cost relative to AtP or AtP+QKfix, which sets it at a disadvantage when it doesn\'t manage to find additional false negatives; but this may or may not be practically significant. To understand the performance in more detail we advise to refer to the cost of verified recall plots, like Figure 1 (or many more in Appendix B.3).\n' +
+      '\n' +
+      '### Single Prompt Pairs versus Distributions\n' +
+      '\n' +
+      'We focus many of our experiments on single prompt pairs. This is primarily because it\'s easier to set up and get ground truth data. It\'s also a simpler setting in which to investigate the question, and one that\'s more universally applicable, since a distribution to generalize to is not always available.\n' +
+      '\n' +
+      'Clean single prompt pairsAs a starting point we report results on single prompt pairs which we expect to have relatively clean circuitry11. All singular prompt pairs are shown in Table 1. IOI-PP is chosen to resemble an instance from the indirect object identification (IOI) task (Wang et al., 2022), a task predominantly involving attention heads. CITY-PP is chosen to elicit factual recall which previous research suggests involves early MLPs and a small number of late attention heads (Geva et al., 2023; Meng et al., 2023; Nanda et al., 2023). The country/city combinations were chosen such that Pythia-410M achieved low loss on both \\(x^{\\text{clean}}\\) and \\(x^{\\text{noise}}\\) and such that all places were represented by a single token.\n' +
+      '\n' +
+      'Footnote 11: Formally, these represent prompt distributions via the delta distribution \\(p(x^{\\text{clean}},x^{\\text{noise}})=\\delta_{x^{\\text{clean}}_{1}}x^{\\text{ noise}}_{1}(x^{\\text{clean}},x^{\\text{noise}})\\) where \\(x^{\\text{clean}}_{1},x^{\\text{noise}}_{1}\\) is the singular prompt pair.\n' +
+      '\n' +
+      'We show the cost of verified 100% recall for various methods in Figure 1, where we focus on NeuronNodes for CITY-PP and AttentionNodes for IOI-PP. Exhaustive results for smaller Pythia models are shown in Appendix B.3. Figure 2 shows the aggregated relative costs for all models on CITY-PP and IOI-PP.\n' +
+      '\n' +
+      'Instead of applying the strict criterion of recalling all important nodes, we can also relax this constraint. In Figure 7, we show the cost of verified 90% recall in the two clean prompt pair settings.\n' +
+      '\n' +
+      'Random prompt pairThe previous prompt pairs may in fact be the best-case scenarios: the interventions they create will be fairly localized to a specific circuit, and this may make it easy for AtP to approximate the contributions. It may thus be informative to see how the methods generalize to settings where the interventions are less surgical. To do this, we also report results in Figure 8 (top) and Figure 9 on a random prompt pair chosen from a non-copyright-protected section of The Pile (Gao et al., 2020) which we refer to as RAND-PP. The prompt pair was chosen such that Pythia-410M still achieved low loss on both prompts.\n' +
+      '\n' +
+      'We find that AtP/AtP* is only somewhat less effective here; this provides tentative evidence that the strong performance of AtP/AtP* isn\'t reliant on the clean prompt using a particularly crisp circuit, or on the noise prompt being a precise control.\n' +
+      '\n' +
+      'DistributionsCausal attribution is often of most interest when evaluated across a distribution, as laid out in Section 2. Of the methods, AtP, AtP*, and Subsampling scale reasonably to distributions; the former 2 because they\'re inexpensive so running them \\(|\\mathcal{D}|\\) times is not prohibitive, and Subsampling because it intrinsically averages across the distribution and thus becomes proportionally cheaper relative to the verification via activation patching. In addition, having a distribution enables a more performant Iterative method, as described in Section 3.3.\n' +
+      '\n' +
+      'We present a comparison of these methods on 2 distributional settings. The first is a reduced version of IOI (Wang et al., 2022) on 6 names, resulting in \\(6\\times 5\\times 4=120\\) prompt pairs, where we evaluate AttentionNodes. The other distribution prompts the model to output an indefinite article\'a\' or\'an\', where we evaluate NeuronNodes. See Appendix B.1 for details on constructing these distributions. Results are shown in Figure 8 for Pythia 12B, and in Figure 9 across models. The results show that AtP continues to perform well, especially with the QK fix; in addition, the cancellation failure mode tends to be sensitive to the particular input prompt pair, and as a result, averaging across\n' +
+      '\n' +
+      'Figure 7: Costs of finding the most causally-important nodes in Pythia-12B using different methods on clean prompt pairs, with 90% target recall. This highlights that the AtP* false negatives in Figure 1 are a small minority of nodes.\n' +
+      '\n' +
+      'Figure 8 | Costs of finding the most causally-important nodes in Pythia-12B using different methods, on a random prompt pair (see Table 1) and on distributions. The shading indicates geometric standard deviation. Cost is measured in forward passes, or forward passes per prompt pair in the distributional case.\n' +
+      '\n' +
+      'Figure 9 | Costs of methods across models, on random prompt pair and on distributions. The costs are relative to having an oracle (and thus verifying nodes in decreasing order of true contribution size); they\'re aggregated using an inverse-rank-weighted geometric mean. This means they correspond to the area above the diagonal for each curve in Figure 8.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:17]\n' +
+      '\n' +
+      'contexts - this doesn\'t pose a performance issue, and so our work would not provide any benefit here.\n' +
+      '\n' +
+      'Caveats of \\(c(n)\\) as importance measureIn this work we took the ground truth of activation patching, as defined in Equation (1), as our evaluation target. As discussed by McGrath et al. (2023), Equation (1) often significantly disagrees with a different evaluation target, the "direct effect", by putting lower weight on some contributions when later components would shift their behaviour to compensate for the earlier patched component. In the worst case this could be seen as producing additional false negatives not accounted for by our metrics. To some degree this is likely to be mitigated by the GradDrop formula in Eq. (11), which will include a term dropping out the effect of that downstream shift.\n' +
+      '\n' +
+      'However, it is also questionable whether we need to concern ourselves with finding high-direct-effect nodes. For example, direct effect is easy to efficiently compute for all nodes, as explored by nostalgebraist (2020) - so there is no need for fast approximations like AtP if direct effect is the quantity of interest. This ease of computation is no free lunch, though, because direct effect is also more limited as a tool for finding causally important nodes: it would not be able to locate any nodes that contribute only instrumentally to the circuit rather than producing its output. For example, there is no direct effect from nodes at non-final token positions. We discuss the direct effect further in Section 3.1.2 and Appendix A.2.2.\n' +
+      '\n' +
+      'Another nuance of our ground-truth definition occurs in the distributional setting. Some nodes may have a real and significant effect, but only on a single clean prompt (e.g. they only respond to a particular name in IOI12 or object in A-AN). Since the effect is averaged over the distribution, the ground truth will not assign these nodes large causal importance. Depending on the goal of the practitioner this may or may not be desirable.\n' +
+      '\n' +
+      'Footnote 12: We did observe this particular behavior in a few instances.\n' +
+      '\n' +
+      'Effect size versus rank estimationWhen evaluating the performance of various estimators, we focused on evaluating the relative rank of estimates, since our main goal was to identify important components (with effect size only instrumentally useful to this end), and we assumed a further verification step of the nodes with highest estimated effects one at a time, in contexts where knowing effect size is important. Thus, we do not present evidence about how closely the estimated effect magnitudes from AtP or AtP* match the ground truth. Similarly, we did not assess the prevalence of false positives in our analysis, because they can be filtered out via the verification process. Finally, we did not compare to past manual interpretability work to check whether our methods find the same nodes to be causally important as discovered by human researchers, as done in prior work (Conmy et al., 2023; Syed et al., 2023).\n' +
+      '\n' +
+      'Other LLMsWhile we think it likely that our results on the Pythia model family (Biderman et al., 2023) will transfer to other LLM families, we cannot rule out qualitatively different behavior without further evidence, especially on SotA-scale models or models that significantly deviate from the standard decoder-only transformer architecture.\n' +
+      '\n' +
+      '### Extensions/Variants\n' +
+      '\n' +
+      'Edge PatchingWhile we focus on computing the effects of individual nodes, edge activation patching can give more fine-grained information about which paths in the computational graph matter. However, it suffers from an even larger blowup in number of forward passes if done naively. Fortunately, AtP is easy to generalize to estimating the effects of edges between nodes (Nanda, 2022; Syed et al., 2023), while AtP* may provide further improvement. We discuss edge-AtP, and how to efficiently carry over the insights from AtP*, in Appendix C.2.\n' +
+      '\n' +
+      'Coarser nodes \\(N\\)We focused on fine-grained attribution, rather than full layers or sliding windows (Geva et al., 2023; Meng et al., 2023). In the latter case there\'s less computational blowup to resolve, but for long contexts there may still be benefit in considering speedups like ours; on the other hand, they may be less linear, thus favouring other methods over AtP*. We leave investigation of this to future work.\n' +
+      '\n' +
+      'Layer normalizationNanda (2022) observed that AtP* approximation to layer normalization may be a worse approximation when it comes to patching larger/coarser nodes: on average the patched and clean activations are likely to have similar norm, but may not have high cosine-similarity. They recommend treating the denominator in layer normalization as fixed, e.g. using a stop-gradient operator in the implementation. In Appendix C.1 we explore the effect of this, and illustrate the behaviour of this alternative form of AtP. It seems likely that this variant would indeed produce better results particularly when patching residual-stream nodes - but we leave empirical investigation of this to future work.\n' +
+      '\n' +
+      'DenoisingDenoising (Lieberum et al., 2023; Meng et al., 2023) is a different use case for patching, which may produce moderately different results: the difference is that each forward pass is run on \\(x^{\\text{noise}}\\) with the activation to patch taken from \\(x^{\\text{clean}}\\) -- colloquially, this tests whether the patched activation is sufficient to recover model performance on \\(x^{\\text{clean}}\\), rather than necessary. We provide some preliminary evidence to the effect of this choice in Appendix B.4 but leave a more thorough investigation to future work.\n' +
+      '\n' +
+      'Other forms of ablationFurther, in some settings it may be of interest to do mean-ablation, or even zero-ablation, and our tweaks remain applicable there; the random-prompt-pair result suggests AtP* isn\'t overly sensitive to the noise distribution, so we speculate the results are likely to carry over.\n' +
+      '\n' +
+      '### Applications\n' +
+      '\n' +
+      'Automated Circuit FindingA natural application of the methods we discussed in this work is the automatic identification and localization of sparse subgraphs or \'circuits\' (Cammarata et al., 2020). A variant of this was already discussed in concurrent work by Syed et al. (2023) who combined edge attribution patching with the ACDC algorithm (Conmy et al., 2023). As we mentioned in the edge patching discussion, AtP* can be generalized to edge attribution patching, which may bring additional benefit for automated circuit discovery.\n' +
+      '\n' +
+      'Another approach is to learn a (probabilistic) mask over nodes, similar to Cao et al. (2021); Louizos et al. (2018), where the probability scales with the currently estimated node contribution \\(c(n)\\). For that approach, a fast method to estimate all node effects given the current mask probabilities could prove vital.\n' +
+      '\n' +
+      'Sparse AutoencodersRecently there has been increased interest by the community in using sparse autoencoders (SAEs) to construct disentangled sparse representations with potentially more semantic coherence than transformer-native units such as neurons (Bricken et al., 2023; Cunningham et al.,2023). SAEs usually have a lot more nodes than the corresponding transformer block they are applied to. This could pose a larger problem in terms of the activation patching effects, making the speedup of AtP* more valuable. However, due to the sparseness of the SAE, on a given forward pass the effect of most features will be zero. For example, some successful SAEs by Bricken et al. (2023) have 10-20 active features for 500 neurons for a given token position, which reduces the number of nodes by 20-50x relative to the MLP setting, increasing the scale at which existing iterative methods remain practical. It is still an open research question, however, what degree of sparsity is feasible with tolerable reconstruction error for practically relevant or SOTA-scale models, where the methods discussed in this work may become more important again.\n' +
+      '\n' +
+      'Steering LLMsAtP* could be used to discover single nodes in the model that can be leveraged for targeted inference time interventions to control the model\'s behavior. In contrast to previous work (Li et al., 2023; Turner et al., 2023; Zou et al., 2023) it might provide more localized interventions with less impact on the rest of the model\'s computation. One potential exciting direction would be to use AtP* (or other gradient-based approximations) to see which sparse autoencoder features, if activated, would have a significant effect.\n' +
+      '\n' +
+      '### Recommendation\n' +
+      '\n' +
+      'Our results suggest that if a practitioner is trying to do fast causal attribution, there are 2 main factors to consider: (i) the desired granularity of localization, and (ii) the confidence vs compute tradeoff.\n' +
+      '\n' +
+      'Regarding (i), the desired granularity, smaller components (e.g. MLP neurons or attention heads) are more numerous but more linear, likely yielding better results from gradient-based methods like AtP. We are less sure AtP will be a good approximation if patching layers or sliding windows of layers, and in this case practitioners may want to do normal patching. If the number of forward passes required remains prohibitive (e.g. a long context times many layers, when doing per token \\(\\times\\) layer patching), our other baselines may be useful. For a single prompt pair we particularly recommend trying Blocks, as it\'s easy to make sense of; for a distribution we recommend Subsampling because it scales better to many prompt pairs.\n' +
+      '\n' +
+      'Regarding (ii), the confidence vs compute tradeoff, depending on the application, it may be desirable to run AtP as an activation patching prefilter followed by running the diagnostic to increase confidence. On the other hand, if false negatives aren\'t a big concern then it may be preferable to skip the diagnostic - and if false positives aren\'t either, then in certain cases practitioners may want to skip activation patching verification entirely. In addition, if the prompt pair distribution does not adequately highlight the specific circuit/behaviour of interest, this may also limit what can be learned from any localization methods.\n' +
+      '\n' +
+      'If AtP is appropriate, our results suggest the best variant to use is probably AtP* for single prompt pairs, AtP+QKFix for AttentionNodes on distributions, and AtP for NeuronNodes (or other sites that aren\'t immediately before a nonlinearity) on distributions.\n' +
+      '\n' +
+      'Of course, these recommendations are best-substantiated in settings similar to those we studied: focused prompt pairs / distribution, attention node or neuron sites, nodewise attribution, measuring cross-entropy loss on the clean-prompt next token. If departing from these assumptions we recommend looking before you leap.\n' +
+      '\n' +
+      '## 6 Related work\n' +
+      '\n' +
+      'Localization and Mediation AnalysisThis work is concerned with identifying the effect of all (important) nodes in a causal graph (Pearl, 2000), in the specific case where the graph represents a language model\'s computation. A key method for finding important intermediate nodes in a causal graph is intervening on those nodes and observing the effect, which was first discussed under the name of causal mediation analysis by Pearl (2001); Robins and Greenland (1992).\n' +
+      '\n' +
+      'Activation PatchingIn recent years there has been increasing success at applying the ideas of causal mediation analysis to identify causally important nodes in deep neural networks, in particular via the method of activation patching, where the output of a model component is intervened on. This technique has been widely used by the community and successfully applied in a range of contexts (Connry et al., 2023; Cunningham et al., 2023; Feng and Steinhardt, 2023; Finlayson et al., 2021; Geva et al., 2023; Goldowsky-Dill et al., 2023; Hanna et al., 2023; Hase et al., 2023; Hendel et al., 2023; Huang et al., 2023; Lieberum et al., 2023; McDougall et al., 2023; Meng et al., 2023; Merullo et al., 2023; Nanda et al., 2023; Olsson et al., 2022; Soulos et al., 2020; Stolfo et al., 2023; Tigges et al., 2023; Todd et al., 2023; Vig et al., 2020; Wang et al., 2022).\n' +
+      '\n' +
+      'Chan et al. (2022) introduce causal scrubbing, a generalized algorithm to verify a hypothesis about the internal mechanism underlying a model\'s behavior, and detail their motivation behind performing noising and resample ablation rather than denoising or using mean or zero ablation - they interpret the hypothesis as implying the computation is invariant to some large set of perturbations, so their starting-point is the clean unperturbed forward pass.13\n' +
+      '\n' +
+      'Footnote 13: Our motivation for focusing on noising rather than denoising was a closely related one – we were motivated by automated circuit discovery, where gradually noising more and more of the model is the basic methodology for both of the approaches discussed in Section 5.3.\n' +
+      '\n' +
+      'Another line of research concerning formalizing causal abstractions focuses on finding and verifying high-level causal abstractions of low-level variables (Geiger et al., 2020, 2021, 2022, 2023). See Jenner et al. (2022) for more details on how these different frameworks agree and differ. In contrast to those works, we are chiefly concerned with identifying the important low-level variables in the computational graph and are not investigating their semantics or potential groupings of lower-level into higher-level variables.\n' +
+      '\n' +
+      'In addition to causal mediation analysis, intervening on node activations in the model forward pass has also been studied as a way of steering models towards desirable behavior (Belrose et al., 2023; Jorgensen et al., 2023; Li et al., 2023; Rimsky et al., 2023; Turner et al., 2023; Zou et al., 2023).\n' +
+      '\n' +
+      'Attribution Patching / Gradient-based MaskingWhile we use the resample-ablation variant of AtP as formulated in Nanda (2022), similar formulations have been used in the past to successfully prune deep neural networks (Figurnov et al., 2016; Michel et al., 2019; Molchanov et al., 2017), or even identify causally important nodes for interpretability (Cao et al., 2021). Concurrent work by Syed et al. (2023) also demonstrates AtP can help with automatically finding causally important circuits in a way that agrees with previous manual circuit identification work. In contrast to Syed et al. (2023), we provide further analysis of AtP\'s failure modes, give improvements in the form of AtP\\({}^{*}\\), and evaluate both methods as well as several baselines on a suite of larger models against a ground truth that is independent of human researchers\' judgement.\n' +
+      '\n' +
+      '## 7 Conclusion\n' +
+      '\n' +
+      'In this paper, we have explored the use of attribution patching for node patch effect evaluation. We have compared attribution patching with alternatives and augmentations, characterized its failure modes, and presented reliability diagnostics. We have also discussed the implications of our contributions for other settings in which patching can be of interest, such as circuit discovery, edge localization, coarse-grained localization, and causal abstraction.\n' +
+      '\n' +
+      'Our results show that AtP* can be a more reliable and scalable approach to node patch effect evaluation than alternatives. However, it is important to be aware of the failure modes of attribution patching, such as cancellation and saturation. We explored these in some detail, and provided mitigations, as well as recommendations for diagnostics to ensure that the results are reliable.\n' +
+      '\n' +
+      'We believe that our work makes an important contribution to the field of mechanistic interpretability and will help to advance the development of more reliable and scalable methods for understanding the behavior of deep neural networks.\n' +
+      '\n' +
+      '## 8 Author Contributions\n' +
+      '\n' +
+      'Janos Kramar was research lead, and Tom Lieberum was also a core contributor - both were highly involved in most aspects of the project. Rohin Shah and Neel Nanda served as advisors and gave feedback and guidance throughout.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* Belrose et al. (2023) N. Belrose, D. Schneider-Joseph, S. Ravfogel, R. Cotterell, E. Raff, and S. Biderman. Leace: Perfect linear concept erasure in closed form. _arXiv preprint arXiv:2306.03819_, 2023.\n' +
+      '* Biderman et al. (2023) S. Biderman, H. Schoelkopf, Q. G. Anthony, H. Bradley, K. O\'Brien, E. Hallahan, M. A. Khan, S. Purohit, U. S. Prashanth, E. Raff, A. Skowron, L. Sutawika, and O. van der Wal. Pythia: A suite for analyzing large language models across training and scaling. In A. Krause, E. Brunskill, K. Cho, B. Engelhardt, S. Sabato, and J. Scarlett, editors, _International Conference on Machine Learning, ICML 2023, 23-29 July 2023, Honolulu, Hawaii, USA_, volume 202 of _Proceedings of Machine Learning Research_, pages 2397-2430. PMLR, 2023. URL [https://proceedings.mlr.press/v202/biderman23a.html](https://proceedings.mlr.press/v202/biderman23a.html).\n' +
+      '* Bricken et al. (2023) T. Bricken, A. Templeton, J. Batson, B. Chen, A. Jermyn, T. Conerly, N. Turner, C. Anil, C. Denison, A. Askell, R. Lasenby, Y. Wu, S. Kravec, N. Schiefer, T. Maxwell, N. Joseph, Z. Hatfield-Dodds, A. Tamkin, K. Nguyen, B. McLean, J. E. Burke, T. Hume, S. Carter, T. Henighan, and C. Olah. Towards monosemanticity: Decomposing language models with dictionary learning. _Transformer Circuits Thread_, 2023. [https://transformer-circuits.pub/2023/monosemantic-features/index.html](https://transformer-circuits.pub/2023/monosemantic-features/index.html).\n' +
+      '* Cammarata et al. (2020) N. Cammarata, S. Carter, G. Goh, C. Olah, M. Petrov, L. Schubert, C. Voss, B. Egan, and S. K. Lim. Thread: Circuits. _Distill_, 2020. doi: 10.23915/distill.00024. [https://distill.pub/2020/circuits](https://distill.pub/2020/circuits).\n' +
+      '* Cao et al. (2021) N. D. Cao, L. Schmid, D. Hupkes, and I. Titov. Sparse interventions in language models with differentiable masking, 2021.\n' +
+      '* Chan et al. (2022) L. Chan, A. Garriga-Alonso, N. Goldwosky-Dill, R. Greenblatt, J. Nitishinskaya, A. Radhakrishnan, B. Shlegeris, and N. Thomas. Causal scrubbing, a method for rigorously testing interpretability hypotheses. _AI Alignment Forum_, 2022. [https://www.alignmentforum.org/posts/JvZhhzyChu2Yd57RN/causal-scrubbing-a-method-for-rigorously-testing](https://www.alignmentforum.org/posts/JvZhhzyChu2Yd57RN/causal-scrubbing-a-method-for-rigorously-testing).\n' +
+      '\n' +
+      '* Conmy et al. (2023) A. Conmy, A. N. Mavor-Parker, A. Lynch, S. Heimersheim, and A. Garriga-Alonso. Towards automated circuit discovery for mechanistic interpretability, 2023.\n' +
+      '* Cunningham et al. (2023) H. Cunningham, A. Ewart, L. Riggs, R. Huben, and L. Sharkey. Sparse autoencoders find highly interpretable features in language models, 2023.\n' +
+      '* Feng and Steinhardt (2023) J. Feng and J. Steinhardt. How do language models bind entities in context?, 2023.\n' +
+      '* Figurnov et al. (2016) M. Figurnov, A. Ibraimova, D. P. Vetrov, and P. Kohli. Perforatedcnns: Acceleration through elimination of redundant convolutions. In D. Lee, M. Sugiyama, U. Luxburg, I. Guyon, and R. Garnett, editors, _Advances in Neural Information Processing Systems_, volume 29. Curran Associates, Inc., 2016. URL [https://proceedings.neurips.cc/paper_files/paper/2016/file/f0e52b27a7a5d6a1a87373dffa53dbe5-Paper.pdf](https://proceedings.neurips.cc/paper_files/paper/2016/file/f0e52b27a7a5d6a1a87373dffa53dbe5-Paper.pdf).\n' +
+      '* Finlayson et al. (2021) M. Finlayson, A. Mueller, S. Gehrmann, S. Shieber, T. Linzen, and Y. Belinkov. Causal analysis of syntactic agreement mechanisms in neural language models. In C. Zong, F. Xia, W. Li, and R. Navigli, editors, _Proceedings of the 59th Annual Meeting of the Association for Computational Linguistics and the 11th International Joint Conference on Natural Language Processing (Volume 1: Long Papers)_, pages 1828-1843, Online, Aug. 2021. Association for Computational Linguistics. doi: 10.18653/v1/2021.acl-long.144. URL [https://aclanthology.org/2021.acl-long.144](https://aclanthology.org/2021.acl-long.144).\n' +
+      '* Gao et al. (2020) L. Gao, S. Biderman, S. Black, L. Golding, T. Hoppe, C. Foster, J. Phang, H. He, A. Thite, N. Nabeshima, S. Presser, and C. Leahy. The Pile: An 800gb dataset of diverse text for language modeling. _arXiv preprint arXiv:2101.00027_, 2020.\n' +
+      '* Geiger et al. (2020) A. Geiger, K. Richardson, and C. Potts. Neural natural language inference models partially embed theories of lexical entailment and negation, 2020.\n' +
+      '* Geiger et al. (2021) A. Geiger, H. Lu, T. Icard, and C. Potts. Causal abstractions of neural networks, 2021.\n' +
+      '* Geiger et al. (2022) A. Geiger, Z. Wu, H. Lu, J. Rozner, E. Kreiss, T. Icard, N. D. Goodman, and C. Potts. Inducing causal structure for interpretable neural networks, 2022.\n' +
+      '* Geiger et al. (2023) A. Geiger, C. Potts, and T. Icard. Causal abstraction for faithful model interpretation, 2023.\n' +
+      '* Geva et al. (2023) M. Geva, J. Bastings, K. Filippova, and A. Globerson. Dissecting recall of factual associations in auto-regressive language models, 2023.\n' +
+      '* Goldowsky-Dill et al. (2023) N. Goldowsky-Dill, C. MacLeod, L. Sato, and A. Arora. Localizing model behavior with path patching, 2023.\n' +
+      '* Gurnee et al. (2023) W. Gurnee, N. Nanda, M. Pauly, K. Harvey, D. Troitskii, and D. Bertsimas. Finding neurons in a haystack: Case studies with sparse probing, 2023.\n' +
+      '* Hanna et al. (2023) M. Hanna, O. Liu, and A. Variengien. How does gpt-2 compute greater-than?: Interpreting mathematical abilities in a pre-trained language model, 2023.\n' +
+      '* Hase et al. (2023) P. Hase, M. Bansal, B. Kim, and A. Ghandeharioun. Does localization inform editing? surprising differences in causality-based localization vs. knowledge editing in language models, 2023.\n' +
+      '* Hendel et al. (2023) R. Hendel, M. Geva, and A. Globerson. In-context learning creates task vectors, 2023.\n' +
+      '* Hoffmann et al. (2020) J. Hoffmann, S. Borgeaud, A. Mensch, E. Buchatskaya, T. Cai, E. Rutherford, D. de Las Casas, L. A. Hendricks, J. Welbl, A. Clark, T. Hennigan, E. Noland, K. Millican, G. van den Driessche, B. Damoc, A. Guy, S. Osindero, K. Simonyan, E. Elsen, O. Vinyals, J. Rae, and L. Sifre. An empirical analysis of compute-optimal large language model training. In S. Koyejo, S. Mohamed, A. Agarwal, D. Belgrave, K. Cho, and A. Oh, editors, _Advances in Neural Information Processing Systems_, volume 35, pages 30016-30030. Curran Associates, Inc., 2022. URL [https://proceedings.neurips.cc/paper_files/paper/2022/file/c1e2faff6f588870935f114ebe04a3e5-Paper-Conference.pdf](https://proceedings.neurips.cc/paper_files/paper/2022/file/c1e2faff6f588870935f114ebe04a3e5-Paper-Conference.pdf).\n' +
+      '* Huang et al. (2023) J. Huang, A. Geiger, K. D\'Oosterlinck, Z. Wu, and C. Potts. Rigorously assessing natural language explanations of neurons, 2023.\n' +
+      '* Jenner et al. (2022) E. Jenner, A. Garriga-Alonso, and E. Zverev. A comparison of causal scrubbing, causal abstractions, and related methods. _AI Alignment Forum_, 2022. [https://www.alignmentform.org/posts/uLMWMeBG3ruoBRhMW/a-comparison-of-causal-scrubbing-causal-abstractions-and](https://www.alignmentform.org/posts/uLMWMeBG3ruoBRhMW/a-comparison-of-causal-scrubbing-causal-abstractions-and).\n' +
+      '* Jorgensen et al. (2023) O. Jorgensen, D. Cope, N. Schoots, and M. Shanahan. Improving activation steering in language models with mean-centring, 2023.\n' +
+      '* Li et al. (2023) K. Li, O. Patel, F. Viegas, H. Pfister, and M. Wattenberg. Inference-time intervention: Eliciting truthful answers from a language model, 2023.\n' +
+      '* Lieberum et al. (2023) T. Lieberum, M. Rahtz, J. Kramar, N. Nanda, G. Irving, R. Shah, and V. Mikulik. Does circuit analysis interpretability scale? evidence from multiple choice capabilities in chinchilla, 2023.\n' +
+      '* Louizos et al. (2018) C. Louizos, M. Welling, and D. P. Kingma. Learning sparse neural networks through \\(l_{0}\\) regularization, 2018.\n' +
+      '* McDougall et al. (2023) C. McDougall, A. Conmy, C. Rushing, T. McGrath, and N. Nanda. Copy suppression: Comprehensively understanding an attention head, 2023.\n' +
+      '* McGrath et al. (2023) T. McGrath, M. Rahtz, J. Kramar, V. Mikulik, and S. Legg. The hydra effect: Emergent self-repair in language model computations, 2023.\n' +
+      '* Meng et al. (2023) K. Meng, D. Bau, A. Andonian, and Y. Belinkov. Locating and editing factual associations in gpt, 2023.\n' +
+      '* Merullo et al. (2023) J. Merullo, C. Eickhoff, and E. Pavlick. Circuit component reuse across tasks in transformer language models, 2023.\n' +
+      '* Michel et al. (2019) P. Michel, O. Levy, and G. Neubig. Are sixteen heads really better than one? In H. Wallach, H. Larochelle, A. Beygelzimer, F. d\'Alche-Buc, E. Fox, and R. Garnett, editors, _Advances in Neural Information Processing Systems_, volume 32. Curran Associates, Inc., 2019. URL [https://proceedings.neurips.cc/paper_files/paper/2019/file/2c601ad9d2ff9bc8b282670cdd54f69f-Paper.pdf](https://proceedings.neurips.cc/paper_files/paper/2019/file/2c601ad9d2ff9bc8b282670cdd54f69f-Paper.pdf).\n' +
+      '* Molchanov et al. (2017) P. Molchanov, S. Tyree, T. Karras, T. Aila, and J. Kautz. Pruning convolutional neural networks for resource efficient inference. In _International Conference on Learning Representations_, 2017. URL [https://openreview.net/forum?id=SJGCiw5gl](https://openreview.net/forum?id=SJGCiw5gl).\n' +
+      '* Nanda (2022) N. Nanda. Attribution patching: Activation patching at industrial scale. 2022. URL [https://www.neelnanda.io/mechanistic-interpretability/attribution-patching](https://www.neelnanda.io/mechanistic-interpretability/attribution-patching).\n' +
+      '* Nanda et al. (2023) N. Nanda, S. Rajamanoharan, J. Kramar, and R. Shah. Fact finding: Attempting to reverse-engineer factual recall on the neuron level, Dec 2023. URL [https://www.alignmentform.org/posts/iGuwZTHWb6DFY3sKB/fact-finding-attempting-to-reverse-engineer-factual-recall](https://www.alignmentform.org/posts/iGuwZTHWb6DFY3sKB/fact-finding-attempting-to-reverse-engineer-factual-recall).\n' +
+      '\n' +
+      'nostalgebraist. interpreting gpt: the logit lens. 2020. URL [https://www.alignmentforum.org/posts/AcKRB8wDpdaN6v6ru/interpreting-gpt-the-logit-lens](https://www.alignmentforum.org/posts/AcKRB8wDpdaN6v6ru/interpreting-gpt-the-logit-lens).\n' +
+      '* Olsson et al. (2022) C. Olsson, N. Elhage, N. Nanda, N. Joseph, N. DasSarma, T. Henighan, B. Mann, A. Askell, Y. Bai, A. Chen, T. Conerly, D. Drain, D. Ganguli, Z. Hatfield-Dodds, D. Hernandez, S. Johnston, A. Jones, J. Kernion, L. Lovitt, K. Ndousse, D. Amodei, T. Brown, J. Clark, J. Kaplan, S. McCandlish, and C. Olah. In-context learning and induction heads. _Transformer Circuits Thread_, 2022. [https://transformer-circuits.pub/2022/in-context-learning-and-induction-heads/index.html](https://transformer-circuits.pub/2022/in-context-learning-and-induction-heads/index.html).\n' +
+      '* Pearl (2000) J. Pearl. _Causality: Models, Reasoning and Inference_. Cambridge University Press, 2000.\n' +
+      '* Pearl (2001) J. Pearl. Direct and indirect effects, 2001.\n' +
+      '* Radford et al. (2018) A. Radford, K. Narasimhan, T. Salimans, and I. Sutskever. Improving language understanding by generative pre-training, 2018.\n' +
+      '* Rimsky et al. (2023) N. Rimsky, N. Gabrieli, J. Schulz, M. Tong, E. Hubinger, and A. M. Turner. Steering llama 2 via contrastive activation addition, 2023.\n' +
+      '* Robins and Greenland (1992) J. M. Robins and S. Greenland. Identifiability and exchangeability for direct and indirect effects. _Epidemiology_, 3:143-155, 1992. URL [https://api.semanticscholar.org/CorpusID:10757981](https://api.semanticscholar.org/CorpusID:10757981).\n' +
+      '* Soulos et al. (2020) P. Soulos, R. T. McCoy, T. Linzen, and P. Smolensky. Discovering the compositional structure of vector representations with role learning networks. In A. Alishahi, Y. Belinkov, G. Chrupala, D. Hupkes, Y. Pinter, and H. Sajjad, editors, _Proceedings of the Third BlackboxNLP Workshop on Analyzing and Interpreting Neural Networks for NLP_, pages 238-254, Online, Nov. 2020. Association for Computational Linguistics. doi: 10.18653/v1/2020.blackboxnlp-1.23. URL [https://aclanthology.org/2020.blackboxnlp-1.23](https://aclanthology.org/2020.blackboxnlp-1.23).\n' +
+      '* Stolfo et al. (2023) A. Stolfo, Y. Belinkov, and M. Sachan. A mechanistic interpretation of arithmetic reasoning in language models using causal mediation analysis, 2023.\n' +
+      '* Syed et al. (2023) A. Syed, C. Rager, and A. Conmy. Attribution patching outperforms automated circuit discovery, 2023.\n' +
+      '* Tigges et al. (2023) C. Tigges, O. J. Hollinsworth, A. Geiger, and N. Nanda. Linear representations of sentiment in large language models, 2023.\n' +
+      '* Todd et al. (2023) E. Todd, M. L. Li, A. S. Sharma, A. Mueller, B. C. Wallace, and D. Bau. Function vectors in large language models, 2023.\n' +
+      '* Turner et al. (2023) A. M. Turner, L. Thiergart, D. Udell, G. Leech, U. Mini, and M. MacDiarmid. Activation addition: Steering language models without optimization, 2023.\n' +
+      '* Vaswani et al. (2017) A. Vaswani, N. Shazeer, N. Parmar, J. Uszkoreit, L. Jones, A. N. Gomez, L. Kaiser, and I. Polosukhin. Attention is all you need, 2017.\n' +
+      '* Veit et al. (2016) A. Veit, M. J. Wilber, and S. Belongie. Residual networks behave like ensembles of relatively shallow networks. In D. Lee, M. Sugiyama, U. Luxburg, I. Guyon, and R. Garnett, editors, _Advances in Neural Information Processing Systems_, volume 29. Curran Associates, Inc., 2016. URL [https://proceedings.neurips.cc/paper_files/paper/2016/file/37bc2f75bf1bcfe8450a1a41c200364c-Paper.pdf](https://proceedings.neurips.cc/paper_files/paper/2016/file/37bc2f75bf1bcfe8450a1a41c200364c-Paper.pdf).\n' +
+      '\n' +
+      '* Vig et al. (2020) J. Vig, S. Gehrmann, Y. Belinkov, S. Qian, D. Nevo, Y. Singer, and S. Shieber. Investigating gender bias in language models using causal mediation analysis. In H. Larochelle, M. Ranzato, R. Hadsell, M. Balcan, and H. Lin, editors, _Advances in Neural Information Processing Systems_, volume 33, pages 12388-12401. Curran Associates, Inc., 2020. URL [https://proceedings.neurips.cc/paper_files/paper/2020/file/92650b2e92217715fe312e6fa7b90d82-Paper.pdf](https://proceedings.neurips.cc/paper_files/paper/2020/file/92650b2e92217715fe312e6fa7b90d82-Paper.pdf).\n' +
+      '* Wang et al. (2022) K. Wang, A. Variengien, A. Conmy, B. Shlegeris, and J. Steinhardt. Interpretability in the wild: a circuit for indirect object identification in gpt-2 small, 2022.\n' +
+      '* Welch (1947) B. L. Welch. The generalization of \'Student\'s problem when several different population variances are involved. _Biometrika_, 34(1-2):28-35, 01 1947. ISSN 0006-3444. doi: 10.1093/biomet/34.1-2.28. URL [https://doi.org/10.1093/biomet/34.1-2.28](https://doi.org/10.1093/biomet/34.1-2.28).\n' +
+      '* Zou et al. (2023) A. Zou, L. Phan, S. Chen, J. Campbell, P. Guo, R. Ren, A. Pan, X. Yin, M. Mazeika, A.-K. Dombrowski, S. Goel, N. Li, M. J. Byun, Z. Wang, A. Mallen, S. Basart, S. Koyejo, D. Song, M. Fredrikson, J. Z. Kolter, and D. Hendrycks. Representation engineering: A top-down approach to ai transparency, 2023.\n' +
+      '\n' +
+      '## Appendix A Method details\n' +
+      '\n' +
+      '### Baselines\n' +
+      '\n' +
+      '#### a.1.1 Properties of Subsampling\n' +
+      '\n' +
+      'Here we prove that the subsampling estimator \\(\\hat{\\mathcal{I}}_{\\text{SS}}(n)\\) from Section 3.3 is unbiased in the case of no interaction effects. Furthermore, assuming a simple interaction model, we show the bias of \\(\\hat{\\mathcal{I}}_{\\text{SS}}(n)\\) is \\(p\\) times the total interaction effect of \\(n\\) with other nodes. We assume a pairwise interaction model. That is, given a set of nodes \\(\\eta\\), we have\n' +
+      '\n' +
+      '\\[\\mathcal{I}(\\eta;x)=\\sum_{n\\in\\eta}\\mathcal{I}(n;x)+\\sum_{\\begin{subarray}{c}n, n^{\\prime}\\in\\eta\\\\ n\\neq n\\end{subarray}}\\sigma_{n,n^{\\prime}}(x) \\tag{14}\\]\n' +
+      '\n' +
+      'with fixed constants \\(\\sigma_{n,n^{\\prime}}(x)\\in\\mathbb{R}\\) for each prompt pair \\(x\\in\\text{support}(\\mathcal{D})\\). Let \\(\\sigma_{n,n^{\\prime}}=\\mathbb{E}_{x\\sim\\mathcal{D}}\\left[\\sigma_{n,n^{\\prime} }(x)\\right]\\).\n' +
+      '\n' +
+      'Let \\(p\\) be the probability of including each node in a given \\(\\eta\\) and let \\(M\\) be the number of node masks sampled from \\(\\text{Bernoulli}^{|N|}(p)\\) and prompt pairs \\(x\\) sampled from \\(\\mathcal{D}\\). Then,\n' +
+      '\n' +
+      '\\[\\mathbb{E}\\left[\\hat{\\mathcal{I}}_{\\text{SS}}(n)\\right] =\\mathbb{E}\\left[\\frac{1}{|\\eta^{+}(n)|}\\sum_{k=1}^{|\\eta^{+}(n)|} \\mathcal{I}(\\eta_{k}^{+}(n);x_{k}^{+})-\\frac{1}{|\\eta^{-}(n)|}\\sum_{k=1}^{| \\eta^{-}(n)|}\\mathcal{I}(\\eta_{k}^{-}(n);x_{k}^{-})\\right] \\tag{15a}\\] \\[=\\mathbb{E}\\left[\\mathbb{E}\\left[\\frac{1}{|\\eta^{+}(n)|}\\sum_{k=1 }^{|\\eta^{+}(n)|}\\mathcal{I}(\\eta_{k}^{+}(n);x_{k}^{+})-\\frac{1}{|\\eta^{-}(n)| }\\sum_{k=1}^{|\\eta^{-}(n)|}\\mathcal{I}(\\eta_{k}^{-}(n);x_{k}^{-})\\Bigg{|}|\\eta ^{+}(n)|\\right]\\right]\\] (15b) \\[=\\mathbb{E}\\left[\\mathbb{E}\\left[\\frac{|\\eta^{+}(n)|}{|\\eta^{+}( n)|}\\mathbb{E}\\left[\\mathcal{I}(\\eta_{1};x_{1})|n\\in\\eta_{1}\\right]-\\frac{| \\eta^{-}(n)|}{|\\eta^{-}(n)|}\\mathbb{E}\\left[\\mathcal{I}(\\eta_{1};x_{1})|n\\notin \\eta_{1}\\right]\\Bigg{|}|\\eta^{+}(n)|\\right]\\right]\\] (15c) \\[=\\mathbb{E}\\left[\\mathcal{I}(\\eta_{1};x_{1})|n\\in\\eta_{1}\\right]- \\mathbb{E}\\left[\\mathcal{I}(\\eta_{1};x_{1})|n\\notin\\eta_{1}\\right]\\] (15d) \\[=c(n)+\\mathbb{E}\\left[\\sum_{n^{\\prime}\\neq n}1\\left[n^{\\prime}\\in \\eta_{1}\\right]\\left(c(n^{\\prime})+\\sigma_{m^{\\prime}}+\\frac{1}{2}\\sum_{n^{ \\prime\\prime}\\notin\\{n^{\\prime},n\\}}1\\left[n^{\\prime}\\in\\eta_{1}\\right]\\sigma_ {n^{\\prime}n^{\\prime\\prime}}\\Bigg{|}n\\in\\eta_{1}\\right]\\right)\\] (15e) \\[\\quad-\\mathbb{E}\\left[\\sum_{n^{\\prime}\\neq n}1\\left[n^{\\prime}\\in \\eta_{1}\\right]\\left(c(n^{\\prime})+\\frac{1}{2}\\sum_{n^{\\prime\\prime}\\notin\\{n^ {\\prime},n\\}}1\\left[n^{\\prime}\\in\\eta_{1}\\right]\\sigma_{n^{\\prime}n^{\\prime \\prime}}\\right)\\Bigg{|}n\\notin\\eta_{1}\\right]\\] (15f) \\[=c(n)+p\\sum_{n^{\\prime}\\neq n}\\sigma_{m^{\\prime}} \\tag{15g}\\]\n' +
+      '\n' +
+      'In Equation (15g), we observe that if the interaction terms \\(\\sigma_{m^{\\prime}}\\) are all zero, the estimator is unbiased. Otherwise, the bias scales both with the sum of interaction effects and with \\(p\\), as expected.\n' +
+      '\n' +
+      '#### a.1.2 Pseudocode for Blocks and Hierarchical baselines\n' +
+      '\n' +
+      'In Algorithm 2 we detail the Blocks baseline algorithm. As explained in Section 3.3, it comes with a tradeoff in its "block size" hyperparameter \\(B\\): a small block size requires a lot of time to evaluate all the blocks, while a large block size means many irrelevant nodes to evaluate in each high-contribution block.\n' +
+      '\n' +
+      'The Hierarchical baseline algorithm aims to resolve this tradeoff, by using small blocks, but grouped into superblocks so it\'s not necessary to traverse all the small blocks before finding the keynodes. In Algorithm 3 we detail the hierarchical algorithm in its iterative form, corresponding to batch size 1.\n' +
+      '\n' +
+      'One aspect that might be surprising is that on line 21, we ensure a subblock is never added to the priority queue with higher priority than its ancestor superblocks. The reason for doing this is that in practice we use batched inference rather than patching a single block at a time, so depending on the batch size, we do evaluate blocks that aren\'t the highest-priority unevaluated blocks, and this might impose a significant delay in when some blocks are evaluated. In order to reduce this dependence on the batch size hyperparameter, line 21 ensures that every block is evaluated at most \\(L\\) batches later than it would be with batch size 1.\n' +
+      '\n' +
+      '### AtP improvements\n' +
+      '\n' +
+      '#### a.2.1 Pseudocode for corrected AtP on attention keys\n' +
+      '\n' +
+      'As described in Section 3.1.1, computing Equation (10) naively for all nodes requires \\(\\mathsf{O}(T^{3})\\) flops at each attention head and prompt pair. Here we give a more efficient algorithm running in \\(\\mathsf{O}(T^{2})\\). In addition to keys, queries and attention probabilities, we now also cache attention logits (pre-softmax scaled key-query dot products).\n' +
+      '\n' +
+      'We define \\(\\mathsf{attnLogits}^{t}_{\\mathsf{patch}}(n^{q})\\) and \\(\\Delta_{t}\\,\\mathsf{attnLogits}(n^{q})\\) analogously to Equations (8) and (9). For brevity we can also define \\(\\mathsf{attnLogits}_{\\mathsf{patch}}(n^{q})_{t}:=\\mathsf{attnLogits}^{t}_{ \\mathsf{patch}}(n^{q})_{t}\\) and \\(\\Delta\\,\\mathsf{attnLogits}(n^{q})_{t}:=\\Delta_{t}\\,\\mathsf{attnLogits}(n^{q} )_{t}\\), since the aim with this algorithm is to avoid having to separately compute effects of \\(\\mathsf{do}(n^{k}_{t}\\gets n^{k}_{t}(x^{\\text{noise}}))\\) on any other component of \\(\\mathsf{attnLogits}\\) than the one for key node \\(n^{k}_{t}\\).\n' +
+      '\n' +
+      'Note that, for a key \\(n^{k}_{t}\\) at position \\(t\\) in the sequence, the proportions of the non-\\(t\\) components of \\(\\mathsf{attn}(n^{q})_{t}\\) do not change when \\(\\mathsf{attnLogits}(n^{q})_{t}\\) is changed, so \\(\\Delta_{t}\\,\\mathsf{attn}(n^{q})\\) is actually \\(\\mathsf{onehot}(t)-\\mathsf{attn}(n^{q})\\) multiplied by some scalar \\(s_{t}\\); specifically, to get the right attention weight on \\(n^{k}_{t}\\), the scalar must be \\(s_{t}:=\\frac{\\Delta\\,\\mathsf{attn}(n^{q})_{t}}{1-\\mathsf{attn}(n^{q})_{t}}\\). Additionally, we have \\(\\log\\left(\\frac{\\mathsf{attn}^{t}_{\\mathsf{patch}}(n^{q})_{t}}{1-\\mathsf{attn }^{t}_{\\mathsf{patch}}(n^{q})_{t}}\\right)=\\log\\left(\\frac{\\mathsf{attn}(n^{q} )_{t}}{1-\\mathsf{attn}(n^{q})_{t}}\\right)+\\Delta\\,\\mathsf{attnLogits}(n^{q} )_{t}\\); note that the logodds function \\(p\\mapsto\\log\\left(\\frac{p}{1-p}\\right)\\) is the inverse of the sigmoid function, so \\(\\mathsf{attn}^{t}_{\\mathsf{patch}}(n^{q})=\\mathsf{attnLogits}(n^{q})_{t}\\).\n' +
+      '\n' +
+      '#### a.2.2 The \\(\\mathsf{attnLogits}\\)\n' +
+      '\n' +
+      'We now describe the \\(\\mathsf{attnLogits}\\) algorithm in detail in Section 3.1.1.\n' +
+      '\n' +
+      '```\n' +
+      '1:block size \\(B\\), compute budget \\(M\\), nodes \\(N=\\{n_{i}\\}\\), prompts \\(x^{\\text{clean}}\\), \\(x^{\\text{noise}}\\), intervention function \\(\\bar{I}:\\eta\\mapsto\\mathcal{I}(\\eta;x^{\\text{clean}},x^{\\text{noise}})\\)\n' +
+      '2:numBlocks \\(\\leftarrow\\lceil|N|/B\\rceil\\)\n' +
+      '3:\\(\\pi\\leftarrow\\text{shuffle}\\left(\\{|\\text{numBlocks}\\cdot iB/|N|\\mid i\\in\\{0, \\ldots,|N|-1\\}\\}\\right)\\)\\(\\triangleright\\) Assign each node to a block.\n' +
+      '4:for\\(i\\gets 0\\) to \\(\\text{numBlocks}-1\\)do\n' +
+      '5:\\(\\text{blockContribution}[i]\\leftarrow\\lfloor\\bar{I}(\\pi^{-1}(\\{i\\}))\\rfloor\\)\\(\\triangleright\\)\\(\\pi^{-1}(\\{i\\}):=\\{n:\\pi(n)=i\\mid n\\in N\\})\\)\n' +
+      '6:\\(\\text{pspentBudget}\\gets M-\\text{numBlocks}\\)\n' +
+      '7:topNodeContiribs \\(\\leftarrow\\) CreateEmptyDictionary()\n' +
+      '8:forall\\(i\\in\\{0\\) to \\(\\text{numBlocks}-1\\}\\) in decreasing order of blockContribution[\\(i\\)]do\n' +
+      '9:forall\\(n\\in\\pi^{-1}(\\{i\\})\\)do\n' +
+      '10:if\\(\\text{pspentBudget}<M\\)then\n' +
+      '11:\\(\\text{topNodeContiribs}[n]\\leftarrow\\lfloor\\bar{I}(\\{n\\})\\rfloor\\)\n' +
+      '12:\\(\\text{spentBudget}\\leftarrow\\text{spentBudget}+1\\)\n' +
+      '13:else\n' +
+      '14:return topNodeContiribs\n' +
+      '```\n' +
+      '\n' +
+      '**Algorithm 2** Blocks algorithm for causal attribution.\n' +
+      '\n' +
+      '### Pseudocode for corrected AtP on attention keys\n' +
+      '\n' +
+      'As described in Section 3.1.1, computing Equation (10) naively for all nodes requires \\(\\mathsf{O}(T^{3})\\) flops at each attention head and prompt pair. Here we give a more efficient algorithm running in \\(\\mathsf{O}(T^{2})\\). In addition to keys, queries and attention probabilities, we now also cache attention logits (pre-softmax scaled key-query dot products).\n' +
+      '\n' +
+      'We define \\(\\mathsf{attnLogits}^{t}_{\\mathsf{patch}}(n^{q})\\) and \\(\\Delta_{t}\\,\\mathsf{attnLogits}(n^{q})\\) analogously to Equations (8) and (9). For brevity we can also define \\(\\mathsf{attnLogits}_{\\mathsf{patch}}(n^{q})_{t}:=\\mathsf{attnLogits}^{t}_{ \\mathsf{patch}}(n^{q})_{t}\\) and \\(\\Delta\\,\\mathsf{attnLogits}(n^{q})_{t}:=\\Delta_{t}\\,\\mathsf{attnLogits}(n^{q} )_{t}\\), since the aim with this algorithm is to avoid having to separately compute effects of \\(\\mathsf{do}(n^{k}_{t}\\gets n^{k}_{t}(x^{\\text{noise}}))\\) on any other component of \\(\\mathsf{attnLogits}\\) than the one for key node \\(n^{k}_{t}\\).\n' +
+      '\n' +
+      'Note that, for a key \\(n^{k}_{t}\\) at position \\(t\\) in the sequence, the proportions of the non-\\(t\\) components of \\(\\mathsf{attn}(n^{q})_{t}\\) do not change when \\(\\mathsf{attnLogits}(n^{q})_{t}\\) is changed, so \\(\\Delta_{t}\\,\\mathsf{attn}(n^{q})\\) is actually \\(\\mathsf{onehot}(t)-\\mathsf{attn}(n^{q})\\) multiplied by some scalar \\(s_{t}\\); specifically, to get the right attention weight on \\(n^{k}_{t}\\), the scalar must be \\(s_{t}:=\\frac{\\Delta\\,\\mathsf{attn}(n^{q})_{t}}{1-\\mathsf{attn}(n^{q})_{t}}\\). Additionally, we have \\(\\log\\left(\\frac{\\mathsf{attn}^{t}_{\\mathsf{patch}}(n^{q})_{t}}{1-\\mathsf{attn }^{t}_{\\mathsf{patch}}(n^{q})_{t}}\\right)=\\log\\left(\\frac{\\mathsf{attn}(n^{q })_{t}}{1-\\mathsf{attn}(n^{q})_{t}}\\right)+\\Delta\\,\\mathsf{attnLogits}(n^{q} )_{t}\\); note that the logodds function \\(p\\mapsto\\log\\left(\\frac{p}{1-p}\\right)\\) is the inverse of the sigmoid function, so \\(\\mathsf{attn}^{t}_{\\mathsf{patch}}(n^{q})=\\mathsf{attnLogits}(n^{q})_{t}\\).\n' +
+      '```\n' +
+      '1:branching factor \\(B\\), num levels \\(L\\), compute budget \\(M\\), nodes \\(N=\\{n_{i}\\}\\), intervention function \\(I\\)\n' +
+      '2:numTopLevelBlocks \\(\\leftarrow\\lceil|N|/B^{L}\\rceil\\)\n' +
+      '3:\\(\\pi\\leftarrow\\) shuffle (\\(\\left\\{\\big{\\{}|\\text{numTopLevelBlocks}\\cdot iB^{L}/|N|\\big{|}\\big{|}i\\in\\{0, \\ldots,|N|-1\\}\\big{\\}}\\right\\}\\))\n' +
+      '4:for all\\(n_{i}\\in N\\)do\n' +
+      '5:\\((d_{L-1},d_{L-2},\\ldots,d_{0})\\leftarrow\\) zero-padded final \\(L\\) base-\\(B\\) digits of \\(\\pi_{i}\\)\n' +
+      '6:address\\((n_{i})=(\\lfloor\\pi_{i}/B^{L}\\rfloor,d_{L-1},\\ldots,d_{0})\\)\n' +
+      '7:\\(Q\\leftarrow\\) CreateEmptyPriorityQueue()\n' +
+      '8:for\\(i\\gets 0\\) to numTopLevelBlocks - \\(1\\)do\n' +
+      '9: PriorityQueueInsert(\\(Q,[i],\\infty\\))\n' +
+      '10:spentBudget \\(\\gets 0\\)\n' +
+      '11:topNodeContrits \\(\\leftarrow\\) CreateEmptyDictionary()\n' +
+      '12:repeat\n' +
+      '13: (addressPrefix, priority) \\(\\leftarrow\\) PriorityQueuePop(\\(Q\\))\n' +
+      '14: blockNodes \\(\\leftarrow\\{n\\in N|\\text{StartsWith}(address(n),\\text{addressPrefix})\\}\\)\n' +
+      '15: blockContribution \\(\\leftarrow\\)\\(|\\mathcal{I}\\) (blockNodes) \\(|\\)\n' +
+      '16: spentBudget \\(\\leftarrow\\) spentBudget + \\(1\\)\n' +
+      '17:ifblockNodes = \\(\\{n\\}\\) for some \\(n\\in N\\)then\n' +
+      '18: topNodeContribs\\([n]\\leftarrow\\) blockContribution\n' +
+      '19:else\n' +
+      '20:for\\(i\\gets 0\\) to \\(B-1\\)do\n' +
+      '21:if\\(\\{n\\in\\text{blockNodes}|\\text{StartsWith}(address(n),\\text{addressPrefix}+[i]\\} \\neq\\emptyset\\)then\n' +
+      '22: PriorityQueueInsert(\\(Q,\\text{addressPrefix}+[i],\\min(\\text{blockContribution, priority})\\))\n' +
+      '23:untilspentBudget = \\(M\\) or PriorityQueueEmpty(\\(Q\\))\n' +
+      '24:return topNodeContribs\n' +
+      '```\n' +
+      '\n' +
+      '**Algorithm 3** Hierarchical algorithm for causal attribution, in iterative form. In practice we do additional batching rather than evaluating a single block at a time on line 14.\n' +
+      '\n' +
+      '```\n' +
+      '1:branching factor \\(B\\), num levels \\(L\\), compute budget \\(M\\), nodes \\(N=\\{n_{i}\\}\\), intervention function \\(I\\)\n' +
+      '2:numTopLevelBlocks \\(\\leftarrow\\lceil|N|/B^{L}\\rceil\\)\n' +
+      '3:\\(\\pi\\leftarrow\\) shuffle (\\(\\left\\{\\big{\\{}|\\text{numTopLevelBlocks}\\cdot iB^{L}/|N|\\big{|}\\big{|}i\\in\\{0, \\ldots,|N|-1\\}\\big{\\}}\\right\\}\\))\n' +
+      '4:for all\\(n_{i}\\in N\\)do\n' +
+      '5:\\((d_{L-1},d_{L-2},\\ldots,d_{0})\\leftarrow\\) zero-padded final \\(L\\) base-\\(B\\) digits of \\(\\pi_{i}\\)\n' +
+      '6:address\\((n_{i})=(\\lfloor\\pi_{i}/B^{L}\\rfloor,d_{L-1},\\ldots,d_{0})\\)\n' +
+      '7:\\(Q\\leftarrow\\) CreateEmptyPriorityQueue()\n' +
+      '8:for\\(i\\gets 0\\) to numTopLevelBlocks - \\(1\\)do\n' +
+      '9: PriorityQueueInsert(\\(Q,[i],\\infty\\))\n' +
+      '10:\\(\\text{spentBudget}\\gets 0\\)\n' +
+      '11:topNodeContrits \\(\\leftarrow\\) CreateEmptyDictionary()\n' +
+      '12:repeat\n' +
+      '13: (addressPrefix, priority) \\(\\leftarrow\\) PriorityQueuePop(\\(Q\\))\n' +
+      '14: blockNodes \\(\\leftarrow\\{n\\in N|\\text{StartsWith}(address(n),\\text{addressPrefix})\\}\\)\n' +
+      '15: blockContribution \\(\\leftarrow\\)\\(|\\mathcal{I}\\) (blockNodes) \\(|\\)\n' +
+      '16:\\(\\text{spentBudget}\\leftarrow\\) spentBudget + \\(1\\)\n' +
+      '17:ifblockNodes = \\(\\{n\\}\\) for some \\(n\\in N\\)then\n' +
+      '18: topNodeContribs\\([n]\\leftarrow\\) blockContribution\n' +
+      '19:else\n' +
+      '20:for\\(i\\gets 0\\) to \\(B-1\\)do\n' +
+      '21:if\\(\\{n\\in\\text{blockNodes}|\\text{StartsWith}(address(n),\\text{addressPrefix}+[i]\\} \\neq\\emptyset\\)then\n' +
+      '23: PriorityQueueInsert(\\(Q,\\text{addressPrefix}+[i],\\min(\\text{blockContribution, priority})\\))\n' +
+      '24:untilspentBudget = \\(M\\) or PriorityQueueEmpty(\\(Q\\))\n' +
+      '25:return topNodeContribs\n' +
+      '```\n' +
+      '\n' +
+      '**Algorithm 4** Hierarchical algorithm for causal attribution, in iterative form. In practice we do additional batching rather than evaluating a single block at a time on line 14.\n' +
+      '\n' +
+      '\\(\\sigma\\left(\\log\\left(\\frac{\\operatorname{attr}_{\\text{patch}}^{\\prime}(n^{\\ell})_{ k}}{1-\\operatorname{attr}_{\\text{patch}}^{\\prime}(n^{\\ell})_{l}}\\right)\\right)\\). Putting this together, we can compute all \\(\\operatorname{attnLogits}_{\\text{patch}}(n^{q})\\) by combining all keys from the \\(x^{\\text{noise}}\\) forward pass with all queries from the \\(x^{\\text{clean}}\\) forward pass, and proceed to compute \\(\\Delta\\operatorname{attnLogits}(n^{q})\\), and all \\(\\Delta_{t}\\operatorname{attn}(n^{q})_{t}\\), and thus all \\(\\hat{I}_{\\text{APflx}}^{K}(n_{t};x^{\\text{clean}},x^{\\text{noise}})\\), using \\(\\operatorname{O}(T^{2})\\) flops per attention head.\n' +
+      '\n' +
+      'Algorithm 4 computes the contribution of some query node \\(n^{q}\\) and prompt pair \\(x^{\\text{clean}},x^{\\text{noise}}\\) to the corrected AtP estimates \\(\\hat{\\epsilon}_{\\text{APflx}}^{K}(n_{t}^{k})\\) for key nodes \\(n_{1}^{k},\\dots,n_{t}^{k}\\) from a single attention head, using \\(O(T)\\) flops, while avoiding numerical overflows. We reuse the notation \\(\\operatorname{attn}(n^{q})\\), \\(\\operatorname{attn}_{\\text{patch}}^{t}(n^{q})\\), \\(\\Delta_{t}\\operatorname{attn}(n^{q})\\), \\(\\operatorname{attnLogits}(n^{q})\\), \\(\\operatorname{attnLogits}(n^{q})\\), and \\(s_{t}\\) from Section 3.1.1, leaving the prompt pair implicit.\n' +
+      '\n' +
+      '```\n' +
+      '0:\\(\\mathbf{a}:=\\operatorname{attnLogits}(n^{q})\\), \\(\\mathbf{a}^{\\text{patch}}:=\\operatorname{attnLogits}_{\\text{patch}}(n^{q})\\), \\(\\mathbf{g}:=\\frac{\\partial\\mathcal{L}\\left(\\mathcal{M}(x^{\\text{clean}}) \\right)}{\\partial\\operatorname{attn}(n^{q})}\\)\n' +
+      '1:\\(t^{*}\\leftarrow\\operatorname{argmax}_{t}(a_{t})\\)\n' +
+      '2:\\(\\ell\\leftarrow\\mathbf{a}-a_{t^{*}}-\\log\\left(\\sum_{t}e^{a_{t}-a_{t^{*}}}\\right)\\)\\(\\triangleright\\) Clean log attn weights, \\(\\ell=\\log(\\operatorname{attn}(n^{q}))\\)\n' +
+      '3:\\(\\mathbf{d}\\leftarrow\\ell-\\log(1-e^{\\ell})\\)\\(\\triangleright\\) Clean logodds, \\(d_{t}=\\log\\left(\\frac{\\operatorname{attn}(n^{q})_{t}}{1-\\operatorname{attn}(n^{q })_{t}}\\right)\\)\n' +
+      '4:\\(d_{t^{*}}\\gets d_{t^{*}}-\\max_{t\\neq t^{*}}a_{t}-\\log\\left(\\sum_{t^{*}\\neq t ^{*}}e^{a_{t^{*}}-\\max_{t\\neq t^{*}}a_{t}}\\right)\\)\\(\\triangleright\\) Adjust \\(\\mathbf{d}\\); more stable for \\(a_{t^{*}}\\gg\\max_{t\\neq t^{*}}a_{t}\\)\n' +
+      '5:\\(\\ell^{\\text{patch}}\\leftarrow\\operatorname{logigmoid}(\\mathbf{d}+\\mathbf{a}^{ \\text{patch}}-\\mathbf{a})\\)\\(\\triangleright\\) Patched log attn weights, \\(\\ell_{t}^{\\text{patch}}=\\log(\\operatorname{attn}_{\\text{patch}}^{t}(n^{q})_{t})\\)\n' +
+      '6:\\(\\Delta\\ell\\leftarrow\\ell^{\\text{patch}}-\\ell\\)\\(\\triangleright\\)\\(\\Delta\\ell_{t}=\\log\\left(\\frac{\\operatorname{attn}_{\\text{patch}}^{t}(n^{q})_{t}}{ \\operatorname{attn}(n^{q})_{t}}\\right)\\)\n' +
+      '7:\\(b\\leftarrow\\operatorname{softmax}(\\mathbf{a})^{\\top}\\mathbf{g}\\)\\(\\triangleright\\)\\(b=\\operatorname{attn}(n^{q})^{\\top}\\mathbf{g}\\)\n' +
+      '8:for\\(t\\gets 1\\) to \\(T\\)do\\(\\triangleright\\) Compute scaling factor \\(s_{t}:=\\frac{\\Delta_{t}\\operatorname{attn}(n^{q})_{t}}{1-\\operatorname{attn}(n^ {q})_{t}}\\)\n' +
+      '9:if\\(\\ell_{t}^{\\text{patch}}>\\ell_{t}\\)then\\(\\triangleright\\) Avoid overflow when \\(\\ell_{t}^{\\text{patch}}\\gg\\ell_{t}\\)\n' +
+      '10:\\(s_{t}\\gets e^{d_{t}+\\Delta\\ell_{t}+\\log(1-e^{-\\Delta\\ell_{t}})}\\)\\(\\triangleright\\)\\(s_{t}=\\frac{\\operatorname{attn}(n^{q})_{t}}{1-\\operatorname{attn}(n^{q})_{t}} \\operatorname{attn}(n^{q})_{t}\\left(1-\\frac{\\operatorname{attn}(n^{q})_{t}}{ \\operatorname{attn}_{\\text{patch}}^{t}(n^{q})_{t}}\\right)\\)\n' +
+      '11:else\\(\\triangleright\\) Avoid overflow when \\(\\ell_{t}^{\\text{patch}}\\ll\\ell_{t}\\)\n' +
+      '12:\\(s_{t}\\leftarrow-e^{d_{t}+\\log(1-e^{\\Delta\\ell_{t}})}\\)\\(\\triangleright\\)\\(s_{t}=-\\frac{\\operatorname{attn}(n^{q})_{t}}{1-\\operatorname{attn}(n^{q})_{t}} \\left(1-\\frac{\\operatorname{attn}_{\\text{patch}}^{t}(n^{q})_{t}}{\\operatorname{attn }(n^{q})_{t}}\\right)\\)\n' +
+      '13:\\(r_{t}\\gets s_{t}(g_{t}-b)\\)\\(\\triangleright\\)\\(r_{t}=s_{t}(\\text{onehot}(t)-\\operatorname{attn}(n^{q}))^{\\top}\\mathbf{g}=\\Delta_{t} \\operatorname{attn}(n^{q})\\cdot\\frac{\\partial\\mathcal{L}\\left(\\mathcal{M}(x^{ \\text{clean}})\\right)}{\\partial\\operatorname{attn}(n^{q})}\\)\n' +
+      '14:return\\(\\mathbf{r}\\)\n' +
+      '```\n' +
+      '\n' +
+      '**Algorithm 4** AtP correction for attention keys\n' +
+      '\n' +
+      'The corrected AtP estimates \\(\\hat{\\epsilon}_{\\text{APflx}}^{K}(n_{t}^{k})\\) can then be computed using Equation (10); in other words, by summing the returned \\(r_{t}\\) from Algorithm 4 over queries \\(n^{q}\\) for this attention head, and averaging over \\(x^{\\text{clean}},x^{\\text{noise}}\\sim\\mathcal{D}\\).\n' +
+      '\n' +
+      '#### a.2.2 Properties of GradDrop\n' +
+      '\n' +
+      'In Section 3.1.2 we introduced GradDrop to address an AtP failure mode arising from cancellation between direct and indirect effects: roughly, if the total effect (on some prompt pair) is \\(\\mathcal{I}\\left(n\\right)=\\mathcal{I}^{\\text{direct}}(n)+\\mathcal{I}^{\\text{ indirect}}(n)\\), and these are close to cancelling, then a small multiplicative approximation error in \\(\\hat{I}_{\\text{AP}}^{\\text{indirect}}(n)\\), due to nonlinearities, can accidentally cause \\(|\\hat{I}_{\\text{AP}}^{\\text{direct}}(n)+\\hat{I}_{\\text{AP}}^{\\text{indirect}}(n)|\\) to be orders of magnitude smaller than \\(|\\mathcal{I}\\left(n\\right)|\\).\n' +
+      '\n' +
+      'To address this failure mode with an improved estimator \\(\\hat{\\epsilon}_{\\text{AP}+\\text{GD}}(n)\\), there\'s 3 desiderata for GradDrop:\n' +
+      '\n' +
+      '1. \\(\\hat{\\epsilon}_{\\text{AP}+\\text{GD}}(n)\\) shouldn\'t be much smaller than \\(\\hat{\\epsilon}_{\\text{AP}}(n)\\), because that would risk creating more false negatives.\n' +
+      '2. \\(\\hat{\\epsilon}_{\\text{AP}+\\text{GD}}(n)\\) should usually not be much larger than \\(\\hat{\\epsilon}_{\\text{AP}}(n)\\), because that would create false positives, which also slows down verification and can effectively create false negatives at a given budget.\n' +
+      '3. If \\(\\hat{\\epsilon}_{\\text{AP}}(n)\\) is suffering from the cancellation failure mode, then \\(\\hat{\\epsilon}_{\\text{AP}+\\text{GD}}(n)\\) should be significantly larger than \\(\\hat{\\epsilon}_{\\text{AP}}(n)\\).\n' +
+      '\n' +
+      'Let\'s recall how GradDrop was defined in Section 3.1.2, using a virtual node \\(n^{\\text{out}}_{\\ell}\\) to represent the residual-stream contributions of layer \\(\\ell\\):\n' +
+      '\n' +
+      '\\[\\hat{\\epsilon}_{\\text{AP}+\\text{GD}}(n) :=\\mathbb{E}_{x^{\\text{clean}},x^{\\text{noise}}}\\left[\\frac{1}{L- 1}\\sum_{\\ell=1}^{L}\\left|\\hat{\\hat{I}}_{\\text{AP}+\\text{GD}_{\\ell}}(n;x^{\\text {clean}},x^{\\text{noise}})\\right|\\right]\\] \\[=\\mathbb{E}_{x^{\\text{clean}},x^{\\text{noise}}}\\left[\\frac{1}{L- 1}\\sum_{\\ell=1}^{L}\\left|(n(x^{\\text{noise}})-n(x^{\\text{clean}}))\\right.^{ \\intercal}\\frac{\\partial\\mathcal{L}^{\\ell}}{\\partial n}\\right|\\right|\\] \\[=\\mathbb{E}_{x^{\\text{clean}},x^{\\text{noise}}}\\left[\\frac{1}{L- 1}\\sum_{\\ell=1}^{L}\\left|(n(x^{\\text{noise}})-n(x^{\\text{clean}}))\\right.^{ \\intercal}\\frac{\\partial\\mathcal{L}}{\\partial n}(\\mathcal{M}(x^{\\text{clean }}\\mid\\text{do}(n^{\\text{out}}_{\\ell}\\gets n^{\\text{out}}_{\\ell}(x^{\\text {clean}}))))\\right|\\right]\\]\n' +
+      '\n' +
+      'To better understand the behaviour of GradDrop, let\'s look more carefully at the gradient \\(\\frac{\\partial\\mathcal{L}}{\\partial n}\\). The total gradient \\(\\frac{\\partial\\mathcal{L}}{\\partial n}\\) can be expressed as a sum of all path gradients from the node \\(n\\) to the output. Each path is characterized by the set of layers \\(s\\) it goes through (in contrast to routing via the skip connection). We write the gradient along a path \\(s\\) as \\(\\frac{\\partial\\mathcal{L}_{s}}{\\partial n}\\).\n' +
+      '\n' +
+      'Let \\(\\mathcal{S}\\) be the set of all subsets of layers after the layer \\(n\\) is in. For example, the direct-effect path is given by \\(\\emptyset\\in\\mathcal{S}\\). Then the total gradient can be expressed as\n' +
+      '\n' +
+      '\\[\\frac{\\partial\\mathcal{L}}{\\partial n}=\\sum_{s\\in\\mathcal{S}}\\frac{\\partial \\mathcal{L}_{s}}{\\partial n}. \\tag{16}\\]\n' +
+      '\n' +
+      'We can analogously define \\(\\hat{\\hat{I}}^{s}_{\\text{AP}}(n)=(n(x^{\\text{noise}})-n(x^{\\text{clean}}))^{ \\intercal}\\frac{\\partial\\mathcal{L}_{s}}{\\partial n}\\), and break down \\(\\hat{\\hat{I}}_{\\text{AP}}(n)=\\sum_{s\\in\\mathcal{S}}\\hat{\\hat{I}}^{s}_{\\text{AP }}(n)\\). The effect of doing GradDrop at some layer \\(\\ell\\) is then to drop all terms \\(\\hat{\\hat{I}}^{s}_{\\text{AP}}(n)\\) with \\(\\ell\\in s\\): in other words,\n' +
+      '\n' +
+      '\\[\\hat{\\hat{I}}_{\\text{AP}+\\text{GD}_{\\ell}}(n)=\\sum_{\\begin{subarray}{c}s\\in \\mathcal{S}\\\\ \\ell\\notin s\\end{subarray}}\\hat{\\hat{I}}^{s}_{\\text{AP}}(n). \\tag{17}\\]\n' +
+      '\n' +
+      'Now we\'ll use this understanding to discuss the 3 desiderata.\n' +
+      '\n' +
+      'Firstly, most node effects are approximately independent of most layers (see e.g. Veit et al. (2016)); for any layer \\(\\ell\\) that \\(n\\)\'s effect is independent of, we\'ll have \\(\\hat{\\hat{I}}_{\\text{AP}+\\text{GD}_{\\ell}}(n)=\\hat{\\hat{I}}_{\\text{AP}}(n)\\). Letting \\(K\\) be the set of downstream layers that matter, this guarantees \\(\\frac{1}{L-1}\\sum_{\\ell=1}^{L}\\left|\\hat{\\hat{I}}_{\\text{AP}+\\text{GD}_{\\ell}} (n;x^{\\text{clean}},x^{\\text{noise}})\\right|\\geq\\frac{L-|K|-1}{L-1}\\left|\\hat{ \\hat{I}}_{\\text{AP}}(n;x^{\\text{clean}},x^{\\text{noise}})\\right|\\), which meets the first desideratum.\n' +
+      '\n' +
+      'Regarding the second desideratum: for each \\(\\ell\\) we have \\(\\left|\\hat{\\hat{I}}_{\\text{AP}+\\text{GD}_{\\ell}}(n)\\right|\\leq\\sum_{s\\in \\mathcal{S}}\\left|\\hat{\\hat{I}}^{s}_{\\text{AP}}(n)\\right|\\), so overall we have \\(\\frac{1}{L-1}\\sum_{\\ell=1}^{L}\\left|\\hat{\\hat{I}}_{\\text{AP}+\\text{GD}_{\\ell}} (n)\\right|\\leq\\frac{L-|K|-1}{L-1}\\left|\\hat{\\hat{I}}_{\\text{AP}}(n)\\right|+ \\frac{|K|}{L-1}\\sum_{s\\in\\mathcal{S}}\\left|\\hat{\\hat{I}}^{s}_{\\text{AP}}(n)\\right|\\). For the RHS to be much larger(e.g. \\(\\alpha\\) times larger) than \\(\\left|\\sum_{s\\in S}\\hat{\\mathcal{I}}_{\\text{AP}}^{s}(n)\\right|=|\\hat{\\mathcal{I}}_ {\\text{AP}}(n)|\\), there must be quite a lot of cancellation between different paths, enough so that \\(\\sum_{s\\in S}\\left|\\hat{\\mathcal{I}}_{\\text{AP}}^{s}(n)\\right|\\geq\\frac{(L-1) \\sigma}{\\left|\\mathcal{K}\\right|}\\left|\\sum_{s\\in S}\\hat{\\mathcal{I}}_{\\text{AP }}^{s}(n)\\right|\\). This is possible, but seems generally unlikely for e.g. \\(\\alpha>3\\).\n' +
+      '\n' +
+      'Now let\'s consider the third desideratum, i.e. suppose \\(n\\) is a cancellation false negative, with \\(|\\hat{\\mathcal{I}}_{\\text{AP}}(n)|\\ll|\\mathcal{I}\\left(n\\right)|\\ll|\\mathcal{I} \\left(n\\right)|\\ll|\\mathcal{I}^{\\text{direct}}(n)|\\approx|\\hat{\\mathcal{I}}_{ \\text{AP}}^{\\text{direct}}(n)|\\). Then, \\(\\left|\\sum_{s\\in S\\setminus\\emptyset}\\hat{\\mathcal{I}}_{\\text{AP}}^{s}(n) \\right|=\\left|\\hat{\\mathcal{I}}_{\\text{AP}}(n)-\\hat{\\mathcal{I}}_{\\text{AP}}^ {\\text{direct}}(n)\\right|\\gg|\\mathcal{I}\\left(n\\right)|\\). The summands in \\(\\sum_{s\\in S\\setminus\\emptyset}\\hat{\\mathcal{I}}_{\\text{AP}}^{s}(n)\\) are the union of the summands in \\(\\sum_{s\\in S}\\hat{\\mathcal{I}}_{\\text{AP}}^{s}(n)=\\hat{\\mathcal{I}}_{\\text{AP }}(n)-\\hat{\\mathcal{I}}_{\\text{AP}+\\text{GD}_{\\ell}}(n)\\) across layers \\(\\ell\\).\n' +
+      '\n' +
+      'It\'s then possible but intuitively unlikely that \\(\\sum_{\\ell}\\left|\\hat{\\mathcal{I}}_{\\text{AP}}(n)-\\hat{\\mathcal{I}}_{\\text{AP }+\\text{GD}_{\\ell}}(n)\\right|\\) would be much smaller than \\(\\left|\\hat{\\mathcal{I}}_{\\text{AP}}(n)-\\hat{\\mathcal{I}}_{\\text{AP}}^{\\text{ direct}}(n)\\right|\\). Suppose the ratio is \\(\\alpha\\), i.e. suppose \\(\\sum_{\\ell}\\left|\\hat{\\mathcal{I}}_{\\text{AP}}(n)-\\hat{\\mathcal{I}}_{\\text{AP }+\\text{GD}_{\\ell}}(n)\\right|=\\alpha\\left|\\hat{\\mathcal{I}}_{\\text{AP}}(n)- \\hat{\\mathcal{I}}_{\\text{AP}}^{\\text{direct}}(n)\\right|\\). For example, if all indirect effects use paths of length \\(1\\) then the union is a disjoint union, so \\(\\sum_{\\ell}\\left|\\hat{\\mathcal{I}}_{\\text{AP}}(n)-\\hat{\\mathcal{I}}_{\\text{AP }+\\text{GD}_{\\ell}}(n)\\right|\\geq\\left|\\sum_{\\ell}\\left(\\hat{\\mathcal{I}}_{ \\text{AP}}(n)-\\hat{\\mathcal{I}}_{\\text{AP}+\\text{GD}_{\\ell}}(n)\\right)\\right|= \\left|\\hat{\\mathcal{I}}_{\\text{AP}}(n)-\\hat{\\mathcal{I}}_{\\text{AP}}^{\\text{ direct}}(n)\\right|\\), so \\(\\alpha\\geq 1\\). Now:\n' +
+      '\n' +
+      '\\[\\sum_{\\ell\\in K}\\left|\\hat{\\mathcal{I}}_{\\text{AP}+\\text{GD}_{ \\ell}}(n)\\right| \\geq\\sum_{\\ell\\in K}\\left|\\hat{\\mathcal{I}}_{\\text{AP}}(n)-\\hat{ \\mathcal{I}}_{\\text{AP}+\\text{GD}_{\\ell}}(n)\\right|-|K|\\left|\\hat{\\mathcal{I} }_{\\text{AP}}(n)\\right| \\tag{18}\\] \\[=\\alpha\\left|\\hat{\\mathcal{I}}_{\\text{AP}}(n)-\\hat{\\mathcal{I}}_{ \\text{AP}}^{\\text{direct}}(n)\\right|-|K|\\left|\\hat{\\mathcal{I}}_{\\text{AP}}(n)\\right|\\] (19) \\[\\geq\\alpha\\left|\\hat{\\mathcal{I}}_{\\text{AP}}^{\\text{direct}}(n) \\right|-\\left(|K|+\\alpha\\right)\\left|\\hat{\\mathcal{I}}_{\\text{AP}}(n)\\right|\\] (20) \\[\\therefore\\frac{1}{L-1}\\sum_{\\ell=1}^{L}\\left|\\hat{\\mathcal{I}}_{ \\text{AP}+\\text{GD}_{\\ell}}(n)\\right| =\\frac{1}{L-1}\\sum_{\\ell\\in K}\\left|\\hat{\\mathcal{I}}_{\\text{AP}+ \\text{GD}_{\\ell}}(n)\\right|+\\frac{L-|K|-1}{L-1}\\left|\\hat{\\mathcal{I}}_{\\text{AP }}(n)\\right|\\] (21) \\[\\geq\\frac{\\alpha}{L-1}\\left|\\hat{\\mathcal{I}}_{\\text{AP}}^{\\text{ direct}}(n)\\right|+\\frac{L-2|K|-1-\\alpha}{L-1}\\left|\\hat{\\mathcal{I}}_{\\text{AP}}(n)\\right| \\tag{22}\\]\n' +
+      '\n' +
+      'And the RHS is an improvement over \\(\\left|\\hat{\\mathcal{I}}_{\\text{AP}}(n)\\right|\\) so long as \\(\\alpha\\left|\\hat{\\mathcal{I}}_{\\text{AP}}^{\\text{direct}}(n)\\right|>(2|K|+\\alpha) \\left|\\hat{\\mathcal{I}}_{\\text{AP}}(n)\\right|\\), which is likely given the assumptions.\n' +
+      '\n' +
+      'Ultimately, though, the desiderata are validated by the experiments, which consistently show GradDrops either decreasing or leaving untouched the number of false negatives, and thus improving performance apart from the initial upfront cost of the extra backwards passes.\n' +
+      '\n' +
+      '### Algorithm for computing diagnostics\n' +
+      '\n' +
+      'Given summary statistics \\(\\tilde{i}_{\\pm}\\), \\(s_{\\pm}\\) and \\(\\text{count}_{\\pm}\\) for every node \\(n\\), obtained from Algorithm 1, and a threshold \\(\\theta>0\\) we can use Welch\'s \\(t\\)-test Welch (1947) to test the hypothesis that \\(|\\tilde{i}_{+}-\\tilde{i}_{-}|\\geq\\theta\\). Concretely we compute the \\(t\\)-statistic via\n' +
+      '\n' +
+      '\\[\\hat{s}_{i_{\\pm}} =\\frac{s_{\\pm}}{\\sqrt{\\text{count}_{\\pm}}} \\tag{24}\\] \\[t =\\frac{\\theta-|\\tilde{i}_{+}-\\tilde{i}_{-}|}{\\sqrt{s_{i_{+}}^{2}+s_ {i_{-}}^{2}}}. \\tag{25}\\]The effective degrees of freedom \\(\\nu\\) can be approximated with the Welch-Satterthwaite equation\n' +
+      '\n' +
+      '\\[\\nu_{\\text{Welch}}=\\frac{\\left(\\frac{s_{\\text{c}}^{2}}{\\text{count}_{*}}+\\frac{s _{\\text{c}}^{2}}{\\text{count}_{*}}\\right)^{2}}{\\frac{s_{\\text{c}}^{4}}{\\text{ count}_{*}^{2}(\\text{count}_{*}-1)}+\\frac{s_{\\text{c}}^{4}}{\\text{count}_{*}^{2}( \\text{count}_{*}-1)}} \\tag{26}\\]\n' +
+      '\n' +
+      'We then compute the probability (\\(p\\)-value) of obtaining a \\(t\\) at least as large as observed, using the cumulative distribution function of Student\'s \\(t\\left(x;\\nu_{\\text{Welch}}\\right)\\) at the appropriate points. We take the max of the individual \\(p\\)-values of all nodes to obtain an aggregate upper bound. Finally, we use binary search to find the largest threshold \\(\\theta\\) that still has an aggregate \\(p\\)-value smaller than a given target \\(p\\) value. We show multiple such diagnostic curves in Appendix B.3, for different confidence levels (\\(1-p_{\\text{target}}\\)).\n' +
+      '\n' +
+      '## Appendix B Experiments\n' +
+      '\n' +
+      '### Prompt Distributions\n' +
+      '\n' +
+      '#### b.1.1 Iqi\n' +
+      '\n' +
+      'We use the following prompt template:\n' +
+      '\n' +
+      '```\n' +
+      'BOS  When _[A] _and _[B] _went _to _the _bar, _[A/C] _gave _a _drink _to _[B/A]\n' +
+      '```\n' +
+      '\n' +
+      'Each clean prompt \\(x^{\\text{clean}}\\) uses two names A and B with completion B, while a noise prompt \\(x^{\\text{noise}}\\) uses names A, B, and C with completion A. We construct all possible such assignments where names are chosen from the set of {Michael, Jessica, Ashley, Joshua, David, Sarah}, resulting in 120 prompt pairs.\n' +
+      '\n' +
+      '#### b.1.2 A-Asn\n' +
+      '\n' +
+      'We use the following prompt template to induce the prediction of an indefinite article.\n' +
+      '\n' +
+      '```\n' +
+      'BOS  I _want _one _pear _Can _you _pick _up _a _pear _for _me?\n' +
+      '```\n' +
+      '\n' +
+      'LJ _want _one _orange _Can _you _pick _up _an _orange _for _me? ```\n' +
+      'LJ _want _one _[OBJECT] _Can _you _pick _up _[a/an]\n' +
+      '```\n' +
+      '\n' +
+      'We found that zero shot performance of small models was relatively low, but performance improved drastically when providing a single example of each case. Model performance was sensitive to the ordering of the two examples but was better than random in all cases. The magnitude and sign of the impact of the few-shot ordering was inconsistent.\n' +
+      '\n' +
+      'Clean prompts \\(x^{\\text{clean}}\\) contain objects inducing \'_a\', one of {boat, coat, drum, horn, map, pipe, screw, stamp, tent, wall}. Noise prompts \\(x^{\\text{noise}}\\) contain objects inducing \'_an\', one of {apple, ant, axe, award, elephant, egg, orange, oven, onion, umbrella}. This results in a total of 100 prompt pairs.\n' +
+      '\n' +
+      '### Cancellation across a distribution\n' +
+      '\n' +
+      'As mention in Section 2, we average the magnitudes of effects across a distribution, rather than taking the magnitude of the average effect. We do this because cancellation of effects is happening frequently across a distribution, which, together with imprecise estimates, could lead to significant false negatives. A proper ablation study to quantify this effect exactly is beyond the scope of this work. In Figure 10, we show the degree of cancellation across the IOI distribution for various model sizes. For this we define the _Cancellation Ratio_ of node \\(n\\) as\n' +
+      '\n' +
+      '\\[1-\\frac{\\left|\\sum_{x^{\\text{clean}},x^{\\text{noise}}}\\mathcal{I}\\left(n;x^{ \\text{clean}},x^{\\text{noise}}\\right)\\right|}{\\sum_{x^{\\text{clean}},x^{ \\text{noise}}}\\left|\\mathcal{I}\\left(n;x^{\\text{clean}},x^{\\text{noise}} \\right)\\right|}.\\]\n' +
+      '\n' +
+      '### Additional detailed results\n' +
+      '\n' +
+      'We show the diagnostic measurements for Pythia-12B across all investigated distributions in Figure 11, and cost of verified 100% recall curves for all models and settings in Figures 12 and 13.\n' +
+      '\n' +
+      '### Metrics\n' +
+      '\n' +
+      'In this paper we focus on the difference in loss (negative log probability) as the metric \\(\\mathcal{L}\\). We provide some evidence that AtP(\\({}^{*}\\)) is not sensitive to the choice of \\(\\mathcal{L}\\). For Pythia-12B, on IOI-PP and IOI, we show the rank scatter plots in Figure 14 for three different metrics.\n' +
+      '\n' +
+      'For IOI, we also show that performance of AtP\\({}^{*}\\) looks notably worse when effects are evaluated\n' +
+      '\n' +
+      'Figure 10: Cancellation ratio across IOI for various model sizes. A ratio of 1 means positive and negative effects cancel out across the distribution, whereas a ratio of 0 means only either negative or positive effects exist across the distribution. We report cancellation ratio for different percentiles of nodes based on \\(\\sum_{x^{\\text{clean}},x^{\\text{noise}}}\\left|\\mathcal{I}\\left(n;x^{\\text{clean }},x^{\\text{noise}}\\right)\\right|\\).\n' +
+      '\n' +
+      'via denoising instead of noising (cf. Section 2.1). As of now we do not have a satisfactory explanation for this observation.\n' +
+      '\n' +
+      '### Hyperparameter selection\n' +
+      '\n' +
+      'The _iterative_ baseline, and the _AtP_-based methods, have no hyperparameters. In general, we used 5 random seeds for each hyperparameter setting, and selected the setting that produced the lowest IRWRGM cost (see Section 4.2).\n' +
+      '\n' +
+      'For _Subsampling_, the two hyperparameters are the Bernoulli sampling probability \\(p\\), and the number of samples to collect before verifying nodes in decreasing order of \\(\\hat{\\epsilon}_{\\text{SS}}\\). \\(p\\) was chosen from {0.01, 0.03}14. The number of steps was chosen among power-of-2 numbers of batches, where the batch size depended on the setting.\n' +
+      '\n' +
+      'Footnote 14: We observed early on that larger values of \\(p\\) were consistently underperforming. We leave it to future work to investigate more granular and smaller values for \\(p\\).\n' +
+      '\n' +
+      'For _Blocks_, we swept across block sizes 2, 6, 20, 60, 250. For _Hierarchical_, we used a branching factor of \\(B=3\\), because of the following heuristic argument. If all but one node had zero effect, then discovering that node would be a matter of iterating through the hierarchy levels. We\'d have number of levels \\(\\log_{B}|N|\\), and at each level, \\(B\\) forward passes would be required to find which lower-level block the special node is in - and thus the cost of finding the node would be \\(B\\log_{B}|N|=\\frac{B}{\\log B}\\log|N|\\). \\(\\frac{B}{\\log B}\\) is minimized at \\(B=e\\), or at \\(B=3\\) if \\(B\\) must be an integer. The other hyperparameter is the number of levels; we swept this from 2 to 12.\n' +
+      '\n' +
+      'Figure 11: Diagnostic of false negatives for 12B across distributions.\n' +
+      '\n' +
+      'Figure 12 | Cost of verified 100% recall curves, sweeping across models and settings for NeuronNodes\n' +
+      '\n' +
+      'Figure 12: | Cost of verified 100% recall curves, sweeping across models and settings for NeuronNodes\n' +
+      '\n' +
+      'Figure 13 | Cost of verified 100% recall curves, sweeping across models and settings for AttentionNodes\n' +
+      '\n' +
+      'Figure 13: | Cost of verified 100% recall curves, sweeping across models and settings for AttentionNodes\n' +
+      '\n' +
+      'Figure 14 \\(|\\) True ranks against AtP\\({}^{*}\\) ranks on Pythia-12B using various metrics \\(\\mathcal{L}\\). The last row shows the effect in the denoising (rather than noising) setting; we speculate that the lower-right subplot (log-odds denoising) is similar to the lower-middle one (logit-diff denoising) because IOI produces a bimodal distribution over the correct and alternate next token.\n' +
+      '\n' +
+      '## Appendix C AtP variants\n' +
+      '\n' +
+      '### Residual-site AtP and Layer normalization\n' +
+      '\n' +
+      'Let\'s consider the behaviour of AtP on sites that contain much or all of the total signal in the residual stream, such as residual-stream sites. Nanda (2022) described a concern about this behaviour: that linear approximation of the layer normalization would do poorly if the patched value is significantly different than the clean one, but with a similar norm. The proposed modification to AtP to account for this was to hold the scaling factors (in the denominators) fixed when computing the backwards pass. Here we\'ll present an analysis of how this modification would affect the approximation error of AtP. (Empirical investigation of this issue is beyond the scope of this paper.)\n' +
+      '\n' +
+      'Concretely, let the node under consideration be \\(n\\), with clean and alternate values \\(n^{\\text{clean}}\\) and \\(n^{\\text{noise}}\\); and for simplicity, let\'s assume the model does nothing more than an unparametrized RM-SNorm \\(\\mathcal{M}(n):=n/|n|\\). Let\'s now consider how well \\(\\mathcal{M}(n^{\\text{noise}})\\) is approximated, both by its first-order approximation \\(\\hat{\\mathcal{M}}_{\\text{AP}}(n^{\\text{noise}}):=\\mathcal{M}(n^{\\text{clean}} )+\\mathcal{M}(n^{\\text{clean}})^{\\perp}(n^{\\text{noise}}-n^{\\text{clean}})\\) where \\(\\mathcal{M}(n^{\\text{clean}})^{\\perp}=I-\\mathcal{M}(n^{\\text{clean}})\\mathcal{ M}(n^{\\text{clean}})^{\\top}\\) is the projection to the hyperplane orthogonal to \\(\\mathcal{M}(n^{\\text{clean}})\\), and by the variant that fixes the denominator: \\(\\hat{\\mathcal{M}}_{\\text{atP}+\\text{foreanLN}}(n^{\\text{noise}}):=n^{\\text{ noise}}/|n^{\\text{clean}}|\\).\n' +
+      '\n' +
+      'To quantify the error in the above, we\'ll measure the error \\(\\epsilon\\) in terms of Euclidean distance. Let\'s also assume, without loss of generality, that \\(|n^{\\text{clean}}|=1\\). Geometrically, then, \\(\\mathcal{M}(n)\\) is a projection onto the unit hypersphere, \\(\\mathcal{M}_{\\text{AP}}(n)\\) is a projection onto the tangent hyperplane at \\(n^{\\text{clean}}\\), and \\(\\mathcal{M}_{\\text{atP}+\\text{foreanLN}}\\) is the identity function.\n' +
+      '\n' +
+      'Now, let\'s define orthogonal coordinates \\((x,y)\\) on the plane spanned by \\(n^{\\text{clean}}\\), \\(n^{\\text{noise}}\\), such that \\(n^{\\text{clean}}\\) is mapped to \\((1,0)\\) and \\(n^{\\text{noise}}\\) is mapped to \\((x,y)\\), with \\(y\\geq 0\\). Then, \\(\\epsilon_{\\text{atP}}:=\\left|\\hat{\\mathcal{M}}(n^{\\text{noise}})-\\mathcal{M}(n ^{\\text{noise}})\\right|=\\sqrt{2+y^{2}-2\\frac{\\kappa+y^{2}}{\\sqrt{x^{2}+y^{2}}}}\\), while \\(\\epsilon_{\\text{atP}+\\text{foreanLN}}:=\\left|\\hat{\\mathcal{M}}_{\\text{fix}}( n^{\\text{noise}})-\\mathcal{M}(n^{\\text{noise}})\\right|=\\left|\\sqrt{x^{2}+y^{2}}-1\\right|\\).\n' +
+      '\n' +
+      'Plotting the error in Figure 15, we can see that, as might be expected, freezing the layer norm denominators helps whenever \\(n^{\\text{noise}}\\) indeed has the same norm as \\(n^{\\text{clean}}\\), and (barring weird cases with \\(x>1\\)) whenever the cosine-similarity is less than \\(\\frac{1}{2}\\); but largely hurts if \\(n^{\\text{noise}}\\) is close to \\(n^{\\text{clean}}\\). This illustrates that, while freezing the denominators will generally be unhelpful when patch distances are small relative to the full residual signal (as with almost all nodes considered in this paper), it will likely be helpful in a different setting of patching residual streams, which could be quite unaligned but have similar norm.\n' +
+      '\n' +
+      '### Edge AtP and AtP*\n' +
+      '\n' +
+      'Here we will investigate edge attribution patching, and how the cost scales if we use GradDrop and/or QK fix. (For this section we\'ll focus on a single prompt pair.)\n' +
+      '\n' +
+      'First, let\'s review what edge attribution patching is trying to approximate, and how it works.\n' +
+      '\n' +
+      '#### c.2.1 Edge intervention effects\n' +
+      '\n' +
+      'Given nodes \\(n_{1},n_{2}\\) where \\(n_{1}\\) is upstream of \\(n_{2}\\), if we were to patch in an alternate value for \\(n_{1}\\), this could impact \\(n_{2}\\) in a complicated nonlinear way. As discussed in 3.1.2, because LLMs have a residual stream, the "direct effect" can be understood as the one holding all other possible intermediate nodes between \\(n_{1}\\) and \\(n_{2}\\) fixed - and it\'s a relatively simple function, composed of transforming the alternate value \\(n_{1}(x^{\\text{noise}})\\) to a residual stream contribution \\(r_{\\text{out},\\ell_{1}}(x^{\\text{clean}}|\\operatorname{d}\\!o(n_{1}\\gets n _{1}(x^{\\text{noise}})))\\), then carrying it along the residual stream to an input \\(r_{\\text{in},\\ell_{2}}=r_{\\text{in},\\ell_{2}}(x^{\\text{clean}})+(r_{\\text{ out},\\ell_{1}}-r_{\\text{out},\\ell_{1}}(x^{\\text{clean}}))\\), and transformingFigure 15 (A comparison of how AtP and AtP with frozen layernorm scaling behave in a toy setting where the model we\'re trying to approximate is just \\(\\mathcal{M}(n):=n/|n|\\). The red region is where frozen layernorm scaling helps; the blue region is where it hurts. We find that unless \\(x>1\\), frozen layernorm scaling always has lower error when the cosine-similarity between \\(n^{\\text{noise}}\\) and \\(n^{\\text{clean}}\\) is \\(<\\frac{1}{2}\\) (in other words the angle \\(>60^{\\circ}\\)), but often has higher error otherwise.\n' +
+      '\n' +
+      'that into a value \\(n_{2}^{\\text{direct}}\\).\n' +
+      '\n' +
+      'In the above, \\(\\ell_{1}\\) and \\(\\ell_{2}\\) are the semilayers containing \\(n_{1}\\) and \\(n_{2}\\), respectively. Let\'s define \\(\\mathbf{n}_{(\\ell_{1},\\ell_{2})}\\) to be the set of non-residual nodes between semilayers \\(\\ell_{1}\\) and \\(\\ell_{2}\\). Then, we can define the resulting \\(n_{2}^{\\text{direct}}\\) as:\n' +
+      '\n' +
+      '\\[n_{2}^{\\text{direct}^{\\ell_{1}}}(x^{\\text{clean}}|\\operatorname{do}(n_{1} \\gets n_{1}(x^{\\text{noise}}))):=n_{2}(x^{\\text{clean}}|\\operatorname{do }(n_{1}\\gets n_{1}(x^{\\text{noise}})),\\operatorname{do}(\\mathbf{n}_{( \\ell_{1},\\ell_{2})}\\leftarrow\\mathbf{n}_{(\\ell_{1},\\ell_{2})}(x^{\\text{ clean}}))).\\]\n' +
+      '\n' +
+      'The residual-stream input \\(r_{\\text{in},\\ell_{2}}^{\\text{direct}^{\\ell_{1}}}(x^{\\text{clean}}| \\operatorname{do}(n_{1}\\gets n_{1}(x^{\\text{noise}})))\\) is defined similarly.\n' +
+      '\n' +
+      'Finally, \\(n_{2}\\) itself isn\'t enough to compute the metric \\(\\mathcal{L}\\) - for that we also need to let the forward pass \\(\\mathcal{M}(x^{\\text{clean}})\\) run using the modified \\(n_{2}^{\\text{direct}^{\\ell_{1}}}(x^{\\text{clean}}|\\operatorname{do}(n_{1} \\gets n_{1}(x^{\\text{noise}})))\\), while removing all other effects of \\(n_{1}\\) (i.e. not patching it).\n' +
+      '\n' +
+      'Writing this out, we have edge intervention effect\n' +
+      '\n' +
+      '\\[\\mathcal{I}(n_{1}\\to n_{2};x^{\\text{clean}},x^{\\text{noise}}):= \\mathcal{L}(\\mathcal{M}(x^{\\text{clean}}|\\operatorname{do}(n_{2} \\gets n_{2}^{\\text{direct}^{\\ell_{1}}}(x^{\\text{clean}}|\\operatorname{do }(n_{1}\\gets n_{1}(x^{\\text{noise}})))))\\] \\[-\\mathcal{L}(\\mathcal{M}(x^{\\text{clean}})). \\tag{27}\\]\n' +
+      '\n' +
+      '#### 0.c.2. Nodes and Edges\n' +
+      '\n' +
+      'Let\'s briefly consider what edges we\'d want to be evaluating this on. In Section 4.1, we were able to conveniently separate attention nodes from MLP neurons, knowing that to handle both kinds of nodes, we\'d just need to be able handle each kind of node on its own, and then combine the results. For edge interventions this of course isn\'t true, because edges can go from MLP neurons to attention nodes, and vice versa. For the purposes of this section, we\'ll assume that the node set \\(N\\) contains the attention nodes, and for MLPs either a node per layer (as in Syed et al. (2023)), or a node per neuron (as in the NeuronNodes setting).\n' +
+      '\n' +
+      'Regarding the edges, the MLP nodes can reasonably be connected with any upstream or downstream node, but this isn\'t true for the attention nodes, which have more of a structure amongst themselves: the key, query, and value nodes for an attention head can only affect downstream nodes via the attention output nodes for that head, and vice versa. As a result, on edges between different semilayers, upstream attention nodes must be attention head outputs, and downstream attention nodes must be keys, queries, or values. In addition, there are some within-attention-head edges, connecting each query node to the output node in the same position, and each key and value node to output nodes in causally affectable positions.\n' +
+      '\n' +
+      '#### 0.c.2.3 Edge AtP\n' +
+      '\n' +
+      'As with node activation patching, the edge intervention effect \\(\\mathcal{I}(n_{1}\\to n_{2};x^{\\text{clean}},x^{\\text{noise}})\\) is costly to evaluate directly for every edge, since a forward pass is required each time. However, as with AtP, we can apply first-order approximations: we define\n' +
+      '\n' +
+      '\\[\\hat{\\mathcal{I}}_{\\text{AP}}(n_{1}\\to n_{2};x^{\\text{clean}},x^{\\text{ noise}}):=\\left(\\Delta r_{n_{1}}^{\\text{AP}}(x^{\\text{clean}},x^{\\text{noise}}) \\right)^{\\top}\\nabla_{r_{n_{2}}}^{\\text{AP}}\\mathcal{L}(\\mathcal{M}(x^{\\text {clean}})), \\tag{28}\\] \\[\\text{where }\\Delta r_{n_{1}}^{\\text{AP}}(x^{\\text{clean}},x^{\\text{ noise}}):=\\operatorname{Jac}_{n_{1}}(r_{\\text{out},\\ell_{1}})(n_{1}(x^{\\text{clean}}))(n_{1}(x^{ \\text{noise}})-n_{1}(x^{\\text{clean}}))\\] (29) \\[\\text{and }\\nabla_{r_{n_{2}}}^{\\text{AP}}\\mathcal{L}(\\mathcal{M}(x^{ \\text{clean}})):=\\left(\\operatorname{Jac}_{n_{1}\\ell_{2}}(n_{2})(r_{\\text{in}, \\ell_{2}}(x^{\\text{clean}}))\\right)^{\\top}\\nabla_{n_{2}}(\\mathcal{L}(\\mathcal{M }(x^{\\text{clean}})))(n_{2}(x^{\\text{clean}})), \\tag{30}\\]\n' +
+      '\n' +
+      'and this is a close approximation when \\(n_{1}(x^{\\text{noise}})\\approx n_{1}(x^{\\text{clean}})\\).\n' +
+      '\n' +
+      'A key benefit of this decomposition is that the first term depends only on \\(n_{1}\\), and the second term depends only on \\(n_{2}\\); and they\'re both easy to compute from a forward and backward pass on \\(x^{\\text{clean}}\\) and a forward pass on \\(x^{\\text{noise}}\\), just like AtP itself.\n' +
+      '\n' +
+      'Then, to complete the edge-AtP evaluation, what remains computationally is to evaluate all the dot products between nodes in different semilayers, at each token position. This requires \\(d_{\\text{resid}}\\mathcal{I}(1-\\frac{1}{L})|N|^{2}/2\\) multiplications in total15, where \\(L\\) is the number of layers, \\(T\\) is the number of tokens, and \\(|N|\\) is the total number of nodes. This cost exceeds the cost of computing all \\(\\Delta\\alpha_{n_{1}}^{\\text{AtP}}(x^{\\text{clean}},x^{\\text{noise}})\\) and \\(\\nabla_{r_{n_{2}}}^{\\text{AtP}}\\mathcal{L}(\\mathcal{M}(x^{\\text{clean}}))\\) on Pythia 2.8B even with a single node per MLP layer; if we look at a larger model, or especially if we consider single-neuron nodes even for small models, the gap grows significantly.\n' +
+      '\n' +
+      'Footnote 15: This formula omits edges within a single layer, for simplicity – but those are a small minority.\n' +
+      '\n' +
+      'Due to this observation, we\'ll focus our attention on the quadratic part of the compute cost, pertaining to two nodes rather than just one - i.e. the number of multiplications in computing all \\((\\Delta r_{n_{1}}^{\\text{AtP}}(x^{\\text{clean}},x^{\\text{noise}}))^{\\intercal} \\nabla_{r_{n_{2}}}^{\\text{AtP}}\\mathcal{L}(\\mathcal{M}(x^{\\text{clean}}))\\). Notably, we\'ll also exclude within-attention-head edges from the "quadratic cost": these edges, from some key, query, or value node to an attention output node can be handled by minor variations of the nodewise AtP or AtP* methods for the corresponding key, query, or value node.\n' +
+      '\n' +
+      '#### _C.2.4 MLPs_\n' +
+      '\n' +
+      'There are a couple of issues that can come up around the MLP nodes. One is that, similarly to the attention saturation issue described in Section 3.1.1, the linear approximation to the MLP may be fairly bad in some cases, creating significant false negatives if \\(n_{2}\\) is an MLP node. Another issue is that if we use single-neuron nodes, then those are very numerous, making the \\(d_{\\text{resid}}\\)-dimensional dot product per edge quite costly.\n' +
+      '\n' +
+      'MLP saturation and fixJust as clean activations that saturate the attention probability may have small gradients that lead to strongly underestimated effects, the same is true of the MLP nonlinearity. A similar fix is applicable: instead of using a linear approximation to the function from \\(n_{1}\\) to \\(n_{2}\\), we can linearly approximate the function from \\(n_{1}\\) to the preactivation \\(n_{2,\\text{pre}}\\), and then recompute \\(n_{2}\\) using that, before multiplying by the gradient.\n' +
+      '\n' +
+      'This kind of rearrangement, where the gradient-delta-activation dot product is computed in \\(d_{n_{2}}\\) dimensions rather than \\(d_{\\text{resid}}\\), will come up again - we\'ll call it the _factored_ form of AtP.\n' +
+      '\n' +
+      'If the nodes are neurons then the factored form requires no change to the number of multiplications; however, if they\'re MLP layers then there\'s a large increase in cost, by a factor of \\(d_{\\text{neurons}}\\). This increase is mitigated by two factors: one is that this is a small minority of edges, outnumbered by the number of edges ending in attention nodes by \\(3\\times(\\#\\text{ heads per layer})\\); the other is the potential for parameter sharing.\n' +
+      '\n' +
+      'Neuron edges and parameter sharingA useful observation is that each edge, across different token16 positions, reuses the same parameter matrices in \\(\\text{Jac}_{n_{1}}(r_{\\text{out},\\ell_{1}})(n_{1}(x^{\\text{clean}}))\\) and \\(\\text{Jac}_{r_{n_{1},\\ell_{2}}}(n_{2})(r_{\\text{in},\\ell_{2}}(x^{\\text{clean }}))\\). Indeed, setting aside the MLP activation function, the only other nonlinearity in those functions is a layer normalization; if we freeze the scaling factor at its clean value as in Section 3.1, the Jacobians are equal to the product of the corresponding parameter matrices, divided by the clean scaling factor.\n' +
+      '\n' +
+      'Footnote 16: Also across different batch entries, if we do this on more than one prompt pair.\n' +
+      '\n' +
+      'Thus if we premultiply the parameter matrices then we eliminate the need to do so at each token,which reduces the per-token quadratic cost by \\(d_{\\text{resid}}\\) (i.e. to a scalar multiplication) for neuron-neuron edges, or by \\(d_{\\text{resid}}/d_{\\text{site}}\\) (i.e. to a \\(d_{\\text{site}}\\)-dimensional dot product) for edges between neurons and some attention site.\n' +
+      '\n' +
+      'It\'s worth noting, though, that these premultiplied parameter matrices (or, indeed, the edge-Atp estimates if we use neuron sites) will in total be many times (specifically, \\((L-1)\\frac{d_{\\text{resid}}}{4d_{\\text{resid}}}\\) times) larger than the MLP weights themselves, so storage may need to be considered carefully. It may be worth considering ways to only find the largest estimates, or the estimates over some threshold, rather than full estimates for all edges.\n' +
+      '\n' +
+      '#### c.2.5 Edge AtP* costs\n' +
+      '\n' +
+      'Let\'s now consider how to adapt the AtP* proposals from Section 3.1 to this setting. We\'ve already seen that the MLP fix, which is similarly motivated to the QK fix, has negligible cost in the neuron-nodes case, but comes with a \\(d_{\\text{neurons}}/d_{\\text{resid}}\\) overhead in quadratic cost in the case of using an MLP layer per node, at least on edges into those MLP nodes. We\'ll consider the MLP fix to be part of edge-AtP*. Now let\'s investigate the two corrections in regular AtP*: GradDrops, and the QK fix.\n' +
+      '\n' +
+      'GradDropsGradDrops works by replacing the single backward pass in the AtP formula with \\(L\\) backward passes; this in effect means \\(L\\) values for the multiplicand \\(\\nabla_{r_{2}}^{\\text{AP}}\\mathcal{L}(\\mathcal{M}(x^{\\text{clean}}))\\), so this is a multiplicative factor of \\(L\\) on the quadratic cost (though in fact some of these will be duplicates, and taking this into account lets us drive the multiplicative factor down to \\((L+1)/2\\)). Notably this works equally well with "factored AtP", as used for neuron edges; and in particular, if \\(n_{2}\\) is a neuron, the gradients can easily be combined and shared across \\(n_{1}\\)s, eliminating the \\((L+1)/2\\) quadratic-cost overhead.\n' +
+      '\n' +
+      'However, the motivation for GradDrops was to account for multiple paths whose effects may cancel; in the edge-interventions setting, these can already be discovered in a different way (by identifying the responsible edges out of \\(n_{2}\\)), so the benefit of GradDrops is lessened. At the same time, the cost remains substantial. Thus, we\'ll omit GradDrops from our recommended procedure edge-AtP*.\n' +
+      '\n' +
+      'QK fixThe QK fix applies to the \\(\\nabla_{n_{2}}(\\mathcal{L}(\\mathcal{M}(x^{\\text{clean}})))(n_{2}(x^{\\text{ clean}}))\\) term, i.e. to replacing the linear approximation to the softmax with a correct calculation to the change in softmax, for each different input \\(\\Delta r_{n_{1}}^{\\text{Atp}}(x^{\\text{clean}},x^{\\text{noise}})\\). As in Section 3.1.1, there\'s the simpler case of accounting for \\(n_{2}\\)s that are query nodes, and the more complicated case of \\(n_{2}\\)s that are key nodes using Algorithm 4 - but these are both cheap to do after computing the \\(\\Delta\\operatorname{attnLogits}\\) corresponding to \\(n_{2}\\).\n' +
+      '\n' +
+      'The "factored AtP" way is to matrix-multiply \\(\\Delta r_{n_{1}}^{\\text{AP}}(x^{\\text{clean}},x^{\\text{noise}})\\) with key or query weights and with the clean queries or keys, respectively. This means instead of the \\(d_{\\text{resid}}\\) multiplications required for each edge \\(n_{1}\\to n_{2}\\) with AtP, we need \\(d_{\\text{resid}}d_{\\text{key}}+Td_{\\text{key}}\\) multiplications (which, thanks to the causal mask, can be reduced to an average of \\(d_{\\text{key}}(d_{\\text{resid}}+(T+1)/2)\\)).\n' +
+      '\n' +
+      'The "unfactored" option is to stay in the \\(r_{\\text{in},\\ell_{2}}\\) space: pre-multiply the clean queries or keys with the respective key or query weight matrices, and then take the dot product of \\(\\Delta r_{n_{1}}^{\\text{AP}}(x^{\\text{clean}},x^{\\text{noise}})\\) with each one. This way, the quadratic part of the compute cost contains \\(d_{\\text{resid}}(T+1)/2\\) multiplications; this will be more efficient for short sequence lengths.\n' +
+      '\n' +
+      'This means that for edges into key and query nodes, the overhead of doing AtP+QKfix on the quadratic cost is a multiplicative factor of \\(\\min\\left(\\frac{T+1}{2},d_{\\text{key}}\\left(1+\\frac{T+1}{2d_{\\text{resid}}} \\right)\\right)\\).\n' +
+      '\n' +
+      'QK fix + GradDropsIf the QK fix is being combined with GradDrops, then the first multiplication by the \\(d_{\\text{resid}}\\times d_{\\text{key}}\\) matrix can be shared between the different gradients; so the overhead on the quadratic cost of QKfix + GradDrops for edges into queries and keys, using the factored method, is \\(d_{\\text{key}}\\left(1+\\frac{(T+1)(L+1)}{4d_{\\text{resid}}}\\right)\\).\n' +
+      '\n' +
+      '### Conclusion\n' +
+      '\n' +
+      'Considering all the above possibilities, it\'s not obvious where the best tradeoff is between correctness and compute cost in all situations. In Table 2 we provide formulas measuring the number of multiplications in the quadratic cost for each kind of edge, across the variations we\'ve mentioned. In Figure 16 we plug in the 4 sizes of Pythia model used elsewhere in the paper, such as Figure 2, to enable numerical comparison.\n' +
+      '\n' +
+      '## Appendix D Distribution of true effects\n' +
+      '\n' +
+      'In Figure 17, we show the distribution of \\(c(n)\\) across models and distributions.\n' +
+      '\n' +
+      'Figure 16 | A comparison of edge-AtP variants across model sizes and prompt lengths. AtP* here is defined to include QKfix and MLPfix, but not GradDrops. The costs vary across several orders of magnitude for each setting.\n' +
+      '\n' +
+      'In the setting with full-MLP nodes, MLPfix carries substantial cost for short prompts, but barely matters for long prompts.\n' +
+      '\n' +
+      'In the neuron-nodes setting, MLPfix is costless. But GradDrops in that setting continues to impose a large cost; even though it doesn\'t affect MLP\\(\\rightarrow\\)MLP edges, it does affect MLP\\(\\rightarrow\\)Q,K edges, which come out dominating the cost with QKfix.\n' +
+      '\n' +
+      'Figure 17 | Distribution of true effects across models and prompt pair distributions\n' +
+      '\n' +
+      'Figure 17: | Distribution of true effects across models and prompt pair distributions\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
