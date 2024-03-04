@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# Resonance RoPE: Context length Generalization의 개선\n' +
+      '\n' +
+      '대용량 언어 모델\n' +
+      '\n' +
+      ' 수유첸 왕({}^{1,2}\\), 이반 코비제브({}^{3}\\), 펑루({}^{1}\\), 메히디 레자그홀리자데h({}^{3}\\) 및 방류({}^{1,2}\\)**\n' +
+      '\n' +
+      'DIRO, Universite de Montreal \\({}^{1}\\)Mila - 퀘벡 AI 연구소\\({}^{3}\\) 화웨이 노아의 방주 연구실\n' +
+      '\n' +
+      '{suyuchen.wang, peng.lu, bang.liu}@umontreal.ca\n' +
+      '\n' +
+      '{ivan.kobyzev, mehdi.rezagholizadeh}@huawei.com\n' +
+      '\n' +
+      '캐나다 CIFAR AI 의자. 교신저자\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      '본 논문은 로터리 위치 임베딩(RoPE: Rotary Position Embedding)을 탑재한 대용량 언어 모델(LLM: Large Language Model)에서 TSTL(Train-short-test-long) 시나리오의 문제를 다룬다. 여기서 더 짧은 시퀀스에서 미리 훈련된 모델은 더 긴 시퀀스에서 OOD(Out-of-distribution) 토큰 위치에 어려움을 겪는다. 우리는 OOD 위치에 대한 RoPE 기능의 보간을 개선하여 TSTL 시나리오의 일반화 격차를 줄이기 위해 설계된 새로운 접근 방식인 Resonance RoPE를 도입하여 추가 온라인 계산 비용 없이 모델 성능을 크게 개선한다. 또한, TSTL 시나리오에서 세밀한 행동 분석을 위해 특별히 설계된 새로운 합성 벤치마크인 PosGen을 제시하며, 이는 새로운 토큰 위치를 인식하는 어려움으로부터 긴 컨텍스트에서 지속적으로 증가하는 토큰 생성의 어려움을 분리하는 것을 목표로 한다. 합성 작업에 대한 실험은 공진 RoPE를 적용한 후 트랜스포머가 OOD 위치를 더 잘 인식하고 더 견고하다는 것을 보여준다. 우리의 광범위한 LLM 실험은 또한 업스트림 언어 모델링 작업과 다양한 다운스트림 롱 텍스트 응용 프로그램.1에서 현재 최첨단 RoPE 스케일링 방법인 YaRN에 공진 RoPE를 적용한 후 우수한 성능을 보여준다.\n' +
+      '\n' +
+      '각주 1: [https://github.com/sheryc/resonance_rope](https://github.com/sheryc/resonance_rope)\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      '최근 대규모 언어 모델(LLM)의 발전은 광범위한 자연어 처리 작업에 걸쳐 잠재력을 입증하여 복잡한 상호 작용, 문서 분석, 전문적인 작성 및 통합 접근법으로 고급 추론을 처리하는 능력을 보여준다(OpenAI, 2023; Touvron et al., 2023a, b; Jiang et al., 2024). 이러한 모델이 복잡한 애플리케이션에 점점 더 적응됨에 따라 긴 텍스트의 이해 또는 생성이 필요한 시나리오에서 문제가 발생한다. 구체적으로, TSTL(train-short-test-long) 시나리오(Press et al., 2022)는 더 짧은 시퀀스에서 미리 훈련된 LLMs가 더 긴 시퀀스에서 OOD(out-of-distribution) 토큰 위치들과 투쟁하여 실제 애플리케이션에서의 그들의 성능에 영향을 미치는 한계를 강조한다(Zhao et al., 2023).\n' +
+      '\n' +
+      '최근 TSTL 성능 향상을 위한 노력은 LLaMA(Touvron et al., 2023a, b) 및 Mistral(Jiang et al., 2023)과 같은 로터리 포지션 임베딩(RoPE)이 장착된 LLM(Su et al., 2024)에 초점을 맞추고 있다. 이러한 이니셔티브들은 각 토큰의 포지션 인덱스(Chen et al., 2023) 또는 RoPE의 베이스 값(Xiong et al., 2023; Liu et al., 2023; Peng et al., 2023) 중 어느 하나에 스케일링 팩터를 도입함으로써 RoPE 포지션 임베딩의 테스트-시간 계산을 정제하는 것을 목표로 한다. 이러한 방법들은 OOD(out-of-distribution) 포지션들에 대한 포지션 임베딩들이 사전 트레이닝 동안 경험되는 범위 내에 유지되도록 보장한다. 이는 모델이 본질적으로 어려운 작업인 새로운 포지션 임베딩 값 범위들에 적응할 필요성을 최소화한다.\n' +
+      '\n' +
+      '본 논문에서는 TSTL 시나리오에서 위치 임베딩의 일반화 간격을 더욱 좁히기 위해 고안된 새로운 기법인 Resonance RoPE를 소개한다. RoPE의 위치 임베딩은 복잡하고 비선형적인 함수에 의해 좌우된다는 것을 인식하고, OOD 위치에 대한 외삽을 최소화하는 것은 중요하지만 불충분하다고 가정한다. 우리는 OOD 위치에서 RoPE 기능의 **보간**을 해결하는 것이 동등하게 중요하다고 주장한다. 공진 RoPE를 구현함으로써, TSTL 시나리오에서 LLaMA 및 LLaMA2의 위치 임베딩 특징의 절반 이상에 대한 일반화 갭을 효과적으로 제거한다. 또한, 제안된 방법은 RoPE 및 RoPE 기반 스케일링 기술과 호환되어 훈련 또는 추론 중 추가 계산 리소스가 필요 없이 TSTL 상황에서 성능을 향상시킨다.\n' +
+      '\n' +
+      '또한 위치 임베딩에 대한 추가 연구를 용이하게 하기 위해 PosGen이라는 TSTL 시나리오에 맞춘 새로운 합성 벤치마크를 제시한다. TSTL을 위한 위치 임베딩을 개선하려면 더 긴 컨텍스트를 처리하는 데 실패의 원인에 대한 자세한 분석이 필요하다. 그러나, 긴 컨텍스트에서 당혹감을 측정하는 것(Rae et al., 2020; Huang et al., 2021; Wu et al., 2022) 및 대부분의 합성 TSTL 태스크들(Liu et al., 2023; Kazemnejad et al., 2023)과 같은 현재의 벤치마크들은 공통 이슈에 직면한다: 다음 토큰을 생성하는 어려움은 컨텍스트 길이에 따라 증가한다. 이는 모델의 실패가 더 복잡한 토큰을 생성할 수 없기 때문인지 아니면 OOD(out-of-distribution) 포지션을 인식하지 못하기 때문인지 판단하기 어렵게 만든다. PosGen은 모든 포지션에 걸쳐 토큰 생성의 난이도를 표준화하여 이러한 한계를 해결한다. 이는 관찰된 단점들이 모델의 새로운 토큰 위치들을 효과적으로 식별하고 핸들링할 수 없는 것과 직접적으로 관련되어 있음을 보장한다.\n' +
+      '\n' +
+      '이 연구에서 우리의 기여는 세 가지이다.\n' +
+      '\n' +
+      '1. 우리는 RoPE 특징들의 파장들에 대한 심층 분석을 기반으로 RoPE에 대한 혁신적인 수정인 Resonance RoPE를 제안하며, RoPE 및 유사한 RoPE 기반 스케일링 기법들에 걸쳐 TSTL 시나리오들의 일반화 갭을 좁히는 것을 목표로 런타임 동안 추가적인 계산 자원들을 필요로 하지 않는다.\n' +
+      '2. TSTL 시나리오에 맞게 새롭게 개발된 합성 벤치마크인 PosGen을 제시한다. 이 벤치마크는 새로운 포지션들 또는 포지션 임베딩 값들을 인식함으로써 제기된 도전들로부터 더 긴 컨텍스트들에서 토큰들을 생성하는 것과 연관된 복잡성들을 풀도록 특별히 설계된다.\n' +
+      '3. PosGen 벤치마크 내에서 RoPE와 YaRN에 대한 Resonance RoPE의 엄격한 테스트를 통해 OOD(Out-of-distribution) 위치에 대한 성능을 향상시키는 능력을 입증하여 Resonance RoPE를 포함하지 않는 기존 방법을 능가한다. 더욱이, YaRN에 적용될 때, 공진 RoPE는 업스트림 TSTL 언어 모델링의 더 낮은 당혹성과 긴 컨텍스트를 포함하는 다운스트림 작업의 향상된 결과에 의해 입증된 바와 같이 LLM의 길이 외삽 능력을 더욱 향상시킨다.\n' +
+      '\n' +
+      '##2 관련 업무\n' +
+      '\n' +
+      'RoPE 위치 인코딩의### 스케일링\n' +
+      '\n' +
+      'LLM들의 컨텍스트 윈도우를 확장하기 위한 최근의 노력들은 LLaMA(Touvron et al., 2023, 2023) 및 Mistral(Jiang et al., 2023)과 같은 LLM들에서 사용되는 포지션 임베딩(PE), 특히 RoPE(Su et al., 2024)를 조작하는 것에 초점을 맞춘다. 주요 전략으로는 임베딩 스케일링(Chen et al., 2023; Liu et al., 2023; Peng et al., 2023) 및 랜덤화 토큰 위치(Ruoss et al., 2023; Zhu et al., 2023)가 있다. 우리의 강조점은 임베딩 스케일링 전략에 있다.\n' +
+      '\n' +
+      '기존의 임베딩 스케일링 전략은 특징 외삽을 피하면서 사전 훈련 범위와 일치하도록 더 긴 시퀀스에 대한 위치 임베딩을 조정한다. 예를 들어, Chen et al.(2023)은 1,000 단계의 미세 조정으로 LLaMA(Touvron et al., 2023) 컨텍스트를 16K로 확장하면서, 사전 훈련 범위에 적합하도록 포지션 인덱스들을 압축한다. 대안적으로, Liu et al. (2023); Roziere et al. (2023); Xiong et al. (2023)은 RoPE의 회전 베이스를 수정하고, 확장된 시퀀스들 상에서 미세-조정(Adjusted Base Frequency; ABF) 또는 "NTK-aware" 스케일링이라고 불리는, 미세-조정(fine-tuning)을 채용한다. 코드 LLaMA(Roziere et al., 2023)는 10,000 파인-튜닝 단계 후에 이 방법으로 16K 컨텍스트 길이를 달성하였다. YaRN(Peng et al., 2023)은 RoPE 특징을 분할하고 맞춤형 외삽 전략을 적용하여 NTK 인식 스케일링을 개선했으며, 400개의 미세 조정 단계로 LLaMA2(Touvron et al., 2023)에 대한 64K 컨텍스트 길이를 달성했다. 이와 달리, 우리의 공진 RoPE는 OOD 위치에 대한 특징 보간을 줄이는 데 초점을 맞추고 있으며, 이는 트랜스포머의 길이 외삽 능력을 향상시키는 또 다른 중요한 요소라고 주장한다.\n' +
+      '\n' +
+      '### 긴 상황 평가\n' +
+      '\n' +
+      '트랜스포머 기반 LLM의 긴 컨텍스트 기능에 대한 평가는 길이 외삽 전략을 위한 합성 작업 평가와 LLM 규모에서 실제 작업 평가의 두 가지이다. 합성 평가는 긴 시퀀스 분류(Tay et al., 2021) 및 산술 언어 모델링(Liu et al., 2023; Kazemnejad et al., 2023)과 같은 간단한 작업을 대상으로 한다. LLM 스케일 평가는 광범위한 텍스트 코퍼스(예를 들어, PG19(Rae et al., 2020), GovReport(Huang et al., 2021), GitHub(Wu et al., 2022))에서의 퍼플렉시티(PPL)와 같은 메트릭과 요약, 질문 응답 및 수학적 추론을 포함하는 복잡한 태스크를 측정한다(An et al., 2023; Bai et al., 2023; Shaham et al., 2023).\n' +
+      '\n' +
+      ' \n' +
+      '\n' +
+      '## 3 Background\n' +
+      '\n' +
+      '### 로터리 위치 임베딩(RoPE)\n' +
+      '\n' +
+      '트랜스포머(Vaswani et al., 2017)에서 자기 주의 점수는 소프트맥스 정규화 스케일 어텐션 로짓 \\(\\mathbf{q}^{\\top}\\mathbf{k}\\):\n' +
+      '\n' +
+      '\\[a_{m,n}=\\text{Softmax}\\left(\\frac{\\mathbf{q}_{m}{}^{\\top}\\mathbf{k}_{n}}{\\sqrt{d}}\\right)\\]\n' +
+      '\n' +
+      '하나의 어텐션 헤드에 대한 입력이 \\(\\mathbf{x}_{1},\\mathbf{x}_{2},\\dots,\\mathbf{x}_{l}\\in\\mathbb{R}^{d}\\)이라고 가정하면, 여기서 \\(l\\)은 시퀀스 길이이고 \\(d\\)은 어텐션 헤드의 차원이다. RoPE는 복소공간에서 다음과 같은 식으로 \\(\\mathbf{q}\\) 및 \\(\\mathbf{k}\\) 벡터에 각 토큰의 위치정보를 주입한다:\n' +
+      '\n' +
+      'bf{x}_{m}e^{im\\theta_{m,[2j:2j+1} =\\mathbf{w}_{q}\\mathbf{w}_{m}e^{im\\theta_{m,[2j:2j+1}} =\\mathbf{w}_{k}\\mathbff{x}_{m}e^{im\\theta_{j}}\\] \\[\\theta_{j} =b^{\\frac{-2j}{d}, \\tag{1}}}\n' +
+      '\n' +
+      '여기서 \\(\\mathbf{W}_{q},\\mathbf{W}_{k}\\)는 훈련 가능한 파라미터이고, \\(b\\)은 회전 베이스라고 불리는 상수이며, 이는 \\(10,000\\)(Su et al., 2024) 또는 다른 정수 또는 분수(Xiong et al., 2023; Peng et al., 2023)로 설정된다. 이 형태는 \\(m\\)번째 질의 \\(\\mathbf{q}_{m}\\)와 \\(n\\)번째 키 \\(\\mathbff{k}_{n}\\) 사이의 내적을 단지 입력 \\(\\mathbf{x}_{m},\\mathbf{x}_{n}\\)과 그들의 상대 거리 \\((m-n)\\)에 의존하게 만든다:\n' +
+      '\n' +
+      '\\Re\\left[\\mathbf{q}_{m,[2j:2j+1]}\\rangle\\] \\[=\\Re\\left[\\mathbf{q}_{m,[2j:2j+1]}^{*}\\mathbf{k}_{n,[2j:2j+1]}\\mathbf{k}_{n,[2j:2j+1]}\\right] \\[=\\Re\\left[(\\mathbf{W}_{q}\\mathbf{x}_{n}\\mathbf{x}_{n}\\right)e^{i(m-n)\\theta_{j}\\right] \\[=g(\\mathbf{x}_{m},\\mathbf{x}_{n}\\heta_{j}\\right]] \\[=g(\\mathbf{x}_{m},\\mathbf{x}_{n}\\heta_{n}\\right]\\\\\n' +
+      '\n' +
+      'RoPE의 실수 구현은 \\(d\\)차원 공간을 다중 \\(2\\)차원 부분공간으로 나누고 각각에 실수 회전 행렬을 적용한다. 형식적으로 \\(d\\times d\\) 블록-대각 행렬을 정의한다:\n' +
+      '\n' +
+      '\\begin{pmatrix}\\mathbf{R}_{\\theta_{0},m}&\\cdots&\\bm{0}\\\\mathbf{0}&\\mathbf{R}_{\\theta_{1},m}&\\cdots&\\mathbf{0}\\\\vdots&\\vdots&\\vdots&\\vdots&\\cdots&\\mathbf{0}\\theta_{\\frac{d}{2}-1},m}\\end{pmatrix}, \\tag{2}\\mathbf{R}_{\\theta_{0}&\\mathbf{0}\\cdots&\\mathbf{0}&\\mathbf{R}\\theta_{1},m}&\\cdots&\\mathbf{0}\\cdots&\\mathbf{0}\\cdots&\\mathbf{0}&\\mathbf{0}\\cdots&\\mathbf{0}\\cdots&\\mathbf{\n' +
+      '\n' +
+      '여기서 \\(\\theta=\\{\\theta_{0},\\theta_{1},\\cdots,\\theta_{\\frac{d}{2}-1}\\}), 및 각각의 \\(\\mathbff{R}_{\\theta_{j},m}\\)는 \\(2\\times 2\\) 회전 행렬:\n' +
+      '\n' +
+      '\\[\\mathbf{R}_{\\theta_{j},m}=\\begin{pmatrix}\\cos m\\theta_{j}&-\\sin m\\theta_{j}\\\\sin m\\theta_{j}&\\cos m\\theta_{j}\\end{pmatrix}. \\tag{3}\\\n' +
+      '\n' +
+      'RoPE는 다음과 같이 주의로짓\\(\\mathbf{q}^{\\top}\\mathbf{k}\\)을 계산한다:\n' +
+      '\n' +
+      'bf{x}_{m}\\mathbf{w}_{m}\\mathbf{w}_{m}\\mathbf{w}_{m}\\mathbf{w}_{m}\\mathbf{w}_{m}\\mathbf{w}_{m}\\mathbf{w}_{m}\\mathbf{w}_{m}\\mathbf{w}_{m}\\mathbf{w}_{m}\\mathbf{w}_{m}\\mathbf{w}_{m}\\mathbf{w}_{m}\\mathbf{w}_{m}\\mathbf{w}_{m}\\mathbf{w}_{m}\\mathbf{w}_{m}\\mathbf{w}_{m}\\mathbf{w}_{m}\\mathbf{w}_{m}\\mathbf{w}_{m}\\mathbf{w}_{m}\\mathbf{\n' +
+      '\n' +
+      '각각 \\(\\mathbf{q}\\)와 \\(\\mathbf{k}\\)의 2차원 \\([2j:2j+1]\\)에 대해, 그 대응하는 \\(\\theta_{j}\\)은 시간 파장 \\(\\lambda_{j}\\)을 반영한다. 이 파장은 대응하는 RoPE 피처들이 수학식 3에서 대략 동일한 회전각 \\(m\\theta_{j}\\)을 마주하기 위한 토큰 길이를 설명한다:\n' +
+      '\n' +
+      '\\[\\lambda_{j}=\\frac{2\\pi}{\\theta_{j}=2\\pib^{\\frac{2j}{d}}\\tag{7}\\\\\n' +
+      '\n' +
+      '예를 들어, LLaMA/LLaMA2의 RoPE 특징의 파장은 \\(\\theta_{0}\\)의 경우 \\(2\\pi\\approx 6.28\\)에서 \\(\\theta_{2}-1}\\의 경우 \\(2*10000^{126/128}\\pi\\approx 54410.14\\)까지 다양하다.\n' +
+      '\n' +
+      'RoPE의 중요치수\n' +
+      '\n' +
+      'TSTL 시나리오(Press et al., 2022)에서는 최대 길이(L\\)의 텍스트에 대해 학습된 모델을 취하여 입력 길이(L^{\\prime}=sL\\)에 대해 스케일링 팩터(s>1\\)를 적용하여 테스트한다. 최근, Liu et al.(2023)은 RoPE 피처들에 두 개의 "임계 치수"가 존재할 수 있다는 것을 발견했는데, 이는 \\(\\lambda_{c}\\geq L\\) 및 \\(\\lambda_{c-1}<L\\)을 만족시키는 치수 \\([2c:2c+1]\\) 및 \\(\\lambda_{c-1}<L\\)을 만족한다. 임계 치수 위 및 아래(우리가 각각 "포스트-임계 치수" 및 "프리-임계 치수"로 나타내는 RoPE 피처들의 치수들은 TSTL에서 상이한 거동들을 갖는다: 포스트-임계 치수들(즉, \\(j>c\\))에 대해, 그들의 파장들이 \\(\\lambda_{j}>)을 만족하기 때문이다. L\\), 학습 코퍼스는 단위 원 상에서 가능한 모든 회전각 \\(m\\theta_{j}\\)을 포괄하지 않는다. 따라서 이러한 치수는 더 긴 시퀀스에서 OOD 값 범위와 마주치게 된다. 이것은 더 짧은 시간 파장으로 인해 임계 전 치수의 문제가 아니다.\n' +
+      '\n' +
+      'RoPE의 임계 차원에 대한 개념은 RoPE 스케일링 방법의 개발을 암묵적으로 안내한다. 예를 들어, 이전의 RoPE 스케일링 방법들(Chen et al., 2023; Xiong et al., 2023; Peng et al., 2023)은 주로 임계 후 차원들에 대한 값 외삽을 감소시키거나 회피하는 것에 초점을 맞추고, 임계 전 차원들에 대한 트레이닝 후 수정들을 최소화한다.\n' +
+      '\n' +
+      '### 또 다른 RoPE extensioN(YaRN)\n' +
+      '\n' +
+      'YaRN(Peng et al., 2023)은 TSTL을 위한 현재의 최신 RoPE 스케일링 방법이다. 그것은 시간 파장에 따라 각 RoPE 기능에 다른 스케일링 전략을 적용하는 RoPE에 대한 "NTK 단위" 스케일링을 소개한다.\n' +
+      '\n' +
+      '스케일링 인자\\(s\\)를 갖는 TSTL 시나리오에서 YaRN은 \\(j\\)번째 RoPE 특징 \\(\\lambda_{j}\\)의 파장을 \\(\\hat{\\lambda_{j}\\)으로 스케일링하고 모델을 추가로 미세 조정한다:\n' +
+      '\n' +
+      '\\[\\hat{\\lambda_{j}}=(1-\\gamma_{j})s\\lambda_{j}+\\gamma_{j}\\lambda_{j},\\]\n' +
+      '\n' +
+      '여기서 \\(\\gamma_{j}\\)는 그 대응하는 파장 \\(\\lambda_{j}\\)에 의존하는 부분 함수이고, 두 개의 하이퍼파라미터 \\(\\alpha\\) 및 \\(\\beta\\):\n' +
+      '\n' +
+      '\\begin{cases}1,\\gamma_{j}=\\begin{cases}1,\\text{if}\\lambda_{j}<L/\\beta\\0,&\\text{if}\\lambda_{j}>L/\\alpha\\dfrac{L/\\lambda_{j}-\\alpha\\beta\\alpha},&\\text{otherwise}\\end{cases}\\text{if}\\lambda_{j}<L/\\beta\\\\alpha\\dfrac{L/\\alpha\\dfrac{L/\\lambda_{j}-\\alpha\\beta\\alpha}\n' +
+      '\n' +
+      '경험적으로, LLaMA 패밀리에 대해, Peng et al.(2023)은 \\(\\alpha=1\\) 및 \\(\\beta=32\\)을 사용하는 것을 제안한다. 이 설정은 임계 후 치수에 대한 값 범위 외삽을 피하는 동시에 원래 임계 전 치수에 대한 수정을 줄입니다.\n' +
+      '\n' +
+      '위에서 언급한 "NTK-by-parts" RoPE 스케일링 전략 이외에, YaRN은 또한 어텐션 스코어들에 대한 스케일링 전략을 포함하며, 이는 더 긴 시퀀스들에 대한 어텐션 스코어의 엔트로피의 변화를 감소시킨다. 우리는 실험에서 YaRN의 완전한 설계를 유지하지만, 우리의 분석은 RoPE 스케일링 전략에 초점을 맞출 것이다.\n' +
+      '\n' +
+      '##4 제안방법 : 공진 RoPE\n' +
+      '\n' +
+      '이 섹션에서는 RoPE 및 RoPE 기반 스케일링 방법에 대한 보편적인 개선인 Resonance RoPE를 도입하여 길이 외삽 성능을 (추가로) 개선한다.\n' +
+      '\n' +
+      'RoPE의 식 4, 5를 추상화하면, 임의의 \\(\\mathbf{x}\\in\\mathbb{R}^{d}\\)에 대해 \\(f(\\mathbf{x},m)=\\mathbff{R}^{d}_{\\mathsf{Q},m}\\mathbf{W}\\mathbf{x}\\)을 정의한다. 길이\\(L\\)에서 길이\\(L^{\\prime}\\)까지 LLM을 일반화하는 TSTL 시나리오에서, 확장된 RoPE 함수를 \\(\\tilde{f}\\)으로 나타내자. OOD 위치에서 잘 수행하려면 훈련 중에 보이는 토큰 특징과 스케일링 후 토큰 특징 사이의 _feature gap_\\(h(\\tilde{f})\\)을 줄여야 하며, 각 \\(i\\)번째 특징을 다음과 같이 정의할 수 있다.\n' +
+      '\n' +
+      'bb{X}\\max_{\\mathbf{x}\\in\\mathbbb}\\min_{\\begin{subarray}{c}m\\in\\{0,\\cdots,L-1\\}\\n\\in\\{L,\\cdots,L^{\\prime}-1\\}\\end{subarray}|\\tilde{f}(\\mathbf{x},m)_{i}-\\tilde{f}(\\mathbf{x},n)_{i}|, \\tag{8}\\}\n' +
+      '\n' +
+      '여기서 \\(i=0,\\ldots,d-1\\) 및 \\(\\mathbb{X}subset\\mathbb{R}^{d}\\)는 위치 임베딩을 적용하는 특징 벡터의 집합이다.\n' +
+      '\n' +
+      '기존의 RoPE 스케일링 방법(Xiong et al., 2023; Peng et al., 2023)은 주로 RoPE의 임계 후 치수에 초점을 맞추는데, 이는 이들 치수에 대한 회전각 \\(m\\theta_{j}\\)이 OOD 위치에 외삽되어 특징 갭을 생성하기 때문이다. 이 섹션에서 우리는 사전 임계 치수에 대한 RoPE의 특징 보간을 줄이는 것도 더 나은 길이 외삽에 유익하다고 주장한다.\n' +
+      '\n' +
+      'RoPE 특징\\(\\mathbf{R}^{\\theta}_{m}\\)과 토큰 위치\\(m\\) 사이의 비선형 관계로 인해 RoPE 특징들에 대한 보간은 모델이 일반화되기 어려울 수 있다. 우리는 이러한 잠재적으로 단단한 보간이 사전 훈련된 시퀀스 길이\\(L\\)보다 짧은 파장\\(\\lambda_{j}\\)을 갖는 사전 임계 차원\\([0:2c-1]\\)에서 나타난다는 것을 발견했다. 기본적으로 RoPE 피쳐의 회전 베이스\\(b\\)는 정수 또는 분수로 파장\\(\\lambda_{j}=2\\pi b^{\\frac{2j}{d}}\\)을 정수가 아니다. 위치지수 \\(m\\in\\mathbb{N}\\)가 증가함에 따라 회전각 \\(m\\theta_{j}\\)에 대한 \\(\\Delta\\phi\\)의 위상변동이 발생한다. 이것은 잠재적으로 훈련 중에 보이는 위치에 대한 RoPE 기능과 OOD 위치 사이의 큰 분포 격차를 초래할 수 있다. 이러한 현상은 그림 1에 예시되어 있다.\n' +
+      '\n' +
+      '우리는 공진 RoPE라고 하는 기존의 RoPE 임베딩에 대한 시너지 수정을 개발하여 이 문제를 해결한다. 이는 보간 갭을 최소화하는 최적의 각도 주파수를 식별하는 것을 목표로 하며, 이는 대응하는 파장이 정수에 대한 파장의 정렬을 부과하면서 원래의 파장과 밀접하게 일치하도록 보장한다. 보다 구체적으로, 주어진 각에 대해\n' +
+      '\n' +
+      '그림 1: RoPE의 회전각\\(m\\theta_{6}\\)과 공진 RoPE의 회전각\\(m\\theta_{6}\\)을 Eqn으로 나타낸 그림이다. TSTL 시나리오에서 3은 최대 길이(64\\)를 훈련하고 최대 길이(128\\)를 테스트한다. RoPE의 정수 아닌 피쳐 파장은 훈련 위치와 OOD 테스트 위치의 RoPE 피쳐 사이에 피쳐 갭을 생성하는 반면 Resonance RoPE는 이 갭을 0으로 줄입니다.\n' +
+      '\n' +
+      'RoPE\\(\\theta=\\{\\theta_{1},\\theta_{2},\\ldots,\\theta_{d/2}\\})의 주파수 집합은 각 특징에서 새로운 회전각을 제거하기 위해 파장을 가장 가까운 정수로 라운딩한다. 우리는 알고리즘 1에서 공진 RoPE를 위한 의사 코드를 제공한다.\n' +
+      '\n' +
+      '```\n' +
+      '\\(\\lambda_{i}=2\\pi/\\theta_{i}\\)에 대한\\(\\lambda_{i}=2\\pi/\\tild\\triangleright\\)에 대한 라운드\\(\\tilde{\\theta}=2\\pi/\\tilde\\tilde\\tilde\\theta},\\cdots,\\tilde{\\theta}{d}{2}-1}\\)에 의한 계산\\(\\mathbf{k}\\)에 의한 계산\\(\\mathbf{r}^{d}\\tilde\\tilde\\tilde\\tilde\\tilde\\tilde\\tangleright\\)에 대한 정수 파장\\(\\tilde{\\theta}=2\\pi/\\tilde\\tilde\\tilde\\tilde\\tilde\\tilde\\tail\\tilde\\tilde\\tail\\tail\\tail\\tail\\tail\\tail\\tail\\tail\\tail\\tail\\t\n' +
+      '```\n' +
+      '\n' +
+      '**알고리즘 1** 공진 RoPE의 의사코드\n' +
+      '\n' +
+      '이 기법을 적용한 후 각 RoPE 특징은 tilde{\\lambda}_{i}\\(\\tilde{\\lambda}_{i}\\) 토큰 후에 반복되므로 특정 스팬 길이로 "공진화"되고 사전 훈련된 위치와 사전 임계 차원에서의 OOD 위치 사이의 보간 갭을 제거한다. 우리는 그림 1에서 Resonance RoPE가 RoPE의 특징 갭에 미치는 영향을 설명하고, 제안된 방법의 특징 갭 감소 능력을 증명할 수 있다. 위와 같이, 우리는 공진 RoPE의 계산 규칙을 \\(\\tilde{f}(\\mathbf{x},m)=\\mathbf{R}^{d}_{\\tilde{\\theta},m}\\mathbf{W}\\mathbf{x}\\mathbf{x}로 공식화한다.\n' +
+      '\n' +
+      '**정리 1**: context window \\(L\\), Resonance RoPE \\(\\tilde{f}\\)을 갖는 RoPE가 장착된 모델의 경우, pre-critical 차원에서의 특징 갭을 \\(0\\)으로 감소시킨다. 구체적으로 \\(\\forall\\mathbf{x}\\in\\mathbb{X}\\), \\(\\forall n\\in\\mathbb{N}\\backslash\\{0,\\cdots,L-1\\}\\), 우리는:_\n' +
+      '\n' +
+      '\\[\\min_{m\\in\\{0,\\cdots,L-1\\}}|\\tilde{f}(\\mathbf{x},m)_{i}-\\tilde{f}(\\mathbf{x},n)_{i}|=0\\]\n' +
+      '\n' +
+      'for all \\(i=0,\\ldots,2c-1\\)._\n' +
+      '\n' +
+      '부록 A의 증명을 참조하라. 각각의 전임계 RoPE 특징은 \\(\\mathbf{R}_{\\tilde{\\theta}_{j},m}\\) 반복이지만, 모든 \\(\\{\\mathbf{R}_{\\tilde{\\theta}_{j},m}\\}_{j<c}\\)의 조합은 모든 전임계 치수의 파장에서 최소 공배수(LCM) 후에만 반복된다는 점에 유의하라. LLaMA2의 경우 이 LCM 값은 \\(7\\times 10^{51}\\)보다 크다.\n' +
+      '\n' +
+      '단순성 때문에, 공진 RoPE는 RoPE 및 모든 RoPE 기반 스케일링 방법 위에 적용되어 TSTL에서의 특징 갭을 줄이고 성능을 더욱 향상시킬 수 있다. 한편, 이 방법은 스케일링된 \\(\\theta\\)의 오프라인 계산만을 수반하므로 온라인 계산 오버헤드를 도입하지 않는다.\n' +
+      '\n' +
+      '##5 PosGen을 이용한 위치 임베딩 평가\n' +
+      '\n' +
+      '이 섹션에서는 기존의 위치 임베딩 평가 방법에 대한 공통 고장 패턴 분석을 기반으로 새로운 위치 임베딩 평가 제품군인 PosGen을 제안한다.\n' +
+      '\n' +
+      '우리는 다음 토큰 예측 작업을 고려하는데, 여기서 모델은 입력 시퀀스 \\(\\{x_{0},\\cdots,x_{l-1}\\}\\)을 주어 토큰 \\(x_{l}\\)을 생성할 것으로 예상한다. TSTL 시나리오에서, 모델이 위치 \\(L\\)까지의 토큰을 정확하게 생성하는 데 성공하지만 이후에 체계적으로 실패할 때, 우리는 두 가지 실패 패턴을 관찰한다:\n' +
+      '\n' +
+      '나중에 토큰을 생성하는데 더 어려운 알고리즘상의 어려움으로 인한 오류.** 새로운 토큰의 생성 규칙은 시퀀스 길이\\(l\\)에 따라 달라질 수 있다. 일반적으로 시퀀스에 나중에 배치된 토큰은 더 많은 컨텍스트 토큰에 의존하며, 이는 더 복잡한 종속 패턴을 발생시킨다. 더 짧은 시퀀스에 대한 학습 동안, 모델은 최대 \\(L\\) 토큰이 포함된 토큰 종속 규칙만 학습하며, 더 복잡한 종속 규칙에 노출된 적이 없기 때문에 더 긴 시퀀스에서 실패할 수 있다.\n' +
+      '인식되지 않는 새로운 토큰 위치들로 인한 실패.** TSTL 설정에서 훈련과 테스트 길이 사이의 차이는 훈련 및 추론에서 위치 인덱스들 또는 위치 임베딩들 사이의 특징 갭을 생성한다. 이러한 특징 갭은 인식되지 않은 특징들로 인해 모델이 새로운 위치들로 일반화하는 것을 어렵게 한다. RoPE 스케일링 방법은 주로 이러한 유형의 길이 외삽 실패를 줄이는 데 중점을 둔다.\n' +
+      '\n' +
+      '현재, 복잡도 기반 평가들(Rae et al., 2020; Huang et al., 2021; Wu et al., 2022) 또는 합성 TSTL 평가들(Kazemnejad et al., 2023; Liu et al., 2023)은 이들 태스크들에서 시퀀스 길이에 대해 토큰 생성 난이도가 증가하는 경향이 있기 때문에, 이들 두 실패 패턴들을 효과적으로 구별할 수 없다. 더 나은 위치 표현에 대한 연구를 용이하게 하기 위해 시퀀스 전체에 걸쳐 토큰 생성의 어려움을 동일하도록 제어하는 PosGen을 설계하여 두 가지 유형의 TSTL 실패를 효과적으로 구별한다. 이 벤치마크에서의 실패는 단지 TSTL 시나리오에서 새로운 토큰 위치를 인식할 수 없기 때문이다.\n' +
+      '\n' +
+      'PosGen 프레임워크는 각각 다른 유형의 추론 태스크의 일반적인 토큰 의존 패턴을 추출하는 세 개의 하위 태스크로 구성된다. 우리가 고정 함수 \\(h:\\mathbb{V}^{j+k}\\rightarrow\\mathbb{V}\\)을 정의한다고 가정하자, 여기서 \\(\\mathbb{V}\\)은 모델의 어휘이고 \\(j,k\\)은 과제의 난이도를 조절하는 미리 정의된 상수이다. PosGen의 세 가지 하위 작업은 다음과 같다.\n' +
+      '\n' +
+      '1. **Recursive.** 이 태스크는 피보나치-스타일 시퀀스를 생성하는 토큰 의존 패턴을 시뮬레이션하는데, 여기서 새로운 토큰은 \\(j+k\\) 이웃하는 토큰에만 의존한다: \\(x_{l}=h(x_{l-(j+k)}),\\cdots,x_{l-1}))\\(l\\geq j+k\\)일 때.\n' +
+      '2. **Chain-of-Thought(CoT).** 이 태스크는 CoT 추론 Wei et al.(2022)의 토큰 의존 패턴을 시뮬레이션하는데, 여기서 새로운 토큰은 \\(k\\) 이웃하는 토큰(이전 추론 단계를 시뮬레이션함)과 앞쪽의 \\(j\\) 토큰에 의존한다(원래 질문을 시뮬레이션함): \\(l\\geq j+k\\일 때 \\(x_{l}=h(x_{0},\\cdots,x_{j-1},x_{l-k},\\cdots,x_{l-1})\\).\n' +
+      '3. **Semi-recursive.** 이 태스크는 마지막-문자 연결 태스크 Zhou 등(2023)의 토큰 의존 패턴을 시뮬레이션하는데, 여기서 새로운 토큰들은 \\(k\\) 이웃하는 토큰들(현재 진행 상황을 시뮬레이션함)과 다양한 거리들을 갖는 \\(j\\)의 토큰들 모두에 의존한다(단어 시퀀스를 시뮬레이션함): \\(x_{l}=h(x_{\\lfloor l-(j+k)/2\\rfloor-j},\\cdots,x_{\\lfloor l-(j+k)/2\\rfloor-1},\\) \\(l\\geq j+k}일 때 \\(x_{l-k},\\cdots,x_{l-1})\\).\n' +
+      '\n' +
+      '각 서브태스크에 대한 방정식에 기초하여, 첫 번째 \\(j+k\\) 토큰이 주어졌을 때, 무한한 길이를 갖는 시퀀스를 그라운드 트루스 시퀀스로 생성할 수 있다. 우리는 그림 2에서 PosGen의 예를 보여준다. TSTL 벤치마크로서, 시퀀스 길이가 \\(L\\)인 서브 태스크에서 모델을 트레이닝하고, "OOD Acc"라고 하는 보이지 않는 위치 \\(L<m\\leq L^{\\prime}\\)에서 동일한 규칙에 의해 생성된 길이 \\(L^{\\prime}>L\\)인 더 긴 시퀀스에 대한 모델의 정확도를 평가한다. 이 메트릭은 모델이 OOD 위치를 얼마나 잘 인식하고 훈련 중에 학습된 생성 규칙을 계속 따를 수 있는지를 측정한다. 위치 임베딩의 벤치마크로서, 이 벤치마크의 표준 용도는 짧은 시퀀스만을 갖는 트레이닝 세트에 상이한 위치 임베딩을 갖는 소형 트랜스포머(예를 들어, 본 실험에서 사용된 2-레이어 트랜스포머)를 트레이닝하고, 더 긴 시퀀스를 갖는 테스트 세트에 대한 OOD 정확도를 테스트하는 것이다. 우리는 섹션 6.1.1 및 부록 B.1에서 PosGen에 대한 실험 설정을 더 자세히 제공한다.\n' +
+      '\n' +
+      '## 6 Experiments\n' +
+      '\n' +
+      '제안된 PosGen 태스크에 대한 소규모 평가, LLaMA2-Chat Touvron et al.(2023)을 사용한 LLM-스케일 평가 등 세 가지 다른 TSTL 태스크에 대한 Resonance RoPE를 언어 모델링 퍼플렉시티와 실세계 긴 컨텍스트 애플리케이션 모두에 대해 평가한다.\n' +
+      '\n' +
+      '### 합성과제평가\n' +
+      '\n' +
+      '###### 6.1.1 실험 설정\n' +
+      '\n' +
+      '먼저 RoPE와 YaRN에 Resonance RoPE를 적용하여 보이지 않는 위치 인식을 위해 PosGen에 대한 모델의 성능을 평가한다. 우리는 모듈식 덧셈 과제에 대해 테스트하는데, 이 과제는 1-layer Transformer Nanda et al.(2023)에 의해 학습 가능한 것으로 증명되었다. 우리는 \\(j=1,k=3\\)을 구성하고, \\(h(x_{0},x_{1},x_{2},x_{3})=\\sum_{i=0}^{3}x_{i}\\mod 17\\(\\mathbb{V}=\\{0,\\ldots,16\\}\\)로 정의했다. 실험에는 길이\\(L=64\\)의 시퀀스에 서로 다른 RoPE 기반 임베딩을 갖는 2층 트랜스포머를 훈련하고, OOD 정확도를 위해 길이\\(L^{\\prime}=256\\)에 대한 평가를 수행하였다. 우리는 검증 및 테스트를 위해 10,000개의 훈련 시퀀스와 1,000개의 각 토큰을 생성했으며 첫 번째 \\(j+k=4\\) 토큰이 내도록 한다.\n' +
+      '\n' +
+      '그림 2: PosGen의 세 가지 하위 작업의 예. 이 예에서, \\(h\\)은 모듈러스 \\(m=7\\) 및 난이도 제어 파라미터 \\(j=1,k=3\\)을 갖는 모듈러 덧셈 과제이다. 출력 토큰은 (1) 재귀 태스크에서 local \\(j+k\\) 토큰만, (2) CoT 태스크에서 local \\(k\\) 토큰과 beginning \\(j\\) 토큰과, (3) semi-recursive 태스크에서 의존 거리가 다양한 \\(k\\) local 토큰과 \\(j\\) 토큰에 의존한다.\n' +
+      '\n' +
+      '각 시퀀스는 모델이 올바른 생성 메커니즘을 학습하는지 여부를 증언하기 위해 중복되지 않는다. 종자에 대한 평균 결과는 \\(5\\)이었다. 보다 상세한 설정은 부록 B.1에 제시되어 있다.\n' +
+      '\n' +
+      '결과 및 분석\n' +
+      '\n' +
+      '표 1은 OOD 정확도의 비교를 나타낸다. 대부분의 경우, Resonance RoPE 및 Resonance YaRN은 Resonance 기술이 없는 대응물을 능가하여 OOD 시나리오에서 훨씬 더 나은 성능과 감소된 분산을 보여줍니다. 이러한 개선은 최소화된 PPE(Positional Encoding) 보간을 통한 OOD 위치 임베딩에 대한 우수한 적응을 나타낸다. OOD 위치에서 외삽된 임계 후 치수가 우세하기 때문에 Recursive 하위 작업에 Resonance RoPE를 적용할 때 예외가 관찰됩니다. 이 문제는 YaRN과 같은 RoPE 스케일링 기술을 사용하여 완화될 수 있으며, 이는 임계 후 치수의 외삽을 효과적으로 카운터한다. 모든 구성 중 Resonance YaRN이 가장 높은 OOD 성능을 나타내어 RoPE 스케일링 방법과 Resonance 기법 간의 시너지 효과를 입증한다.\n' +
+      '\n' +
+      '그림 3은 훈련 역학을 설명하는 다양한 PE에 대한 훈련 에폭에 대한 검증 손실을 보여준다. 공진 기술의 도입은 RoPE와 YaRN 모두에 대한 가장 낮은 검증 손실을 감소시키며, 공진 RoPE는 세미-재귀 하위 작업에서 YaRN보다 훨씬 더 낮은 검증 손실을 달성한다. 또한, 공진 RoPE 및 공진 YaRN에 대한 검증 손실 궤적은 모든 하위 작업에서 대응물보다 낮게 유지되어 접근법의 향상된 OOD 일반화 능력을 추가로 보여준다.\n' +
+      '\n' +
+      '### LLM 미세조정 평가\n' +
+      '\n' +
+      '###### 6.2.1 실험 설정\n' +
+      '\n' +
+      '이 섹션에서, 우리는 제안된 공진 RoPE를 현재의 최신 RoPE 스케일링 방법, YaRN Peng 등(2023)에 적용한다. 보다 구체적으로, 우리는 LLaMA2 7B 및 13B Touvron et al.(2023)의 원래 위치 임베딩들을 NTK-Aware 스케일링(bloc97, 2023; Xiong et al., 2023; Liu et al., 2023), Dynamic NTK-Aware Scaling Peng et al.(2023); Roziere et al.(2023), 및 YaRN Peng et al.(2023)을 포함하는 일련의 스케일링된 위치 임베딩들로 대체한다.\n' +
+      '\n' +
+      'YaRN과 Resonance YaRN의 경우, LLaMA2 7B와 13B에 대해 각각 \\(8\\)과 \\(4\\)의 스케일링 팩터를 사용하여 컨텍스트 윈도우를 \\(4\\)K에서 \\(32\\)K와 \\(16\\)K로 확장한다. 미세 조정이 필요한 구성에 대해서는 YaRN Peng et al.(2023)에서 직접 채택한 미세 조정 설정과 하이퍼파라미터로 PG19 Rae et al.(2020)의 훈련 세트에 스케일된 위치 임베딩을 사용하여 LLM을 미세 조정하며, 유일한 차이점은 총 훈련 토큰 카운트가 대략 \\(100\\)M이 되도록 제어한다는 것이다. 부록 B.2에서 보다 상세한 미세 조정 설정을 찾을 수 있으며, 긴 텍스트 시퀀스에 대한 언어 모델링 평가 및 긴 텍스트 다운스트림 응용 성능 두 가지 TSTL 시나리오에서 모델의 성능을 테스트한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c|c c c} \\hline \\hline Setting & Recursive & CoT & Semi-Rec. \\\\ \\hline RoPE & **65.29\\(\\pm\\)0.43** & \\(69.56\\pm\\)0.33 & \\(17.96\\pm\\)0.03 \\\\ Res. RoPE (Ours) & \\(62.64\\pm\\)0.15 & **75.25\\(\\pm\\)0.10** & **29.78\\(\\pm\\)0.07** \\\\ \\hline YaRN & \\(95.93\\pm\\)0.04 & \\(98.71\\pm\\)0.00 & \\(33.70\\pm\\)0.04 \\\\ Res. YaRN (Ours) & **98.30\\(\\pm\\)0.00** & **99.58\\(\\pm\\)0.00** & **48.46\\(\\pm\\)0.03** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 1: PosGen의 테스트 세트에 대한 OOD Positions(OOD Acc)에 대한 정확도. 모든 결과는 백분율(%)입니다. 우리는 서로 다른 무작위 종자를 사용하여 5개의 실행에 걸친 평균과 분산을 모두 보고한다. 우리는 공진 스케일링을 사용하거나 사용하지 않는 동일한 RoPE 기반 PE를 비교한다. 각 하위 작업에서 각 설정 쌍에 대한 최상의 성능은 **볼드**로 표시됩니다.\n' +
+      '\n' +
+      '그림 3: PosGen의 세 가지 하위 작업에 대한 공명 스케일링이 있거나 없는 RoPE 및 YaRN PE를 사용하는 트랜스포머의 검증 손실 곡선이다.\n' +
+      '\n' +
+      '장수열에 대한 복잡도 6.2.2\n' +
+      '\n' +
+      '우리는 GovReport(Huang et al., 2021)와 Proofpile(Azerbayev, 2022)에 대한 모델의 언어 모델링 성능을 평가한다. 우리는 각 데이터 세트에서 무작위로 \\(50\\) 샘플을 선택하고 점차적으로 길이가 증가된 텍스트 조각에서 최종 복잡성을 보고한다. 우리는 그림 4의 결과를 보고한다. 시험된 방법 중 Resonance YaRN은 모든 컨텍스트 길이에 걸쳐 가장 낮은 당혹감을 달성한다. 특히, 공진 YaRN은 YaRN에 최적화된 동일한 하이퍼파라미터 세트를 갖는 YaRN에 비해 더 낮은 당혹감을 달성하여, 공진 기법을 기존의 RoPE 스케일링 방법들에 적용하는 이점을 입증한다.\n' +
+      '\n' +
+      '6.2.3 실세계 과제평가\n' +
+      '\n' +
+      '마지막으로, LLaMA2-Chat 7B와 13B의 성능에 대한 실제 작업 성능을 L-Eval(An et al., 2023)의 폐쇄형 작업 세트, 학교 강의, 긴 대화 및 소설과 같은 광범위한 영역을 포함하는 긴 텍스트 LLM 벤치마크로 다양한 RoPE 스케일링 전략을 사용하여 테스트한다. 우리는 더 많은 에폭에 대해 더 짧은 시퀀스(4K 길이)에 대한 훈련과 더 적은 에폭에 대해 더 긴 시퀀스(32K 또는 16K 길이)에 대한 훈련의 두 가지 다른 전략을 사용하여 서로 다른 RoPE 스케일링 전략으로 모델을 미세 조정한다. 미세 조정이 필요한 모든 설정은 훈련 토큰 수를 약 100M으로 유지합니다. 결과는 표 2에 나열되어 있다.\n' +
+      '\n' +
+      '실험에서 단일 설정이 모든 하위 작업에서 최상의 결과를 달성하지는 못했지만, 우리는 공진 YaRN을 적용하는 것이 상대 YaRN 설정에 비해 다른 훈련 설정 및 모델 크기에서 더 나은 평균 성능을 달성한다는 것을 관찰한다. 이것은 공진 기법과 RoPE 스케일링 방법의 호환성과 제안된 방법이 가져온 더 나은 길이 외삽 성능을 입증한다.\n' +
+      '\n' +
+      '## 7 Conclusion\n' +
+      '\n' +
+      '본 논문에서는 OOD 위치에 대한 RoPE 특징의 보간을 최소화함으로써 일반화 갭을 줄이고 열차-단거리 테스트-장거리(TSTL) 시나리오에서 LLM의 성능을 향상시키는 RoPE의 새로운 개선인 Resonance RoPE를 소개한다. 또한, 다양한 토큰 의존 패턴에 대한 모델의 TSTL 성능에 대한 세밀한 분석을 제공하는 새로운 합성 벤치마크인 PosGen을 제시한다. 제안된 PosGen 및 2개의 LLM 기반 평가에 대한 광범위한 실험은 OOD 위치를 식별하는 데 있어 공진 RoPE의 효과와 현재 RoPE 스케일링 전략과의 호환성을 보여준다. 향후 작업에는 다른 기본 모델에 대한 공진 RoPE의 성능을 탐색하는 것과 RoPE 기능에 대한 보다 최적의 파장 조합을 식별하는 것이 포함된다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{r c c c c c c|c|c} \\hline \\hline Setting & \\multicolumn{2}{c}{Ctx Len.} & \\multicolumn{1}{c}{Coursera} & GSM & QuALITY & TOEFL & CodeU & SFiction & Avg. \\\\ \\hline \\multicolumn{1}{c|}{**LLaMA-Chat 7B**} & \\multicolumn{1}{c}{} & \\multicolumn{1}{c}{} & \\multicolumn{1}{c}{} & \\multicolumn{1}{c}{} & \\multicolumn{1}{c}{} & \\multicolumn{1}{c}{} & \\multicolumn{1}{c}{} & \\\\ \\hline Dynamic NTR-Aware (no FT) & 32K & 31.98 & **32.00** & 34.65 & **59.11** & 1.11 & 36.72 & 32.59 \\\\ NTR-Aware (\\(s=8\\), no FT) & 32K & **36.77** & 3.00 & 26.73 & 34.2 & 1.11 & 50.78 & 25.43 \\\\ \\hline YaRN (\\(s=8\\), FT@32K, 50 epochs.) & 32K & 36.05 & 19.00 & 33.17 & 50.56 & **4.44** & 56.25 & 33.24 \\\\ Resonance YaRN (\\(s=8\\), FT@32K, 50 epochs.) & 32K & 36.48 & 22.00 & 34.16 & 55.76 & 0.00 & 57.03 & 34.24 \\\\ \\hline YaRN (\\(s=8\\), FT@4K, 400 epochs.) & 32K & 35.03 & 24.00 & 37.62 & 57.62 & **4.44** & 60.94 & 36.61 \\\\ Resonance YaRN (\\(s=8\\), FT@4K, 400 epochs.) & 32K & 36.34 & 27.00 & **40.59** & 56.51 & 3.33 & **61.72** & **37.58** \\\\ \\hline \\multicolumn{1}{c|}{**LLaMA-Chat 13B**} & \\multicolumn{1}{c}{} & \\multicolumn{1}{c}{} & \\multicolumn{1}{c}{} & \\multicolumn{1}{c}{} & \\multicolumn{1}{c}{} & \\multicolumn{1}{c}{} & \\multicolumn{1}{c}{} \\\\ \\hline Dynamic NTR-Aware (no FT) & 16K & 29.22 & **39.00** & 40.59 & 63.94 & 1.11 & 39.84 & 35.62 \\\\ NTR-Aware (\\(s=4\\), no FT) & 16K & 40.26 & 21.00 & 38.12 & 65.43 & 1.11 & 46.88 & 35.47 \\\\ \\hline \\multicolumn{1}{c|}{YaRN (\\(s=4\\), FT@16K, 100 epochs.)} & 16K & 38.08 & **39.00** & 43.07 & 65.43 & 0.00 & **63.28** & 41.48 \\\\ Resonance YaRN (\\(s=4\\), FT@16K, 100 epochs.) & 16K & 38.66 & **39.00** & **43.56** & 65.06 & 1.11 & 62.50 & **41.65** \\\\ \\hline YaRN (\\(s=4\\), FT@4K, 400 epochs.) & 16K & 41.72 & 34.00 & 41.09 & **66.91** & 2.22 & 48.44 & 39.06 \\\\ Resonance YaRN (\\(s=4\\), FT@4K, 400 epochs.) & 16K & **41.86** & 35.00 & 42.57 & 65.80 & **5.56** & 48.44 & 39.87 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 2: L-Eval의 일부 폐쇄형 작업에 대한 긴 텍스트 평가. "Ctx Len"은 PE를 스케일링한 후 모델의 목표 컨텍스트 길이를 의미한다. "FT@32K, 50 epcs"는 모델이 \\(50\\) epochs에 대해 \\(32\\)K 서열 길이에 대해 미세 조정된다는 것을 의미한다. "FT 없음"이 있는 설정은 위치 임베딩을 수정한 후 미세 조정되지 않습니다. 우리는 각각 **Bold**와 **Underline**에서 각 기본 모델에 대해 가장 좋은 성능과 두 번째로 좋은 성능을 강조한다.\n' +
+      '\n' +
+      '도 4: GovReport 및 Proofpile 상의 상이한 위치 임베딩을 갖는 LLaMA-Chat 7B의 당혹성.\n' +
+      '\n' +
+      '### Limitations\n' +
+      '\n' +
+      '제안된 공진 RoPE는 OOD 위치에서 RoPE의 사전 임계 차원만 보간하는 것을 줄이는 데 중점을 둔다. 그러나 이 방법은 RoPE의 사후 임계 치수에 대한 외삽 문제를 해결하지 못하며, 이는 LLM의 길이 외삽 성능에도 해로운 것으로 나타났다. 따라서, Resonance RoPE의 기술은 TSTL 시나리오에서 LLM의 완전한 잠재력을 달성하기 위해 RoPE의 임계 후 치수, 예를 들어 YaRN에 대한 외삽을 감소시킬 수 있는 또 다른 RoPE 스케일링 방법과 결합될 필요가 있다. 그러한 조합은 섹션 6.2에서 우리의 초점이 되었다.\n' +
+      '\n' +
+      '둘째, 긴 텍스트 시퀀스에 LLM을 적용하는 것은 트랜스포머 입력 길이의 초선형 복잡성으로 인해 성능과 효율성 모두에 대한 고려가 필요하다. 위치 임베딩의 개선으로 TSTL 시나리오에서 트랜스포머의 성능 향상에만 초점을 맞추고 있다. 흥미로운 미래 방향은 성능과 효율성 향상을 위해 효율적인 트랜스포머에 공진 RoPE를 적용하는 것이다.\n' +
+      '\n' +
+      '마지막으로 LLM의 벤치마킹은 현재 LLM의 성능, 특히 긴 시퀀스 작업에 대해 철저히 테스트할 벤치마크가 없기 때문에 여전히 열린 질문이다. 우리는 보다 포괄적인 롱 텍스트 벤치마크가 실험 결과의 타당성을 더욱 향상시킬 것으로 기대한다.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* An et al. (2023) Chenxin An, Shansan Gong, Ming Zhong, Mukai Li, Jun Zhang, Lingpeng Kong, and Xipeng Qiu. 2023. L-eval: 롱 콘텍스트 언어 모델들에 대한 표준화된 평가를 Institited for long context language models. _ CoRR_, abs/2307.11088.\n' +
+      '*아제르바예프(2022) 장기르아제르바예프. 2022. Zhangir-azerbayev/proofpile.\n' +
+      '*Bai et al. (2023) Yushi Bai, Xin Lv, Jiajie Zhang, Hongchang Lyu, Jiankai Tang, Zhidian Huang, Zhengxiao Du, Xiao Liu, Aohan Zeng, Lei Hou, Yuxiao Dong, Jie Tang, 및 Juanzi Li. 2023. 롱벤치: 긴 문맥 이해를 위한 이중언어, 멀티태스크 벤치마크 _ CoRR_, abs/2308.14508.\n' +
+      '* bloc97(2023) bloc97. 2023. NTK-Aware Scaled RoPE를 사용하면 LLaMA 모델이 미세 조정 및 최소 복잡도 저하 없이 확장(8k+) 컨텍스트 크기를 가질 수 있다.\n' +
+      '* Chen et al. (2023) Shouyuan Chen, Sherman Wong, Liangjian Chen, and Yuandong Tian. 2023. 위치 보간을 통한 대형 언어 모델의 컨텍스트 윈도우 확장. _ CoRR_, abs/2306.15595.\n' +
+      '* Dao(2023) Tri Dao. 2023. 플래시 어텐션-2: 더 나은 병렬성과 작업 분할로 더 빠른 주의력 _ CoRR_, abs/2307.08691.\n' +
+      '* Huang et al. (2021) Luyang Huang, Shuyang Cao, Nikolaus Nova Parulian, Heng Ji, and Lu Wang. 2021. 긴 문서 요약에 대한 효율적인 주의사항. _Proceedings of the 2021 Conference of the North American chapter of the Computational Linguistics Association: Human Language Technologies_, pages 1419-1436. Association for Computational Linguistics.\n' +
+      '* Jiang et al. (2023) Albert Q. 장, 알렉산드르 사블레이롤, 아서 멘쉬, 크리스 뱀포드, 데벤드라 싱 채플롯, 디에고 데 라스 카사스, 플로리안 브레산드, 지아나 령겔, 기욤 옴플, 루실 사울니에, 릴리오 레나르 라바우, 마리안 라초, 피에르 스톡, 트웨인 르 스카오, 티보트 라브릴, 토마스 왕, 티모티 라크루아, 윌리엄 엘 사예드. 2023. 미스트랄 7b. _ CoRR_, abs/2310.06825.\n' +
+      '* Jiang et al. (2024) Albert Q. 장, 알렉산드르 사블레이롤, 안토인 루, 아서 멘쉬, 블랑체 사바리, 크리스 뱀포드, 데벤드라 싱 채플롯, 디에고 데 라스 카사스, 엠마 부 한나, 플로리안 브레산드, 지안나 령겔, 기욤 부르, 기욤 샘플, 릴리오 레나르 라바우, 루실 사울니에, 마리안 나르 라초, 피에르 스톡, 산데프 서브라마니안, 소피아 양, 지몬 안토니아크, 테벤 르 스카오, 테오필 게르베트, 티보트 라브릴, 토마스 왕, 티모티 라크루아, 윌리엄 엘 사예드. 2024. Mix-tral of experts. _ CoRR_, abs/2401.04088.\n' +
+      '* Kazemnejad et al. (2023) Amirhossein Kazemnejad, Inkit Padhi, Karthikeyan Natesan Ramamurthy, Payel Das, and Siva Reddy. 2023. 변압기에서의 길이 일반화에 대한 위치 부호화의 영향. _ CoRR_, abs/2305.19466.\n' +
+      '* Liu et al. (2023a) Bingbin Liu, Jordan T. Ash, Surbhi Goel, Akshay Krishnamurthy, Cyril Zhang. 2023a. 트랜스포머는 오토마타에 대한 바로 가기를 배웁니다. _The Eleventh International Conference on Learning Representations_. OpenReview.net.\n' +
+      '* Liu et al. (2023) Xiaoran Liu, Hang Yan, Shuo Zhang, Chenxin An, Xipeng Qiu, and Dahua Lin. 2023b. 로프 기반 외삽의 척도법칙 CoRR_, abs/2310.05209.\n' +
+      '* Loshchilov and Hutter (2019) Ilya Loshchilov and Frank Hutter. 2019. Decoupled weight decay regularization. _7th International Conference on Learning Representations_. OpenReview.net.\n' +
+      '* Nanda et al. (2023) Neel Nanda, Lawrence Chan, Tom Lieberum, Jess Smith, and Jacob Steinhardt. 2023. 기계론적 해석성을 통한 그로킹의 진행 방안. _The Eleventh International Conference on Learning Representations_. OpenReview.net.\n' +
+      '* OpenAI(2023) OpenAI. 2023. GPT-4 기술보고서 _ CoRR_, abs/2303.08774.\n' +
+      '* Peng et al. (2023) Bowen Peng, Jeffrey Quesnelle, Honglu Fan, and Enrico Shippole. 2023. Yarn: 대용량 언어 모델의 효율적인 컨텍스트 윈도우 확장 CoRR_, abs/2309.00071.\n' +
+      '* Peng et al. (2023)Ofir Press, Noah A. Smith, and Mike Lewis. 2022. Train short, test long: Attention with linear bias enables input length extrapolation. _The 10번째 International Conference on Learning Representations_ OpenReview.net.\n' +
+      '* Rae et al.(2020) Jack W. 레이, 안나 포타펜코, 싯탄트 M. 자야쿠마르, 클로이 힐리어 티모시 P. 릴리크랩 2020. 장거리 서열 모델링을 위한 압축 변압기. _8th International Conference on Learning Representations_. OpenReview.net.\n' +
+      '* Raffel et al. (2020) Colin Raffel, Noam Shazeer, Adam Roberts, Katherine Lee, Sharan Narang, Michael Matena, Yanqi Zhou, Wei Li, and Peter J. Liu. 2020. 통일된 텍스트-텍스트 변환기를 이용한 전이학습의 한계점 탐색. _ J 마흐 배워 Res._ , 21:140:1-140:67.\n' +
+      '* Ren et al. (2021) Jie Ren, Samyam Rajbhandari, Reza Yazdani Aminabadi, Olatunji Ruwase, Shuangyan Yang, Minjia Zhang, Dong Li, and Yuxiong He. 2021년 제로고프로드 10억 규모의 모델 훈련 민주화 _2021 USENIX Annual Technical Conference_, 페이지 551-564. USENIX Association.\n' +
+      '*Roziere et al. (2023) Baptiste Roziere, Jonas Gehring, Fabian Gloeckle, Sten Sootla, Itai Gat, Xiaoqing Ellen Tan, Yossi Adi, Jingyu Liu, Tal Remez, Jeremy Rapin, Artyom Kozhevnikov, Ivan Evtimov, Joanna Bitton, Manish Bhatt, Cristian Canton-Ferrer, Aaron Gratattoni, Wenhan Xiong, Alexandre Defossez, Jade Copet, Faisal Azhar, Hugo Touvron, Louis Martin, Nicolas Usunier, Thomas Scialom and Gabriel Synnaeve. 2023. 코드 라마: 코드에 대한 기초 모델을 개방한다. _ CoRR_, abs/2308.12950.\n' +
+      '* Ruoss et al. (2023) Anian Ruoss, Gregoire Deletang, Tim Genewein, Jordi Grau-Moya, Robert Csordas, Mehdi Bennani, Shane Legg, and Joel Veness. 2023. 랜덤화된 위치 부호화는 변압기의 길이 일반화를 촉진한다. _Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics (Volume 2: Short Papers)_, pages 1889-1903, Toronto, Canada. 컴퓨터 언어학과의 연관성\n' +
+      '* Shaham et al. (2023) Uri Shaham, Maor Iygi, Avia Efrat, Jonathan Berant, and Omer Levy. 2023. ZeroSCROLLS: 긴 텍스트 이해를 위한 제로샷 벤치마크. _Findings of the Association for Computational Linguistics: EMNLP 2023_, pages 7977-7989, Singapore. 컴퓨터 언어학과의 연관성\n' +
+      '* Su et al. (2024) Jianlin Su, Murtadha H. M. Ahmed, Yu Lu, Shengfeng Pan, Wen Bo, and Yunfeng Liu. 2024. 로포머: 회전 위치 매립을 구비한 개량형 트랜스포머. _ Neurocomputing_, 568:127063.\n' +
+      '* Tay 등(2021) Yi Tay, Mostafa Dehghani, Samira Abnar, Yikang Shen, Dara Bahri, Philip Pham, Jinfeng Rao, Liu Yang, Sebastian Ruder, and Donald Metzler. 2021. 장거리 경기장 : 효율적인 변압기의 벤치마크. _9th International Conference on Learning Representations_. OpenReview.net.\n' +
+      '* Touvron et al. (2021) Hugo Touvron, Thibaut Lavril, Gautier Izacard, Xavier Martinet, Marie-Anne Lachaux, Timothee Lacroix, Baptiste Roziere, Naman Goyal, Eric Hambro, Faisal Azhar, Aurelien Rodriguez, Armand Joulin, Edouard Grave, and Guillaume Lample. 2023a. 개방적이고 효율적인 기초 언어 모델 CoRR_, abs/2302.13971.\n' +
+      '* Touvron et al. (2020) Hugo Touvron, Louis Martin, Kevin Stone, Peter Albert, Amjad Almahairi, Shruti Bhosale, Dan Bikel, Likas Blecher, Cristian Canton-Ferrer, Moya Chen, Guillem Bucurul, David Esiobu, Jude Fernandes, Jeremy Fu, Wenyin Fu, Cynthia Gao, Vedan Goswami, Naman Goyal, Anthony Hartshorn, Saghar Hosseini, Rui Hou, Hakan Kardan, Vindan Kardan, Vindan Kerke, Vindan Kardan, Vendan Kloumann, Artem Molybog, Yixin Nie, Andrew Poulton, Jeremy Reisenstein, Rashi Rungta, Kalyan Lavril, Yixin Nie, Kalyan Lu, Pushkar Mybog, Yixin Nie, Eric Michael Smith, R 2023b. 라마 2: 오픈 파운데이션 및 미세 조정 채팅 모델들_ CoRR_, abs/2307.09288.\n' +
+      '* Vaswani et al. (2017) Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N. 고메즈, 루카스 카이저 일리아 폴로수킨 2017년, 집중만 하면 돼 _Advanced in Neural Information Processing Systems 30: Annual Conference on Neural Information Processing Systems 2017_, pages 5998-6008.\n' +
+      '* Wei et al. (2022) Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Brian Ichter, Fei Xia, Ed H. Chi, Quoc V. 르와 데니 저우 2022. Chain-of-thought prompting은 큰 언어 모델에서 추론을 이끌어낸다. In _Advances in Neural Information Processing Systems 35: Annual Conference on Neural Information Processing Systems 2022_.\n' +
+      '* Wu et al. (2022) Yuhuai Wu, Markus Norman Rabe, DeLesley Hutchins, and Christian Szegedy. 2022. 변압기를 기억한다 _The 10번째 International Conference on Learning Representations_ OpenReview.net.\n' +
+      '* Xiong et al. (2023) Wenhan Xiong, Jingyu Liu, Igor Molybog, Hejia Zhang, Prajjwal Bhargava, Rui Hou, Louis Martin, Rashi Rungta, Karthik Abinav Sankararaman, Barlas Oguz, Madian Khabsa, Han Fang, Yashar Mehdad, Sharan Narang, Kshitiz Malik, Angela Fan, Shruti Bhosale, Sergey Edunov, Mike Lewis, Sinong Wang, and Hao Ma. 2023. 기초 모델의 효과적인 롱컨텍스트 스케일링. _ CoRR_, abs/2309.16039.\n' +
+      '* Zhao et al. (2023) Liang Zhao, Xiaocheng Feng, Xiaichong Feng, Bing Qin, and Ting Liu. 2023. 변압기의 길이 외삽: 위치 부호화 관점에서의 측량. _ CoRR_, abs/2312.17044.\n' +
+      '\n' +
+      '데니 저우, 나타나엘 샬리, 르 후, 제이슨 웨이, 네이선 스케일스, 슈에지 왕, 데일 슈르만스, 클레어 쿠이, 올리비에 부스케, 콰크 5세. 르와 에드 H. 치 2023. 최소에서 최대 프롬프트는 큰 언어 모델에서 복잡한 추론을 가능하게 한다. _The Eleventh International Conference on Learning Representations_. OpenReview.net.\n' +
+      '* Zhu et al. (2023) Dawei Zhu, Nan Yang, Liang Wang, Yifan Song, Wenhao Wu, Furu Wei, and Sujian Li. 2023. 포즈: 위치 스킵-와이즈 트레이닝을 통한 lms의 효율적인 컨텍스트 윈도우 확장 _ CoRR_, abs/2309.10400\n' +
+      '\n' +
+      '정리 1의 증명\n' +
+      '\n' +
+      '증명: \\(\\mathbf{x}\\in\\mathbbb{R}^{d}\\), \\(n\\in\\mathbb{N}\\backslash\\{0,\\cdots,L-1\\}\\) 및 \\(i=0,\\ldots,2c-1\\)에 대해 \\(m\\in\\{0,\\cdots,L-1\\\\)을 찾을 수 있고, \\(\\tilde{f}(\\mathbf{x},m)_{i}=\\tilde{f}(\\mathbf{x},n)_{i}\\)을 찾을 수 있다. 정의에 따르면, 그것은 방정식을 푸는 것과 같다:\n' +
+      '\n' +
+      '\\[(\\mathbf{R}^{d}_{\\tilde{\\Theta},m}\\mathbf{W}\\mathbf{x})_{i}=(\\mathbf{R}^{d}_{\\tilde{\\Theta},m} \\mathbf{W}\\mathbf{x})_{i}\\]\n' +
+      '\n' +
+      'for \\(m\\), given \\(i\\), \\(n\\), \\(x\\)\n' +
+      '\n' +
+      'RoPE 특징 행렬 \\(\\mathbf{R}^{d}_{\\theta,m}\\)은 수학식 3에 의해 주어진 \\(2\\times 2\\) 블록을 갖는 블록-대각형으로 정의된다. 따라서, \\(i\\), \\(x\\) 및 \\(n\\)이 주어지면, 방정식은 삼각함수의 선형 조합의 등식으로 감소한다:\n' +
+      '\n' +
+      '\\[a\\cos m\\tilde{\\theta}_{i}+b\\sin m\\tilde{\\theta}_{i}=a\\cos n\\tilde{\\theta}_{i} +b\\sin n\\tilde{\\theta}_{i}\\\n' +
+      '\n' +
+      'for \\(a,b\\in\\mathbb{R}\\), depending \\(\\mathbf{x}\\ and \\(i\\)). 이 등식은 \\(m\\tilde{\\theta}_{i}-n\\tilde{\\theta}_{i}\\)이 \\(2\\pi\\)의 배수이면 분명히 성립한다.\n' +
+      '\n' +
+      '\\[(m-n)\\tilde{\\theta}_{i}=2\\pi k,\\]\n' +
+      '\n' +
+      '(k\\in\\mathbb{Z}\\). 구축한 결과, \\frac{2\\pi}{\\tilde{\\theta}_{i}\\은 자연수이다. 따라서, \\(m\\)에 대한 초기 방정식을 풀 수 있다는 증명을 끝내기 위해 우리는 만족할 정수 \\(k\\)을 찾을 수 있음을 보여야 한다.\n' +
+      '\n' +
+      '\\[\\left(n-\\frac{2\\pi}{\\tilde{\\theta}_{i}}k\\right)\\in\\{0,\\cdots,L-1\\}\\]\n' +
+      '\n' +
+      'for \\(n\\in\\mathbb{N}\\backslash\\{0,\\cdots,L-1\\}\\) 이때 전치임계치수 조건인 \\(i=0,\\ldots,2c-1\\)에 대해, \\(c\\)의 정의에 의해 우리는 부등식 \\(0\\leq\\frac{2\\pi}{\\tilde{\\theta}_{i}<L\\)을 갖는다. \\(k=\\lfloor\\frac{n\\theta_{i}}{2\\pi}\\rfloor\\)을 취하면 \\(m\\)에 필요한 범위를 얻을 수 있으므로 증명을 마친다.\n' +
+      '\n' +
+      '## 부록 B 세부 실험 설정\n' +
+      '\n' +
+      '이 섹션에서는 PosGen에 대한 합성 작업 평가와 상류 언어 모델링 평가 및 하류 실제 적용 평가 모두에 대한 LLM 기반 평가에 대한 자세한 실험 설정을 제공한다.\n' +
+      '\n' +
+      'PosGen에 대한 합성과제 평가\n' +
+      '\n' +
+      '섹션 6.1.1의 합성 태스크 실험을 위해, T5-Small 모델의 구성에 따라 각 레이어가 있는 각 서브 태스크에 대해 2-레이어 트랜스포머를 트레이닝한다(Raffel et al., 2020). 각 서브태스크에 대해 10,000개의 길이 64의 시퀀스 샘플들로 구성된 트레이닝 세트에서 서로 다른 위치 임베딩을 갖는 모델을 트레이닝하고, 검증 및 테스트 세트들은 각각 1,000개의 길이 256의 시퀀스 샘플들을 포함하고, 트레이닝, 검증 및 테스트 세트들의 시퀀스들은 첫 번째 \\(j+k\\) 토큰들에서 중복되지 않는다. 모든 YaRN 및 Resonance YaRN 설정에 대해 모델의 TSTL 설정에 해당하는 스케일링 인자 \\(s=4\\)를 모델에 적용한 YaRN 및 Resonance YaRN을 사용하여 모델을 훈련한다. 각 모델은 언어 모델링 스타일의 교차 엔트로피 손실로 150개의 에폭스에 대해 각 서브태스크에 대해 트레이닝된다. 훈련은 AdamW optimizer (Loshchilov and Hutter, 2019)를 사용하여 학습률 \\(2\\times 10^{-4}\\)과 체중감소 \\(1\\times 10^{-2}\\)을 사용하여 수행되었다. 모든 실험에는 배치크기가 \\(128\\)이다. 모든 하이퍼파라미터는 Semi-Recurrent 서브태스크에서 YaRN의 검증 세트 성능을 최대화하도록 조정되었다. 모든 합성 작업 평가는 단일 NVIDIA V100 32G GPU에서 수행되었다.\n' +
+      '\n' +
+      '### LLM Evaluations\n' +
+      '\n' +
+      '섹션 6.2의 LLM 기반 평가를 위해, 우리는 원래의 RoPE 위치 임베딩을 상이한 전략으로 스케일링된 RoPE로 교체한 후 LLaMA2-Chat 7B 또는 LLaMA2-Chat 13B(Touvron et al., 2023b)를 미세 조정한다:\n' +
+      '\n' +
+      '* **NTK-Aware Scaling**(bloc97, 2023; Xiong et al., 2023; Liu et al., 2023b)는 수학식 1의 기본 \\(b\\)을 \\(s\\cdot b\\)으로 스케일링하고, 여기서 \\(s\\)은 스케일링 팩터이다. 블록97(2023)에서 사용된 미세 조정 없이 성능을 평가한다.\n' +
+      '**Dynamic NTK-Aware Scaling**(Peng et al., 2023; Roziere et al., 2023). 이 방법은 현재 시퀀스 길이\\(L_{c}\\)와 원래 컨텍스트 윈도우 길이\\(L\\): \\(s=\\frac{L_{c}}{L}\\)을 고려하여 스케일링 팩터를 동적으로 계산한다. RoPE 기능을 자주 재계산하는 비용이 높기 때문에 미세 조정 없이 성능을 평가했다.\n' +
+      '* **YaRN**(Peng et al., 2023). 미세 조정 후 성능을 평가합니다.\n' +
+      '\n' +
+      'NTK-Aware 스케일링 및 Dynamic NTK-Aware 스케일링 설정을 위해, 모델 내의 원래의 RoPE 위치 임베딩을 스케일링된 것으로 대체하고, 후속 미세 조정 없이 그들의 성능을 테스트한다(bloc97, 2023; Peng et al., 2023). YaRN 및 Resonance YaRN 설정에 대해, PG19의 트레이닝 세트 상의 대략 100M 토큰에 대한 모델을 미세 조정한다(Rae et al., 2020). 7B 모델과 13B 모델의 타겟 스케일 길이는 각각 32K와 16K이며, 이는 두 모델의 위치 임베딩에 대한 스케일링 인자 \\(s=8\\)와 \\(s=4\\)에 해당한다.\n' +
+      '\n' +
+      '섹션 6.2.2의 긴 시퀀스 복잡도 평가와 섹션 6.2.3의 실제 작업 평가 모두에 대해 LLM 실험에 대한 하이퍼파라미터는 Peng 등(2023)2에서 제공된 구성을 따르며 약 100M 토큰에서 모델을 미세 조정하는 유일한 수정이다. 보다 구체적으로, 우리는 Peng 등이 제안한 YaRN 및 Resonance YaRNas에 \\(\\alpha=1\\) 및 \\(\\beta=32\\)을 사용한다(2023). 모델은 언어 모델링 스타일의 교차 엔트로피 손실로 훈련되었다. 훈련은 AdamW optimizer (Loshchilov and Hutter, 2019)를 사용하여 학습률 \\(2\\times 10^{-5}\\)과 체중감소 \\(1\\times 10^{-}2\\)을 사용하여 수행되었다. 우리는 각 GPU에 \\(1\\)의 배치 크기를 사용한다. 학습률 웜업은 전체 학습 단계의 첫 번째 \\(5\\%\\)에 적용된다. 모델은 4개의 NVIDIA A100 40G GPU에서 BF16 정밀도, FlashAttention 2(Dao, 2023) 및 DeepSpeed ZeRO-3 Offload(Ren et al., 2021)로 미세 조정되었다.\n' +
+      '\n' +
+      '각주 2: [https://github.com/jquesnelle/yarn](https://github.com/jquesnelle/yarn)\n' +
+      '\n' +
+      '섹션 6.2.3의 실제 작업 평가를 위해 두 가지 다른 미세 조정 전략을 추가로 비교한다.\n' +
+      '\n' +
+      '1. 더 적은 에포크들에 대해 긴 시퀀스들에 대해 ** 미세 조정.** 우리는 스케일링된 포지션 임베딩들을 적용한 후에 타겟 시퀀스 길이들에 대해 모델을 직접 미세 조정한다. LLaMA2-Chat 7B 및 13B의 경우 50단계에 대해 길이 32,768의 서열과 100단계에 대해 길이 16,384의 서열에서 모델을 미세 조정한다.\n' +
+      '2. **더 많은 에포크들을 위한 짧은 시퀀스들에 대한 파이네튜닝.** 스케일링된 위치 임베딩들을 적용한 후 원래의 사전-트레이닝 시퀀스 길이에 대한 모델을 미세조정한다. LLaMA2-챗 7B 및 13B 모두에 대해 400단계에 대해 길이 4,096으로 서열에서 모델을 미세 조정한다.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
