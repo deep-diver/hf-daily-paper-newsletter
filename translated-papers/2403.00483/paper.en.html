@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# _RealCustom_: Narrowing Real Text Word for Real-Time Open-Domain\n' +
+      '\n' +
+      'Text-to-Image Customization\n' +
+      '\n' +
+      'Mengqi Huang1, Zhendong Mao1, Mingcong Liu2, Qian He2, Yongdong Zhang1\n' +
+      '\n' +
+      '1 University of Science and Technology of China; 2ByteDance Inc.\n' +
+      '\n' +
+      '{huangmq}@mail.ustc.edu.cn, {zdmao, zhyd73}@ustc.edu.cn, {liumingcong, heqian}@bytedance.com\n' +
+      '\n' +
+      'Works done during the internship at ByteDance.Zhendong Mao is the corresponding author.\n' +
+      '\n' +
+      'Footnote 1: footnotemark:\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      'Text-to-image customization, which aims to synthesize text-driven images for the given subjects, has recently revolutionized content creation. Existing works follow the pseudo-word paradigm, i.e., represent the given subjects as pseudo-words and then compose them with the given text. However, the inherent entangled influence scope of pseudo-words with the given text results in a dual-optimum paradox, i.e., the similarity of the given subjects and the controllability of the given text could not be optimal simultaneously. We present **RealCustom** that, for the first time, disentangles similarity from controllability by precisely limiting subject influence to relevant parts only, achieved by gradually narrowing **real** text word from its general connotation to the specific subject and using its cross-attention to distinguish relevance. Specifically, RealCustom introduces a novel "train-inference" decoupled framework: (1) during training, RealCustom learns general alignment between visual conditions to original textual conditions by a novel adaptive scoring module to adaptively modulate influence quantity; (2) during inference, a novel adaptive mask guidance strategy is proposed to iteratively update the influence scope and influence quantity of the given subjects to gradually narrow the generation of the real text word. Comprehensive experiments demonstrate the superior real-time customization ability of RealCustom in the open domain, achieving both unprecedented similarity of the given subjects and controllability of the given text for the first time. The project page is [https://corleone-huang.github.io/realcustom/](https://corleone-huang.github.io/realcustom/).\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      'Recent significant advances in the customization of pre-trained large-scale text-to-image models [6, 24, 25, 28] (_i.e._, _text-to-image customization_) has revolutionized content creation, receiving rapidly growing research interest from both academia and industry. This task empowers pre-trained models with the ability to generate imaginative text-driven scenes for subjects specified by users (_e.g._, a person\'s closest friends or favorite paintings), which is a foundation for AI-generated content (AIGC) and real-world applications such as personal image&video creation [7]. The primary goal of customization is dual-faceted: (1) high-quality _similarity_, _i.e._, the target subjects in the generated images should closely mirror the _given subjects_; (2) high-quality _control\n' +
+      '\n' +
+      'Figure 1: Comparison between the existing paradigm and ours. **(a)** The existing paradigm represents the _given subject_ as pseudo-words (_e.g._, \\(S^{*}\\)), which has entangled the same entire influence scope with the _given text_, resulting in the _dual-optimum paradox_, _i.e._, the similarity for the _given subject_ and the controllability for the _given text_ could not achieve optimum simultaneously. **(b)** We propose _RealCustom_, a novel paradigm that, for the first time disentangles similarity from controllability by precisely limiting the _given subjects_ to influence only the relevant parts while the rest parts are purely controlled by the _given text_. This is achieved by iteratively updating the influence scope and influence quantity of the _given subjects_. **(c)** The quantitative comparison shows that our paradigm achieves both superior similarity and controllability than the state-of-the-arts of the existing paradigm. CLIP-image score (CLIP-I) and CLIP-text score (CLIP-T) are used to evaluate similarity and controllability. Refer to the experiments for details.\n' +
+      '\n' +
+      '_lability_, _i.e_., the remaining subject-irrelevant parts should consistently adhere to the control of the _given text_.\n' +
+      '\n' +
+      'Existing literature follows the _pseudo-word_ paradigm, _i.e_., (1) learning pseudo-words (_e.g_., \\(S^{*}\\)[10] or rare-tokens [27]) to represent the given subjects; (2) composing these pseudo-words with the given text for the customized generation. Recent studies have focused on learning more comprehensive pseudo-words [1, 8, 22, 32, 38] to capture more subject information, _e.g_., different pseudo-words for different diffusion timesteps [1, 38] or layers [32]. Meanwhile, others propose to speed up pseudo-word learning by training an encoder [11, 18, 30, 34] on object-datasets [17]. In parallel, based on the learned pseudo-words, many works further finetune the pre-trained models [16, 18, 27, 34] or add additional adapters [30] for higher similarity. As more information of the given subjects is introduced into pre-trained models, the risk of overfitting increases, leading to the degradation of controllability. Therefore, various regularizations (_e.g_., \\(l_{1}\\) penalty [10, 16, 34], prior-preservation loss [27]) are used to maintain controllability, which in turn sacrifices similarity. _Essentially_, existing methods are trapped in a _dual-optimum paradox_, _i.e_., the similarity and controllability can not be optimal simultaneously.\n' +
+      '\n' +
+      'We argue that the fundamental cause of this _dual-optimum paradox_ is rooted in the existing pseudo-word paradigm, where the similarity component (_i.e_., the pseudo-words) to generate the given subjects is intrinsically _entangled_ with the controllability component (_i.e_., the given text) to generate subject-irrelevant parts, causing an overall conflict in the generation, as illustrated in Fig. 1(a). Specifically, this entanglement is manifested in the same entire influence scope of these two components. _i.e_., both the pseudo-words and the given text affect all generation regions. This is because each region is updated as a weighted sum of all word features through built-in textual cross-attention in pre-trained text-to-image diffusion models. Therefore, increasing the influence of the similarity component will simultaneously strengthen the similarity in the subject-relevant parts and weaken the influence of the given text in other irrelevant ones, causing the degradation of controllability, and _vice versa_. Moreover, the necessary correspondence between pseudo-words and subjects confines existing methods to either lengthy test-time optimization [10, 16, 27] or training [18, 34] on object-datasets [17] that have limited categories. As a result, the existing paradigm inherently has poor generalization capability for real-time open-domain scenarios in the real world.\n' +
+      '\n' +
+      'In this paper, we present _RealCustom_, a novel customization paradigm that, for the first time, disentangles the similarity component from the controllability component by precisely limiting the given subjects to influence only the relevant parts while maintaining other irreverent ones purely controlled by the given texts, achieving both high-quality similarity and controllability in a real-time open-domain scenario, as shown in Fig. 2. The core idea of _RealCustom_ is that, instead of representing subjects as pseudo-words, we could progressively narrow down the _real_ text words (_e.g_., "toy") from their initial general connotation (_e.g_., various kinds o toys) to the specific subjects (_e.g_., the unique sloth toy), wherein the superior text-image alignment in pre-trained models\' cross-attention can be leveraged to distinguish subject relevance, as illustrated in Fig. 1(b). Specifically, at each generation step, (1) the influence scope of the given subject is identified by the target real word\'s cross-attention, with a higher attention score indicating greater relevance; (2) this influence scope then determines the influence quantity of the given subject at the current step, _i.e_., the amount of subject information to be infused into this scope; (3) this influence quantity, in turn, shapes a more accurate influence scope for the next step, as each step\'s generation result is based on the output of the previous. Through this iterative updating, the generation result of the real word is smoothly and accurately transformed into the given subject, while other irrelevant parts are completely controlled by the given text.\n' +
+      '\n' +
+      'Technically, _RealCustom_ introduces an innovative "train-inference" decoupled framework: (1) During training, _RealCustom_ only learns the generalized alignment capabilities between visual conditions and pre-trained models\' original text conditions on large-scale text-image datasets through a novel _adaptive scoring module_, which modulates the influence quantity based on text and currently generated features. (2) During inference, real-time customization is achieved by a novel _adaptive mask guidance strategy_, which gradually narrows down a real text word based on the learned alignment capabilities. Specif\n' +
+      '\n' +
+      'Figure 2: Generated customization results of our proposed novel paradigm _RealCustom_. Given a _single_ image representing the given subject in the open domain (_any subjects_, portrait painting, favorite toys, _etc_.), _RealCustom_ could generate realistic images that consistently adhere to the given text for the given subjects in real-time (_without any test-time optimization steps_).\n' +
+      '\n' +
+      'ically, (1) the _adaptive scoring module_ first estimates the visual features\' correlation scores with the text features and currently generated features, respectively. Then a timestep-aware schedule is applied to fuse these two scores. A subset of key visual features, chosen based on the fused score, is incorporated into pre-trained diffusion models by extending its textual cross-attention with another visual cross-attention. (2) The _adaptive mask guidance strategy_ consists of a _text-to-image (T2I)_ branch (with the visual condition set to \\(\\mathbf{0}\\)) and a _text\\(\\&\\)image-to-image (T2I)_ branch (with the visual condition set to the given subject). Firstly, all layers\' cross-attention maps of the target real word in the T2I branch are aggregated into a single one, selecting only high-attention regions as the influence scope. Secondly, in the T2I branch, the influence scope is multiplied by currently generated features to produce the influence quantity and concurrently multiplied by the outputs of the visual cross-attention to avoid influencing subject-irrelevant parts.\n' +
+      '\n' +
+      'Our contributions are summarized as follows:\n' +
+      '\n' +
+      'Concepts. For the first time, we (1) point out the _dual-optimum paradox_ is rooted in the existing pseudo-word paradigm\'s entangled influence scope between the similarity (_i.e_., pseudo-words representing the given subjects) and controllability (_i.e_., the given texts); (2) present _RealCustom_, a novel paradigm that achieves disentanglement by gradually narrowing down _real_ words into the given subjects, wherein the given subjects\' influence scope is limited based on the cross-attention of the real words.\n' +
+      '\n' +
+      'Technology. The proposed _RealCustom_ introduces a novel "train-inference" decoupled framework: (1) during training, learning generalized alignment between visual conditions to original text conditions by the _adaptive scoring module_ to modulate influence quantity; (2) during inference, the _adaptive mask guidance strategy_ is proposed to narrow down a real word by iterative updating the given subject\'s influence scope and quantity.\n' +
+      '\n' +
+      'Significance. For the first time, we achieve (1) superior similarity and controllability _simultaneously_, as shown in Fig. 1(c); (2) real-time open-domain customization ability.\n' +
+      '\n' +
+      '## 2 Related Works\n' +
+      '\n' +
+      '### Text-to-Image Customization\n' +
+      '\n' +
+      'Existing customization methods follow the _pseudo-words_ paradigm, _i.e_., representing the given subjects as _pseudo-words_ and then composing them with the given text for customization. Since the necessary correspondence between the pseudo-words and the given subjects, existing works are confined to either cumbersome test-time optimization-based [1, 8, 9, 10, 16, 22, 27, 32] or encoder-based [7, 11, 14, 18, 30, 34] that trained on object-datasets with limited categories. For example, in the optimization-based stream, DreamBooth [27] uses a rare-token as the pseudo-word and further fine-tunes the entire pre-trained diffusion model for better similarity. Custom Diffusion [16] instead finds a subset of key parameters and only optimizes them. The main drawback of this stream is that it requires lengthy optimization times for each new subject. As for the encoder-based stream, the recent ELITE [34] uses a local mapping network to improve similarity, while BLIP-Diffusion [18] introduces a multimodal encoder for better subject representation. These encoder-based works usually show less similarity than optimization-based works and generalize poorly to unseen categories in training. _In summary_, the entangled influence scope of pseudo-words and the given text naturally limits the current works from achieving both optimal similarity and controllability, as well as hindering real-time open-domain customization.\n' +
+      '\n' +
+      '### Cross-Attention in Diffusion Models\n' +
+      '\n' +
+      'Text guidance in modern large-scale text-to-image diffusion models [2, 24, 25, 28, 6] is generally performed using the cross-attention mechanism. Therefore, many works propose to manipulate the cross-attention map for text-driven editing [3, 12] on generated images or real images via inversion [31], _e.g_., Prompt-to-Prompt [12] proposes to reassign the cross-attention weight to edit the generated image. Another branch of work focuses on improving cross-attention either by adding additional spatial control [20, 21] or post-processing to improve semantic alignment [5, 19]. Meanwhile, a number of works [35, 36, 33] propose using cross-attention in diffusion models for discriminative tasks such as segmentation. However, different from the existing literature, the core idea of _RealCustom_ is to gradually narrow a real text word from its initial general connotation (_e.g_., whose cross-attention could represent any toy with various types of shapes and details) to the unique given subject (_e.g_., whose cross-attention accurately represents the unique toy), which is completely unexplored.\n' +
+      '\n' +
+      '## 3 Methodology\n' +
+      '\n' +
+      'In this study, we focus on the most general customization scenario: with only a _single_ image representing the given subject, generating new high-quality images for that subject from the given text. The generated subject may vary in location, pose, style, _etc_., yet it should maintain high _similarity_ with the given one. The remaining parts should consistently adhere to the given text, thus ensuring _controllability_.\n' +
+      '\n' +
+      'The proposed _RealCustom_ introduces a novel "train-inference" decoupled paradigm as illustrated in Fig. 3. Specifically, during training, _RealCustom_ learns general alignment between visual conditions and the original text conditions of pre-trained models. During inference, based on the learned alignment capability, _RealCustom_ gradually narrow down the generation of the real text words (_e.g_., "toy") into the given subject (_e.g_., the unique brown slot toy) by iterative updating each step\'s influence scope and influence quantity of the given subject.\n' +
+      '\n' +
+      'We first briefly introduce the preliminaries in Sec. 3.1. The training and inference paradigm of _RealCustom_ will be elaborated in detail in Sec. 3.2 and Sec. 3.3, respectively.\n' +
+      '\n' +
+      '### Preliminaries\n' +
+      '\n' +
+      'Our paradigm is implemented over Stable Diffusion [25], which consists of two components, _i.e_., an autoencoder and a conditional UNet [26] denoiser. Firstly, given an image \\(\\mathbf{x}\\in\\mathbb{R}^{H\\times W\\times 3}\\), the encoder \\(\\mathcal{E}(\\cdot)\\) of the autoencoder maps it into a lower dimensional latent space as \\(\\mathbf{z}=\\mathcal{E}(\\mathbf{x})\\in\\mathbb{R}^{h\\times w\\times c}\\), where \\(f=\\frac{H_{0}}{h}=\\frac{W_{0}}{w}\\) is the downsampling factor and \\(c\\) stands for the latent channel dimension. The corresponding decoder \\(\\mathcal{D}(\\cdot)\\) maps the latent vectors back to the image as \\(\\mathcal{D}(\\mathcal{E}(\\mathbf{x}))\\approx\\mathbf{x}\\). Secondly, the conditional denoiser \\(\\epsilon_{\\theta}(\\cdot)\\) is trained on this latent space to generate latent vectors based on the text condition \\(y\\). The pre-trained CLIP text encoder [23]\\(\\tau_{\\text{text}}(\\cdot)\\) is used to encode the text condition \\(y\\) into text features \\(\\mathbf{f_{ct}}=\\tau_{\\text{text}}(y)\\). Then, the denoiser is trained with mean-squared loss:\n' +
+      '\n' +
+      '\\[L:=\\mathbb{E}_{\\mathbf{z}\\sim\\mathcal{E}(\\mathbf{x}),\\mathbf{f_{y}},\\mathbf{\\epsilon}\\sim \\mathcal{N}(\\mathbf{0},\\mathbf{l}),t}\\left[\\|\\mathbf{\\epsilon}-\\epsilon_{\\theta}\\left(\\bm {z_{t}},t,\\mathbf{f_{ct}}\\right)\\|_{2}^{2}\\right], \\tag{1}\\]\n' +
+      '\n' +
+      'where \\(\\mathbf{\\epsilon}\\) denotes for the unscaled noise and \\(t\\) is the timestep. \\(\\mathbf{z_{t}}\\) is the latent vector that noised according to \\(t\\):\n' +
+      '\n' +
+      '\\[\\mathbf{z_{t}}=\\sqrt{\\hat{\\alpha}_{t}}\\mathbf{z_{0}}+\\sqrt{1-\\hat{\\alpha}_{t}}\\mathbf{ \\epsilon}, \\tag{2}\\]\n' +
+      '\n' +
+      'where \\(\\hat{\\alpha}_{t}\\in[0,1]\\) is the hyper-parameter that modulates the quantity of noise added. Larger \\(t\\) means smaller \\(\\hat{\\alpha}_{t}\\) and\n' +
+      '\n' +
+      'Figure 3: Illustration of our proposed _RealCustom_, which employs a novel “train-inference” decoupled framework: (a) During training, general alignment between visual and original text conditions is learned by the proposed _adaptive scoring module_, which accurately derives visual conditions based on text and currently generated features. (b) During inference, progressively narrowing down a real word (_e.g_., “toy”) from its initial general connotation to the given subject (_e.g_., the unique brown sloth toy) by the proposed _adaptive mask guidance strategy_, which consists of two branches, _i.e_., a text-to-image (T2I) branch where the visual condition is set to \\(\\mathbf{0}\\), and a text\\(\\&\\)image-to-image (TI2I) branch where the visual condition is set to the given subject. The T2I branch aims to calculate the influence scope by aggregating the target real word’s (_e.g_., “toy”) cross-attention, while the TI2I branch aims to inject the influence quantity into this scope.\n' +
+      '\n' +
+      'thereby a more noised latent vector \\(\\mathbf{z_{t}}\\). During inference, a random Gaussian noise \\(\\mathbf{z_{T}}\\) is iteratively denoised to \\(\\mathbf{z_{0}}\\), and the final generated image is obtained through \\(\\mathbf{x^{\\prime}}=\\mathcal{D}(\\mathbf{z_{0}})\\).\n' +
+      '\n' +
+      'The incorporation of text condition in Stable Diffusion is implemented as textual cross-attention:\n' +
+      '\n' +
+      '\\[\\text{Attention}(\\mathbf{Q},\\mathbf{K},\\mathbf{V})=\\text{Softmax}(\\frac{\\mathbf{Q}\\mathbf{K}^{ \\top}}{\\sqrt{d}})\\mathbf{V}, \\tag{3}\\]\n' +
+      '\n' +
+      'where the query \\(\\mathbf{Q}=\\mathbf{W_{Q}}\\cdot\\mathbf{f_{i}}\\), key \\(\\mathbf{K}=\\mathbf{W_{K}}\\cdot\\mathbf{f_{ct}}\\) and value \\(\\mathbf{V}=\\mathbf{W_{V}}\\cdot\\mathbf{f_{ct}}\\). \\(\\mathbf{W_{Q}},\\mathbf{W_{K}},\\mathbf{W_{V}}\\) are weight parameters of query, key and value projection layers. \\(\\mathbf{f_{i}},\\mathbf{f_{ct}}\\) are the latent image features and text features, and \\(d\\) is the channel dimension of key and query features. The latent image feature is then updated with the attention block output.\n' +
+      '\n' +
+      '### Training Paradigm\n' +
+      '\n' +
+      'As depicted in Fig. 3(a), the text \\(y\\) and image \\(x\\) are first encoded into text features \\(\\mathbf{f_{ct}}\\in\\mathbb{R}^{n_{t}\\times c_{t}}\\) and image features \\(\\mathbf{f_{ci}}\\in\\mathbb{R}^{n_{i}\\times c_{i}}\\) by the pre-trained CLIP text/image encoders [23] respectively. Here, \\(n_{t},c_{t},n_{i},c_{i}\\) are text feature number/dimension and image feature number/dimension, respectively. Afterward, the _adaptive scoring module_ takes the text features \\(\\mathbf{f_{ct}}\\), currently generated features \\(\\mathbf{z_{t}}\\in\\mathbb{R}^{h\\times w\\times c}\\), and timestep \\(t\\) as inputs to estimate the score for each features in \\(\\mathbf{f_{ci}}\\), selecting a subset of key ones as the visual condition \\(\\mathbf{\\hat{f_{ci}}}\\in\\mathbb{R}^{\\hat{n}_{i}\\times c_{i}}\\), where \\(\\hat{n}_{i}<n_{i}\\) is the selected image feature number. Next, we extend textual cross-attention with another visual cross-attention to incorporate the visual condition \\(\\mathbf{\\hat{f_{yi}}}\\). Specifically, Eq. 3 is rewritten as:\n' +
+      '\n' +
+      '\\[\\text{Attention}(\\mathbf{Q},\\mathbf{K},\\mathbf{V},\\mathbf{K_{i}},\\mathbf{V_{i}})=\\\\ \\text{Softmax}(\\frac{\\mathbf{Q}\\mathbf{K}^{\\top}}{\\sqrt{d}})\\mathbf{V}+\\text{ Softmax}(\\frac{\\mathbf{Q}\\mathbf{K_{i}}^{\\top}}{\\sqrt{d}})\\mathbf{V_{i}}, \\tag{4}\\]\n' +
+      '\n' +
+      'where the new key \\(\\mathbf{K_{i}}=\\mathbf{W_{Ki}}\\cdot\\mathbf{\\hat{f_{ci}}}\\), value \\(\\mathbf{V_{i}}=\\mathbf{W_{Vi}}\\cdot\\mathbf{\\hat{f_{ci}}}\\) are added. \\(\\mathbf{W_{Ki}}\\) and \\(\\mathbf{W_{Vi}}\\) are weight parameters. During training, only the _adaptive scoring module_ and projection layers \\(\\mathbf{W_{Ki}}\\), \\(\\mathbf{W_{Vi}}\\) in each attention block are trainable, while other pre-trained models\' weight remains frozen.\n' +
+      '\n' +
+      '**Adaptive Scoring Module**. On the one hand, the generation of the diffusion model itself, by nature, is a coarse-to-fine process with noise removed and details added step by step. In this process, different steps focus on different degrees of subject detail [2], spanning from global structures in the early to local textures in the latter. Accordingly, the importance of each image feature also dynamically changes. To smoothly narrow the real text word, the image condition of the subject should also adapt synchronously, providing guidance from coarse to fine grain. This requires equipping _RealCustom_ with the ability to estimate the importance score of different image features. On the other hand, utilizing all image features as visual conditions results in a "train-inference" gap. This arises because, unlike the training stage, where the same images as the visual conditions and inputs to the denoiser \\(\\epsilon_{\\theta}\\), the given subjects, and the inference generation results should maintain similarity only in the subject part. Therefore, this gap can degrade both similarity and controllability in inference.\n' +
+      '\n' +
+      'The above rationale motivates the _adaptive scoring module_, which provides smooth and accurate visual conditions for customization. As illustrated in Fig. 4, the text \\(\\mathbf{f_{ct}}\\in\\mathbb{R}^{n_{t}\\times c_{t}}\\) and currently generated features \\(\\mathbf{z_{t}}\\in\\mathbb{R}^{h\\times w\\times c}=\\mathbb{R}^{n_{x}\\times c}\\) are first aggregated into the textual context \\(\\mathbf{C}_{\\text{visual}}\\) and visual context \\(\\mathbf{C}_{\\text{visual}}\\) through weighted pooling:\n' +
+      '\n' +
+      '\\[\\mathbf{A}_{\\text{textualual}}=\\text{Softmax}(\\mathbf{f_{ct}}\\mathbf{W_{a}^{t}})\\in \\mathbb{R}^{n_{t}\\times 1} \\tag{5}\\]\n' +
+      '\n' +
+      '\\[\\mathbf{A}_{\\text{visual}}=\\text{Softmax}(\\mathbf{z_{t}}\\mathbf{W_{a}^{v}})\\in \\mathbb{R}^{n_{x}\\times 1} \\tag{6}\\]\n' +
+      '\n' +
+      '\\[\\mathbf{C}_{\\text{textual}}=\\mathbf{A}_{\\text{textual}}^{\\top}\\mathbf{f_{y}}\\in\\mathbb{R} ^{1\\times c_{t}},\\mathbf{C}_{\\text{visual}}=\\mathbf{A}_{\\text{visual}}^{\\top}\\mathbf{z_{t} }\\in\\mathbb{R}^{1\\times c}, \\tag{7}\\]\n' +
+      '\n' +
+      'where \\(\\mathbf{W_{a}^{t}}\\in\\mathbb{R}^{c_{t}\\times 1},\\mathbf{W_{a}^{v}}\\in\\mathbb{R}^{c\\times 1}\\) are weight parameters, and "Softmax" is operated in the number dimension. These contexts are then spatially replicated and concatenated with image features \\(\\mathbf{f_{ci}}\\in\\mathbb{R}^{n_{i}\\times c_{i}}\\) to estimate the textual score \\(\\mathbf{S}_{\\text{textual}}\\in\\mathbb{R}^{n_{i}\\times 1}\\) and visual score \\(\\mathbf{S}_{\\text{visual}}\\in\\mathbb{R}^{n_{i}\\times 1}\\) respectively. These two scores are predicted by two lightweight score-net, which are implemented as two-layer MLPs.\n' +
+      '\n' +
+      'Considering that the textual features are roughly accurate and the generated features are gradually refined, a timestep-aware schedule is proposed to fuse these two scores:\n' +
+      '\n' +
+      '\\[\\mathbf{S}=(1-\\sqrt{\\hat{\\alpha}_{t}})\\mathbf{S}_{\\text{textual}}+\\sqrt{\\hat{\\alpha}_{t }}\\mathbf{S}_{\\text{visual}}, \\tag{8}\\]\n' +
+      '\n' +
+      'where \\(\\sqrt{\\hat{\\alpha}_{t}}\\) is the hyperparameter of pre-trained diffusion models that modulate the amount of noise added to generated features. Then a softmax activation is applied to the fused score since our focus is on highlighting the comparative significance of each image feature vis-a-vis its counterparts: \\(\\mathbf{S}=\\text{Softmax}(\\mathbf{S})\\). The fused scores are multiplied with the image features to enable the learning of score-nets:\n' +
+      '\n' +
+      '\\[\\mathbf{f_{ci}}=\\mathbf{f_{ci}}\\circ(1+\\mathbf{S}), \\tag{9}\\]\n' +
+      '\n' +
+      'where \\(\\circ\\) denotes the element-wise multiply. Finally, given a Top-K ratio \\(\\gamma_{\\text{num}}\\in[0,1]\\), a sub-set of key features with highest scores are selected as the output \\(\\mathbf{\\hat{f_{yi}}}\\in\\mathbb{R}^{\\hat{n}_{i}\\times c_{i}}\\), where \\(\\hat{n}_{i}=\\gamma_{\\text{num}}n_{i}\\). To enable flexible inference with different \\(\\gamma_{\\text{num}}\\) without performance degradation, we propose to use a uniformly random ratio during training:\n' +
+      '\n' +
+      '\\[\\gamma_{\\text{num}}=\\text{uniform}[\\gamma_{\\text{num}}^{\\text{low}},\\gamma_{ \\text{num}}^{\\text{high}}], \\tag{10}\\]\n' +
+      '\n' +
+      'where \\(\\gamma_{\\text{num}}^{\\text{low}},\\gamma_{\\text{num}}^{\\text{high}}\\) are set to \\(0.3,1.0\\), respectively.\n' +
+      '\n' +
+      '### Inference Paradigm\n' +
+      '\n' +
+      'The inference paradigm of _RealCustom_ consists of two branches, _i.e_., a text-to-image (T2I) branch where the visual input is set to \\(\\mathbf{0}\\) and a text\\(\\&\\)image-to-image (TI2I) branch where the visual input is set to given subjects, as illustrated in Fig. 3(b). These two branches are connected by our proposed _adaptive mask guidance strategy_. Specifically, given previous step\'s output \\(\\mathbf{z_{t}}\\), a pure text conditional denoising process is performed in T2I branch to get the output \\(\\mathbf{z_{t-1}^{T}}\\), where all layers cross-attention map of the target real word (_e.g._, "toy") is extracted and resized to the same resolution (the same as the largest map size, _i.e._, \\(64\\times 64\\) in Stable Diffusion). The aggregated attention map is denoted as \\(\\mathbf{M}\\in\\mathbb{R}^{64\\times 64}\\). Next, a Top-K selection is applied, _i.e._, given the target ratio \\(\\gamma_{\\text{scope}}\\in[0,1]\\), only \\(\\gamma_{\\text{scope}}\\times 64\\times 64\\) regions with the highest cross-attention score will remain, while the rest will be set to \\(0\\). The selected cross-attention map \\(\\mathbf{\\bar{M}}\\) is normalized by its maximum value as:\n' +
+      '\n' +
+      '\\[\\mathbf{\\hat{M}}=\\frac{\\mathbf{\\bar{M}}}{\\text{max}(\\mathbf{\\bar{M}})}, \\tag{11}\\]\n' +
+      '\n' +
+      'where \\(\\text{max}(\\cdot)\\) represents the maximum value. The rationale behind this is that even in these selected parts, the subject relevance of different regions is also different.\n' +
+      '\n' +
+      'In the TI2I branch, the influence scope \\(\\mathbf{\\hat{M}}\\) is first multiplied by currently generated feature \\(\\mathbf{z_{t}}\\) to provide accurate visual conditions for current generation step. The reason is that only subject-relevant parts should be considered for the calculation of influence quantity. Secondly, \\(\\mathbf{\\hat{M}}\\) is multiplied by the visual cross-attention results to prevent negative impacts on the controllability of the given texts in other subject-irrelevant parts. Specifically, Eq. 4 is rewritten as:\n' +
+      '\n' +
+      '\\[\\text{Attention}(\\mathbf{Q},\\mathbf{K},\\mathbf{V},\\mathbf{K_{i}},\\mathbf{V_{i}})=\\\\ \\text{Softmax}(\\frac{\\mathbf{Q}\\mathbf{K}^{\\top}}{\\sqrt{d}})\\mathbf{V}+( \\text{Softmax}(\\frac{\\mathbf{Q}\\mathbf{K_{i}}^{\\top}}{\\sqrt{d}})\\mathbf{V_{i}})\\mathbf{\\hat{M}}, \\tag{12}\\]\n' +
+      '\n' +
+      'where the necessary resize operation is applied to match the size of \\(\\mathbf{\\hat{M}}\\) with the resolution of each cross-attention block. The denoised output of TI2I branch is denoted as \\(\\mathbf{z_{t-1}^{T}}\\). The classifer-free guidance [13] is extended to produce next step\'s denoised latent feature \\(\\mathbf{z_{t-1}}\\) as:\n' +
+      '\n' +
+      '\\[\\mathbf{z_{t-1}}=\\epsilon_{\\theta}(\\emptyset)+\\omega_{t}(\\mathbf{z_{t-1}^{T}}-\\epsilon_ {\\theta}(\\emptyset))+\\omega_{i}(\\mathbf{z_{t-1}^{T}}-\\mathbf{z_{t-1}^{T}}), \\tag{13}\\]\n' +
+      '\n' +
+      'where \\(\\epsilon_{\\theta}(\\emptyset)\\) is the unconditional denoised output.\n' +
+      '\n' +
+      'With the smooth and accurate influence quantity of the given subject injected into the current step, the generation of the real word will gradually be narrowed from its initial general connotation to the specific subject, which will shape a more precise influence scope for the generation of the next step. Through this iterative updating and generation, we achieve real-time customization where the similarity for the given subject is disentangled with the controllability for the given text, leading to an optimal of both. More importantly, since both the _adaptive scoring module_ as well as visual cross-attention layers are trained on general text-image datasets, the inference could be generally applied to any categories by using any target real words, enabling excellent open-domain customization capability.\n' +
+      '\n' +
+      '## 4 Experiments\n' +
+      '\n' +
+      '### Experimental Setups\n' +
+      '\n' +
+      '**Implementation.**_RealCustom_ is implemented on Stable Diffusion and trained on the filtered subset of Laion-5B [29] based on aesthetic score, using 16 A100 GPUs for 16w iterations with 1e-5 learning rate. Unless otherwise specified, DDIM sampler [31] with 50 sample steps is used for sampling and the classifier-free guidance \\(\\omega_{t},\\omega_{i}\\) is 7.5 and 12.5. Top-K ratios \\(\\gamma_{\\text{num}}=0.8\\), \\(\\gamma_{\\text{scope}}=0.25\\).\n' +
+      '\n' +
+      '**Evaluation.**_Similarity._ We use the state-of-the-art segmentation model (_i.e._, SAM [15]) to segment the subject, and then evaluate with both CLIP-I and DINO [4] scores, which are average pairwise cosine similarity CLIP ViT-B/32 or DINO embeddings of the segmented subjects in generated and real images. _Controllability._ We calculate the cosine similarity between prompt and image CLIP ViT-B/32 embeddings (CLIP-T). In addition, ImageNet [37] is used to evaluate controllability and aesthetics (quality).\n' +
+      '\n' +
+      '**Prior SOTAs.** We compare with existing paradigm of both optimization-based (_i.e._, Textual Inversion[10], DreamBooth [27], CustomDiffusion [16]) and encoder-based (ELITE[34], BLIP-Diffusion[18]) state-of-the-arts.\n' +
+      '\n' +
+      '### Main Results\n' +
+      '\n' +
+      '**Quantitative results.** As shown in Tab. 1, _RealCustom_ outperforms existing methods in all metrics: (1) for controllability, we improve CLIP-T and ImageNet by 8.1% and 223.5%, respectively. The significant improvement in ImageNet shows that our paradigm generates much higher quality customization; (2) for similarity, we also achieve state-of-the-art performance on both CLIP-I and DINO-I.\n' +
+      '\n' +
+      'Figure 4: Illustration of _adaptive scoring module_. Text features and currently generated features are first aggregated into the textual and visual context, which are then spatially concatenated with image features to predict textual and visual scores. These scores are then fused based on the current timestep. Ultimately, only a subset of the key features is selected based on the fused score.\n' +
+      '\n' +
+      'The figure of "CLIP-T verse DINO" validates that the existing paradigm is trapped into the _dual-optimum paradox_, while RealCustom effectively eradicates it.\n' +
+      '\n' +
+      '**Qualitative results.** As shown in Fig. 5, _RealCustom_ demonstrates superior zero-shot open-domain customization capability (_e.g_., the rare shaped toy in the first row), generating higher-quality custom images that have better similarity with the given subject and better controllability with the given text compared to existing works.\n' +
+      '\n' +
+      '### Ablations\n' +
+      '\n' +
+      '**Effectiveness of _adaptive mask guidance strategy_.** We first visualize the narrowing down process of the real word by the proposed adaptive mask guidance strategy in Fig. 6. We could observe that starting from the same state (the same mask since there\'s no information of the given subject is introduced at the first step), _RealCustom_ gradually forms the structure and details of the given subject, achieving the open-domain zero-shot customization while remain\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c c c} \\hline \\hline \\multirow{2}{*}{Methods} & \\multicolumn{2}{c}{_controllability_} & \\multicolumn{2}{c}{_similarity_} & \\multicolumn{1}{c}{_efficiency_} \\\\ \\cline{2-5}  & CLIP-T \\(\\uparrow\\) & ImageReward \\(\\uparrow\\) & CLIP-I \\(\\uparrow\\) & DINO-I\\(\\uparrow\\) & test-time optimize steps \\\\ \\hline Textual Inversion [10] & 0.2546 & -0.9168 & 0.7603 & 0.5956 & 5000 \\\\ DreamBooth [27] & 0.2783 & 0.2393 & 0.8466 & 0.7851 & 800 \\\\ Custom Diffusion [16] & 0.2884 & 0.2558 & 0.8257 & 0.7093 & 500 \\\\ \\hline ELITE [34] & 0.2920 & 0.2690 & 0.8022 & 0.6489 & 0 (real-time) \\\\ BLIP-Diffusion [18] & 0.2967 & 0.2172 & 0.8145 & 0.6486 & 0 (real-time) \\\\ \\hline _RealCustom_**(ours)** & **0.3204** & **0.8703** & **0.8552** & **0.7865** & **0 (real-time)** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 1: Quantitative comparisons with existing methods. **Left**: Our proposed _RealCustom_ outperforms existing methods in all metrics, _i.e_., (1) for controllability, achieving 8.1% and 223.5% improvements on CLIP-T and ImageReward, respectively. The significant improvement on ImageReward also validates that _RealCustom_ could generate customized images with much higher quality (higher aesthetic score); (2) for similarity, we also achieve state-of-the-art performance on both CLIP-I and DINO-I. **Right**: We plot the “CLIP-T verse DINO”, showing that the existing methods are trapped into the _dual-optimum paradox_, while _RealCustom_ completely get rid of it and achieve both high-quality similarity and controllability. The same conclusion in “CLIP-T verse CLIP-I” can be found in Fig. 1(c).\n' +
+      '\n' +
+      'Figure 5: Qualitative comparison with existing methods. _RealCustom_ could produce much higher quality customization results that have better similarity with the given subject and better controllability with the given text compared to existing works. Moreover, _RealCustom_ shows superior diversity (different subject poses, locations, _etc_.) and generation quality (_e.g_., the “autumn leaves” scene in the third row).\n' +
+      '\n' +
+      'ing other subject-irrelevant parts (_e.g_., the city background) completely controlled by the given text.\n' +
+      '\n' +
+      'We then ablate on the Top-K ratio \\(\\gamma_{\\text{scope}}\\) in Tab. 2: (1) within a proper range (experimentally, \\(\\gamma_{\\text{scope}}\\in[0.2,0.4]\\)) the results are quite robust; (2) the maximum normalization in Eq. 11 is important for the unity of high similarity and controllability, since different regions in the selected parts have different subject relevance and should be set to different weights. (3) Too small or too large influence scope will degrade similarity or controllability, respectively. These conclusions are validated by the visualization in Fig. 7.\n' +
+      '\n' +
+      '**Effectiveness of _adaptive scoring module_.** As shown in Tab. 3, (1) We first compare with the simple use of all image features (ID-2), which results in degradation of both similarity and controllability, proving the importance of providing accurate and smooth influence quantity along with the coarse-to-fine diffusion generation process; (2) We then ablate on the module design (ID-3,4,5, ID-5), finding that using image score only results in worse performance. The reason is that the generation features are noisy at the beginning, resulting in an inaccurate score prediction. Therefore, we propose a step-scheduler to adaptively fuse text and image scores, leading to the best performance; (3) Finally, the choice of influence quantity \\(\\gamma_{\\text{num}}\\) is ablated in ID-6 & 7.\n' +
+      '\n' +
+      '## 5 Conclusion\n' +
+      '\n' +
+      'In this paper, we present a novel customization paradigm _RealCustom_ that, for the first time, disentangles similarity of given subjects from controllability of given text by precisely limiting subject influence to relevant parts, which gradually narrowing the real word from its general connotation to the specific subject in a novel "train-inference" framework: the _adaptive scoring module_ learns to adaptively modulate influence quantity during training; (2) the _adaptive mask guidance strategy_ iteratively updates the in\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c} \\hline inference setting & CLIP-T \\(\\uparrow\\) & CLIP-I \\(\\uparrow\\) \\\\ \\hline \\(\\gamma_{\\text{scope}}=0.1\\) & 0.32 & 0.8085 \\\\ \\(\\gamma_{\\text{scope}}=0.2\\) & 0.3195 & 0.8431 \\\\ \\(\\gamma_{\\text{scope}}=0.25\\) & **0.3204** & **0.8552** \\\\ \\(\\gamma_{\\text{scope}}=0.25\\), binary & 0.294 & 0.8567 \\\\ \\(\\gamma_{\\text{scope}}=0.3\\) & 0.3129 & 0.8578 \\\\ \\(\\gamma_{\\text{scope}}=0.4\\) & 0.3023 & 0.8623 \\\\ \\(\\gamma_{\\text{scope}}=0.5\\) & 0.285 & 0.8654 \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 2: Ablation of different \\(\\gamma_{\\text{scope}}\\), which denotes the influence scope of the given subject in _RealCustom_ during inference. “binary” means using binary masks instead of max norm in Eq. 11.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c} \\hline ID & settings & CLIP-T \\(\\uparrow\\) & CLIP-I \\(\\uparrow\\) \\\\ \\hline\n' +
+      '1 & full model, \\(\\gamma_{\\text{num}}=0.8\\) & **0.3204** & **0.8552** \\\\\n' +
+      '2 & _w/o_ adaptive scoring module & 0.3002 & 0.8221 \\\\ \\hline\n' +
+      '3 & textual score only, \\(\\gamma_{\\text{num}}=0.8\\) & 0.313 & 0.8335 \\\\\n' +
+      '4 & visual score only, \\(\\gamma_{\\text{num}}=0.8\\) & 0.2898 & 0.802 \\\\\n' +
+      '5 & (textual+ visual) / 2, \\(\\gamma_{\\text{num}}=0.8\\) & 0.3156 & 0.8302 \\\\ \\hline\n' +
+      '6 & full model, \\(\\gamma_{\\text{num}}=0.9\\) & 0.315 & 0.8541 \\\\\n' +
+      '7 & full model, \\(\\gamma_{\\text{num}}=0.7\\) & 0.3202 & 0.8307 \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 3: Ablation of the adaptive scoring module, where \\(\\gamma_{\\text{num}}\\) means the influence quantity of the given subject during inference.\n' +
+      '\n' +
+      'Figure 6: Illustration of gradually narrowing the real words into the given subjects. **Upper**: _RealCustom_ generated results (first row) and the original text-to-image generated result (second row) by pre-trained models with the same seed. The mask is visualized by the Top-25% highest attention score regions of the real word “toy”. We could observe that starting from the same state (the same mask since there’s no information of the given subject is introduced at the beginning), _RealCustom_ gradually forms the structure and details of the given subject by our proposed _adaptive mask strategy_, achieving the open-domain zero-shot customization. **Lower**: More visualization cases.\n' +
+      '\n' +
+      'Figure 7: Visualization of different influence scope.\n' +
+      '\n' +
+      'fluence scope and influence quantity of given subjects during inference. Extensive experiments demonstrate that Real-Custom achieves the unity of high-quality similarity and controllability in the real-time open-domain scenario.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* [1] Yuval Alaluf, Elad Richardson, Gal Metzer, and Daniel Cohen-Or. A neural space-time representation for text-to-image personalization. _arXiv preprint arXiv:2305.15391_, 2023.\n' +
+      '* [2] Yogesh Balaji, Seungjun Nah, Xun Huang, Arash Vahdat, Jiaming Song, Karsten Kreis, Miika Aittala, Timo Aila, Samuli Laine, Bryan Catanzaro, et al. ediffi: Text-to-image diffusion models with an ensemble of expert denoisers. _arXiv preprint arXiv:2211.01324_, 2022.\n' +
+      '* [3] Mingdeng Cao, Xintao Wang, Zhongang Qi, Ying Shan, Xiaohu Qie, and Yinqiang Zheng. Masactrl: Tuning-free mutual self-attention control for consistent image synthesis and editing. _arXiv preprint arXiv:2304.08465_, 2023.\n' +
+      '* [4] Mathilde Caron, Hugo Touvron, Ishan Misra, Herve Jegou, Julien Mairal, Piotr Bojanowski, and Armand Joulin. Emerging properties in self-supervised vision transformers. In _Proceedings of the IEEE/CVF international conference on computer vision_, pages 9650-9660, 2021.\n' +
+      '* [5] Hila Chefer, Yuval Alaluf, Yael Vinker, Lior Wolf, and Daniel Cohen-Or. Attend-and-excite: Attention-based semantic guidance for text-to-image diffusion models. _ACM Transactions on Graphics (TOG)_, 42(4):1-10, 2023.\n' +
+      '* [6] Wenhu Chen, Hexiang Hu, Chitwan Saharia, and William W Cohen. Re-imagen: Retrieval-augmented text-to-image generator. _arXiv preprint arXiv:2209.14491_, 2022.\n' +
+      '* [7] Zhuowei Chen, Shancheng Fang, Wei Liu, Qian He, Mengqi Huang, Yongdong Zhang, and Zhendong Mao. Dreamidentity: Improved editability for efficient face-identity preserved image generation. _arXiv preprint arXiv:2307.00300_, 2023.\n' +
+      '* [8] Giannis Daras and Alexandros G Dimakis. Multiresolution textual inversion. _arXiv preprint arXiv:2211.17115_, 2022.\n' +
+      '* [9] Ziyi Dong, Pengxu Wei, and Liang Lin. Dreamartist: Towards controllable one-shot text-to-image generation via contrastive prompt-tuning. _arXiv preprint arXiv:2211.11337_, 2022.\n' +
+      '* [10] Rinon Gal, Yuval Alaluf, Yuval Atzmon, Or Patashnik, Amit H Bermano, Gal Chechik, and Daniel Cohen-Or. An image is worth one word: Personalizing text-to-image generation using textual inversion. _arXiv preprint arXiv:2208.01618_, 2022.\n' +
+      '* [11] Rinon Gal, Moab Arar, Yuval Atzmon, Amit H Bermano, Gal Chechik, and Daniel Cohen-Or. Designing an encoder for fast personalization of text-to-image models. _arXiv preprint arXiv:2302.12228_, 2023.\n' +
+      '* [12] Amir Hertz, Ron Mokady, Jay Tenenbaum, Kfir Aherman, Yael Pritch, and Daniel Cohen-Or. Prompt-to-prompt image editing with cross attention control. _arXiv preprint arXiv:2208.01626_, 2022.\n' +
+      '* [13] Jonathan Ho and Tim Salimans. Classifier-free diffusion guidance. _arXiv preprint arXiv:2207.12598_, 2022.\n' +
+      '* [14] Xuhui Jia, Yang Zhao, Kelvin CK Chan, Yandong Li, Han Zhang, Boqing Gong, Tingbo Hou, Huisheng Wang, and Yu-Chuan Su. Taming encoder for zero fine-tuning image customization with text-to-image diffusion models. _arXiv preprint arXiv:2304.02642_, 2023.\n' +
+      '* [15] Alexander Kirillov, Eric Mintun, Nikhila Ravi, Hanzi Mao, Chloe Rolland, Laura Gustafson, Tete Xiao, Spencer Whitehead, Alexander C Berg, Wan-Yen Lo, et al. Segment anything. _arXiv preprint arXiv:2304.02643_, 2023.\n' +
+      '* [16] Nupur Kumari, Bingliang Zhang, Richard Zhang, Eli Shechtman, and Jun-Yan Zhu. Multi-concept customization of text-to-image diffusion. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 1931-1941, 2023.\n' +
+      '* [17] Alina Kuznetsova, Hassan Rom, Neil Alldrin, Jasper Uijlings, Ivan Krasin, Jordi Pont-Tuset, Shahab Kamali, Stefan Popov, Matteo Malloci, Alexander Kolesnikov, et al. The open images dataset v4: Unified image classification, object detection, and visual relationship detection at scale. _International Journal of Computer Vision_, 128(7):1956-1981, 2020.\n' +
+      '* [18] Dongxu Li, Junnan Li, and Steven CH Hoi. Blip-diffusion: Pre-trained subject representation for controllable text-to-image generation and editing. _arXiv preprint arXiv:2305.14720_, 2023.\n' +
+      '* [19] Yumeng Li, Margret Keuper, Dan Zhang, and Anna Khoreva. Divide & bind your attention for improved generative semantic nursing. _arXiv preprint arXiv:2307.10864_, 2023.\n' +
+      '* [20] Yuheng Li, Haotian Liu, Qingyang Wu, Fangzhou Mu, Jianwei Yang, Jianfeng Gao, Chunyuan Li, and Yong Jae Lee. Gligen: Open-set grounded text-to-image generation. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 22511-22521, 2023.\n' +
+      '* [21] Ziyi Li, Qinye Zhou, Xiaoyun Zhang, Ya Zhang, Yanfeng Wang, and Weidi Xie. Guiding text-to-image diffusion model towards grounded generation. _arXiv preprint arXiv:2301.05221_, 2023.\n' +
+      '* [22] Zhiheng Liu, Yifei Zhang, Yujun Shen, Kecheng Zheng, Kai Zhu, Ruili Feng, Yu Liu, Deli Zhao, Jingren Zhou, and Yang Cao. Cones 2: Customizable image synthesis with multiple subjects. _arXiv preprint arXiv:2305.19327_, 2023.\n' +
+      '* [23] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, et al. Learning transferable visual models from natural language supervision. In _International conference on machine learning_, pages 8748-8763. PMLR, 2021.\n' +
+      '* [24] Aditya Ramesh, Prafulla Dhariwal, Alex Nichol, Casey Chu, and Mark Chen. Hierarchical text-conditional image generation with clip latents. _arXiv preprint arXiv:2204.06125_, 1 (2):3, 2022.\n' +
+      '* [25] Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Bjorn Ommer. High-resolution image synthesis with latent diffusion models. In _Proceedings of the IEEE/CVF conference on computer vision and pattern recognition_, pages 10684-10695, 2022.\n' +
+      '** [26] Olaf Ronneberger, Philipp Fischer, and Thomas Brox. U-net: Convolutional networks for biomedical image segmentation. In _Medical Image Computing and Computer-Assisted Intervention-MICCAI 2015: 18th International Conference, Munich, Germany, October 5-9, 2015, Proceedings, Part III 18_, pages 234-241. Springer, 2015.\n' +
+      '* [27] Nataniel Ruiz, Yuanzhen Li, Varun Jampani, Yael Pritch, Michael Rubinstein, and Kfir Aberman. Dreambooth: Fine tuning text-to-image diffusion models for subject-driven generation. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 22500-22510, 2023.\n' +
+      '* [28] Chitwan Saharia, William Chan, Saurabh Saxena, Lala Li, Jay Whang, Emily L Denton, Kamyar Ghasemipour, Raphael Gontijo Lopes, Burcu Karagol Ayan, Tim Salimans, et al. Photorealistic text-to-image diffusion models with deep language understanding. _Advances in Neural Information Processing Systems_, 35:36479-36494, 2022.\n' +
+      '* [29] Christoph Schuhmann, Romain Beaumont, Richard Vencu, Cade Gordon, Ross Wightman, Mehdi Cherti, Theo Coombes, Aarush Katta, Clayton Mullis, Mitchell Wortsman, et al. Laion-5b: An open large-scale dataset for training next generation image-text models. _Advances in Neural Information Processing Systems_, 35:25278-25294, 2022.\n' +
+      '* [30] Jing Shi, Wei Xiong, Zhe Lin, and Hyun Joon Jung. Instant-booth: Personalized text-to-image generation without test-time finetuning. _arXiv preprint arXiv:2304.03411_, 2023.\n' +
+      '* [31] Jiaming Song, Chenlin Meng, and Stefano Ermon. Denoising diffusion implicit models. _arXiv preprint arXiv:2010.02502_, 2020.\n' +
+      '* [32] Andrey Voynov, Qinghao Chu, Daniel Cohen-Or, and Kfir Aberman. \\(p+\\): Extended textual conditioning in text-to-image generation. _arXiv preprint arXiv:2303.09522_, 2023.\n' +
+      '* [33] Jinglong Wang, Xiawei Li, Jing Zhang, Qingyuan Xu, Qin Zhou, Qian Yu, Lu Sheng, and Dong Xu. Diffusion model is secretly a training-free open vocabulary semantic segmenter. _arXiv preprint arXiv:2309.02773_, 2023.\n' +
+      '* [34] Yuxiang Wei, Yabo Zhang, Zhilong Ji, Jinfeng Bai, Lei Zhang, and Wangmeng Zuo. Elite: Encoding visual concepts into textual embeddings for customized text-to-image generation. _arXiv preprint arXiv:2302.13848_, 2023.\n' +
+      '* [35] Weijia Wu, Yuzhong Zhao, Mike Zheng Shou, Hong Zhou, and Chunhua Shen. Diffumask: Synthesizing images with pixel-level annotations for semantic segmentation using diffusion models. _arXiv preprint arXiv:2303.11681_, 2023.\n' +
+      '* [36] Changming Xiao, Qi Yang, Feng Zhou, and Changshui Zhang. From text to mask: Localizing entities using the attention of text-to-image diffusion models. _arXiv preprint arXiv:2309.04109_, 2023.\n' +
+      '* [37] Jiazheng Xu, Xiao Liu, Yuchen Wu, Yuxuan Tong, Qinkai Li, Ming Ding, Jie Tang, and Yuxiao Dong. Imagenetward: Learning and evaluating human preferences for text-to-image generation. _arXiv preprint arXiv:2304.05977_, 2023.\n' +
+      '* [38] Yuxin Zhang, Weiming Dong, Fan Tang, Nisha Huang, Haibin Huang, Chongyang Ma, Tong-Yee Lee, Oliver Deussen, and Changsheng Xu. Prospect: Expanded conditioning for the personalization of attribute-aware image generation. _arXiv preprint arXiv:2305.16225_, 2023.\n' +
+      '\n' +
+      '## 6 Supplementary\n' +
+      '\n' +
+      '### More Qualitative Comparison\n' +
+      '\n' +
+      'As shown in Fig. 8, we provide more qualitative comparison between our proposed _RealCustom_ and recent state-of-the-art methods of previous _pseudo-word_ paradigm in the **real-time** customization scenario. Compared with existing state-of-the-arts, we could draw the following conclusions: (1) **better similarity** with the given subjects and **better controllability** with the given text **at the same time**, _e.g._, in the \\(7^{\\text{th}}\\) row, the toy generated by _RealCustom_ exactly on the Great Wall while existing works fail to adhere to the given text. Meanwhile, the toy generated by _RealCustom_ exactly mimics all details of the given one while existing works fail to preserve them. (2) **better image quality**, _i.e._, with better aesthetic scores, _e.g._, the snow scene in the second row, the dirt road scene in the third row, _etc_. The conclusion adheres to our significant improvement (223.5% improvement) on ImageReward [37] in the main paper since ImageReward evaluates both controllability and image quality. (3) **better generalization in open domain**, _i.e._, for _any given subjects_, _RealCustom_ could generate realistic images that consistently adhere to the given text for the given subjects in real-time, including the common subject like dogs (_e.g._, \\(5^{th},6^{th}\\) rows) and rare subjects like the unique back-pack (_i.e._, \\(1^{st}\\) row), while existing state-of-the-arts works poorly on the rare subjects like the backpack in the first row, the special toy in the last row, _etc_. The reason lies that for the very first time, our proposed _RealCustom_ progressively narrows a real text word from its initial general connotation into the unique subject, which completely get rid of the necessary corresponding between given subjects and learned pseudo-words, and therefore is no longer confined to be trained on object-datasets with limited categories.\n' +
+      '\n' +
+      '### More Visualization\n' +
+      '\n' +
+      'We provide more comprehensive visualization of the narrowing down process of the real word of our proposed _RealCustom_ in Fig. 9 and Fig. 10. Here, we provide four customization cases that with the same given text "a toy in the desert" and four different given subjects. The real text word used for narrowing is "toy". The mask is visualized by the Top-25% highest attention score regions of the real text word "toy". We visualize all the masks in the total 50 DDIM sampling steps. We could observe that the mask of the "toy" gradually being smoothly and accurately narrowed into the specific given subject. Meanwhile, even in these subject-relevant parts (Top-25% highest attention score regions of the real text word "toy" in these cases), their relevance is also different, _e.g._, in Fig. 9, the more important parts like the eyes of the first subject are given higher weight (brighter in the mask), in Fig. 10, the more important parts like the eyes of the second subject are given higher weight.\n' +
+      '\n' +
+      '### Impact of Different Real Word\n' +
+      '\n' +
+      'The customization results in using different real text words are shown in Fig. 11. The real text word narrowed down for customization is highlighted in red. We could draw the following conclusions: (1) The customization results of our proposed _RealCustom_ are **quite robust**, _i.e._, no matter we use how coarse-grained text word to represent the given subject, the generated subject in the customization results are always almost identical to the given subjects. For example, in the upper three rows, when we use "corgi", "dog" or "animal" to customize the given subject, the results all consistently adhere to the given subject. This phenomenon also validates the generalization and robustness of our proposed new paradigm _RealCustom_. (2) When using _completely different word_ to represent the given subject, _e.g._, use "parroft" to represent a corgi, our proposed _RealCustom_ opens a door for a new application, _i.e._, **novel concept creation**. That is, _RealCustom_ will try to combine these two concepts and create a new one, _e.g._, generating a parroft with the appearance and character of the given brown corgi, as shown in the below three rows. This application will be very valuable for designing new characters in movies or games, _etc_.\n' +
+      '\n' +
+      'Figure 8: Qualitative comparison between our proposed _RealCustom_ and recent state-of-the-art methods of previous _pseudo-word_ paradigm in the **real-time** customization scenario. We could conclude that (1) compared with existing state-of-the-arts, _RealCustom_ shows much **better similarity** with the given subjects and **better controllability** with the given text **at the same time**, _e.g._, in the \\(7^{\\text{th}}\\) row, the toy generated by _RealCustom_ exactly on the Great Wall while existing works fail to adhere to the given text. Meanwhile, the toy generated by _RealCustom_ exactly mimics all details of the given one while existing works fail to preserve them. (2) _RealCustom_ generates customization images with much **better quality**, _i.e._, better aesthetic scores, _e.g._, the snow scene in the second row, the dirt road scene in the third row, _etc._ The conclusion adheres to our significant improvement (223.5% improvement) on ImageNetward [37] in the main paper since ImageNet evaluates both controllability and image quality. (3) _RealCustom_ shows **better generalization in open domain**, _i.e._, for _any given subjects_, _RealCustom_ could generate realistic images that consistently adhere to the given text for the given subjects in real-time, including the common subject like dogs (_e.g._, \\(5^{th},6^{th}\\) rows) and rare subjects like the unique backpack (_i.e._, \\(1^{st}\\) row), while existing state-of-the-arts works poorly on the rare subjects like the backpack in the first row, the special toy in the last row, _etc._\n' +
+      '\n' +
+      'Figure 9: Illustration of gradually narrowing the real words into the given subjects. Here we provide two customization cases that with the same given text “a toy in the desert” and two different given subjects. The real text word used for narrowing is “toy”. The mask is visualized by the Top-25% highest attention score regions of the real text word “toy”. We visualize all the masks in the total 50 DDIM sampling steps, which are shown on the left. We could observe that the mask of the “toy” gradually being smoothly and accurately narrowed into the specific given subject. Meanwhile, even in these subject-relevant parts (Top-25% highest attention score regions of the real text word “toy” in these cases), their relevance is also different, _e.g._, the more important parts like the eyes of the first subject are given higher weight (brighter in the mask).\n' +
+      '\n' +
+      'Figure 10: Illustration of gradually narrowing the real words into the given subjects. Here we provide two customization cases that with the same given text “a toy in the desert” and two different given subjects. The real text word used for narrowing is “toy”. The mask is visualized by the Top-25% highest attention score regions of the real text word “toy”. We visualize all the masks in the total 50 DDIM sampling steps, which are shown on the left. We could observe that the mask of the “toy” gradually being smoothly and accurately narrowed into the specific given subject. Meanwhile, even in these subject-relevant parts (Top-25% highest attention score regions of the real text word “toy” in these cases), their relevance is also different, _e.g_., the more important parts like the eyes of the second subject are given higher weight (brighter in the mask).\n' +
+      '\n' +
+      'Figure 11: The customization results in using different real text words. The real text word narrowed down for customization is highlighted in red. We could draw the following conclusions: (1) The customization results of our proposed _RealCustom_ are **quite robust**, _i.e._, no matter we use how coarse-grained text word to represent the given subject, the generated subject in the customization results are always almost identical to the given subjects. For example, in the upper three rows, when we use “corgi”, “dog” or “animal” to customize the given subject, the results all consistently adhere to the given subject. This phenomenon also validates the generalization and robustness of our proposed new paradigm _RealCustom_. (2) When using _completely different word_ to represent the given subject, _e.g._, use “parrot” to represent a corgi, our proposed _RealCustom_ opens a door for a new application, _i.e._, **novel concept creation**. That is, _RealCustom_ will try to combine these two concepts and create a new one, _e.g._, generating a parrot with the appearance and character of the given brown corgi, as shown in the below three rows. This application will be very valuable for designing new characters in movies or games, _etc._\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>

@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '시각표현학습에서의 #학습 및 세계모델 활용\n' +
+      '\n' +
+      'Quentin Garrido\n' +
+      '\n' +
+      'Mahmoud Assran\n' +
+      '\n' +
+      'FAIR at Meta, 2Univ Gustave Eiffel, CNRS, LIGM, F-77454 Marne-la-Vallee, France, 3INRIA,\n' +
+      '\n' +
+      'Nicolas Ballas\n' +
+      '\n' +
+      'FAIR at Meta, 2Univ Gustave Eiffel, CNRS, LIGM, F-77454 Marne-la-Vallee, France, 3INRIA,\n' +
+      '\n' +
+      'Adrien Bardes\n' +
+      '\n' +
+      'Laurent Najman\n' +
+      '\n' +
+      '뉴욕대학교 서비스연구소, 5 Center for Data Science, 뉴욕대학교\n' +
+      '\n' +
+      'Yann LeCun\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      '공동 임베딩 예측 아키텍처(JEPA)는 _world model_을 활용하여 학습하는 유망한 자가 감독 접근법으로 부상했다. 이전에 입력의 누락된 부분을 예측하는 것으로 제한되었지만 JEPA 예측 작업을 더 광범위한 비리 집합으로 일반화하는 방법을 탐구한다. 우리는 마스킹된 이미지 모델링을 넘어 잠재 공간에서 전역 측광 변환의 효과를 예측하도록 학습하는 접근법인 이미지 월드 모델을 소개한다. 수행자 IWM의 학습 레시피를 연구하고 컨디셔닝, 예측 어려움 및 용량의 세 가지 핵심 측면에 의존한다는 것을 보여준다. 또한, IWM에 의해 학습된 예측 세계 모델은 미세 조정을 통해 다양한 작업을 해결할 수 있음을 보여준다. 미세 조정된 IWM 세계 모델은 이전의 자체 감독 방법의 성능과 일치하거나 능가한다. 마지막으로, IWM을 이용한 학습을 통해 학습된 표상의 추상화 수준, 대조적 방법과 같은 불변 표상의 학습 또는 마스킹된 이미지 모델링과 같은 불변 표상의 학습을 제어할 수 있음을 보인다.\n' +
+      '\n' +
+      'Quentin Garrido at garridoq@meta.com\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      '세계 모델을 학습하고 활용하는 것은 강화 학습(RL)에서 일반적인 관행이며, 특히 Ha 및 Schmidhuber(2018); Hafner et al.(2019, 2023)에서 지난 몇 년 동안 입증 가능한 성공을 거두었다. 세계 모델들은 일반적으로 입력 공간(Yang et al., 2023)에서 또는 잠재 공간(Hu et al., 2023; Hafner et al., 2023)에서 동작의 결과를 예측하기 위해 네트워크를 트레이닝함으로써 학습된다. 세계 모델링에 대한 이러한 광범위한 관점을 감안할 때, 우리는 세계 모델을 학습하고 활용하는 것이 시각적 표현 학습에도 도움이 될 수 있는지 여부를 탐구하고자 한다.\n' +
+      '\n' +
+      '자기-지도 학습 접근법들의 넓은 패밀리들은 인코더-예측기 아키텍처들에 기초하며, 인코더-예측기 네트워크들은 데이터의 변환들을 예측하도록 트레이닝된다; 예를 들어, 마스킹된 이미지 모델링(Bao et al., 2021; He et al., 2021), 조인트-임베딩 아키텍처들(Grill et al., 2020; Xie et al., 2022; Assran et al., 2023; Baevski et al., 2022), 또는 모호한 예측 목적들(Gupta et al., 2023; Garrido et al., 2023). 데이터의 변형을 "행동"으로 간주하면 자가 지도 학습 접근 방식을 강화 학습에서 세계 모델링과 쉽게 연관시킬 수 있다. 그림 2를 참조하십시오.\n' +
+      '\n' +
+      '예를 들어, 마스킹된 오토인코더(He et al., 2021)에서의 디코더 네트워크는 생성 이미지 월드 모델로 생각될 수 있으며, 이는 이미지에 대한 "마스킹 액션" \\(\\mathcal{T}(a)\\)의 효과를 추론하도록 학습한다.\n' +
+      '\n' +
+      '그림 1: 학습된 이미지 월드 모델로 잠재 공간에서의 예측의 시각화. 잠재 공간에서 소스 이미지에 대한 동작을 적용하고, 256개의 이미지 뱅크에서 예측된 표현의 가장 가까운 이웃을 검색한다. 우리는 IWM이 변환을 모델링하고 부패를 되돌릴 수 있어 기본 이미지 변환에 대한 이해도를 보여준다. ai.meta.com/blog/yann-lecun-advances-in-ai-research/\\(y\\); 이 경우, 변환 파라미터 \\(a\\)(마스크된 이미지 패치의 위치)도 디코더 네트워크에 공급된다. I-JEPA(Assran et al., 2023) 또는 data2vec(Baevski et al., 2022)와 같은 JEPAs(joint-embedding prediction architecture)에 기초한 방법들은 유사하게 동작하지만, 마스킹 액션이 이미지의 표현에 미치는 영향을 추론하도록 학습하는 잠재 이미지 월드 모델을 학습하는 것으로 볼 수 있다. BYOL(Grill et al., 2020) 및 SimSiam(Chen and He, 2020)에서와 같이 변환 파라미터에 예측자를 조건화하지 않으면, 우리가 기대할 수 있는 최선은 데이터 변환에 불변하는 표현을 학습하는 것이며, 여기서 이미지 변환은 다양한 측광 및 기하학적 데이터 증강에 대응한다.\n' +
+      '\n' +
+      '그러나, 강화 학습에서의 세계 모델링과 이미지로부터의 자기 지도 학습 사이의 명백한 유사성들 중 일부에도 불구하고, 강화 학습에서의 학습된 세계 모델은 전형적으로 다운스트림 태스크들, 예를 들어, 계획(Hansen et al., 2022)에서 레버리지된다. 대조적으로, 자기 지도 학습에서의 학습된 세계 모델은 전형적으로 사전 훈련 후에 버려지는데, 주 초점은 종종 학습된 인코더 네트워크의 표현 품질에 있기 때문이다. 이는 컴퓨터 비전의 대부분의 다운스트림 작업이 세계 모델링 작업과 무관하다는 사실에서 비롯된다. 일반적인 관심 과제는 차별적인 측면에 초점을 맞추고, 이와 같이 예측자가 유용한 정보를 학습하더라도 단순히 폐기된다. 우리는 표현 학습에서 세계 모델을 버리는 것은 낭비적이며, RL에서와 마찬가지로 이 세계 모델을 다운스트림 작업에 재사용할 수 있다고 가정한다. 이것은 우리가 표상 학습을 위한 패러다임으로서 더 깊이 있는 학습 세계 모델을 연구하도록 동기를 부여한다. 따라서 우리는 좋은 표현과 강한 재사용 가능한 세계 모델을 모두 배우는 방법으로 이미지 월드 모델(IWM, 그림 2의 오른쪽에 도시됨)을 소개한다. IWM은 JEPA를 기반으로 하며 일반적인 잠재 인페인팅을 광도 변환도 포함하도록 확장하여 예측 변수 컨디셔닝의 선택, 변환의 강도 및 세계 모델의 용량을 포함하는 능력 있는 세계 모델을 학습하는 데 있어 주요 측면을 입증할 수 있다.\n' +
+      '\n' +
+      '그런 다음 학습한 세계 모델을 다운스트림 작업에 활용하는 데 중점을 두고 미세 조정을 통해 활용할 수 있음을 발견한다. 구체적으로, 다운스트림 작업을 위해 냉동 인코더 상단에 있는 세계 모델을 미세 조정하는 것이 인코더 미세 조정보다 향상된 성능을 제공한다는 것을 발견했으며, 이는 또한 미세 조정 파라미터의 비용과 수의 일부에서 달성된다. 더욱이, IWM에 의해 학습된 세계 모델만이 이러한 거동을 나타내는데, 예측자와 동일한 아키텍처의 랜덤하게 초기화된 네트워크를 미세 조정하는 것은 그러한 성능 향상을 제공하지 않는다. 이는 세계 모델이 폐기되는 것이 아니라 추론 과정의 핵심 부분이 되어야 함을 시사한다. 명령어 튜닝(Wei et al., 2022; Zhang et al., 2023)에 의해 영감을 받아, 우리는 세계 모델이 한번에 다수의 태스크들을 해결하기 위해 미세조정될 수 있다는 것을 추가로 보여주며, 효율성을 더욱 향상시킨다.\n' +
+      '\n' +
+      '우리의 연구는 세계 모델을 사용한 재현 학습의 또 다른 핵심 측면을 보여준다: 세계 모델에 주어진 능력은 세계 모델에 직접적인 영향을 미친다.\n' +
+      '\n' +
+      '그림 2: 관련 아키텍처를 가진 방법의 여러 패밀리가 구별될 수 있으며, 여기서 그들의 세계 모델의 컨디셔닝 여부가 핵심 구별이다. **생성 월드 모델**은 자동 인코더 프레임워크를 활용하여 입력 공간에서 변환을 반전하도록 훈련된다. 세계 모델링 및 표현 학습을 위한 방법은 이러한 방식으로 인스턴스화될 수 있다. **Joint Embedding** 방법은 세계 모델을 제거하지만 변환된 입력 사이에 공통되는 것을 인코딩하여 잠재 공간에서 작동한다. SSL 메서드의 주요 클래스입니다. **JEPA World Models**는 세계 모델이 잠재 공간에서 훈련되는 보다 일반적인 틀로 볼 수 있다. 이 가족은 강화 학습과 재현 학습 모두에서 매우 성공적이었고 이미지 월드 모델(IWM)이 떨어지는 곳이다.\n' +
+      '\n' +
+      ' 학습된 표상의 추상화 수준입니다. 직관적으로 예측자가 동일성(즉, 예측자가 없음, 그림 2의 중간)인 경우, 네트워크는 입력\\(y\\)과 변환\\(x\\) 사이에 공유되는 것을 인코딩하는 것만 배우기 때문에 높은 수준의 의미 정보를 캡처할 것이다. 이는 이미지의 의미만 보존하기 위해 변환이 선택되는 대조적 학습의 표현 품질의 원동력이 된다. 한편, 예측기가 더 많은 용량을 갖고 변환의 효과를 효과적으로 반전시킬 수 있음에 따라, 인코더의 출력은 그 입력에 대한 더 많은 정보를 보유할 수 있다. 이 두 아이디어는 등분산 표현 학습의 핵심이다; 변환을 효과적으로 적용할 수 있는 예측자는 등분산인 반면 불변일 수 없는 예측자는 등분산이다. 우리는 변환에 불변인 세계 모델이 선형 평가에서 더 나은 성능을 발휘하는 반면, 불변인 세계 모델은 더 나은 세계 모델 미세 조정과 상관관계가 있음을 발견했다. 이것은 적응의 용이성과 원시 성능 사이의 절충점을 제공한다. 이와 같이 세계 모델을 학습하여 표상을 학습하면 표상의 속성에 유연성이 부여되어 매력적인 표상 학습 틀이 된다.\n' +
+      '\n' +
+      '우리의 기여는 다음과 같이 요약할 수 있다:\n' +
+      '\n' +
+      '* 우리는 이미지 월드 모델(IWM)을 학습하기 위해 JEPAs를 활용하는 방법을 보여준다. 주요 측면은 변환의 복잡성, 변환에 대한 조건화 및 예측 변수의 용량입니다.\n' +
+      '* 우리는 모호한 세계 모델이 차별적인 작업에 활용될 수 있음을 보여준다. 예측 변수를 미세 조정하면 인코더 미세 조정에 비해 적은 비용으로 더 나은 성능을 얻을 수 있습니다. 또한 명령어 튜닝에서 영감을 받아 여러 작업을 한 번에 미세 조정할 수 있음을 보여줍니다.\n' +
+      '* 우리는 세계 모델의 능력을 제어하는 것이 우리에게 다른 속성을 가진 표상을 준다는 것을 보여준다. 불변 세계 모델은 우리에게 더 추상적인 표현을 제공하고 대조적 학습과 유사한 선형 평가에서 더 나은 성능을 보인다. 불변 세계 모델은 입력에 대한 더 많은 정보를 보존하여 예측 변수 미세 조정으로 더 나은 최고 성능을 제공합니다.\n' +
+      '\n' +
+      '##2 관련 업무\n' +
+      '\n' +
+      '###_증강 불변 자기 지도 학습_\n' +
+      '\n' +
+      '대조적 방법의 핵심에는 증강 불변성이 있다. 이미지의 여러 증강 뷰는 잠재 공간에서 동일한 표현으로 이어져야 한다. 따라서 이러한 방법의 핵심은 이러한 표현이 무너지는 것을 방지하는 방법에 있다. 샘플 대비 방법(Chen et al., 2020; He et al., 2020; Chen et al., 2020; Caron et al., 2021; Chen et al., 2021; Yeh et al., 2021; HaoChen et al., 2021; Oquab et al., 2023)은 다른 데이터 포인트들로부터 오는 표현들을 밀어냄으로써 이러한 현상을 회피한다. 차원 대비 방법(Bardes et al., 2021; Zbontar et al., 2021; Ermolov et al., 2021; Li et al., 2022; Bardes et al., 2022)은 표현들을 전체적으로 고려하고 정보 콘텐츠의 극대화를 장려함으로써 붕괴를 회피한다. 차원- 및 샘플-대비 방법들 둘 다 매우 유사한 표현들로 이어지는 것으로 나타났다(Garrido et al., 2023). 예측 기반 방법들(Grill et al., 2020; Chen and He, 2020)은 증강된 표현들을 예측함으로써 학습하지만, 또한 변환들에 대한 컨디셔닝의 부족으로 인해 불변 표현들을 유도한다.\n' +
+      '\n' +
+      '시각표현 학습_###_World 모델링\n' +
+      '\n' +
+      '세계 모델링은 강화 학습 Hafner et al. (2019, 2023) 또는 비디오 예측 Yang et al. (2023); Hu et al. (2023)에서 성공적인 패러다임이지만, 재현 학습에서는 아직 명확한 이점을 보여주지 못하고 있다. 그러나, 다수의 접근법 패밀리들은 이에 비추어 재구성될 수 있다. 등분산 자기 지도 학습 방법(Devillers and Lefort, 2022; Park et al., 2022; Garrido et al., 2023; Gupta et al., 2023; Dangovski et al., 2021)은 이러한 변환들이 그룹을 형성할 때 데이터의 변환들을 예측하는 것을 목표로 한다. Masked Image Modeling He et al. (2021); Bao et al. (2021); El-Nouby et al. (2024); Xie et al. (2022)는 이미지의 마스킹된 부분들을 예측함으로써 표현들을 학습한다. 이러한 접근법은 픽셀 공간에서 예측하지만 디코더는 세계 모델의 인스턴스화로 볼 수 있다. 유사하게, JEPAs(Assran et al., 2023; Baevski et al., 2022)는 이미지의 마스킹된 부분들을 예측하지만, 잠재 공간에서 예측한다. 최근, 생성적 접근법들은 표현 학습 Hudson et al. (2023); Clark and Jaini (2023); Chen et al. (2024)에 적용되고 있으며, 이러한 접근법들은 유망해 보이지만, 그들의 성능은 여전히 대조적 또는 MIM 접근법들 아래에 남아 있다. 최근 연구는 또한 생성 품질과 표현 품질 사이에 음의 상관관계를 보여주었다(Chen et al., 2024). 이들 작업들 사이에서 공유되는 한 가지 측면은, 월드 모델(예측기 또는 디코더)이 평가를 위해 폐기되거나, 또는 데이터를 증강하기 위해만 사용된다는 것이다(Hudson et al., 2023). 우리는 이러한 관행을 뛰어넘어 고품질 표현을 학습하면서 다운스트림 작업에 재사용할 수 있는 세계 모델을 학습할 수 있음을 보여줄 것을 제안한다.\n' +
+      '\n' +
+      'Method\n' +
+      '\n' +
+      '이제 이미지 월드 모델(IWM)에 대해 설명한다. I-JAPA(Assran et al., 2023)와 유사한 Joint Embedding Predictive Architecture framework(LeCun, 2022)를 따른다. 이 프레임워크에서 예측 변수는 세계 모델의 인스턴스화입니다. 우리는 세계 모델이 잠재 공간에서 변환을 적용할 수 있다면 가능한 것으로 간주하고, 따라서 모호한 표상을 학습한다. 이와 같이 우리는 유능한 세계 모델 불변 1과 빈약한 세계 모델 불변이라고 부른다.\n' +
+      '\n' +
+      '각주 1: 이것은 모든 변환이 그룹을 형성하는 것으로 간주되는 것이 아니라 명확성을 위해 사용되는 언어 남용이다.\n' +
+      '\n' +
+      'JEPAs를 사용하는 매력적인 측면은 대조적 방법을 사용하여 등분산 표현을 학습하는 접근법이 명시적으로(Gupta et al., 2023; Garrido et al., 2023) 또는 암묵적으로(Chavhan et al., 2023) 표현 품질을 높이기 위해 불변 손실에 의존해야 하는 경우가 많다는 것이다. 한편, JAPA 스타일 접근법은 표상의 의미적 측면이 잠재된 인페인팅을 통해 학습되기 때문에 이러한 단점을 갖지 않는다. 잠재 공간에서 작업하면 네트워크가 불필요한 정보를 제거하거나 예측하기가 너무 어려운 정보를 제거할 수 있습니다. 이것은 재구성 방법들에 있어서, 재구성의 품질이 표현 품질 Chen 등(2024)과 반드시 상관되지 않기 때문에 JEPA 공식을 매력적으로 만든다.\n' +
+      '\n' +
+      'IWM을 훈련하기 위해 첫 번째 단계는 그림 2에서 각각 소스 뷰와 타겟 뷰 -- \\(x\\)와 \\(y\\)을 이미지 \\(I\\)에서 생성하는 것이다.\n' +
+      '\n' +
+      '**Target \\(y\\).** 타겟 뷰는 원본 이미지 \\(I\\)에 랜덤 수평 플립, 크롭, 컬러 지터(밝기, 대비, 채도, 색조)를 적용하여 생성된다. 타겟 상에 그레이스케일과 같은 파괴적인 증강은 타겟이 가능한 한 많은 정보를 갖는 것을 보장하기 위해 적용되지 않는다. 우리는 부록 C에서 이 선택에 대해 더 자세히 설명한다.\n' +
+      '\n' +
+      '**Source\\(x\\.**) 소스 뷰에 대해, 우리는 타겟\\(y\\)으로부터 시작하여 더 변형한다. 우리는 먼저 회색조, 흐림 및 태양화라는 파괴적인 증강뿐만 아니라 또 다른 색 지터를 적용한다. 이 증강 세트는 대조적인 SSL에서 사용되는 것과 동일하다. 마지막으로 I-JAPA를 따라 이미지의 일부를 마스킹한다. 우리는 마스크 \\(M_{x}\\)(인덱스의 집합)을 4개의 직사각형 마스크의 합으로 정의한다. 정확한 구현 세부 사항은 부록 A를 참조하세요.\n' +
+      '\n' +
+      '**Action \\(a\\).** 우리는 \\(x\\)에서 \\(y\\)으로의 변환, 즉 초기 변환 과정의 반전과 관련된 변환 매개변수를 \\(a_{x\\to y}\\)으로 나타낸다.\n' +
+      '\n' +
+      '(a_{x\\to y}\\)에는 \\(x\\)와 \\(y\\)의 색지터 차이에 대한 정보와 각 파괴적 증강의 적용 여부에 대한 정보가 포함되어 있다.\n' +
+      '\n' +
+      '그리고 엔코더(f_{\\theta}\\)와 지수 이동 평균(f_{\\theta}^{\\text{EMA}\\)을 통해 소스와 타겟을 각각 공급한다. 이것은 \\(z_{x}=f_{\\theta}(x)\\)와 \\(z_{y}=f_{\\theta}^{\\text{\\bf{EMA}}(y)\\을 나타낸다. 붕괴된 솔루션을 피하기 위해서는 EMA 네트워크의 사용이 중요합니다. 예측기를 설계하기 위해 마스크 토큰과 \\(a_{x\\to y}\\)의 형태로 타겟에 대한 기하학적 정보를 입력한다. 우리는 이러한 마스크 토큰을 \\(m_{a}\\)으로 표시하며, 이는 \\(M_{x}^{C}\\)의 위치에 해당한다. 예측기(p_{\\phi}\\)는 임베디드 소스 패치(x_{c}\\), 변환 파라미터(a_{x\\to y}\\) 및 마스크 토큰(m_{a}\\)을 입력으로 한다. 그 목적은 \\(p_{\\phi}\\left(z_{x},a_{x\\to y},m_{a}\\right)=\\hat{z_{y}}\\을 \\(z_{y}\\)으로 정합하는 것이다.\n' +
+      '\n' +
+      '**Loss.** 사용된 손실 함수는 예측들 \\(\\hat{z_{y}}\\)과 그들의 타겟들 \\(z_{y}\\) 사이의 제곱 \\(L2\\) 거리이다:\n' +
+      '\n' +
+      '[L(x,y)=\\sum_{i\\in M_{x}^{C}}\\|p_{\\phi}\\left(f_{\\theta}(x),a_{x\\to y},m_{a}\\right)_{i}-f_{\\theta}^{\\text{EMA}}(y)_{i}\\|_{2}^{2}.\\\\\n' +
+      '\n' +
+      '### 건축과 명명법\n' +
+      '\n' +
+      '우리의 인코더는 Vision Transformer(Dosovitskiy et al., 2021)이며, 특히 우리는 ViT-B/16 아키텍처를 사용한다. 예측 변수는 깊이 및 임베딩 차원이 다른 동일한 아키텍처를 기반으로 합니다. 우리는 IWM의 경우를 \\(\\text{IWM}_{X,Y}^{Z}\\)으로 표시하는데, 여기서 \\(X\\)은 예측자의 깊이, \\(Y\\)의 임베딩 차원, \\(Z\\)은 세계 모델의 능력에 따라 Inv 또는 Equi이다. 예를 들어, \\(\\text{IWM}_{18,384}^{\\text{Equi}}\\)는 예측자가 384차원 임베딩과 함께 18개의 층 깊이이며, 등분산 거동을 나타내는, 즉 다재다능한 세계 모델을 학습했다는 것을 의미한다.\n' +
+      '\n' +
+      '##4 표현 학습을 위한 이미지 월드 모델 학습\n' +
+      '\n' +
+      '### 세계 모델의 품질 평가\n' +
+      '\n' +
+      '앞서 논의한 바와 같이, 등분산 표상을 학습하고 세계 모델을 학습하는 것은 밀접하게 관련된 문제이다. 따라서 우리는 훈련된 세계 모델의 품질을 평가하기 위해 등분산 문헌에서 메트릭을 차용할 수 있다. 우리는 주요 메트릭으로 MRR(Mean Reciprocal Rank)(Kipf et al., 2019)에 의존한다. 이를 계산하기 위해 증강 대상 이미지 뱅크(실제로 256개)를 생성한다. 우리는 목표 이미지를 예측하는 것을 목표로 예측기를 통해 깨끗한 이미지의 표현을 공급한다. 그런 다음 이 NN-그래프에서 표적의 순위를 얻는 예측과 증강 표현 뱅크 사이의 거리를 계산한다. 다중 이미지 및 변환에 대한 상호 순위를 평균하면 세계 모델의 품질에 대해 알려주는 MRR이 제공된다. MRR이 1에 가깝다는 것은 세계 모델이 변환을 적용할 수 있다는 것을 의미하고, MRR이 0에 가깝다는 것은 변환할 수 없다는 것을 의미한다.\n' +
+      '\n' +
+      '강력한 이미지 월드 모델 학습\n' +
+      '\n' +
+      '수행 IWM을 구축하기 위해, 우리는 변환(또는 동작)에 대한 예측자를 컨디셔닝하고, 변환의 복잡성을 제어하고, 예측자의 용량을 제어하는 세 가지 주요 측면을 분리한다. 우리는 그들 중 어느 하나를 제대로 돌보지 않는 것이 불변 표현으로 이어진다는 것을 보여준다.\n' +
+      '\n' +
+      '**월드 모델 컨디셔닝.** 변환 정보에 대한 예측 변수를 컨디셔닝하기 위한 두 가지 접근 방식을 연구합니다.\n' +
+      '\n' +
+      '_Sequence conditioning.__Sequence 한 가지 접근법은 변환을 나타내는 토큰을 예측 변수의 입력에 추가하는 것이다. 이것은 간단해 보이지만, 변압기 예측기의 순열 균일성을 깨는 방식으로 구현될 필요가 있다. 이를 위해 모든 토큰은 네트워크가 예측 변수에 의해 명확해질 수 있는 방식으로 정보를 변환할 수 있도록 하는 고유한 선형 계층을 통해 공급된다.\n' +
+      '\n' +
+      '_Feature conditioning.___feature conditioning. 다른 옵션은 컨디셔닝을 여분의 차원으로서 추가함으로써 변환과 마스크 토큰들 사이의 정보를 혼합한 다음, 마스크 토큰들 내의 정보를 혼합하고 우측 차원으로 다시 매핑하기 위해 1x1 컨볼루션 신경망을 통해 마스크 토큰들을 공급하는 것이다.\n' +
+      '\n' +
+      '표 1에서 볼 수 있듯이, 어떤 조건화도 변환을 적용할 수 없는 세계 모델로 이어지지 않는 반면, 시퀀스 또는 특징 축을 사용한 조건화도 모두 좋은 세계 모델로 이어진다. 우리는 피쳐 컨디셔닝이 더 높은 다운스트림 성능으로 이어지기 때문에 실제로 사용합니다.\n' +
+      '\n' +
+      '**변환 복잡성** 색상 지터(밝기, 색상, 대비, 채도), 회색조, 흐림 및 태양화로 구성된 대조적 접근법에서 사용되는 데이터 증강에 의존한다. 우리는 그들이 정보를 제거하기 때문에 마지막 세 개를 파괴적이라고 언급한다. 모델링된 변환 집합을 넘어, 그들의 강점은 또한 유용한 세계 모델을 배우기에 적절해야 한다. 예측 작업이 너무 쉬우면 예측자는 유용한 것을 배우지 못합니다. 표 2에 제시된 바와 같이 증강이 강할수록 강한 세계 모델을 배우기 쉽다. 우리는 부록 C의 증강에 대한 보다 상세한 삭제를 제공하며, 여기서 더 광범위한 증강 시나리오에서 추세가 계속되는 것을 볼 수 있다.\n' +
+      '\n' +
+      '**월드 모델 용량.** 변환이 복잡한 경우 예측 변수는 이를 적용할 수 있는 더 많은 용량이 필요하므로 이미지 월드 모델을 학습하는 데 중요한 요소로 용량을 동기화할 수 있다. 표 2에서 볼 수 있듯이 더 깊은 예측 변수는 더 넓은 범위의 증대에 대한 강력한 세계 모델을 학습할 수 있게 하며 IWM의 성공의 핵심이다. 부록 C에서 심도가 좋은 세계 모델을 달성하는 데 미치는 영향을 보다 자세히 연구한다. 12개 층에서는 지터 당분산이 5회 중 1회 달성되는 반면 18개 층에서는 5회 중 4회 달성된다. 따라서 예측 변수 용량은 강력한 세계 모델의 핵심 구성 요소입니다.\n' +
+      '\n' +
+      '### Visualizing predictions.\n' +
+      '\n' +
+      'MRR을 계산한 것과 같은 방법으로 예측된 표현을 변환된 이미지의 뱅크와 비교하고 예측의 가장 가까운 이웃과 관련된 이미지를 볼 수 있다. 그림 1에서 보는 바와 같이 IWM에 의해 학습된 세계 모델은 잠재 공간에서 변환을 적절히 적용할 수 있다. 그러나 우리는 그레이스케일이 제대로 반전될 수 없기 때문에 반전할 때 몇 가지 부정확함을 볼 수 있다. 이러한 시각화는 IWM이 이미지 변환을 위한 강력한 세계 모델을 학습할 수 있다는 사실을 강화하는 데 도움이 된다. 더 많은 시각화를 위해 부록 I을 참조하십시오.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c} \\hline \\hline _Conditioning:_ & None & Sequence & Feature \\\\ \\hline MRR & 0.00 & 0.82 & 0.79 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 1: 예측 변수 컨디셔닝이 세계 모형의 품질에 미치는 영향 시퀀스와 피쳐 컨디셔닝은 모두 좋은 세계 모델로 이어집니다.회색은 기본 설정입니다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c} \\hline \\hline _Predictor:_ & I-JEPA & \\multicolumn{2}{c}{IWM} \\\\ _(depth, dim.):_ & (12,384) & (12,384) & (18,384) \\\\ \\hline Jitter & 0.00 & 0.11 & 0.25 \\\\ + Destructive & 0.00 & 0.09 & 0.79 \\\\ + Strong Jitter & 0.00 & 0.81 & 0.85 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 2: 예측기 아키텍처 및 변환이 MRR에 미치는 영향. 효과적인 세계 모델을 학습하려면 복잡한 변환과 적절한 예측 변수가 필요합니다. 회색은 기본 설정입니다. 적색과 녹색은 각각 불변 행동과 불변 행동을 나타낸다.\n' +
+      '\n' +
+      '##5 다운스트림 작업에 대한 세계 모델 활용\n' +
+      '\n' +
+      '이미지에서 학습된 세계 모델의 한계는 그들이 해결하는 작업이 대부분의 다운스트림 작업과 정렬되지 않는다는 것이다. 우리는 IWM이 컬러 지터를 적용하거나 이미지를 컬러화할 수 있음을 보여주었지만, 컴퓨터 비전 애플리케이션을 구동하는 작업은 아니다. 이는 다음 토큰을 예측하는 것이 이러한 모델의 주요 응용 프로그램 중 하나인 LLM과 대조적이다. 따라서 우리는 변환을 적용하는 것을 넘어서는 작업에 대해 비전에서 세계 모델을 활용하는 방법을 연구합니다. 우리는 이미지 분류 및 이미지 분할과 같은 차별적 작업에 중점을 둔다.\n' +
+      '\n' +
+      '### Predictor finetuning\n' +
+      '\n' +
+      '어떤 과제이든 평가 수장은 학습된 잠재 공간을 이해하고 이를 활용하여 당면한 문제를 해결할 필요가 있다. 이것은 우리의 학습된 예측자가 할 수 있는 일이며, 이는 인코더에 반드시 존재하지 않는 유용한 정보를 학습했음을 시사한다. 그러나, 예측기는 또 다른 유효한 표현을 예측하도록 훈련되기 때문에, 그 출력은 그대로 사용되는 경우 더 나은 다운스트림 성능으로 이어질 이유가 없다. 이것이 예측 변수가 차별적인 작업을 해결하기 위해 미세 조정되어야 하는 이유입니다. 따라서 He et al.(2021)에 따라 미세 조정 프로토콜과의 비교에 중점을 둔다. 연구된 모든 방법은 ImageNet Deng et al.(2009)에서 사전 훈련 및 평가되며, ViT-B/16을 인코더로 사용한다.\n' +
+      '\n' +
+      '예측 태스크를 미세 조정할 때 예측 태스크에 여전히 사용해야 합니다. <표 3>에서는 예측 과제를 정의하고 그것이 성과에 어떤 영향을 미치는지 다양한 방법을 연구한다. 우리가 주목하는 첫 번째 측면은 교사 네트워크를 사용하는 것이 학생에 비해 성과를 향상시킨다는 것이다. 랜덤 변환을 사용하거나 사용하지 않는 것은 중요한 요소가 아니며, 가장 중요한 것은 다른 전체 이미지를 예측하는 것이다. 이는 평가를 위해 사전 훈련 목표를 재사용할 필요가 없기 때문에 평가를 보다 유연하게 만든다. 전체 이미지 예측 대신 CLS 토큰을 사용하여 정보를 집계하는 것도 성능을 절반으로 낮추지만 유효한 전략이다. 이 기법은 (\\(N+1\\) 토큰 대 \\(2N\\)) 값이 저렴하다는 장점이 있어 사용 사례에 따라 좋은 대안이 될 수 있다. 전반적으로 가장 간단한 접근 방식은 전체 이미지의 변환되지 않은 버전을 예측하는 것이 가장 좋습니다. 이는 사전 훈련 작업에 의존하지 않기 때문에 피네튜닝 프로토콜을 쉽게 재사용할 수 있게 한다. 우리는 부록 D에 더 자세한 절제술을 제공한다.\n' +
+      '\n' +
+      '표 4의 일반적인 결과에서는 인코더에 ViT-B/16을 사용하여 예측기 피네튜닝을 인코더 피네튜닝 및 예측기와 인코더 모두의 엔드 투 엔드 피네튜닝과 비교한다. 우리는 IWM이 I-JEPA에 비해 성능을 유지하거나 향상시키며, 인코더 미세 조정에서 불변 행동이 더 낫다는 것을 안다. 흥미롭게도, 등분산 IWM의 예측기 미세조정은 불변 모델의 인코더의 미세조정의 성능과 일치할 수 있다. 이는 프로토콜이 보다 계산적으로 친숙한 적응을 위해 추론 시간에 파라미터를 거래함에 따라 경쟁적일 수 있음을 보여준다. 이 평가는 추론 시간에 사용되는 매개변수의 수를 증가시키지만, 완전한 미세조정이 하지 않는 백본을 통한 순방향 패스를 여전히 분할한다. 이와 같이, 다수의 태스크가 고려되는 즉시, 피네튜닝된 예측기를 사용하는 것은 정규 피네튜닝보다 더 높은 처리량을 제공한다.\n' +
+      '\n' +
+      '무작위로 초기화된 예측 변수(즉, 큰 평가 헤드)와 미리 훈련된 예측 변수의 사용을 비교할 때 MAE에 대해 무시할 수 있는 이득을 볼 수 있다. 이는 MAE가 학습한 세계 모델이 분류를 위해 무작위로 초기화된 네트워크보다 낫지 않음을 시사한다. 불변 세계 모델을 가진 I-JEPA와 IWM의 경우 1점 미만의 성능 향상을 볼 수 있으며, 이는 세계 모델이 레버리지될 만큼 강력하지 않음을 시사한다. 그러나 등분산 세계 모형을 사용한 IWM을 보면 확률 예측 변수보다 1.8점의 이득을 볼 수 있습니다. 이는 예측 변수가 추가적인 이점을 가져오는 유용한 정보와 속성을 학습했음을 보여줍니다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c} \\hline \\hline Setting & ImageNet Top-1 (\\%) & Gap \\\\ \\hline Default & 82.9 & - \\\\ + Teacher & 83.2 & + 0.3 \\\\ \\hline + Null latents & 83.3 & + 0.1 \\\\ \\hline + Pred only one token & 82.8 & -0.5 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 3: 예측기 미세조정에 대한 예측 방법. 교사를 활용하면 성과가 향상되며, 정확한 예측 과제는 중요하지 않다. Null Latents는 더 유연하고 성능이 더 좋습니다. 효율성을 높이기 위해서는 완전한 예측이 필요한 것이 아니라 성능의 작은 하락으로 이어집니다. 회색은 기본 설정입니다.\n' +
+      '\n' +
+      '도 3: Finetuning efficiency. 피네튜닝된 파라미터들의 수를 고려할 때, 예측기 피네튜닝은 인코더를 피네튜닝하는 것보다 상당히 더 효율적이다.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:7]\n' +
+      '\n' +
+      'tuning Wei et al.(2022); Zhang et al.(2023) in LLMs. 우리가 보충 그림 S2에서 그래픽으로 설명하는 일반적인 아이디어는 예측자에게 새로운 학습된 토큰을 주어 어떤 작업을 해결하려고 하는지 나타내는 것이다. 이는 지속적인 학습을 위해 태스크 토큰을 사용하는 DyTox Douillard et al.(2022)을 연상시킨다. 따라서 각 태스크에 대해 태스크 토큰과 태스크 특정 헤드 및/또는 손실 함수가 있습니다. 그런 다음 모든 작업 손실이 결합되고 예측 변수 및 작업별 헤드가 업데이트됩니다. 다른 샘플링 전략이 성능을 더욱 향상시킬 수 있다는 점에 주목하여 배치가 작업 간에 균등하게 분할되는 간단한 시나리오를 연구한다.\n' +
+      '\n' +
+      '우리는 ImageNet, iNaturalist18(Horn et al., 2018), SUN397(Xiao et al., 2010) 및 Places205(Zhou et al., 2014)에 대한 표 7(\\text{IWM}^{\\text{Equi}}_{18,384}\\)에서 평가한다. 각 작업에 대해 우리는 총 반복 횟수가 다중 작업 훈련과 동일한 단일 작업 기준선을 훈련한다. 이와 같이 4개의 단일 작업 기준선을 모두 훈련하는 것은 하나의 모델이 아닌 4개의 다른 모델로 이어지지만 다중 작업과 정확히 동일한 비용을 갖는다. 다중 작업 예측기는 단일 작업 예측기와 유사한 성능을 얻을 수 있으며, 대부분의 작업에서 중간 정도의 감소를 보이지만 SUN397에서는 성능이 크게 증가하며 평균적으로 단일 작업 예측기와 동일한 성능을 달성한다. 이것은 또한 모든 작업에 대해 매개변수가 공유되어 모든 작업에 대해 추론 시간에 예측 변수 미세 조정을 가볍게 만드는 좋은 세계 모델을 활용하는 효율성 이득을 보여줍니다.\n' +
+      '\n' +
+      '전반적으로 좋은 세계 모델을 학습하면 이를 미세 조정함으로써 하류 작업에 재사용할 수 있다. 이는 적은 비용으로 인코더 피니튜닝과 경쟁하는 성능으로 이어진다. 다중 작업 미세 조정을 수행하여 이 접근법의 다양성을 강조함으로써 훨씬 더 효율적으로 만들 수 있다.\n' +
+      '\n' +
+      '##6 이미지 월드 모델 사용 유연화\n' +
+      '\n' +
+      '표현 학습을 위한 IWM의 분석을 완료하기 위해, 우리는 자가 지도 학습에서 일반적으로 사용되는 경량 평가 프로토콜에서 그것이 어떻게 수행되는지 연구한다. 우리는 선형 Chen et al.(2021)과 주의 깊게 조사하는 Chen et al.(2023)에 초점을 맞춘다.\n' +
+      '\n' +
+      '표 8에서 볼 수 있듯이 IWM은 불변 세계 모델을 학습할 때 MIM 또는 기타 JEPA 기반 접근법과 비교하여 선형 평가에서 상당한 성능 향상으로 MoCov3와 같은 대조적인 접근법과 유사한 행동을 달성한다. 유사하게, IWM이 모호한 세계 모델을 학습할 때, 그 동작은 선형 평가에서는 낮은 성능을 갖지만 주의 깊은 탐침에서는 더 경쟁력 있는 성능을 갖는 MAE와 같은 MIM 방법과 유사하다.\n' +
+      '\n' +
+      '이는 방법 간의 큰 차이가 반드시 재현의 질에 있는 것이 아니라 추상화 수준, 즉 그로부터 정보를 추출하는 것이 얼마나 쉬운지에 있음을 시사한다. 선형 탐사는 가장 간단한 평가 중 하나이며, 약간 더 정교하고 더 복잡한 프로토콜인 미세 조정에 주의를 기울인다.\n' +
+      '\n' +
+      '그림 4에서 가장 적합한 평가 프로토콜과 세계 모델의 동등성 사이의 명확한 연결을 볼 수 있다. 더 많은 불변 세계 모델은 선형 평가에서 탁월하고 등분산 세계 모델은 예측 변수 미세 조정과 같은 더 큰 평가 헤드로 빛난다. 우리는 또한 모호한 세계 모델에서 비롯된 더 풍부한 표현이 OOD 데이터 세트(부록 F 참조)에서 더 나은 성능을 이끈다는 점에 주목한다.\n' +
+      '\n' +
+      '이를 통해 그림 5의 표현 추상화 스펙트럼에 접근법의 패밀리를 배치할 수 있다. 대조적 방법은 간단한 프로토콜로 쉽게 추출할 수 있는 정보로 스펙트럼의 높은 추상화 끝을 차지한다. 그러나 표 5에서 볼 수 있듯이 적응 비용을 무시할 때 더 낮은 피크 성능을 겪는다. 반대쪽 끝에는 미세한 것과 같은 복잡한 평가로 더 강한 성능을 제공하는 마스크 이미지 모델링이 있다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c} \\hline \\hline Dataset & Single-task & Multi-task & Difference \\\\ \\hline ImageNet & 80.8 & 79.6 & -1.2 \\\\ iNat18 & 72.4 & 72.0 & -0.4 \\\\ SUN397 & 75.6 & 78.2 & +2.6 \\\\ Places205 & 64.8 & 64.1 & -0.7 \\\\ \\hline Average & 73.4 & 73.5 & +0.1 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 7: **Multi-task finetuning.** 여러 태스크에 대한 예측자를 한번에 finetuning하는 것은 각각의 태스크에 대해 finetuning하는 것과 유사하게 수행한다. 이를 통해 여러 작업에 단일 예측 헤드를 사용할 수 있어 비용을 상각할 수 있습니다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c} \\hline \\hline Method & Effective Epochs & Linear & Attentive \\\\ \\hline MoCoV3 & 300 & **76.3** & 76.4 \\\\ MAE & 300 & 60.2 & 73.5 \\\\ MAE & 1600 & 68.0 & 76.0 \\\\ I-JEPA & 300 & 70.0 & 75.0 \\\\ \\hline \\(\\text{IWM}^{\\text{Inv}}_{12,384}\\) & 300 & 74.5 & **77.0** \\\\ \\(\\text{IWM}^{\\text{Equi}}_{18,384}\\) & 300 & 67.5 & 75.1 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 8: ImageNet-1k.**\\(\\text{IWM}^{\\text{Inv}\\)에 대한 **Linear and attentive probing performance to contrastive methods and \\(\\text{IWM}^{\\text{Equi}\\) to mask modeling ones.\n' +
+      '\n' +
+      '튜닝은 정보에 쉽게 접근할 수 없기 때문에 선형 프로빙에 어려움을 겪는다. 그림 4와 표 8에서 볼 수 있듯이 IWM({}^{\\text{Inv}}_{12,384}\\)과 IWM({}^{\\text{Equi}}_{18,384}\\)이 IWM 스펙트럼의 두 극치임을 알 수 있다.\n' +
+      '\n' +
+      '이 스펙트럼은 "예측 가능한 것을 배우는 것"의 SSL 에토스로 요약할 수 있다. 약한 세계 모델로 학습한다는 것은 세계를 제대로 모델링할 수 없다는 것을 의미하며, 인코더는 예측할 수 없는 정보를 제거한다. 반면, 세계 모델이 매우 강력하다면 어떤 상황에서든 표상을 예측할 수 있는 방법을 찾을 수 있는 것처럼 표상이 추상적이거나 의미적일 필요는 없다. 이는 세계 모델을 학습하면 표상의 추상화 수준을 조절할 수 있는 측정 가능한 방법을 제공한다는 것을 의미한다.\n' +
+      '\n' +
+      '##7 결론과 미래 전망\n' +
+      '\n' +
+      '우리는 세계 모델로 자기 감독 시각적 표현을 배우는 접근 방식인 IWM을 도입했다. 심층적인 연구를 통해 좋은 이미지 월드 모델을 학습하기 위한 지침과 핵심 구성 요소를 제공했다. 이미지 변환으로 세계 모델을 컨디셔닝하는 것은 고전적인 SSL 거동으로 붕괴되는 것을 피하기 위해 중요하다. 강한 변환을 사용하는 것은 또한 세계 모델이 더 복잡한 행동을 모델링하고 유용하도록 학습하도록 하는 핵심이다. 마지막으로 복잡한 행동을 모델링하기 위해서는 충분한 용량이 필요하다. 우리는 능력 있는 세계 모델만이 차별적인 작업에 재사용될 수 있음을 보여주었다. 이는 인코더 미세조정을 비용의 일부에서 일치시키는 예측기 미세조정 프로토콜로 이어졌으며, 이는 세계 모델이 다재다능한 평가 헤드임을 보여준다. 또한 성능을 잃지 않고 여러 작업을 한 번에 해결할 수 있도록 조정했습니다. 마지막으로, 우리는 세계 모델을 배우는 것이 표현 품질에 어떤 영향을 미치는지 연구했다. 유능한 세계 모델은 이미지 분류 및 의미론적 분할과 같은 다운스트림 작업에 대한 성능을 향상시키는 풍부한 표현을 학습한다. 또한 불변 세계 모델을 학습하면 선형 평가를 위한 더 나은 표현이 나타났다. MIM과 대조적 접근법은 표현 추상화 측면에서 스펙트럼의 두 가지 끝이지만 이미지 월드 모델은 그 사이를 보간할 수 있게 한다. 따라서 우리는 이미지 월드 모델을 학습하는 것이 시각적 표현 학습을 위한 매우 유망한 프레임워크라고 믿는다.\n' +
+      '\n' +
+      '## 8 Broadard impact statement\n' +
+      '\n' +
+      '본 논문은 머신러닝 분야의 발전을 목표로 하는 작업을 제시한다. 우리 작업에는 많은 잠재적인 사회적 결과가 있으며, 여기에서 특별히 강조되어야 한다고 느끼는 것은 없습니다.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* Assran et al. [2023] Mahmoud Assran, Quentin Duval, Ishan Misra, Piotr Bojanowski, Pascal Vincent, Michael Rabbat, Yann LeCun, and Nicolas Ballas. Self-supervised learning from images with a joint-embedding predictive architecture. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 15619-15629, 2023.\n' +
+      '* Baevski et al. [2022] Alexei Baevski, Wei-Ning Hsu, Qiantong Xu, Arun Babu, Jiatao Gu, and Michael Auli. Data2vec: A general framework for self-supervised learning in speech, vision and language. In _International Conference on Machine Learning_, pages 1298-1312. PMLR, 2022.\n' +
+      '* Bao et al. [2021] Hangbo Bao, Li Dong, and Furu Wei. Beit: Bert pre-training of image transformers. _arXiv preprint arXiv:2106.08254_, 2021.\n' +
+      '* Bardes et al. [2021] Adrien Bardes, Jean Ponce, and Yann LeCun. Vicreg: Variance-invariance-covariance regularization for self-supervised learning. _arXiv preprint arXiv:2105.04906_, 2021.\n' +
+      '* Bardes et al. [2021] Adrien Bardes, Jean Ponce, and Yann LeCun. VICRegl: Self-supervised learning of local visual features. In Alice H. Oh, Alekh Agarwal, Danielle Belgrave, and\n' +
+      '\n' +
+      '그림 4: 선형 및 예측 변수 미세 조정 설정에서 등분산 수준이 성능에 영향을 미치지만 주의력 탐사와 거의 상관 관계가 없습니다. 이것은 표현의 추상화 수준 측면에서 상충 관계가 있으며 다른 평가 프로토콜이 다른 속성을 평가함을 시사한다.\n' +
+      '\n' +
+      '그림 5: 이미지 월드 모델은 표현 모듈성을 허용한다. 방법의 다른 패밀리는 다른 속성을 가진 표현을 제공하지만 IWM은 전체 스펙트럼을 탐색할 수 있다.\n' +
+      '\n' +
+      '조경현, 편집자, _Advances in Neural Information Processing Systems_, 2022. [https://openreview.net/forum?id=eP2FsuVeGJXyp](https://openreview.net/forum?id=eP2FsuVeGJXyp)\n' +
+      '* Caron et al. [2021] Mathilde Caron, Hugo Touvron, Ishan Misra, Herve Jegou, Julien Mairal, Piotr Bojanowski, and Armand Joulin. Emerging properties in self-supervised vision transformers. In _ICCV_, 2021.\n' +
+      '* Chavhan et al. [2022a] Ruchika Chavhan, Henry Gouk, Da Li, and Timothy Hospedales. 시각적 사전 교육을 위한 품질 다양성입니다. _Proceedings of the IEEE/CVF International Conference on Computer Vision(ICCV)_, pages 5384-5394, October 2022a.\n' +
+      '* Chavhan et al. [2023b] Ruchika Chavhan, Jan Stuehmer, Calum Heggan, Mehrdad Yaghoobi, and Timothy Hospedales. 상대적 자기 감독을 위한 상각 불변 학습. _The Eleventh International Conference on Learning Representations_, 2023b. [https://openreview.net/forum?id=nXOhmfFu5n] (https://openreview.net/forum?id=nXOhmfFu5n).\n' +
+      '* Chen et al. [2020a] Ting Chen, Simon Kornblith, Mohammad Norouzi, and Geoffrey Hinton. 시각적 표상의 대조적 학습을 위한 간단한 프레임워크. _ICML_에서, 페이지 1597-1607. PMLR, 2020a.\n' +
+      '* Chen et al. [2023] Xiaokang Chen, Mingyu Ding, Xiaodi Wang, Ying Xin, Shentong Mo, Yunhao Wang, Shumin Han, Ping Luo, Gang Zeng, and Jingdong Wang. Context autoencoder for self-supervised representation learning. _International Journal of Computer Vision_, pages 1-16, 2023.\n' +
+      '* 첸과 허[2020] 신레이 첸과 카임잉 허. 간단한 샴 표현 학습을 탐구합니다. 2020년 _CVPR_에서.\n' +
+      '* Chen et al. [2020b] Xinlei Chen, Haoqi Fan, Ross Girshick, and Kaiming He. 운동량 대비 학습으로 기준선 개선 arXiv preprint arXiv:2003.04297_, 2020b.\n' +
+      '* Chen et al. [2021] Xinlei Chen, Saining Xie, and Kaiming He. An empirical study of training self-supervised vision transformers. In _ICCV_, 2021.\n' +
+      '* Chen et al. [2024] Xinlei Chen, Zhuang Liu, Saining Xie, and Kaiming He. Deconstructing denoising diffusion models for self-supervised learning, 2024.\n' +
+      '* 클라크와 자이니[2023] 케빈 클라크와 프리얀크 자이니. 텍스트 대 이미지 확산 모델은 제로 샷 분류기입니다. _ arXiv preprint arXiv:2303.15233_, 2023.\n' +
+      '* Contributors[2020] MMSegmentation Contributors. MMSegmentation: Openmmlab semantic segmentation toolbox and benchmark. [https://github.com/open-mmlab/mnsegmentation] (https://github.com/open-mmlab/mnsegmentation), 2020.\n' +
+      '* Cubuk et al. [2020] Ekin Dogus Cubuk, Barret Zoph, Jon Shlens, and Quoc Le. Randaugment: Practical automated data augmentation with a reduced search space. In H. Larochelle, M. Ranzato, R. Hadsell, M.F. Balcan, and H. Lin, editors, _Advances in Neural Information Processing Systems_, volume 33, pages 18613-18624. Curran Associates, Inc., 2020. [https://proceedings.neurips.cc/paper_files/paper/2020/file/d85b63ef0ccb114d0a3bb7b7b4808028f-Paper.pdf](https://proceedings.neurips.cc/paper_files/paper/2020/file/d85b63ef0ccb114d0a3bb7b7b4808028f-Paper.pdf).\n' +
+      '* Dangovski et al. [2021] Rumen Dangovski, Li Jing, Charlotte Loh, Seungwook Han, Akash Srivastava, Brian Cheung, Pulkit Agrawal, and Marin Soljacic. Equivariant contrastive learning. _arXiv preprint arXiv:2111.00899_, 2021.\n' +
+      '* Deng et al. [2009] Jia Deng, Wei Dong, Richard Socher, Li-Jia Li, Kai Li, and Li Fei-Fei. Imagenet: A large-scale hierarchical image database. In _CVPR_, 2009.\n' +
+      '* 악마와 르포르[2022] 알렉산드레 악마와 마티유 르포르. Equimod: 자기 지도 학습을 개선하기 위한 Equivariance 모듈 _ arXiv preprint arXiv:2211.01244_, 2022.\n' +
+      '* Dosovitskiy et al. [2021] Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov, Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner, Mostafa Dehghani, Matthias Minderer, Georg Heigold, Sylvain Gelly, Jakob Uszkoreit, and Neil Houlsby. An image is worth 16x16 words: Transformers for image recognition at scale. In _ICLR_, 2021.\n' +
+      '* Douillard et al. [2022] Arthur Douillard, Alexandre Rame, Guillaume Couairon, and Matthieu Cord. Dytox: Transformers for continual learning with dynamic token expansion. In _Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR)_, 2022.\n' +
+      '* El-Nouby et al. [2024] Alaaeldin El-Nouby, Michal Klein, Shuangfei Zhai, Miguel Angel Bautista, Alexander Toshev, Vaishaal Shankar, Joshua M Susskind, and Armand Joulin. Scalable pre-training of large autoregressive image models. _arXiv preprint arXiv:2401.08541_, 2024.\n' +
+      '* Ermolov et al. [2021] Aleksandr Ermolov, Aliaksandr Siarohin, Enver Sangineto, and Nicu Sebe. Whitening for self-supervised representation learning, 2021.\n' +
+      '* Garrido et al. [2023a] Quentin Garrido, Yubei Chen, Adrien Bardes, Laurent Najman, and Yann LeCun. 대비적 자기 지도 학습과 비대비적 자기 지도 학습의 이중성에 관한 것이다. _The Eleventh International Conference on Learning Representations_, 2023a. [https://openreview.net/forum?id=kDEL91Dufpa] (https://openreview.net/forum?id=kDEL91Dufpa).\n' +
+      '* Garrido et al. [2023b] Quentin Garrido, Laurent Najman, and Yann Lecun. 분할 불변 등분산 표상에 대한 자기 지도 학습. 제40회 국제학술대회 온 머신러닝_의 _Proceedings of Machine Learning_, vol 202 of _Proceedings of Machine Learning Research_, pages 10975-10996. PMLR, 23-29 Jul 2023b. [https://proceedings.mlr.press/v202/garrido23b.html] (https://proceedings.mlr.press/v202/garrido23b.html).\n' +
+      '* Grill et al. [2020] Jean-Bastien Grill, Florian Strub, Florent Altche, Corentin Tallec, Pierre H. Richemond, Elena Buchatskaya, Carl Doersch, Bernardo Avila Pires, Zhaohan Daniel Guo, Mohammad Gheshlaghi Azar, Bilal Piot, Koray Kavukcuoglu, Remi Munos, and Michal Valko. Bootstrap your own latent: A new approach to self-supervised learning. In _NeurIPS_, 2020.\n' +
+      '* Gupta et al. [2020] Sharut Gupta, Joshua Robinson, Derek Lim, Soledad Villar, and Stefanie Jegelka. Structuring representation geometry with rotationally equivariant contrastive learning, 2023.\n' +
+      '* 하와 슈미트후버[2018] 데이비드 하와 위르겐 슈미트후버. 재발 세계 모델은 정책 진화를 촉진한다. In _Advances in Neural Information Processing Systems 31_, pages 2451-2463. 2018.\n' +
+      '* Hafner et al. [2019] Danijar Hafner, Timothy Lillicrap, Jimmy Ba, and Mohammad Norouzi. Dream to control: Learning behaviors by latent imagination. _arXiv preprint arXiv:1912.01603_, 2019.\n' +
+      '* Hafner et al. [2023] Danijar Hafner, Jurgis Pasukonis, Jimmy Ba, and Timothy Lillicrap. Mastering diverse domains through world models. _arXiv preprint arXiv:2301.04104_, 2023.\n' +
+      '* Hansen et al. [2022] Nicklas Hansen, Yixin Lin, Hao Su, Xiaolong Wang, Vikash Kumar, and Aravind Rajeswaran. Modem: Accelerating visual model-based reinforcement learning with demonstrations. _arXiv preprint arXiv:2212.05698_, 2022.\n' +
+      '* HaoChen et al. [2021] Jeff Z HaoChen, Colin Wei, Adrien Gaidon, and Tengyu Ma. Provable guarantees for self-supervised deep learning with spectral contrastive loss. _NeurIPS_, 34, 2021.\n' +
+      '* He et al. [2020] Kaiming He, Haoqi Fan, Yuxin Wu, Saining Xie, and Ross Girshick. Momentum contrast for unsupervised visual representation learning. In _CVPR_, 2020.\n' +
+      '* He et al. [2021] Kaiming He, Xinlei Chen, Saining Xie, Yanghao Li, Piotr Dollar, and Ross Girshick. Masked autoencoders are scalable vision learners. _arXiv preprint arXiv:2111.06377_, 2021.\n' +
+      '* Horn et al. [2018] Grant Van Horn, Oisin Mac Aodha, Yang Song, Yin Cui, Chen Sun, Alex Shepard, Hartwig Adam, Pietro Perona, and Serge Belongie. The inaturalist species classification and detection dataset. In _CVPR_, 2018.\n' +
+      '* Hu et al. [2023] Anthony Hu, Lloyd Russell, Hudson Yeo, Zak Murez, George Fedoseev, Alex Kendall, Jamie Shotton, and Gianluca Corrado. Gaia-1: A generative world model for autonomous driving, 2023.\n' +
+      '* Hudson et al. [2023] Drew A. Hudson, Daniel Zoran, Mateusz Malinowski, Andrew K. Lampinen, Andrew Jaegle, James L. McClelland, Loic Matthey, Felix Hill, and Alexander Lerchner. Soda: Bottleneck diffusion models for representation learning, 2023.\n' +
+      '* Kipf et al. [2019] Thomas Kipf, Elise Van der Pol, and Max Welling. Contrastive learning of structured world models. _arXiv preprint arXiv:1911.12247_, 2019.\n' +
+      '* LeCun[2022] Yann LeCun. 자율 기계 지능 버전 0.9. 2, 2022-06-27. _Open Review_, 62(1), 2022.\n' +
+      '* Li and Liang[2021] Xiang Lisa Li and Percy Liang. 접두사 조정: 2021년 세대 연속 프롬프트를 최적화합니다.\n' +
+      '* Li et al. [2022] Zengyi Li, Yubei Chen, Yann LeCun, and Friedrich T Sommer. Neural manifold clustering and embedding. _arXiv preprint arXiv:2201.10000_, 2022.\n' +
+      '* Loshchilov and Hutter[2019] Ilya Loshchilov and Frank Hutter. 분리된 중량 감쇠 규칙화. _International Conference on Learning Representations_, 2019. [https://openreview.net/forum?id=Bkg6RiCqY77](https://openreview.net/forum?id=Bkg6RiCqY77)\n' +
+      '* Oquab et al. [2023] Maxime Oquab, Timothee Darcet, Theo Moutakanni, Huy Vo, Marc Szafraniec, Vasil Khalidov, Pierre Fernandez, Daniel Haziza, Francisco Massa, Alaaeldin El-Nouby, et al. Dinov2: Learning robust visual features without supervision. _arXiv preprint arXiv:2304.07193_, 2023.\n' +
+      '* Park et al. [2022] Jung Yeon Park, Ondrej Biza, Linfeng Zhao, Jan Willem van de Meent, and Robin Walters. Learning Symmetric Embeddings for Equivariant World Models, June 2022. [http://arxiv.org/abs/2204.11371](http://arxiv.org/abs/2204.11371). arXiv:2204.11371 [cs].\n' +
+      '* Wei et al. [2022] Jason Wei, Maarten Bosma, Vincent Y. Zhao, Kelvin Guu, Adams Wei Yu, Brian Lester, Nan Du, Andrew M. Dai, and Quoc V. Le. Finetuned language models are zero-shot learners, 2022.\n' +
+      '* Xiao et al. [2010] Jianxiong Xiao, James Hays, Krista A Ehinger, Aude Oliva, and Antonio Torralba. Sun database: Large-scale scene recognition from abbey to zoo. In _2010 IEEE computer society conference on computer vision and pattern recognition_, pages 3485-3492. IEEE, 2010.\n' +
+      '* Xiao et al. [2018] Tete Xiao, Liu Yingcheng, Bolei Zhou, Jiang Yuning, and Sun Jian. Unified perceptual parsing for scene understanding. In _ECCV_, 2018.\n' +
+      '* Xie et al. [2022] Zhenda Xie, Zheng Zhang, Yue Cao, Yutong Lin, Jianmin Bao, Zhuliang Yao, Qi Dai, and Han Hu. Simmim: A simple framework for masked image modeling, 2022.\n' +
+      '* Yang et al. [2023] Mengjiao Yang, Yilun Du, Kamyar Ghasemipour, Jonathan Tompson, Dale Schuurmans, and Pieter Abbeel. Learning interactive real-world simulators. _arXiv preprint arXiv:2310.06114_, 2023.\n' +
+      '* Yeh et al. [2021] Chun-Hsiao Yeh, Cheng-Yao Hong, Yen-Chi Hsu, Tyng-Luh Liu, Yubei Chen, and Yann LeCun. Decoupled contrastive learning. _arXiv preprint arXiv:2110.06848_, 2021.\n' +
+      '* You et al. [2017] Yang You, Igor Gitman, and Boris Ginsburg. Large batch training of convolutional networks. _arXiv preprint arXiv:1708.03888_, 2017.\n' +
+      '* Yun et al. [2019] Sangdoo Yun, Dongyoon Han, Seong Joon Oh, Sanghyuk Chun, Junsuk Choe, and Youngjoon Yoo. Cutmix: Regularization strategy to train strong classifiers with localizable features. In _Proceedings of the IEEE/CVF international conference on computer vision_, pages 6023-6032, 2019.\n' +
+      '* Zbontar et al. [2021] Jure Zbontar, Li Jing, Ishan Misra, Yann LeCun, and Stephane Deny. Barlow twins: Self-supervised learning via redundancy reduction. In _ICML_, pages 12310-12320. PMLR, 2021.\n' +
+      '* Zhang et al. [2018] Hongyi Zhang, Moustapha Cisse, Yann N. Dauphin, and David Lopez-Paz. mixup: Beyond empirical risk minimization. In _International Conference on Learning Representations_, 2018. [https://openreview.net/forum?id=r1Ddp1-Rb](https://openreview.net/forum?id=r1Ddp1-Rb).\n' +
+      '* Zhang et al. (2023) Shen규 Zhang, Linfeng Dong, Xiaoya Li, Sen Zhang, Xiaofei Sun, Shuhe Wang, Jiwei Li, Runyi Hu, Tianwei Zhang, Fei Wu, and Guoyin Wang. 대형 언어 모델에 대한 교육 조정: 2023년 설문 조사.\n' +
+      '* Zhou et al. (2014) Bolei Zhou, Agata Lapedriza, Jianxiong Xiao, Antonio Torralba, and Aude Oliva. 장소 데이터베이스를 사용하여 장면 인식을 위한 심층 피쳐를 학습합니다. 2014년 _NeurIPS_에서.\n' +
+      '* Zhou et al. (2019) Bolei Zhou, Hang Zhao, Xavier Puig, Tete Xiao, Sanja Fidler, Adela Barriuso, and Antonio Torralba. ade20k 데이터셋을 통한 장면의 의미론적 이해. _ IJCV_, 2019.\n' +
+      '\n' +
+      '## 부록 실험 세부사항\n' +
+      '\n' +
+      '### Pretraining\n' +
+      '\n' +
+      '우리는 그림 S1에서 IWM을 위한 보다 상세한 아키텍처를 제공합니다.\n' +
+      '\n' +
+      '** 아키텍처 및 최적화** 모든 모델은 이미지넷에서 300 에폭에 대해 훈련된 ViT-B/16 인코더를 사용합니다. 학습은 AdamW optimizer Loshchilov와 Hutter(2019)를 사용하였으며, 학습은 \\(1\\times 10^{-3}\\)을 사용하였다. 우리는 \\(\\beta_{1}=0.9\\)과 \\(\\beta_{2}=0.999\\)을 더 사용한다. 학습 속도는 40 에폭에 대한 선형 워밍업과 코사인 어닐링을 따른다. 스케줄러에 대해 1.25의 에포크 스케일 당 반복을 사용하며, 이는 스케줄러를 스트레칭하고 스케줄이 종료되기 전에 트레이닝을 종료한다. 훈련이 끝날 무렵에 0의 학습률을 갖지 않는 것이 우리의 실험에서 유익한 것으로 밝혀졌다. 우리는 0.04에서 0.4로 이어지는 코사인 가중치 감쇠 스케줄을 사용한다.\n' +
+      '\n' +
+      '**Source and target.** 실제로 우리는 먼저 0.3에서 1 사이의 임의의 스케일의 크롭을 적용하여 소스와 타겟을 별도로 구축하고, 확률 0.5의 수평 플립을 적용하여 결과 이미지를 \\(I^{\\prime}\\)이라고 부를 것이다.\n' +
+      '\n' +
+      '**Target transformation.** \\(I^{\\prime}\\)부터 시작하여 확률 0.8, 밝기 최대 강도 0.4, 대비 최대 강도 0.4, 색상 최대 강도 0.1 및 채도 최대 강도 0.2를 갖는 컬러 지터를 적용한다.\n' +
+      '\n' +
+      '**Source transformation.** \\(I^{\\prime}\\)부터 시작해서 확률 0.8, 밝기 최대 강도 0.4, 대비 최대 강도 0.4, 색상 최대 강도 0.1, 채도 최대 강도 0.2를 갖는 컬러 지터를 적용한다. 확률 0.2, 확률 0.2를 갖는 태양화 및 확률 0.2를 갖는 그레이스케일을 갖는 반지름의 가우시안 블러(gaussian blur)를 적용한다. 이러한 증강은 BYOL(Grill et al., 2020)에서 사용되는 증강에 해당한다. 그리고 영상의 0.15와 0.2 사이의 면적과 0.75와 1.5 사이의 종횡비를 갖는 4개의 마스크의 합으로 마스크\\(M_{x}\\)를 생성하고, 그 후 모든 패치를 소스\\(x\\)에서 떨어뜨린다.\n' +
+      '\n' +
+      '**예측 컨디셔닝** 특징 혼합 전략에 의존합니다. Mask token \\(m\\in\\mathbb{R}^{d}\\)과 \\(a\\in\\mathbb{R}^{k}\\)에 해당하는 \\(k\\) 스칼라 벡터를 고려한다. 우리는 먼저 목표물의 어떤 패치를 예측해야 하는지 나타내기 위해 \\(m\\)에 위치 임베딩을 추가한다. 그런 다음 \\(m\\)과 \\(a\\)을 연결하고 ReLU 활성화와 차원 \\(d,d,d\\)이 있는 3개의 완전 연결 네트워크를 통해 공급한다. 이것은 모든 변환에 대한 정보를 포함하는 마스크 토큰을 제공합니다. 위치의 기하학적 측면과 측광 증강에 대한 세부 사항 모두입니다.\n' +
+      '\n' +
+      '### Evaluation\n' +
+      '\n' +
+      '이미지 분류에 대한 모든 평가에 대해 검증 정확도를 계산하기 위해 적용된 가중치는 256으로 크기가 조정되고 224 x 224 중앙 크롭이 있으며 보고된 모든 하이퍼 매개변수는 모든 방법에 대해 주의 깊게 조정한 후 선택된 최적의 매개변수이다.\n' +
+      '\n' +
+      '_Linear.__Linear.__ 우리는 Chen et al.(2021)의 프로토콜로부터 영감을 얻는다. 우리는 이미지넷에서 90세대를 훈련한다. 우리는 0.08에서 1 사이의 스케일로 이미지의 무작위 작물을 샘플링한 다음 확률 0.5로 수평 플립을 적용한다.\n' +
+      '\n' +
+      '특징들은 시퀀스 축을 따라 평균 풀링되어 전역 표현을 얻고, 이어서 선형 층에 공급된다. 우리는 LARS(You et al., 2017) 최적화기와 함께 16,384의 배치 크기를 사용하고 10 에폭의 워밍업을 사용하여 6.4의 학습률을 사용한다. 그런 다음 학습 속도는 코사인 어닐링 스케줄을 따른다. 체중 감소는 0으로, 운동량은 0.9로 설정되었다.\n' +
+      '\n' +
+      '주의력.주의력 있는 머리는 Chen et al.(2023)로부터 취해진다. 이는 풀링되지 않은 표현들을 추가 토큰 사이에 어텐션이 계산되는 크로스 어텐션 블록으로 구성된다. 이를 통해 적응형 풀링 전략이 가능합니다. 우리는 이미지넷에서 90세대를 훈련한다. 우리는 0.3에서 1 사이의 스케일로 무작위 작물을 샘플링하고 확률 0.5의 수평 플립을 적용하고 마스킹 외에 소스 변환에 사용된 것과 동일한 증강을 적용한다. 학습률이 \\(1\\times 10^{-4}\\), \\(\\beta_{1}=0.9\\), \\(\\beta_{2}=0.999\\)인 배치 크기 1024와 AdamW 최적화기를 사용하였다. 코사인 어닐링 스케줄을 따릅니다. 우리는 훈련 중에 일정하게 유지되는 0.01의 체중 감소를 사용한다.\n' +
+      '\n' +
+      'Encoder finetuning.우리는 ImageNet에서 100 에폭에 대한 선형 평가를 위해 인코더 끝에 선형 레이어를 추가하고 학습한다. 우리는 MAE(He et al., 2021) 뿐만 아니라 CutMix(Yun et al., 2019) 및 MixUp(Zhang et al., 2018)과 동일한 RandAugment(Cubuk et al., 2020) 전략을 사용한다. 랜드 어거먼트의 경우 문자열 \'rand-m9-mstd0.5-inc1\'을 사용합니다. 픽셀 모드에서는 확률 0.25의 랜덤 소거를 사용한다. 우리는 0.8의 혼합 \\(\\alpha\\), 1의 cutmix \\(\\alpha\\) 및 0.1의 레이블 평활화를 사용한다.\n' +
+      '\n' +
+      '최적화를 위해 아담W를 학습률 \\(2\\times 10^{-3}\\)에 워밍업 5 에포크, 코사인 어닐링 스케줄, 가중치 감쇠 0.005, 배치 크기 1024로 사용하고, 인코더를 통한 드롭 경로율 0.2, 레이어 슬리딩 학습률 감쇠 0.65를 사용한다.\n' +
+      '\n' +
+      '예측 변수 미세 조정.예측 변수를 미세 조정할 때 예측 변수 출력 상단에 주의 깊은 헤드를 사용합니다. 우리는 예측기를 교사 네트워크 위에 연결하고 null 변환 매개변수로 전체 대상 이미지를 예측하는 작업을 수행한다. 인코더 미세조정과 동일한 증강 프로토콜을 사용한다. Batch size가 1024인 ImageNet에서 100 epoch를 학습하고, AdamW를 최적기에 사용하였으며, 5 epoch warmup과 코사인 annealing 스케줄로 \\(1\\times 10^{-3}\\)의 학습률을 얻었다. 예측 변수를 통해 0.1의 가중치 감쇠, 0.1의 레이어 슬레이트 감쇠 및 0.2의 낙하 경로 속도를 사용한다. 중요한 것은 예측 변수가 사전 훈련된 경우 학습률을 10으로 나누고 무작위인 경우 주의 집중력과 동일하게 유지한다는 것이다.\n' +
+      '\n' +
+      '멀티태스크 예측기 피네튜닝.프로토콜의 보다 명확한 표현을 위해 그림 S2에서 멀티태스크 예측기 피네튜닝의 그래픽 버전을 제공하며, 그 자체에 대한 훈련은 예측기 피네튜닝과 동일한 프로토콜을 따르지만 50 ImageNet 에폭에 해당하는 훈련을 한다. 사용된 배치 크기는 각 작업에 대해 512이며, 여기서 배치는 작업 간에 독립적으로 분할된다. 단일 작업에서 훈련할 때 배치 크기로 512를 사용하고 50개의 이미지넷 에폭에 대해 훈련한다.\n' +
+      '\n' +
+      '종단 간 미세 조정.예측 변수 미세 조정 프로토콜을 따르지만 특정 매개변수를 조정합니다. 먼저, 인코더는 또한 예측자와 같이 그의 학습률을 10으로 나눈다. 인자는 모든 방법에 대해 별도로 처리되고 제거된다. 우리는 예측기와 인코더의 조합에 걸쳐 0.9 계층 감쇠를 사용한다. 사용된 학습률은 \\(2\\times 10^{-3}\\)이며 다른 모든 매개변수는 예측 변수 미세 조정과 동일하다.\n' +
+      '\n' +
+      '세그멘테이션.시맨틱 세분화 평가를 위한 프로토콜에 대해 상세히 설명한다. MMSegmentation Library Contributors(2020)를 사용하였다. 우리는 160k 반복에 대해 ADE20k 시맨틱 세분화 데이터세트 Zhou et al.(2019)에 UperNet head Xiao et al.(2018)을 사용하여 사전 훈련된 모델(인코더만, 예측자만 또는 종단간)을 미세 조정하고 검증 mIoU를 보고한다. 예측기의 마지막 4개 레이어 또는 인코더는 미세 조정만 위한 인코더를 연결하고 그 결과를 세그먼트화 헤드에 공급한다. 훈련 시간에 우리는 사전 훈련 해상도에서 이미지의 크기를 조정한다. 테스트 시간에는 이미지의 크기를 조정하고 위치 임베딩을 원래 해상도로 보간하지 않는다. 모든 설정 및 방법에 대해 \\(1e-5\\), \\(2e-5\\) 및 \\(3e-5\\)의 학습률 값 중에서 가장 좋은 실행을 선택한다. 우리는 0.01의 가중치 감쇠와 선형 학습 속도 감쇠 스케줄을 사용한다.\n' +
+      '\n' +
+      '## 부록 B 완성 완성 완성 결과\n' +
+      '\n' +
+      '우리는 표 S1에서 표 4와 표 5에 대한 완전한 결과를 제공한다. 몇 가지 흥미로운 행동은 예측자 미세조정에서 \\(\\text{IWM}^{\\text{Equi}}_{12,384}\\)과 \\(\\text{MoCov3}\\)이다. (\\text{IWM}^{\\text{Equi}}_{12,384}\\)에 대해, 우리는 \\(\\text{IWM}^{\\text{Equi}}_{18,384}\\)과 동일한 거동을 보이지만 약간 낮은 성능을 보인다. 이는 모든 평가에서 일관성이 있습니다. 그러나 I-JEPA와 \\(\\text{IWM}^{\\text{Inv}}_{12,384}\\)를 비교할 수 있는 예측 변수의 규모를 고려하더라도 이전의 모든 결론은 여전히 유지된다. (\\text{MoCov3}\\)의 경우, 랜덤 예측 변수를 부착할 때 성능이 좋지 않은 유일한 방법이었다. 결정적인 증거는 없지만 산출량의 낮은 규범과 관련이 있다고 가정한다. 인코더와 예측기 사이에 정규화를 추가하는 것은 도움이 되지 않았습니다.\n' +
+      '\n' +
+      '## 부록 C 데이터 증강 효과\n' +
+      '\n' +
+      '표 S2에서 예측 변수의 깊이와 함께 사전 훈련 중에 사용되는 증대의 영향을 연구한다. 우리는 깊이(depth)가 학습된 세계 모델의 품질에 결정 요인임을 알 수 있으며, 여기서 색상을 가진 5개 시나리오 중 4개는 18개 레이어 예측기의 색상 공분산을 달성할 수 있지만 12개 레이어 예측기의 경우 1개만 달성할 수 있다. 증강의 강도 또한 역할을 하며 너무 약한 증강은 모호한 모델로 이어지지 않는다.\n' +
+      '\n' +
+      '증강의 비대칭성에 대해, 증강의 비대칭성은 대조적인 접근법과 더 유사하게 사용되는 개념적 선택이지만 실용적인 선택이기도 하다. 대칭적 증분으로 불변 세계 모델을 학습할 때 주의 깊은 탐침에서는 ImageNet에서 2점, 선형 탐침에서는 1.5점의 성능이 떨어지는 것을 발견했다. 이 하락은 재앙적이지 않지만 비대칭 증강을 사용하는 것이 좋다. 예측 변수의 깊이가 감소함에 따라 이 격차가 확대될 것으로 예상합니다.\n' +
+      '\n' +
+      '반면에, 불확실한 예측 변수를 볼 때, 우리는 성능에서 주목할 만한 변화를 알아차리지 못했다. 이는 학습 세계 모델이 증대의 선택에 비해 안정성을 향상시키는 데 도움이 될 수 있음을 시사한다. 예측 변수는 어떤 정보가 제거될 수 있는지 염두에 두지 않고 변환을 적용할 수 있는지 여부에 의해서만 설계될 필요가 있다.\n' +
+      '\n' +
+      '## 부록 D 예측 태스크가 예측기 미세조정 성능에 미치는 영향\n' +
+      '\n' +
+      '다운스트림 태스크를 해결하기 위해 예측자 미세 조정을 사용하기 위해서는 예측 태스크를 적용해야 한다. 우리는 이 부록에서 표 3을 더 조합적으로 보는 것을 목표로 한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c c c c c c} \\hline \\hline \\multirow{2}{*}{Predictor} & \\multicolumn{3}{c}{Strengths} & \\multicolumn{5}{c}{Probabilities} & \\multicolumn{5}{c}{Performance} \\\\ \\cline{2-11}  & Bright. & Contrast & Sat. & Hue & Jitter & Blur & Gray. & Solarize & MRR & Linear & Attentive & Pred. ft. \\\\ \\hline \\hline  & 0.4 & 0.4 & 0.2 & 0.1 & 0.8 & 0.2 & 0.2 & 0.1 & 0.09 & 74.5 & 77.0 & 81.3 \\\\ \\multirow{4}{*}{\\(\\text{IWM}_{12,384}\\)} & 0.4 & 0.2 & 0.1 & 0.8 & & & 0.11 & 72.1 & 76.5 & 80.5 \\\\  & 0.4 & 0.4 & 0.2 & 0.1 & 0.8 & 0.4 & 0.4 & 0.2 & 0.22 & 71.0 & 74.9 & 80.9 \\\\  & 0.5 & 0.5 & 0.4 & 0.2 & 0.8 & 0.2 & 0.2 & 0.1 & 0.81 & 69.3 & 75.5 & 82.7 \\\\  & 0.5 & 0.5 & 0.4 & 0.2 & 0.8 & & & 0.07 & 73.3 & 76.3 & 80.1 \\\\  & & & & & & 0.2 & 0.2 & 0.1 & 0.02 & 72.9 & 76.3 & 80.7 \\\\ \\hline \\hline  & 0.4 & 0.4 & 0.2 & 0.1 & 0.8 & 0.2 & 0.2 & 0.1 & 0.79 & 67.5 & 75.1 & 83.3 \\\\ \\multirow{4}{*}{\\(\\text{IWM}_{18,384}\\)} & 0.4 & 0.4 & 0.2 & 0.1 & 0.8 & & & 0.25 & 70.1 & 74.8 & 81.4 \\\\  & 0.4 & 0.4 & 0.2 & 0.1 & 0.8 & 0.4 & 0.4 & 0.2 & 0.85 & 56.1 & 74.5 & 83.1 \\\\ \\multirow{4}{*}{\\(\\text{IWM}_{18,384}\\)} & 0.5 & 0.5 & 0.4 & 0.2 & 0.8 & 0.2 & 0.1 & 0.85 & 34.3 & 71.0 & 81.7 \\\\  & 0.5 & 0.5 & 0.4 & 0.2 & 0.8 & & & 0.83 & 69.2 & 75.8 & 83.3 \\\\ \\multirow{4}{*}{\\(\\text{IWM}_{18,384}\\)} & 0.5 & 0.5 & 0.4 & 0.2 & 0.8 & & & 0.83 & 69.2 & 75.8 & 83.3 \\\\  & & & & & & 0.2 & 0.1 & 0.02 & 70.9 & 74.8 & 81.5 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 S2: 데이터 증강 전략이 IWM의 성능에 미치는 영향. 모든 설정에서 파괴적인 보강은 대상에 적용되지 않습니다.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:17]\n' +
+      '\n' +
+      '## 부록 G 불변 행동과 불변 행동의 표현 차이 시각화\n' +
+      '\n' +
+      '그림 S3에서 볼 수 있듯이 불변 모델은 대각선 블록의 높은 유사성으로 보여지는 것처럼 증강된 뷰를 매우 유사한 임베딩으로 축소한다. 반면에 등분산 모델은 더 많은 변동을 보여주며, 이는 증강 정보가 표현에 더 많이 존재함을 보여준다. 흥미롭게도 I-JAPA는 불변하거나 불변하도록 훈련되지 않았기 때문에 그 사이에 행동이 있다. I-JAPA는 정보가 어떻게 표현에서 유지되거나 제거되는지 제어하는 힘이 없다.\n' +
+      '\n' +
+      '## 부록 H 자기지도학습에서 불변의 의미와 역할에 관한 연구\n' +
+      '\n' +
+      '자기 지도 학습의 성공의 핵심 요소 중 하나는 증강 불변 Chen et al.(2020)이다. 우리는 \\(\\forall a,\\f_{\\theta}(x)=f_{\\theta}(\\mathcal{T}(a,x))\\일 때 불변 표현을 학습했다고 말할 수 있다. 그러나 이 속성을 만족시키는 많은 시나리오가 있다. 우리가 관심 있는 두 가지 주요 사항은 다음과 같습니다.\n' +
+      '\n' +
+      '* 임의의 증강 뷰는 깨끗한 이미지와 동일한 정보로 이어짐\n' +
+      '* 인코더는 변환과 관련된 정보를 제거한다\n' +
+      '\n' +
+      '첫 번째 경우에, 표현들은 여전히 입력에 대한 모든 정보를 포함하고 있는 반면, 두 번째 경우에는 불필요한 것으로 간주될 수 있는 정보를 제거하고 있다. 대조적 방법의 경우 일반적으로 정보를 제거하는 데 중점을 둔다. 실제로 이미지와 그 그레이스케일 버전이 동일한 표현을 갖도록 만들어진 경우, 인코더는 컬러 정보를 제거해야 한다. 이것은 그러한 방법의 성능의 핵심 동인 중 하나이다. 이미지의 의미만 남을 때까지 정보를 제거함으로써, 표현들은 분류와 같은 작업에 활용하기에 용이할 것이다.\n' +
+      '\n' +
+      '따라서 우리는 첫 번째 불변 시나리오가 성능 향상으로 이어지는지, 그리고 그것을 활용할 수 있는지도 궁금해할 수 있다. 우리가 IWM이 어떻게 정보를 보존할 수 있는지 증명했고, 변환을 적용할 수 있는 예측자를 가지고 있기 때문에, 우리는 효율적인 방법으로 불변 표현을 생성하기 위해 증분보다 소외시킬 수 있다. 여기서는 모든 증강 뷰에 인코더를 적용할 필요는 없지만, 보다 효율적인 예측기를 직접 사용할 수 있다. 우리가 \\(\\text{card}(A)=N\\)의 불변 표현을 계산할 수 있도록 랜덤 샘플링된 증분 집합 \\(A\\)을 고려한다면\n' +
+      '\n' +
+      '[z_{x}^{\\text{Inv}=\\frac{1}{N}\\sum_{i=1}^{N}p_{\\phi}\\left(f_{\\theta}(x),A_{i},m_{A_{i}\\right)\\\\(z_{x}^{\\text{Inv}}\\)와 가장 유사한 표현을 갖는 이미지를 시각화하고 \\(z_{x}^{\\text{Inv}}\\)을 사용하면 분류 작업에 대한 성능이 향상되는지 확인할 수 있다.\n' +
+      '\n' +
+      '그림 S4에서 볼 수 있듯이 \\(z_{x}^{\\text{Inv}\\)와 가장 유사한 표현이 있는 이미지는 깨끗한 이미지와 작은 변환이 있는 이미지이다. 또한 인코더는 증강 관련 정보를 보존하므로 변환에 불변하지 않는다는 것을 알고 있다. 이 두 사실을 결합하면 한계자이턴 과정이 첫 번째 종류의 불변과 유사한 깨끗한 표상을 생성한다는 것을 알 수 있다.\n' +
+      '\n' +
+      '그러나 표 S6을 볼 때 우리는 예측보다 주변화하여 얻은 불변 표현을 사용할 때 성능 이득이 존재하지 않음을 알 수 있다. 이는 128개의 증강된 뷰들에서도 사실이며, 이는 이미 64배 정도의 계수만큼 계산 예산을 증가시킨다. 이와 같이, 이미지의 콘텐츠를 보존하는 불변 표현들을 사용하는 것이 다운스트림 평가에 반드시 유익한 것은 아니다.\n' +
+      '\n' +
+      '전반적으로 대조적 학습에서 증강 불변성의 성공의 열쇠는 불변 표상을 구축하는 것만이 아니라 표상이 불변하는 방식에 있다. 정보 제거에 의한 불변성의 구축은 매우 효과적인 것으로 나타났지만(Chen et al., 2020), 여기서 우리는 깨끗한 이미지의 표현을 항상 예측함으로써 불변성이 반드시 도움이 되는 것은 아님을 알 수 있다. 이는 차브한 등(2023)에 나타난 바와 같이, 등분산 표상이 하류 작업으로부터 유용한 불변들을 구축할 수 없다는 것을 의미하지는 않지만, 우리가 불변 표상을 생성하는 방법에 신중해야 한다는 것을 의미한다.\n' +
+      '\n' +
+      '[MISSING_PAGE_EMPTY:20]\n' +
+      '\n' +
+      '그림 S7: 우리 세계 모델의 무작위로 선택된 검색 샘플. 각 이미지에 대해 256개의 증강 뷰를 생성하고 잠재 공간에서 변환을 적용한다. 그런 다음 예측의 가장 가까운 이웃을 검색하고 그것이 근거리에 가까운지 여부를 시각화한다. 학습된 세계 모델은 대부분의 설정에서 잘 수행되지만 그레이스케일을 반전하는 경우 일부 부정확성이 있다.\n' +
+      '\n' +
+      '그림 S9: 정밀 변환에 대한 세계 모델의 적용. 각 모수에 대해 모형이 작은 변화를 예측할 수 있는지 확인하기 위해 그리드에서 그 값을 변경합니다. 이 모델은 변환의 기울기를 보여줄 수 있으며, 세계 모델의 기능을 다시 강조한다. 그러나 모델은 증대의 조합에 대해서만 훈련되었기 때문에 여전히 일부 결함을 감지할 수 있다. 변화를 보다 가시적으로 만들기 위해, 우리는 이 그림에 강한 색 지터로 훈련된 모델을 사용했다.\n' +
+      '\n' +
+      '그림 S11: 정밀 변환에 대한 세계 모델의 적용. 각 모수에 대해 모형이 작은 변화를 예측할 수 있는지 확인하기 위해 그리드에서 그 값을 변경합니다. 이 모델은 변환의 기울기를 보여줄 수 있으며, 세계 모델의 기능을 다시 강조한다. 그러나 모델은 증대의 조합에 대해서만 훈련되었기 때문에 여전히 일부 결함을 감지할 수 있다. 변화를 보다 가시적으로 만들기 위해, 우리는 이 그림에 강한 색 지터로 훈련된 모델을 사용했다.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
