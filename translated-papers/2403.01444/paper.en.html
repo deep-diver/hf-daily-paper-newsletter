@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      'DGStream: On-the-fly Training of 3D Gaussians for Efficient Streaming of Photo-Realistic Free-Viewpoint Videos\n' +
+      '\n' +
+      'Jiakai Sun, Han Jiao, Guangyuan Li, Zhanjie Zhang, Lei Zhao, Wei Xing\n' +
+      '\n' +
+      'Zhejiang University\n' +
+      '\n' +
+      '{csjk, csjh, cslgy, cszzj, cszhl, wxing}@zju.edu.cn\n' +
+      '\n' +
+      '[https://sjojok.github.io/3dgstream](https://sjojok.github.io/3dgstream)\n' +
+      '\n' +
+      'Corresponding authors.\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      'Constructing photo-realistic Free-Viewpoint Videos (FVVs) of dynamic scenes from multi-view videos remains a challenging endeavor. Despite the remarkable advancements achieved by current neural rendering techniques, these methods generally require complete video sequences for offline training and are not capable of real-time rendering. To address these constraints, we introduce 3DGStream, a method designed for efficient FVV streaming of real-world dynamic scenes. Our method achieves fast on-the-fly per-frame reconstruction within 12 seconds and real-time rendering at 200 FPS. Specifically, we utilize 3D Gaussians (3DGs) to represent the scene. Instead of the naive approach of directly optimizing 3DGs per-frame, we employ a compact Neural Transformation Cache (NTC) to model the translations and rotations of 3DGs, markedly reducing the training time and storage required for each FVV frame. Furthermore, we propose an adaptive 3DG addition strategy to handle emerging objects in dynamic scenes. Experiments demonstrate that 3DGStream achieves competitive performance in terms of rendering speed, image quality, training time, and model storage when compared with state-of-the-art methods.\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      'Constructing Free-Viewpoint Videos (FVVs) from videos captured by a set of known-poses cameras from multiple views remains a frontier challenge within the domains of computer vision and graphics. The potential value and application prospects of this task in the VR/AR/XR domains have attracted much research. Traditional approaches predominantly fall into two categories: geometry-based methods that explicitly reconstruct dynamic graphics primitives [15, 17], and image-based methods that obtain new views through interpolation [7, 75]. However, these conventional methods struggle to handle real-world scenes characterized by complex geometries and appearance.\n' +
+      '\n' +
+      'In recent years, Neural Radiance Fields (NeRFs) [36] has garnered significant attention due to its potent capabilities in synthesizing novel views as a 3D volumetric representation. A succession of NeRF-like works [19, 29, 31, 32, 33, 34, 35, 36, 37, 38, 39, 43, 44, 45, 46, 48, 60, 67] further propelled advancements in constructing FVVs on dynamic scenes. Nonetheless, the vast majority of NeRF-like FVV construction methods encountered two primary limitations: (1) they typically necessitate complete video sequences for time-consuming offline training, meaning they can replay dynamic scenes but are unable to stream them, and (2) they generally fail to achieve real-time rendering, thereby hindering practical applications.\n' +
+      '\n' +
+      'Recently, Kerbl [26] have achieved real-time radiance field rendering using 3D Gaussians (3DGs), thus enabling the instant synthesis of novel views in static scenes\n' +
+      '\n' +
+      'Figure 1: **Comparison on the _flame stack_ scene of the N3DV dataset [31]. The training time, requisite storage, and PSNR are computed as averages over the whole video. Our method stands out by the ability of fast online training and real-time rendering, standing competitive in both model storage and image quality.**\n' +
+      '\n' +
+      'with just minutes of training. Inspired by this breakthrough, we propose 3DGStream, a method that utilizes 3DGs to construct Free-Viewpoint Videos (FVVs) of dynamic scenes. Specifically, we first train the initial 3DGs on the multi-view frames at timestep 0. Then, for each timestep \\(i\\), we use the 3DGs of previous timestep \\(i-1\\) as initialization and pass it to a two-stage pipeline. (1) In Stage 1, we train a Neural Transformation Cache (NTC) to model the transformations of 3DGs. (2) Then in the Stage 2, we use an adaptive 3DG addition strategy to handle emerging objects by spawning frame-specific additional 3DGs near these objects and optimize them along with periodic splitting and pruning. After the two-stage pipeline concludes, we use both the 3DGs transformed by the NTC and the additional 3DGs for rendering at the current timestep \\(i\\), with only the former carrying over for initialization of the subsequent timestep. This design significantly reduces the storage requirements for the FVV, as we only need to store the per-frame NTCs and frame-specific additions, rather than all 3DGs for each frame.\n' +
+      '\n' +
+      '3DGStream is capable of rendering photo-realistic FVVs at megapixel resolution in real-time, boasting exceptionally rapid per-frame training speeds and limited model storage requirements. As illustrated in Figs. 1 and 2, compared with static reconstruction methods that train from scratch per-frame and dynamic reconstruction methods that necessitate offline training across the complete video sequences, our approach excels in both training speed and rendering speed, maintaining a competitive edge in image quality and model storage. Furthermore, our method outperforms StreamRF [29], a state-of-the-art technique tackling the exactly same task, in all the relevant aspects.\n' +
+      '\n' +
+      'To summarize, our contributions include:\n' +
+      '\n' +
+      '* We propose 3DGStream, a method for on-the-fly construction of photo-realistic, real-time renderable FVV on video streams, eliminating the necessity for lengthy offline training on the entire video sequences.\n' +
+      '* We utilize NTC for modeling the transformations of 3DGs, in conjunction with an adaptive 3DG addition strategy to tackle emerging objects within dynamic scenes. This combination permits meticulous manipulation of 3DGs, accommodating scene alterations with limited performance overhead.\n' +
+      '* We conducted extensive experiments to demonstrate 3DGStream\'s competitive edge in rendering quality, training time, and requisite storage, as well as its superior rendering speed, compared to existing state-of-the-art dynamic scene reconstruction methods.\n' +
+      '\n' +
+      '## 2 Related Work\n' +
+      '\n' +
+      '### Novel View Synthesis for Static Scenes\n' +
+      '\n' +
+      'Synthesizing novel views from a set of images of static scenes is a time-honored problem in the domains of computer vision and graphics. Traditional methods such as Lumagraph [8, 22] or Light-Field [10, 16, 28, 50] achieve new view synthesis through interpolation. In recent years, Neural Radiance Fields (NeRF) [36] have achieved photorealistic synthesizing results by representing the radiance field using a multi-layer perceptron (MLP). A series of subsequent works enhance NeRF\'s performance in various aspects, such as accelerating training speeds [12, 13, 20, 25, 40, 52], achieving real-time rendering [14, 21, 23, 47, 72], and improving synthesis quality on challenging scenes [2, 3, 4, 35, 37, 56] or sparse inputs [11, 41, 53, 63, 66, 69, 73]. Since the vanilla NeRF employs costly volume rendering, necessitating neural network queries for rendering, subsequent approaches faced trade-offs in training time, rendering speed, model storage, image quality, and applicability. To address these challenges, Kerbl _et al._[26] propose 3D Gaussian Splatting (3DG-S), which integrates of 3DGs with differentiable point-based rendering. 3DG-S enables real-time high-fidelity view synthesis in large-scale unbounded scenes after brief training periods with modest storage requirements. Inspired by this work, we extend its application to the task of constructing FVVs of dynamic scenes. Taking it a step further, we design a on-the-fly training framework to achieve efficient FVV streaming.\n' +
+      '\n' +
+      '### Free-Viewpoint Videos of Dynamic Scenes\n' +
+      '\n' +
+      'Constructing FVVs from a set of videos of dynamic scenes is a more challenging and applicable task in the domains of computer vision and graphics. Earlier attempts to address this task pivoted around the construction of dynamic primitives [15, 17] or resorting to interpolation [7, 75]. With the\n' +
+      '\n' +
+      'Figure 2: **Comparison of our method with other methods on the N3DV dataset**[31]. \\(\\square\\) denotes training from scratch per frame, \\(\\triangle\\) represents offline training on complete video sequences, and \\(\\bigcirc\\) signifies online training on video streams. While achieving online training, our method reaches state-of-the-art performance in both rendering speed and overall training time.\n' +
+      '\n' +
+      'success of NeRF-like methods in novel view synthesis for static scenes, a series of works [1, 9, 19, 29, 30, 31, 32, 33, 34, 42, 44, 45, 46, 48, 51, 55, 57, 59, 61, 62, 68, 74] attempt to use NeRF for constructing FVVs in dynamic scenes. These works can typically be categorized into five types: prior-driven, flow-based, warp-based, those using spatio-temporal inputs, and per-frame training.\n' +
+      '\n' +
+      '**Prior-driven** methods [27, 30, 62, 74, 68, 74] leverage parametric models or incorporate additional priors, such as human-pose skeletons, to bolster performance on the reconstruction of specific dynamic objects, _e.g._, humans. However, their application is limited and not generalizable to broader scenes.\n' +
+      '\n' +
+      '**Flow-based** methods [32, 33] primarily focus on constructing FVVs from monocular videos. By estimating the correspondence of 3D points in consecutive frames, they achieve impressive results. Nonetheless, the intrinsic ill-posedness of monocular reconstructions in intricate dynamic scenes frequently calls for supplementary priors like depth, optical flow, and motion segmentation masks.\n' +
+      '\n' +
+      '**Warp-based** methods [1, 42, 44, 46, 51, 55, 61] assumption that the dynamics of the scene arise from the deformation of static structures. These techniques warp the radiance field of each frame onto one or several canonical frames, achieving notable results. However, the strong assumptions they rely on often prevent them from handling topological variations.\n' +
+      '\n' +
+      'Methods that use **spatio-temporal inputs**[9, 19, 31, 45, 57, 58, 48] enhance radiance fields by adding a temporal dimension, enabling the querying of the radiance field using spatio-temporal coordinates. While these techniques showcase a remarkable ability to synthesize new viewpoints in dynamic scenes, the entangled scene parameters can constrain their adaptability for downstream applications.\n' +
+      '\n' +
+      '**Per-frame training** methods [29, 34, 59] adapt to changes in the scene online by leveraging per-frame training, a paradigm we have also adopted. To be specific, StreamRF [29] employs Plenoxels [20] for scene representation and achieves rapid on-the-fly training with minimal storage requirements through techniques like narrow band tuning and difference-based compression. ReRF [59] uses DVGO [52] for scene representation and optimize motion grid and residual grid frame by frame to model inter-frame discrepancies, enabling high-quality FVV streaming and rendering. Dynamic3DG [34] optimizes simplified 3DGs and integrates physically-based priors for high-quality novel view synthesis on dynamic scenes.\n' +
+      '\n' +
+      'Among the aforementioned works, only NeRF-Player [51], ReRF [59], StreamRF [29], and Dynamic3DG [34] are able to stream FVVs. NeRF player achieves FVV streaming through a decomposition module and a feature streaming module, but it is only able to stream pre-trained models. ReRF and Dynamic3DG are limited to processing inward-facing scenes that are equipped with foreground masks and contain only a few objects, necessitating several minutes to train each frame. StreamRF stands out by requiring only a few seconds for each frame\'s training to construct high-fidelity FVVs on challenging real-world dynamic scenes with compressed model storage. However, it falls short in rendering speed. Contrarily, our approach matches or surpasses StreamRF in training speed, model storage, and image quality, all while achieving real-time rendering at 200 FPS.\n' +
+      '\n' +
+      'Figure 3: **Overview of 3DGStream. Given a set of multi-view video streams, 3DGStream aims to construct high-quality FVV stream of the captured dynamic scene on-the-fly. Initially, we optimize a set of 3DGs to represent the scene at timestep \\(0\\). For each subsequent timestep \\(i\\), we use the 3DGs from timestep \\(i-1\\) as an initialization and then engage in a two-stage training process: Stage 1: We train the Neural Transformation Cache (NTC) to model the translations and rotations of 3DGs. After training, the NTC transforms the 3DGs, preparing them for the next timestep and the next stage in the current timestep. Stage 2: We spawn frame-specific additional 3DGs at potential locations and optimize them along with periodic splitting and pruning. After the two-stage process concludes, both transformed and additional 3DGs are used to render at the current timestep i, with only the transformed ones carried into the next timestep.**\n' +
+      '\n' +
+      '### Concurrent Works\n' +
+      '\n' +
+      'Except for Dynamic3DG, several concurrent works have extended 3DG-S to represent dynamic scenes. Deformable3DG [70] employs an MLP to model the deformation of 3DGs, while [65] introduces a keplane-based encoder to enhance the efficency of deformation query. Meanwhile, [18, 71] lift 3DG to 4DG primitives for dynamic scene representation. However, these approaches are limited to offline reconstruction and lack streamable capabilities, whereas our work aims to achieve efficient streaming of FFVs with an online training paradigm.\n' +
+      '\n' +
+      '## 3 Background: 3D Gaussian Splatting\n' +
+      '\n' +
+      '3D Gaussian Splatting (3DG-S) [26] employs anisotropic 3D Gaussians as an explicit scene representation. Paired with a fast differentiable rasterizer, 3DGs achieves real-time novel view synthesis with only minutes of training.\n' +
+      '\n' +
+      '### 3D Gaussians as Scene Representation\n' +
+      '\n' +
+      'A 3DG is defined by a covariance matrix \\(\\Sigma\\) centered at point (_i.e_., mean) \\(\\mu\\):\n' +
+      '\n' +
+      '\\[G(x;\\mu,\\Sigma)=e^{-\\frac{1}{2}(x-\\mu)^{T}\\Sigma^{-1}(x-\\mu)}. \\tag{1}\\]\n' +
+      '\n' +
+      'To ensure positive semi-definiteness during optimization, the covariance matrix \\(\\Sigma\\) is decomposed into a rotation matrix \\(R\\) and a scaling matrix \\(S\\):\n' +
+      '\n' +
+      '\\[\\Sigma=RSS^{T}R^{T}. \\tag{2}\\]\n' +
+      '\n' +
+      'Rotation is conveniently represented by a unit quaternion, while scaling uses a 3D vector. Additionally, each 3DG contains a set of spherical harmonics (SH) coefficients of to represent view-dependent colors, along with an opacity value \\(\\alpha\\), which is used in \\(\\alpha\\)-blending (Eq. (4)).\n' +
+      '\n' +
+      '### Splatting for Differentiable Rasterization\n' +
+      '\n' +
+      'For novel view synthesis, 3DG-S [26] project 3DGs to 2D Gaussian (2DG) splats [76]:\n' +
+      '\n' +
+      '\\[\\Sigma^{\\prime}=JW\\Sigma W^{T}J^{T}. \\tag{3}\\]\n' +
+      '\n' +
+      'Here, \\(\\Sigma^{\\prime}\\) is the covariance matrix in camera coordinate. \\(J\\) is the Jacobian of the affine approximation of the projective transformation, and \\(W\\) is the viewing transformation matrix. By skipping the third row and third column of \\(\\Sigma^{\\prime}\\), we can derive a \\(2\\times 2\\) matrix denoted as \\(\\Sigma_{2d}\\). Furthermore, projecting the 3DG\'s mean, \\(\\mu\\), into the image space results in a 2D mean, \\(\\mu_{2d}\\). Consequently, this allows us to define the 2DG in the image space as \\(G_{2d}(x;\\mu_{2d},\\Sigma_{2d})\\).\n' +
+      '\n' +
+      'Using \\(\\Sigma^{\\prime}\\), the color \\(C\\) of a pixel can be computed by blending the \\(N\\) ordered points overlapping the pixel:\n' +
+      '\n' +
+      '\\[C=\\sum_{i\\in N}c_{i}\\alpha^{\\prime}_{i}\\prod_{j=1}^{i-1}(1-\\alpha^{\\prime}_{j }). \\tag{4}\\]\n' +
+      '\n' +
+      'Here, \\(c_{i}\\) denotes the view-dependent color of the \\(i\\)-th 3DG. \\(\\alpha^{\\prime}_{i}\\) is determined by multiplying the opacity \\(\\alpha_{i}\\) of the \\(i\\)-th 3DG \\(G\\) with the evaluation of the corresponding 2DG \\(G_{2d}\\).\n' +
+      '\n' +
+      'Leveraging a highly-optimized rasterization pipeline coupled with custom CUDA kernels, the training and rendering of 3DG-S are remarkably fast. For instance, for megapixel-scale real-world scenes, just a few minutes of optimization allows 3DGs to achieve photo-realistic visual quality and rendering speeds surpassing 100 FPS.\n' +
+      '\n' +
+      '## 4 Method\n' +
+      '\n' +
+      '3DGStream constructs photo-realistic FVV streams from multi-view video streams on-the-fly using a per-frame training paradigm. We initiate the process by training 3DGs [26] at timestep 0. For subsequent timesteps, we employ the previous timestep\'s 3DGs as an initialization and pass them to a two-stage pipeline. Firstly (Sec. 4.1), a Neural Transformation Cache (NTC) is trained to model the transformation for each 3DG. Once the training is finished, we transform the 3DGs and carry the transformed 3DGs to the next timestep. Secondly (Sec. 4.2), we employ an adaptive 3DG addition strategy to handle emerging objects. For each FVV frame, we render views at the current timestep using both the transformed 3DGs and additional 3DGs, while the latter are not passed to the next timestep. Note that we only need to train and store the parameters of the NTC and the additional 3DGs for each subsequent timestep, not all the 3DGs. We depict an overview of our approach in Fig. 3.\n' +
+      '\n' +
+      '### Neural Transformation Cache\n' +
+      '\n' +
+      'For NTC, we seek a structure that is compact, efficient, and adaptive to model the transformations of 3DGs. Compactness is essential to reduce the model storage. Efficiency enhances training and inference speeds. Adaptivity ensures the model focuses more on dynamic regions. Additionally, it would be beneficial if the structure could consider certain priors of dynamic scenes [5, 24, 54], such as the tendency for neighboring parts of an object to have similar motion.\n' +
+      '\n' +
+      'Inspired by Neural Radiance Caching [39] and I-NGP [40], we employ multi-resolution hash encoding combined with a shallow fully-fused MLP [38] as the NTC. Specifically, following I-NGP, we use multi-resolution voxel grids to represent the scene. Voxel grids at each resolution are mapped to a hash table storing a \\(d\\)-dimensional learnable feature vector. For a given 3D position \\(x\\in\\mathbb{R}^{3}\\), its hash encoding at resolution \\(l\\), denoted as \\(h(x;l)\\in\\mathbb{R}^{d}\\), is the linear interpolation of the feature vectors corresponding to the eight corners of the surrounding grid. Consequently, its multi-resolution hash encoding \\(h(x)=[h(x;0),h(x;1),...,h(x;L-1)]\\in\\mathbb{R}^{Ld}\\), where \\(L\\) represents the number of resolution levels. The multi-resolution hash encoding addresses all our requirements for the NTC:* **Compactness**: Hashing effectively reduces the storage space needed for encoding the whole scene.\n' +
+      '* **Efficiency**: Hash table lookup operates in \\(O(1)\\), and is highly compatible with modern GPUs.\n' +
+      '* **Adaptivity**: Hash collisions occur in hash tables at finer resolutions, allowing regions with larger gradients--representing dynamic regions in our context--to drive the optimization.\n' +
+      '* **Priors**: The combination of linear interpolation and the voxel-grid structure ensures the local smoothness of transformations. Additionally, the multi-resolution approach adeptly merges global and local information. Furthermore, to enhance the performance of NTC with minimal overhead, we utilize a highly-optimized shallow fully-fused MLP [38]. This maps the hash encoding to a 7-dimensional output: the first three dimensions indicate the translation of the 3DG; the remaining dimensions represent the rotation of the 3DG using quaternions. Given multi-resolution hash encoding coupled with MLP, our NTC is formalized as: \\[d\\mu,dq=MLP(h(\\mu)),\\] (5) where \\(\\mu\\) denotes the mean of the input 3DG. We transform the 3DGs based on \\(d\\mu\\) and \\(dq\\). Specifically, the following parameters of the transformed 3DGs are given as:\n' +
+      '\n' +
+      '* **Mean**: \\(\\mu^{\\prime}=\\mu+d\\mu\\), where \\(\\mu^{\\prime}\\) is the new mean and \\(+\\) represents vector addition.\n' +
+      '* **Rotation**: \\(q^{\\prime}=norm(q)\\times norm(dq)\\), where \\(q^{\\prime}\\) is the new roation, \\(\\times\\) indicates quaternion multiplication and \\(norm\\) denotes normalization.\n' +
+      '* **SH Coefficients**: Upon rotating the 3DG, the SH coefficients should also be adjusted to align with the rotation of the 3DG. Leveraging the rotation invariance of SH, we directly employ SH Rotation to update SHs. Please refer to the supplementary materials (Suppl.) for details.\n' +
+      '\n' +
+      'In Stage 1, we transform the 3DGs from the previous frame by NTC and then render with them. The parameters of the NTC is optimized by the loss between the rendered image and the ground truth. Following 3DG-S [26], the loss function is \\(L_{1}\\) combined with a D-SSIM term:\n' +
+      '\n' +
+      '\\[L=(1-\\lambda)L_{1}+\\lambda L_{D-SSIM}, \\tag{6}\\]\n' +
+      '\n' +
+      'where \\(\\lambda=0.2\\) in all our experiments. It should be noted that during the training process, the 3DGs from the previous frame remain frozen and do not undergo any updates. This implies that the input to the NTC remains consistent.\n' +
+      '\n' +
+      'Additionally, to ensure training stability, we initialize the NTC with warm-up parameters. The loss employed during the warm-up is defined as:\n' +
+      '\n' +
+      '\\[L_{warm-up}=||d\\mu||_{1}-cos^{2}(norm(dq),Q), \\tag{7}\\]\n' +
+      '\n' +
+      'where \\(Q\\) is the identity quaternion. The first term uses the \\(L_{1}\\) norm to ensure the estimated translation approaches zero, while the second term, leveraging cosine similarity, ensures the estimated rotation approximates no rotation. However, given the double-covering property of the unit quaternions, we use the square of the cosine similarity. For each scene, we execute the warm-up solely after the training at timestep 0, using noise-augmented means of the initial 3DGs as input. After 3000 iterations of training (roughly 20 seconds), the parameters are stored and used to initialize the NTCs for all the following timesteps.\n' +
+      '\n' +
+      '### Adaptive 3DG Addition\n' +
+      '\n' +
+      'Relying solely on 3DGs transformations adequately cover a significant portion of real-world dynamic scenes, with translations effectively managing occlusions and disappearances in subsequent timesteps. However, this approach filters when faced with objects not present in the initial frame, such as transient objects like flames or smoke, and new persistent objects like the liquid poured out of a bottle. Since 3DG is an unstructured explicit representation, it\'s essential to add new 3DGs to model these emerging objects. Considering constraints related to model storage requirements and training complexities, it\'s not feasible to generate an extensive number of additional 3DGs nor allow them to be used in subsequent frames, as this would cause 3DGs to accumulate over time. This necessitates a strategy for swiftly generating a limited number of frame-specific 3DGs to model these emerging objects precisely and thereby enhance the completeness of the scene at the current timestep.\n' +
+      '\n' +
+      'Firstly, we need to ascertain the locations for the emerging objects. Inspired by 3DG-S [26], we recognized the view-space positional gradients of 3DGs as a key indicator. We observed that for emerging objects, the 3DGs in proximity exhibited large view-space positional gradients. This is attributed to the optimization attempting to\'masquerade\' the emerging object by transforming the 3DGs. However, since we prevent the colors of the 3DGs from being updated in Stage 1, this attempt falls short. Nonetheless, they are still transformed to appropriate positions, with large view-space positional gradients.\n' +
+      '\n' +
+      'Based on the aforementioned observations, we deem it appropriate to introduce additional 3DGs around these high-gradient regions. Moreover, to exhaustively capture every potential location where new objects might emerge, we adopt an **adaptive** 3DG spawn strategy. Specifically, we track view-space positional gradient during the final training epoch of Stage 1. Once this stage concludes, we select 3DGs that have an average magnitude of view-space position gradients exceeding a relatively low threshold \\(\\tau_{grad}=0.00015\\). For each selected 3DG, the position of the additional 3DG is sampled from \\(X\\sim\\mathcal{N}(\\mu,2\\Sigma)\\), where \\(\\mu\\) and \\(\\Sigma\\) is the mean and the covariance matrix of the selected 3DG. While we avoid assumptions about the other attributes of the additional 3DGs, improper initializations of SH coefficientsand scaling vectors tend to result in an optimization preference for reducing opacity over adjusting these parameters. This causes additional 3DGs to quickly become transparent, thereby failing to capture the emerging objects. To mitigate this issue, the SH coefficients and scaling vectors of these 3DGs are derived from the selected ones, with rotations set to the identity quaternion q = [1, 0, 0, 0] and opacity initialized at 0.1. After spawning, the 3DGs undergo optimization utilizing the same loss function (Eq. (6)) as Stage 1. Note that only the parameters of the additional 3DGs are optimized, while those of the transformed 3DGs remain fixed.\n' +
+      '\n' +
+      'To guard against local minima and manage the number of additional 3DGs, we implement an **adaptive** 3DG quantity control strategy. Specifically, in Stage 2, we set a relatively high threshold, \\(\\tau_{\\alpha}=0.01\\), for the opacity value. At the end of each training epoch, for 3DGs with view-space position gradients exceeding \\(\\tau_{grad}\\), we spawn additional 3DGs nearby to address under-reconstructed regions. These additional 3DGs inherit their rotations and SH coefficients from the original 3DG, but their scaling is adjusted to 80% of the original, mirroring the\'split\' operation described by Kerbl et al. [26]. Subsequently, we discard any additional 3DGs with opacity values below \\(\\tau_{\\alpha}\\) to suppress the growth in the quantity of 3DGs.\n' +
+      '\n' +
+      '## 5 Experiments\n' +
+      '\n' +
+      '### Datasets\n' +
+      '\n' +
+      'We conduct experiments on two real-world dynamic scene datasets: N3DV dataset [31] and Meet Room dataset [29].\n' +
+      '\n' +
+      '**N3DV dataset**[31] is captured using a multi-view system of 21 cameras, comprises dynamic scenes recorded at a resolution of 2704\\(\\times\\)2028 and 30 FPS. Following previous works [9, 29, 31, 48, 57], we downsample the videos by a factor of two and follow the training and validation camera split provided by [31].\n' +
+      '\n' +
+      '**Meet Room dataset**[29] is captured using a 13-camera multi-view system, comprises dynamic scenes recorded at a resolution of 1280\\(\\times\\)720 and 30 FPS. Following [29], we utilize 13 views for training and reserved 1 for testing.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|l c c c|c} \\hline \\hline \\multirow{2}{*}{Category} & \\multirow{2}{*}{Method} & PSNR\\(\\uparrow\\) & Storage\\(\\downarrow\\) & Train\\(\\downarrow\\) & Render\\(\\uparrow\\) \\\\  & (dB) & (MB) & (mins) & (FPS) \\\\ \\hline \\multirow{3}{*}{Static} & Phenoxels [20] & 30.77 & 4106 & 23 & 8.3 & ✓ \\\\  & JNGP [40] & 28.62 & 48.2 & 1.3 & 2.9 & ✓ \\\\  & 3DG-S [26] & 32.08 & 47.1 & 8.3 & 390 & ✓ \\\\ \\hline \\multirow{3}{*}{Offline} & DyNeRF [31] & 29.58\\({}^{\\dagger}\\) & 0.1 & 260 & 0.02 & \\(\\times\\) \\\\  & NeRFPaper [51] & 30.69 & 17.1 & 1.2 & 0.05 & ✓ \\\\  & HasPlane [9] & 31.00 & 0.8 & 2.4 & 0.21 & \\(\\times\\) \\\\  & K-Planes [48] & 31.63 & 1.0 & 0.8 & 0.15 & \\(\\times\\) \\\\  & HyperRecel [11] & 31.10 & 1.2 & 1.8 & 2.00 & \\(\\times\\) \\\\  & MixVoxels [57] & 30.80 & 1.7 & 0.27 & 16.7 & \\(\\times\\) \\\\ \\hline \\multirow{2}{*}{Online} & StreamRF [29] & 30.68 & 17.7/31.4\\({}^{\\star}\\) & 0.25 & 8.3 & ✓ \\\\  & Ours & 31.67 & 7.67/8.4\\({}^{\\star}\\) & 0.20 & 215 & ✓ \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 1: **Quantitative comparison** on the N3DV dataset. The training time, required storage and PSNR are averaged over the whole 300 frames for each scene. \\({}^{\\dagger}\\)DyNeRF [31] only report metrics on the _flame salmon_ scene. \\({}^{\\star}\\)Considering the initial model.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c c} \\hline \\hline \\multirow{2}{*}{Method} & PSNR\\(\\uparrow\\) & Storage\\(\\downarrow\\) & Train\\(\\downarrow\\) & Render\\(\\uparrow\\) \\\\  & (dB) & (MB) & (mins) & (FPS) \\\\ \\hline \\multirow{2}{*}{Plenoxels [20]} & 27.15 & 1015 & 14 & 10 \\\\  & I-NGP [40] & 28.10 & 48.2 & 1.1 & 4.1 \\\\  & 3DG-S [26] & 31.31 & 21.1 & 2.6 & 571 \\\\ \\hline \\multirow{2}{*}{StreamRF [29]} & 26.72 & 5.7/9.0\\({}^{\\star}\\) & 0.17 & 10 \\\\ \\cline{2-5}  & 30.79 & 4.0/4.1\\({}^{\\star}\\) & 0.10 & 288 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 2: **Quantitative comparison** on the Meet Room dataset. Note that the training time, required storage and PSNR are averaged over the whole 300 frames. \\({}^{\\star}\\)Considering the initial model.\n' +
+      '\n' +
+      'Figure 4: **Qualitative comparisons** on the _discussion_ scene of the Meet Room dataset and the _sear streak_ scene of the N3DV dataset.\n' +
+      '\n' +
+      '### Implementation\n' +
+      '\n' +
+      'We implement 3DGStream upon the codes of 3D Gaussian Splitting (3DG-S) [26], and implement the Neural Transformation Cache (NTC) using tiny-cuda-nn [38]. For the training of initial 3DGs, we fine-tune the learning rates on the N3DV dataset based on the default settings of 3DG-S, and apply them to the Meet Room dataset. For all scenes, we train the NTC for 150 iterations in Stage 1. and train the additional 3DGs for 100 iterations in Stage 2. Please refer to Suppl. for more details.\n' +
+      '\n' +
+      '### Comparisons\n' +
+      '\n' +
+      '_Quantitative comparisons._ Our quantitative analysis involves benchmarking 3DGStream on the N3DV dataset and Meet Room dataset, comparing it with a range of representative methods. We take Plenoxels [20], I-NGP [40], and 3DG-S [26] as representatives of fast static scene reconstruction methods, training them from scratch for each frame. StreamRF [29], Dynamic3DG [34], and ReRF [60] are designed for online training in dynamic scenes. Owing to the limitations of Dynamic3DG and ReRF, which necessitate foreground masks and are confined to scenes with fewer objects, and their minute-level per-frame training times, we select StreamRF selected as the representative for online training methods due to its adaptability and training feasibility on the N3DV and MeetRoom datasets. To demonstrate 3DGStream\'s competitive image quality, we drew comparisons with the quantitative results reported for the N3DV dataset in the respective papers of DyN-eRF [31], NeRFplayer [51], HexPlane [9], K-Planes [48], HyperRecel [1], and MixVoxels [57], all of which are methods for reconstructing dynamic scenes through offline training on entire video sequences.\n' +
+      '\n' +
+      'In Tab. 1, we present the averaged rendering speed, training time, required storage, and peak signal-to-noise ratio (PSNR) over all scenes of the N3DV dataset. For each scene, the latter three metrics are computed as averages over the whole 300 frames. Besides, we provide a breakdown of comparisons across all scenes within the N3DV dataset in the Suppl. To demonstrate the generality of our method, we conducted experiments on the MeetRoom dataset, as introduced by StreamRF [29], and performed a quantitative comparison against Plenoxels [20], I-NGP [40], 3DG-S [26], and StreamRF [29]. The results are presented in Tab. 2. As presented in Tabs. 1 and 2, our method demonstrates superiority through fast online training and real-time render\n' +
+      '\n' +
+      'Figure 5: **Comparison of different approaches for modeling the transformation of 3DGs.** Conducted on the second frame of the _flame salmon_ video, utilizing identical initial 3DGs.\n' +
+      '\n' +
+      'Figure 6: **Comparison of different approaches on the _flame salmon_ scene.**\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c} \\hline \\hline Variant & PSNR\\(\\uparrow\\) (dB) & \\#Additional 3DGs\\(\\downarrow\\) \\\\ \\hline Baseline & 28.39 & **0** \\\\ Rnd. Spawn & 28.39 & 971.9 \\\\ _w/o_ Quant. Ctrl. & 28.43 & 8710.8 \\\\ Full Model & 28.42 & 477.7 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 3: **Ablation study of the Adaptive 3DG Addition strategy on the _flame salmon_ scene**. The metrics are averaged over the whole sequence.\n' +
+      '\n' +
+      'Figure 7: **Quantitative results of the ablation study** conducted on the _flame stack_ scene and the _coffee martini_ scene.\n' +
+      '\n' +
+      'ing, concurrently maintaining a competitive edge in terms of model storage and image quality. Furthermore, among the methods capable of streaming FVVs, our model requires the minimal model storage.\n' +
+      '\n' +
+      '_Qualitative comparisons._ While our approach primarily aims to enhance the efficiency of online FVV construction, as illustrated in Tabs. 1 and 2, it still achieves competitive image quality. In Fig. 4, we present a qualitative comparison with I-NGP [40], HyperReel [1], and StreamRF [29] across scenes on the N3DV dataset [31] and the Meet Room dataset [29], with a special emphasis on dynamic objects such as faces, hands, and tongs, as well as intricate objects like labels and statues. It is evident that our method faithfully captures the dynamics of the scene without sacrificing the ability to reconstruct intricate objects. Please refer to our project page for more video results.\n' +
+      '\n' +
+      '### Evaluations\n' +
+      '\n' +
+      '_Neural Transformation Cache._ We utilize distinct approaches to model the transformations of 3DGs from the first to the second frame within the _flame salmon_ video of the N3DV dataset to show the effectiveness of NTC. Fig. 5 shows that, without multi-resolution hash encoding (_w/o_ Hash enc.), the MLP faces challenges in modeling transformations effectively. Additionally, without the warm-up (_w/o_ Warm-up), it takes more iterations for convergence. Besides, even when compared with the direct optimization of the previous frame\'s 3DGs (Direct Opt.), NTC demonstrate on-par performance. In Fig. 6, We present the results of different approaches applied across the entire _flame salmon_ video, excluding the first frame (_i.e_., Frame 0). _w/o_ Hash enc. and _w/o_ Warm-up. are not able to converge swiftly, resulting in accumulating errors as the sequence progresses. Direct Opt. yields the best outcomes but at the cost of inflated storage. Utilizing NTC, in contrast, delivers comparable results with substantially lower storage overhead by eliminating the need for saving all the 3DGs.\n' +
+      '\n' +
+      '_Adaptive 3DG Addition._ Tab. 3 presents the quantitative results of the ablation study conducted on the _flame salmon_ scene, and more results are presented in Suppl. The base model without Stage 2, and a set of randomly spawned 3DGs (Rnd. Spawn) in equivalent quantities to our spawn strategy, both fail to capture emerging objects. The variant without our quantity control strategy (_w/o_ Quant. Ctrl.) manages to model emerging objects but requires a significantly larger number of additional 3DGs. In contrast, our full model proficiently reconstructs emerging objects using a minimal addition of 3DGs. The ablation study illustrated in Fig. 7 qualitatively showcases the effect of the Adaptive 3DG Addition strategy, highlighting its ability to reconstruct the objects not present in the initial frame, such as coffee in a pot, a dog\'s tongue, and flames.\n' +
+      '\n' +
+      '_Real-time Rendering._ Following 3DG-S [26], we employ the SIBR framework [6] to measure the rendering speed. Once all resources required are loaded onto the GPU, the additional overhead of our approach is primarily the time taken to query the NTC and transform the 3DGs. As detailed in Tab. 4, our method benefits from the efficiency of the multi-resolution hash encoding and the fully-fused MLP [38], which facilitate rapid NTC query. Notably, the most time-consuming step is the SH Rotation. However, our experiments indicate that the SH rotation has a minimal impact on the reconstruction quality, which may be attributed to the 3DGs modeling view-dependent colors through alternative mechanisms (_e.g_., small 3DGs of varying colors surrounding the object) rather than SH coefficients. Nonetheless, we maintain SH rotation for theoretical soundness.\n' +
+      '\n' +
+      '## 6 Discussion\n' +
+      '\n' +
+      'The quality of 3DG-S [26] on the initial frame is crucial to 3DGStream. Therefore, we inherit the limitations of 3DG-S, such as high dependence on the initial point cloud. As illustrated in Fig. 7, there are obvious artifacts beyond the windows, attributable to COLMAP\'s [49] inability to reconstruct distant landscapes. Hence, our method stands to benefit directly from future enhancements to 3DG-S. Moreover, for efficient on-the-fly training, we limit the number of training iterations, which restricts modeling of drastic motion in Stage 1 and complex emerging objects in Stage 2.\n' +
+      '\n' +
+      '## 7 Conclusion\n' +
+      '\n' +
+      'We propose 3DGStream, an novel method for efficient Free-Viewpoint Video streaming. Based on 3DG-S [26], we utilizes an effective Neural Transformation Cache to capture the motion of objects. In addition, we propose an Adaptive 3DG Addition strategy to accurately model emerging objects in dynamic scenes. The two-stage pipeline of 3DGStream enables the on-the-fly reconstruction of dynamic scenes in video streams. While ensuring photo-realistic image quality, 3DGStream achieves on-the-fly training (\\(\\sim\\)10s per-frame) and real-time rendering (\\(\\sim\\)200FPS) at megapixel resolution with moderate requisite storage. Extensive experiments demonstrate the efficiency and effectiveness of 3DGStream.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c} \\hline \\hline Step & Overhead (ms) & FPS \\\\ \\hline Render _w/o_ NTC & 2.56 & 390 \\\\ + Query NTC & 0.62 & \\\\ + Transformation & 0.02 & \\\\ + SH Rotation & 1.46 & \\\\ \\hline Total & 4.66 & 215 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 4: **Rendering profiling** for the _flame salmon_ scene at megapixel resolution. Note that _flame salmon_ is the most time-consuming to render of all scenes in our experiments.\n' +
+      '\n' +
+      '## 8 Acknowledgement\n' +
+      '\n' +
+      'This work was supported in part by Zhejiang Province Program (2022C01222, 2023C03199, 2023C03201), the National Program of China (62172365, 2021YFF0900604, 19ZDA197), Ningbo Science and Technology Plan Project (022Z167, 2023Z137), and MOE Frontier Science Center for Brain Science & Brain-Machine Integration (Zhejiang University).\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* [1] Benjamin Attal, Jia-Bin Huang, Christian Richardt, Michael Zollhoefer, Johannes Kopf, Matthew O\'Toole, and Changil Kim. Hyperreel: High-fidelity 6-dof video with ray-conditioned sampling. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 16610-16620, 2023.\n' +
+      '* [2] Jonathan T Barron, Ben Mildenhall, Matthew Tancik, Peter Hedman, Ricardo Martin-Brualla, and Pratul P Srinivasan. Mip-nerf: A multiscale representation for anti-aliasing neural radiance fields. In _Proceedings of the IEEE/CVF International Conference on Computer Vision_, pages 5855-5864, 2021.\n' +
+      '* [3] Jonathan T Barron, Ben Mildenhall, Dor Verbin, Pratul P Srinivasan, and Peter Hedman. Mip-nerf 360: Unbounded anti-aliased neural radiance fields. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 5470-5479, 2022.\n' +
+      '* [4] Jonathan T Barron, Ben Mildenhall, Dor Verbin, Pratul P Srinivasan, and Peter Hedman. Zip-nerf: Anti-aliased grid-based neural radiance fields. _ICCV_, 2023.\n' +
+      '* [5] Michael J Black and Paul Anandan. The robust estimation of multiple motions: Parametric and piecewise-smooth flow fields. _Computer vision and image understanding_, 63(1):75-104, 1996.\n' +
+      '* [6] Sebastien Bonopera, Jerome Esnault, Siddhant Prakash, Simon Rodriguez, Theo Thonat, Mehdi Benadel, Gaurav Chaurasia, Julien Philip, and George Drettakis. sibr: A system for image based rendering, 2020.\n' +
+      '* [7] Michael Broxton, John Flynn, Ryan Overbeck, Daniel Erickson, Peter Hedman, Matthew Duvall, Jason Dourgarian, Jay Busch, Matt Whalen, and Paul Debevec. Immersive light field video with a layered mesh representation. _ACM Transactions on Graphics (TOG)_, 39(4):86-1, 2020.\n' +
+      '* [8] Chris Buehler, Michael Bosse, Leonard McMillan, Steven Gortler, and Michael Cohen. Unstructured lumigraph rendering. In _SIGGRAPH_, pages 425-432, 2001.\n' +
+      '* [9] Ang Cao and Justin Johnson. Hexplane: A fast representation for dynamic scenes. _CVPR_, 2023.\n' +
+      '* [10] Jin-Xiang Chai, Xin Tong, Shing-Chow Chan, and Heung-Yeung Shum. Plenoptic sampling. In _Proceedings of the 27th annual conference on Computer graphics and interactive techniques_, pages 307-318, 2000.\n' +
+      '* [11] Anpei Chen, Zexiang Xu, Fuqiang Zhao, Xiaoshuai Zhang, Fanbo Xiang, Jingyi Yu, and Hao Su. Mvsnerf: Fast generalizable radiance field reconstruction from multi-view stereo. In _Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)_, pages 14124-14133, 2021.\n' +
+      '* [12] Anpei Chen, Zexiang Xu, Andreas Geiger, Jingyi Yu, and Hao Su. Tensorf: Tensorial radiance fields. In _European Conference on Computer Vision (ECCV)_, 2022.\n' +
+      '* [13] Anpei Chen, Zexiang Xu, Xinyue Wei, Siyu Tang, Hao Su, and Andreas Geiger. Dictionary fields: Learning a neural basis decomposition. _ACM Trans. Graph._, 2023.\n' +
+      '* [14] Zhiqin Chen, Thomas Funkhouser, Peter Hedman, and Andrea Tagliasacchi. Mobilenerf: Exploiting the polygon rasterization pipeline for efficient neural field rendering on mobile architectures. In _The Conference on Computer Vision and Pattern Recognition (CVPR)_, 2023.\n' +
+      '* [15] Alvaro Collet, Ming Chuang, Pat Sweeney, Don Gillett, Dennis Eveseev, David Calabrese, Hugues Hoppe, Adam Kirk, and Steve Sullivan. High-quality streamable free-viewpoint video. _ACM Transactions on Graphics (TOG)_, 34(4):69, 2015.\n' +
+      '* [16] Abe Davis, Marc Levoy, and Fredo Durand. Unstructured light fields. _Comput. Graph. Forum_, 31(2pt1):305-314, 2012.\n' +
+      '* [17] Mingsong Dou, Philip Davidson, Sean Ryan Fanello, Sameh Khamis, Adarsh Kowdle, Christoph Rhemann, Vladimir Tankovich, and Shahram Izadi. Motion2fusion: Real-time volumetric performance capture. _ACM Trans. Graph._, 36(6):246:1-246:16, 2017.\n' +
+      '* [18] Yuanxing Duan, Fangyin Wei, Qiyu Dai, Yuhang He, Wenzheng Chen, and Baoquan Chen. 4d gaussian splatting: Towards efficient novel view synthesis for dynamic scenes. _arXiv preprint arXiv:2402.03307_, 2024.\n' +
+      '* [19] Jiemin Fang, Taoran Yi, Xinggang Wang, Lingxi Xie, Xiaopeng Zhang, Wenyu Liu, Matthias Niessner, and Qi Tian. Fast dynamic radiance fields with time-aware neural voxels. In _SIGGRAPH Asia 2022 Conference Papers_, 2022.\n' +
+      '* [20] Sara Fridovich-Keil, Alex Yu, Matthew Tancik, Qinhong Chen, Benjamin Recht, and Angjoo Kanazawa. Plenoxels: Radiance fields without neural networks. In _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, pages 5501-5510, 2022.\n' +
+      '* [21] Stephan J. Garbin, Marek Kowalski, Matthew Johnson, Jamie Shotton, and Julien Valentin. Fastnerf: High-fidelity neural rendering at 200fps. In _Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)_, pages 14346-14355, 2021.\n' +
+      '* [22] Steven J. Gortler, Radek Grzeszczuk, Richard Szeliski, and Michael F. Cohen. The lumigraph. In _Proceedings of the 23rd Annual Conference on Computer Graphics and Interactive Techniques_, page 43-54, New York, NY, USA, 1996. Association for Computing Machinery.\n' +
+      '* [23] Peter Hedman, Pratul P. Srinivasan, Ben Mildenhall, Jonathan T. Barron, and Paul Debevec. Baking neural radiance fields for real-time view synthesis. In _2021 IEEE/CVF International Conference on Computer Vision (ICCV)_, pages 5855-5864, 2021.\n' +
+      '* [24] Berthold KP Horn and Brian G Schunck. Determining optical flow. _Artificial intelligence_, 17(1-3):185-203, 1981.\n' +
+      '* [25] Wenbo Hu, Yuling Wang, Lin Ma, Bangbang Yang, Lin Gao, Xiao Liu, and Yuewen Ma. Tri-miprf: Tri-mip representationfor efficient anti-aliasing neural radiance fields. In ICCV, Cited by: SS2.\n' +
+      '* [26]B. Kerbl, G. Kopanas, T. Leimkuhler, and G. Drettakis (2023) 3d gaussian splatting for real-time radiance field rendering. ACM Transactions on Graphics42 (4). Cited by: SS2.\n' +
+      '* [27]T. Kirschstein, S. Qian, S. Giebenhain, T. Walter, and M. Niessner (2023) Nersemble: multi-view radiance field reconstruction of human heads. arXiv preprint arXiv:2305.03027. Cited by: SS2.\n' +
+      '* [28]M. Levoy and P. Hanrahan (1996) Light field rendering. In SIGGRAPH, pp. 31-42. Cited by: SS2.\n' +
+      '* [29]L. Li, Z. Shen, Z. Wang, L. Shen, and P. Tan (2022) Streaming radiance fields for 3d video synthesis. In NeurIPS, Cited by: SS2.\n' +
+      '* [30]R. Li, J. Tanke, M. Vo, M. Zollhofer, J. Gall, A. Kanazawa, and C. Lassner (2022) Tava: template-free animatable volumetric actors. In European Conference on Computer Vision, pp. 419-436. Cited by: SS2.\n' +
+      '* [31]T. Li, M. Slavcheva, M. Zollhoefer, S. Green, C. Lassner, C. Kim, T. Schmidt, S. Lovegrove, M. Goesele, R. Newcombe, et al. (2022) Neural 3d video synthesis from multi-view video. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pp. 5521-5531. Cited by: SS2.\n' +
+      '* [32]Z. Li, S. Niklaus, N. Snavely, and O. Wang (2021) Neural scene flow fields for space-time view synthesis of dynamic scenes. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), pp. 6498-6508. Cited by: SS2.\n' +
+      '* [33]Z. Li, G. Wang, F. Cole, R. Tucker, and N. Snavely (2023) Dynibar: neural dynamic image-based rendering. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), Cited by: SS2.\n' +
+      '* [34]J. Luiten, G. Kopanas, B. Leibe, and D. Ramanan (2024) Dynamic 3d gaussians: tracking by persistent dynamic view synthesis. In 3DV, Cited by: SS2.\n' +
+      '* [35]R. Martin-Brualla, N. Radwan, M. S. M. Sajjadi, J. T. Barron, A. Dosovitskiy, and D. Duckworth (2021) NeRF in the Wild: neural radiance fields for unconstrained photo collections. In CVPR, Cited by: SS2.\n' +
+      '* [36]B. Mildenhall, P. P. Srinivasan, M. Tancik, J. T. Barron, R. Ramamoorthi, and R. Ng (2020) Nerf: representing scenes as neural radiance fields for view synthesis. In European conference on computer vision, pp. 405-421. Cited by: SS2.\n' +
+      '* [37]B. Mildenhall, P. Hedman, R. Martin-Brualla, P. P Srinivasan, and J. T. Barron (2022) Nerf in the dark: high dynamic range view synthesis from noisy raw images. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pp. 16190-16199. Cited by: SS2.\n' +
+      '* [38]B. Mildenhall, P. Hedman, R. Martin-Brualla, P. P Srinivasan, and J. T. Barron (2022) Nerf in the dark: high dynamic range view synthesis from noisy raw images. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pp. 16190-16199. Cited by: SS2.\n' +
+      '* [39]T. Muller, F. Rousselle, J. Novak, and A. Keller (2021) Real-time neural radiance caching for path tracing. ACM Transactions on Graphics (TOG)40 (4), pp. 1-16. Cited by: SS2.\n' +
+      '* [40]T. Muller, A. Evans, C. Schied, and A. Keller (2022) Instant neural graphics primitives with a multiresolution hash encoding. ACM Trans. Graph.41 (4), pp. 102:1-102:15. Cited by: SS2.\n' +
+      '* [41]M. Niemeyer, J. T. Barron, B. Mildenhall, M. Sajjadi, A. Geiger, and N. Radwan (2022) Regnerf: regularizing neural radiance fields for view synthesis from sparse inputs. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pp. 5480-5490. Cited by: SS2.\n' +
+      '* [42]K. Park, U. Sinha, J. T. Barron, S. Bouaziz, D. B. Goldman, S. M. Seitz, and R. Martin-Brualla (2021) Nerfies: deformable neural radiance fields. In Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV), pp. 5865-5874. Cited by: SS2.\n' +
+      '* [43]K. Park, U. Sinha, J. T. Barron, S. Bouaziz, D. B. Goldman, S. M. Seitz, and R. Martin-Brualla (2021) Nerfies: deformable neural radiance fields. In Proceedings of the IEEE/CVF International Conference on Computer Vision, pp. 5865-5874. Cited by: SS2.\n' +
+      '* [44]K. Park, U. Sinha, J. T. Barron, S. Bouaziz, D. B. Goldman, S. M. Seitz, and R. Martin-Brualla (2021) Nerfies: deformable neural radiance fields. In Proceedings of the IEEE/CVF International Conference on Computer Vision, pp. 5865-5874. Cited by: SS2.\n' +
+      '* [45]K. Park, U. Sinha, J. T. Barron, S. Bouaziz, D. B. Goldman, S. M. Seitz, and R. Martin-Brualla (2021) Nerfies: deformable neural radiance fields. In Proceedings of the IEEE/CVF International Conference on Computer Vision, pp. 5865-5874. Cited by: SS2.\n' +
+      '* [46]K. Park, U. Sinha, P. Hedman, J. T. Barron, S. Bouaziz, D. B. Goldman, R. Martin-Brualla, and S. M. Seitz (2021) Hypernerf: a higher-dimensional representation for topologically varying neural radiance fields. ACM Trans. Graph.40 (6). Cited by: SS2.\n' +
+      '* [47]S. Park, M. Son, S. Jang, Y. C. Ahn, J. Kim, and N. Kang (2023) Temporal interpolation is all you need for dynamic neural radiance fields. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pp. 4212-4221. Cited by: SS2.\n' +
+      '* [48]A. Pumarola, E. Corona, G. Pons-Moll, and F. Moreno-Noguer (2021) D-nerf: neural radiance fields for dynamic scenes. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pp. 10318-10327. Cited by: SS2.\n' +
+      '* [49]C. Reiser, R. Szeliski, D. Verbin, P. Srinivasan, B. Mildenhall, A. Geiger, J. Barron, and P. Hedman (2023) Merf: memory-efficient radiance fields for real-time view synthesis in unbounded scenes. ACM Transactions on Graphics (TOG)42 (4), pp. 1-12. Cited by: SS2.\n' +
+      '* [50]S. Fridovich-Keil and G. Meanti (2022) Frederik Rahbaek Warburg, Benjamin Recht, and A. Kanazawa. K-planes: explicit radiance fields in space, time, and appearance. In CVPR, Cited by: SS2.\n' +
+      '* [51]J. R. Schonberger and J. Frahm (2016) Structure-from-motion revisited. In Conference on Computer Vision and Pattern Recognition (CVPR), Cited by: SS2.\n' +
+      '* [52]H. Shum and L. He (1999) Rendering with concentric mosaics. In Proceedings of the 26th annual conference on Computer graphics and interactive techniques, pp. 299-306. Cited by: SS2.\n' +
+      '* [53]L. Song, A. Chen, Z. Li, Z. Chen, L. Chen, J. Yuan, Y. Xu, and A. Geiger (2021) Nerf\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:11]\n' +
+      '\n' +
+      '* [75] C Lawrence Zitnick, Sing Bing Kang, Matthew Uyttendaele, Simon Winder, and Richard Szeliski. High-quality video view interpolation using a layered representation. _ACM transactions on graphics (TOG)_, 23(3):600-608, 2004.\n' +
+      '* [76] Matthias Zwicker, Hanspeter Pfister, Jeroen Van Baar, and Markus Gross. Ewa volume splatting. In _Proceedings Visualization, 2001. VIS\'01._, pages 29-538. IEEE, 2001.\n' +
+      '\n' +
+      '* [001] Thank you to all reviewers for your insightful feedback. Below please find the responses to your specific comments\n' +
+      '* [002] **(Fmyh) 1 (a)** Yes. **(b)** The ablation studies in Figs. 6 and 7 show NTC\'s effectiveness. The ability of NTC to model transformation is on par with Direct Opt., a variant akin to Baseline A but optimizing all attributes. The "Storage" entry in Tabs. 1 and 2 of our method closely matches NTC\'s storage cost, as it occupies a large share according to Tab. 5. Meanwhile, the storage cost of Baseline A, equivalent to 3DGs with only means and rotations, is nearly \\(\\frac{T}{23}\\) that of full 3DGs and higher than NTC, as can be calculated from Tabs. 1 and 2. For Baseline B, Figs. 6 and 7 show that a pure MLP struggles to model transformation. **(c)** "Noise-augmented means" comprises initial means, noise-perturbed ones, and random samples. Since initial 3DGs move over time, using only initial means for warm-up is insufficient for NTC to meet starting conditions (outputting near-zero translations and rotations close to the identity quaternion, as described in L323-L326) in subsequent timesteps. Thus, We adopt this design to enhance NTC\'s robustness.\n' +
+      '* [0.5] **(Fmyh) 2 (a, b)** Each frame requires two types of 3DGs: transformed ones (at a fixed number on the order of \\(10^{5}\\)) and **frame-specific** additions (at a variable number on the order of \\(10^{2}\\)). The additions are independent of previous frames and are not used for subsequent frames (L063-L066, L243-L244, L343-L350), meaning that they do not accumulate over time. Thus, compared to the previous frame, the number of 3DGs may increase or decrease, depending on the frame-specific additions. The additional 3DGs do not stress data IO due to their relatively small storage costs and minor storage variations when compared to the total per-frame storage cost, as shown in Tab. 3, Tab. 5 and Fig. 9, Because rendering 3DGs is visibility-aware, explicit 3DG motion can handle the disappearance of objects, which is due to occlusion or movement outside the camera\'s stratum, by moving them to invisible places during optimization. We focus on adding 3DGs because, unlike disappearing objects which can be handled during optimization, emerging objects necessitate additional 3DGs for modeling. **(c)** We think that in online training, any method not requiring subsequent frame information could be a viable alternative. **(d)** Thanks for your suggestions. We shall provide the visualization in our revised version. **(e)** Our intention is to generate new 3DGs in appropriate locations nearby existing ones, with hyperparameters determined experimentally.\n' +
+      '* [0.5] **(Fmyh) 3** Thanks for your suggestion. We shall release additional viewer-friendly video results upon acceptance.\n' +
+      '* [0.5] **(Fmyh) 4 (a)** No. The representation contains: initial 3DGs, per-frame NTCs, and per-frame **frame-specific** additional 3DGs which are employed **exclusively** for the current frame. **(b)** NTC\'s storage cost is consistent per frame; only the storage for additional 3DGs changes, which is minimal as shown in Tab. 5 and Fig. 9. Besides, the "Additional 3DGs" entry in Tab. 3 refers to their quantity. **(c)** No, it will not affect the training/rendering speed because, as discussed in 2(a,b), the number of additional 3DGs is negligible compared to the large, fixed number of transformed 3DGs. **(Fmyh) 5, 6** Thanks for your suggestions. We shall update Tab. 4 and add relevant studies in the revised version. **(Yi5t)** Thanks for your suggestions. We shall incorporate discussion on concurrent works in the revised version. **(p5r1) Effectiveness.** Tab. 2 in the Supp. Mat. shows ablation studies on other scenes, from which we can derive that Tab. 3 (main text) actually shows the smallest PSNR gains among all scenes. Tab. 3 features results on _flame salmon_ as it\'s a frequently evaluated scene in the N3DV dataset, and the "Additional 3DGs" entry is scene-specific, unsuitable **(p6r)** for averaging. This stage\'s effectiveness is better reflected in modeling emerging objects than in PSNR gains. Fig. 9 8 highlights improved visuals via precise emerging object **(p6r)** modeling. We shall update Tab. 3 in our revised version. **(p5r1) Comparisons.** As noted in L181-L184 and L438-L442, Dynamic3DG and ReRF are excluded from the comparison for several reasons: (1) They do not report results on the N3DV and MeetRoom datasets, and their released **(p6r)** code is not readily executable on these datasets. (2) We aim to construct FVVs in complex real-world scenes, while **(p6r)** both methods deploy synthetic or niche datasets with few objects and foreground mask--such datasets fail to showcase the applicability of our approach. (3) Even on their respective datasets, both takes minute-level per-frame training times, indicating a lack of efficiency. In contrast, our method achieves second-level per-frame training on challenging real-world datasets. Given these factors, they are not our direct competitors; they are discussed in Section 2 because they fall into the same category of per-frame trained, streamable representation as StreamRF and ours.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
