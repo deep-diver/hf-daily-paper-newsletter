@@ -22,3 +22,5 @@
 - [Video as the New Language for Real-World Decision Making](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/34/2024-02-28+Video+as+the+New+Language+for+Real-World+Decision+Making.yaml) / 2024-02-28
 - [Humanoid Locomotion as Next Token Prediction](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/35/2024-03-01+Humanoid+Locomotion+as+Next+Token+Prediction.yaml) / 2024-03-01
 - [MOSAIC: A Modular System for Assistive and Interactive Cooking](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/35/2024-03-01+MOSAIC%3A+A+Modular+System+for+Assistive+and+Interactive+Cooking.yaml) / 2024-03-01
+- [RT-H: Action Hierarchies Using Language](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/37/2024-03-05+RT-H%3A+Action+Hierarchies+Using+Language.yaml) / 2024-03-05
+- [Twisting Lids Off with Two Hands](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/37/2024-03-05+Twisting+Lids+Off+with+Two+Hands.yaml) / 2024-03-05

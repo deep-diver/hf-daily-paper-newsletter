@@ -22,3 +22,4 @@
 - [Genie: Generative Interactive Environments](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/32/2024-02-26+Genie%3A+Generative+Interactive+Environments.yaml) / 2024-02-26
 - [DistriFusion: Distributed Parallel Inference for High-Resolution Diffusion Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/35/2024-03-01+DistriFusion%3A+Distributed+Parallel+Inference+for+High-Resolution+Diffusion+Models.yaml) / 2024-03-01
 - [Learning and Leveraging World Models in Visual Representation Learning](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/36/2024-03-04+Learning+and+Leveraging+World+Models+in+Visual+Representation+Learning.yaml) / 2024-03-04
+- [Twisting Lids Off with Two Hands](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/37/2024-03-05+Twisting+Lids+Off+with+Two+Hands.yaml) / 2024-03-05
