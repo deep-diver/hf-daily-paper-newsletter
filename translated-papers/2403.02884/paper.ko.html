@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# MathScale: 수학적 추론을 위한 스케일링 명령어 튜닝\n' +
+      '\n' +
+      'Zhengyang Tang\n' +
+      '\n' +
+      'Xingxing Zhang\n' +
+      '\n' +
+      'Benyou Wang\n' +
+      '\n' +
+      'Furu Wei\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      '대규모 언어 모델(LLM)은 문제 해결에서 놀라운 능력을 보여주었다. 그러나, 그들의 수학적 문제 해결 능력은 여전히 불충분하다. 본 논문에서는 프론티어 LLMs(예: GPT-3.5)를 이용하여 고품질의 수학적 추론 데이터를 생성하기 위한 간단하고 확장 가능한 방법인 _MathScale_을 제안한다. 인간의 수학 학습에서 인지 메커니즘에서 영감을 받아 먼저 시드 수학 문제에서 주제 및 지식 포인트를 추출한 다음 개념 그래프를 구축하며, 이는 후속적으로 새로운 수학 문제를 생성하는 데 사용된다. _ MathScale_는 우리가 생성하는 수학 데이터세트의 크기 축을 따라 효과적인 확장성을 나타낸다. 그 결과, 2백만 개의 수학 문제-답변 쌍을 포함하는 수학적 추론 데이터셋(MathScaleQA)을 생성한다. LLM의 수학적 추론 능력을 종합적으로 평가하기 위해, 우리는 K-12, 대학 및 경쟁 수준의 수학 문제를 다루는 10개의 데이터 세트(GSM8K 및 MATH 포함)의 집합인 수학 단어 문제의 벤치마크인 MwpBench를 구성한다. MathScaleQA를 오픈 소스 LLMs(예: LLaMA-2 및 Mistral)를 미세 조정함으로써 수학적 추론 능력이 크게 향상되었다. MwpBench에서 평가된 MathScale-7B는 모든 데이터 세트에서 최첨단 성능을 달성하여 동등한 크기의 최고의 피어를 각각 마이크로 평균 정확도에서 42.9%, 매크로 평균 정확도에서 43.7% 능가한다.\n' +
+      '\n' +
+      '머신러닝, ICML\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      '대규모 언어 모델(LLM)은 문제 해결에서 놀라운 능력을 보여주었다. 그러나 수학적 문제 해결에 대한 그들의 숙련도는 여전히 불충분하며, 이는 잠재적으로 수학적 문제 해결에서 다단계 복합 추론의 본질적인 필요성 때문이다. 인스트럭션 튜닝(Wei et al., 2021)은 LLM들에서 특정 능력들을 잠금해제하기 위한 효과적인 접근법이다. 불행히도 이 접근법은 수학적 추론에 대해 현재 사용 가능한 데이터 세트의 제한된 크기에 의해 제한된다. 예를 들어, 가장 인기 있는 수학 데이터세트인 GSM8K(Cobbe et al., 2021) 및 MATH(Hendrycks et al., 2021)는 각각 약 7.5K 트레이닝 예만을 포함한다.\n' +
+      '\n' +
+      '이 문제를 해결하기 위한 효과적인 방법은 GPT-3.5 및 GPT-4와 같은 프론티어 LLM을 사용하여 기존의 고품질 수학 데이터 세트를 증가시키는 것이다. 예를 들어, WizardMath(Luo et al., 2023)는 복잡도가 증가된 수학 질문을 생성하기 위해 GPT-3.5에 대한 일련의 연산을 도입한다. MetaMath (Yu et al., 2023) bootstraps questions in GSM8K and MATH through answer augmentation, question rephrasing, self-verification and FOBAR questions. 이러한 방법에 의해 새로 생성된 예는 훈련 세트 내에 포함된 원래 예와 상당한 유사성을 나타내며, 이는 대규모 수학 데이터 세트를 생성하는 데 있어 그 힘을 제한한다.\n' +
+      '\n' +
+      '따라서 우리는 원래 훈련 예제에 덜 의존하는 개념적으로 간단하고 확장 가능한 방법 _MathScale_를 제안한다. 구체적으로, 먼저 GPT-3.5가 기존 시드 수학 문제에서 상위 개념(즉, 주제 및 지식 포인트)을 추출하도록 프롬프트한다. 이 단계에서는 구체적인 수학 문제를 추출로 변환하고 원래 문제에 대한 의존성을 크게 제거한다. 이러한 추출이 주어지면 우리는 서로 다른 개념 간의 연결을 추정하는 데 사용되는 개념 그래프를 구축한다. 마지막으로 그래프에서 무작위로 샘플링된 개념을 기반으로 GPT-3.5에 새로운 수학 문제를 생성하도록 지시할 수 있다. 직관적으로, 우리는 결과적인 새로운 예들의 수가 증강 연산의 수에 의해 제한되기 때문에 증강 기반 방법들을 사용하는 것보다 상이한 개념들의 조합을 사용하여 훨씬 더 많은 예들을 생성할 수 있다. _ MathScale_는 또한 인간의 수학 학습 과정의 기초가 되는 인지 메커니즘과 유사하다(Tall, 2013). Tall(2013)은 인간의 학습 과정은 _concept compression_와 _connection forging_라는 두 가지 별개의 단계를 포함한다고 주장한다. _ Concept compression_은 높은 수준의 개념 추출 과정을 반영하는 반면, _connection forging_는 우리의 개념 그래프 구성과 유사하다.\n' +
+      '\n' +
+      '수학적 능력 평가는 양질의 수학적 데이터 세트의 부족으로 인해 발생하는 또 다른 문제이다. 최근 대부분의 LLM은 평가를 위해 GSM8K(Cobbe et al., 2021)와 MATH(Hendrycks et al., 2021)를 채용하고 있다. 그러나 GSM8K는 초등 수준의 문제에 초점을 맞추고 있는 반면 MATH는 경쟁 수준의 문제를 제공한다. 측정된 두 종류의 능력 사이에는 분명한 차이가 있다. 따라서 수학적 추론 능력을 측정하기 위한 종합적이고 통일된 벤치마크인 MwpBench를 소개한다. MwpBench는 GSM8K와 MATH를 포함한 10개의 수학 단어 문제 데이터셋으로 구성되어 있으며 초등학교부터 대학까지 난이도가 다른 수학 단어 문제를 다룬다. 또한 MwpBench는 통합된 프로토콜로 모든 데이터 세트의 평가를 표준화하여 일관되고 공정한 모델 비교를 촉진한다.\n' +
+      '\n' +
+      '_MathScale_는 우리가 생성하는 수학 데이터세트의 크기 축을 따라 효과적인 확장성을 나타낸다. 그 결과, 2백만 개의 수학 문제-답변 쌍을 포함하는 수학적 추론 데이터셋(MathScaleQA)을 생성한다. MathScaleQA를 오픈 소스 LLMs(예: LLMaMA-2 및 Mistral)를 미세 조정함으로써 수학적 추론 능력이 크게 향상되었다. MwpBench에서 평가한 MathScale-7B는 마이크로 평균 정확도에서 35.0%, 매크로 정확도에서 37.5%를 달성하여 동등한 크기의 최고의 피어를 각각 42.9%, 43.7% 능가했다.\n' +
+      '\n' +
+      '##2 Mwpench 평가 프레임워크\n' +
+      '\n' +
+      '### MwpBench\n' +
+      '\n' +
+      '**기존의 Datasets** 우리의 첫 번째 시도는 GSM8K(Cobbe et al., 2021), MATH(Hendrycks et al., 2021), TAL-SCQ(TAL, 2023), Math23k(Wang et al., 2017), Ape210k(Zhao et al., 2020), GoakaoBench-Math(Zhang et al., 2023), 및 AGIEval(Zhong et al., 2023) 시리즈를 포함하는 확립된 데이터 세트를 취합하는 것이다(표 1 참조). 이러한 데이터 세트의 문제 유형은 다르다. 예를 들어, 대부분의 데이터 세트는 수학 단어 문제를 포함하는 반면 TAL-SCQ는 다중 선택 질문을 포함한다. 직관적으로 다중 선택 질문은 LLM이 어떤 선택이 더 높은 확률로 이어지는지 파악하기만 하면 되기 때문에 더 간단하다. 따라서, 우리는 모든 다중 선택 질문을 수학 단어 문제(부록 A.1에 자세히 나와 있음)로 변환한다. 둘째, 일부 데이터 세트(예: Math23k, Ape210k)는 영어가 아니며, 기존 수학 데이터 세트를 확장하기 위해 영어로 번역한다(부록 A.2). 우리는 그들의 훈련 세트와 전체 테스트 세트의 일부를 영어로 번역했습니다.\n' +
+      '\n' +
+      '**CollegeMath** 기존 데이터 세트는 분석적 사고, 논리적 추론, 정량적 분석과 같은 다양한 기술이 필요한 대학 수준의 수학을 다루지 않는다. 그러므로 우리는 이 격차를 해소하기 위해 대학 수학을 제안한다.\n' +
+      '\n' +
+      '우리는 각각 별개의 주제를 다루는 9개의 대학 수학 교과서 모음을 선별했다(자세한 내용은 표 2 참조). 이 교과서들은 대수학, 사전 미적분학, 미적분학, 벡터 미적분학, 확률학, 선형 대수학, 미분 방정식의 7가지 중요한 수학 분야를 포함한다. 이 교과서들은 원래 PDF 형식이고 우리는 수학식이 LaTeX 형식으로 변환되는 Mathpix API1을 사용하여 텍스트 형식으로 변환합니다. 교과서를 텍스트 형식으로 변환하면 연습과 해결 방법을 추출할 준비가 되어 있습니다. 각 책에 대해 먼저 책을 챕터로 수동으로 분할하고 연습과 해결 방법이 있는 페이지를 식별한다. 그런 다음 연습 및 관련 짧은 답변에서 질문을 추출합니다(부록 A.3의 프롬프트에 대한 자세한 내용을 참조하십시오). 이 데이터 세트에는 총 1281개의 훈련 예제와 2818개의 테스트 예제가 포함되어 있습니다.\n' +
+      '\n' +
+      '각주 1: [https://docs.mathpix.com/#process-a-pdf](https://docs.mathpix.com/#process-a-pdf)\n' +
+      '\n' +
+      '### 통합평가 프로토콜\n' +
+      '\n' +
+      '수학적 추론을 위한 LLM들을 벤치마킹하는 것의 과제들 중 하나는 상이한 작업에서 사용되는 평가 메트릭들 및 프로토콜들에 걸친 불일치이다(Touvron et al., 2023; Luo et al., 2023; Yue et al., 2023).\n' +
+      '\n' +
+      'MwpBench는 통합된 평가 프로토콜을 사용하여 조정된 LLM의 수학적 추론 능력을 평가하는 것을 목표로 한다. 우리는 평가를 위해 제로 샷 설정을 사용하고 정확도 메트릭을 사용한다. 그 이유는 미세 조정된 LLM이 시연 없이 질문에 직접 답할 수 있어야 하는 반면, 몇 번의 촬영 설정에서 최종 결과는 다른 시연 세트에 따라 변경될 수 있다고 믿기 때문이다. 신속한 템플릿은 명령어 튜닝에 가장 널리 사용되는 Alpaca 템플릿(Taori et al., 2023)을 디폴트로 선택한다(Taori et al., 2023; Luo et al., 2023; Yu et al., 2023). 그러나, 우리는 LLM이 다른 명령어 템플릿(예: OpenAI ChatGPT 템플릿)으로 훈련되는 경우에 대비하여 맞춤형 템플릿을 지원한다. 디코딩의 경우, 비교에서 랜덤성을 제거하기 위해 탐욕 디코딩을 선택하고, 해결책으로 Top-1 완료를 선택한다. 평가를 더욱 표준화하기 위해, 우리는 정답 추출 및 검증 프로세스(고정밀 퍼지 일치)를 신중하게 구현했다.\n' +
+      '\n' +
+      '우리는 우리의 평가 프레임워크를 오픈 소스로 만들 계획입니다.\n' +
+      '\n' +
+      '##3 수학척도: 수학적 추론을 위한 스케일링 명령어 튜닝\n' +
+      '\n' +
+      '우리는 이 섹션에서 수학 축척에 대한 세부 사항을 제시한다. MathScale은 ChatGPT를 프롬프트하여 대규모의 수학적 추론 데이터 세트를 생성하는 것을 목표로 하며 4단계를 포함한다.\n' +
+      '\n' +
+      '### Concept Extraction\n' +
+      '\n' +
+      '도 1에 도시된 바와 같이, MathScale은 시드 수학 문제를 입력으로 하고, MwpBench의 트레이닝 세트(약 20K 수학 문제)를 이용한다. 첫 번째 단계에서는 GPT-3.5의 신속한 공학을 사용하여 이러한 시드 질문에서 상위 개념(즉, 주제 및 지식 포인트)을 추출하고 특정 수학 문제를 해결하는 데 필요한 메타 정보를 추출하는 것을 목표로 한다. 우리는 "주제"와 "지식 포인트"가 질문에 대한 중요한 메타 정보라고 믿는다. "주제"란 수학 교과명이나 "돈과 금융", "산술 연산"과 같은 수학책 장의 주제명을 말한다. "지식 포인트"는 문제 해결에서 더 세밀하게 세분화된 수학 개념(예: 정리, 기술)을 의미한다. 대표적인 예가 "내적의 정의와 속성" 또는 "분수를 정수로 변환하는 것"이다. 우리는 GPT-3.5가 수학 교사 역할을 하도록 지시하고 주어진 시드 질문에서 1 또는 2개의 주제 및 1 내지 5개의 지식 포인트를 추출한다(표 3의 프롬프트 템플릿을 참조).\n' +
+      '\n' +
+      '추출된 주제 및 지식 포인트의 다양성을 보장하기 위해 다양한 출처의 질문을 포함하는 MwpBench의 훈련 세트를 사용한다. 또한 소음을 줄이기 위해 한 번만 나타나는 주제 및 지식 포인트를 제거합니다. 총 2K 토픽과 8K 지식 포인트를 추출하였다. 상기 과정은 (Tall, 2013)에서 설명한 _concept compression_을 반영한다.\n' +
+      '\n' +
+      '#####개념 그래프 구축\n' +
+      '\n' +
+      '개념 그래프** 이전 단계에서 추출된 토픽과 지식 포인트가 주어지면, 노드들이 추출된 토픽\\(\\mathbb{T}=\\{\\mathbf{t}_{1},\\mathbf{t}_{2},\\ldots,\\mathbf{t}_{|\\mathbbb{T}|}\\}) 및 지식 포인트(KPs)\\(\\mathbbb{K}=\\{\\mathbf{k}_{1},\\mathbf{k}_{2},\\ldots,\\mathbf{k}_{k}}{k}|}\\}\\})인 개념 그래프를 구성한다. 도 2에 도시된 바와 같이, 우리는 이 그래프에서 세 가지 유형의 에지(즉, 토픽-토픽 에지, 토픽-KP 에지 및 KP-KP 에지)를 가지며, 이는 세 개의 서브-그래프(토픽 그래프, 토픽-KP 그래프, KP 그래프)로 귀결된다. 주제(또는 KP)\\(\\mathbf{u}\\)가 다른 주제(또는 KP)\\(\\mathbf{v}\\)와 함께 발생할 때, 우리는 이들 사이의 에지를 구축하고 에지 가중치는 이들의 동시 발생 통계량과 관련된다. 종자 질문으로부터 \\(\\mathbf{u}\\)와 \\(\\mathbf{v}\\)의 동시출현을 추출하였다.\n' +
+      '\n' +
+      '형식적으로 \\(E=\\{(\\mathbf{u},\\mathbf{v})|f_{\\text{co}}(\\mathbf{u},\\mathbf{v})>0\\}\\)는 \\(C\\)의 에지를 나타내고 \\(f_{\\text{co}}(\\mathbf{u},\\mathbf{v})는 \\(\\mathbf{u}\\)과 \\(\\mathbf{v}\\) 사이의 에지 가중치라고 하자.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l l l l l l l} \\hline \\hline\n' +
+      '**Dataset** & **Level** & **Difficulty** & **Question Type** & **Language** & **\\#Train** & **\\#Test** \\\\ \\hline GSM8K & Elementary & Easy & Word & En & 7473 & 1319 \\\\ MATH & Competition & ExHard & Word & En & 7498 & 5000 \\\\ TAL-SCQ & K12 Math & Medium & MC\\(\\rightarrow\\)Word & En & 2638 & 1496 \\\\ Math23k & Elementary & Easy & Word & Zh\\(\\rightarrow\\)En & 1000 & 949 \\\\ Ape210k & Elementary & Easy & Word & Zh\\(\\rightarrow\\)En & 967 & 4874 \\\\ GaokaoBench-Math & High School & Hard & MC\\(\\rightarrow\\)Word & Zh\\(\\rightarrow\\)En & 0 & 508 \\\\ AGIEval-Gaokao-Math & High School & Hard & MC\\(\\rightarrow\\)Word & Zh\\(\\rightarrow\\)En & 0 & 404 \\\\ AGIEval-SAT-Math & High School & Hard & MC\\(\\rightarrow\\)Word & En & 0 & 102 \\\\ AGIEval-Math & Competition & ExHard & Word & En & 0 & 938 \\\\ CollegeMath & College & ExHard & Word & En & 1281 & 2818 \\\\ \\hline Total & – & – & – & – & 20857 & 18408 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 1: MwpBench에서의 통계치. "질문 유형" 열에서 "단어"는 수학 단어 문제를, "MC"는 객관식 문제를 의미한다. "어려움" 열에서 "ExHard"는 극도로 어려운 것을 의미한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l l c c c} \\hline \\hline\n' +
+      '**Topic** & **Book** & **License** & **\\#Train** & **\\#Test** \\\\ \\hline Algebra & Beginning and Intermediate Algebra (Wallace, 2010) & CC BY 3.0 & 1171 & 1000 \\\\ Precalculus & PRECALCULUS (Stitz \\& Zeager, 2013) & CC & 80 & 500 \\\\ Calculus & Calculus (Guichard, 2009) & CC BY-NC-SA & 30 & 500 \\\\ VectorCalculus & CORRAL’s VECTOR CALCULUS (Corral, 2008) & GFDL & 0 & 110 \\\\ Probability & Introduction to Probability (Grinstead \\& Snell, 2006) & GFDL & 0 & 38 \\\\ Probability & Probability and Statistics: & Custom\\({}^{2}\\) & 0 & 101 \\\\  & The Science of Uncertainty (Evans \\& Rosenthal, 2004) & C\\(\\ddot{\\text{u}}\\\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:4]\n' +
+      '\n' +
+      '답변 쌍 수학 교사들이 기존 연습에서 문제를 설계하는 방법에 영감을 받아, 우리는 문제 공식화에 GPT-3.5를 안내하는 몇 안 되는 예시를 포함하기로 결정했다. 이러한 예는 지식 포인트 세트의 자카드 거리를 기반으로 시드 질문에서 선택된다. 우리는 GPT-3.5가 \\(\\hat{\\mathbb{T}\\)을 준수하도록 요청하고 KPs \\(\\hat{\\mathbb{K}\\)의 결합 사용을 장려한다. 우리는 표 4에 프롬프트에 대한 템플릿을 제시한다.\n' +
+      '\n' +
+      '또한 MwpBench의 테스트 세트에 있는 모든 수학 질문이 제거되는 오염 제거 프로세스를 적용한다.\n' +
+      '\n' +
+      '### Validation\n' +
+      '\n' +
+      '우리는 때때로 새로 생성된 QA 쌍에서 해가 틀리다는 것을 관찰한다. 따라서 우리는 또한 다음과 같이 추가 검증 프로세스를 추가하려고 했다. 우리는 먼저 GPT-4에게 질문에 대한 참조 해를 생성하도록 지시한 다음 GPT-4에게 다시 요청하여 이전 단계에서 생성된 해와 비교하여 GPT-4 해를 검증한다. 우리는 GPT-4가 GPT-3.5보다 더 정확하다고 가정하며, GPT-4가 오신호 해법이 잘못되었다고 믿는 경우 새로운 GPT-4 해법으로 대체한다. 소규모 실험(표 7)은 단계가 결과를 개선하지 않음을 보여준다. 아마도 본질적으로 우리는 오픈 소스 LLM을 사용하여 GPT-3.5를 증류하려고 하기 때문일 것이다. 일부 솔루션은 부정확하지만, 여전히 오픈 소스 LLM이 GPT-3.5의 모델 분포를 학습하는 데 도움이 되므로, 최종 파이프라인에서 이 검증 단계를 제거한다.\n' +
+      '\n' +
+      '## 4 Experiments\n' +
+      '\n' +
+      '### Implementation\n' +
+      '\n' +
+      '데이터 생성 개념 추출(섹션 3.1)에서 MathScale 파이프라인의 시드 질문으로 약 20K 질문으로 구성된 MwBench 트레이닝 세트를 사용하고 추출을 위해 GPT-3.5-Turbo-0613을 사용한다. 총 2,018개의 토픽과 8,892개의 지식 포인트를 획득합니다. 그런 다음 이러한 개념 간의 관계를 설정하기 위해 그래프를 구성한다(섹션 3.2). 그래프에서 에지 가중치는 식 (1)을 이용하여 평활화하고 \\(\\varepsilon=1e-5\\)으로 설정하였다. 개념 구성 과정에서 모든 주제 노드를 통한 반복을 하나의 에폭으로 취급하면 약 1K 에폭에 대해 이 과정을 반복하여 200만 개의 고유한 개념 구성을 생성한다. 그런 다음 GPT-3.5-Turbo-0613에 이러한 구성으로 2백만 개의 질문-답변 쌍을 생성하도록 지시한다. 또한 MwpBench의 테스트 세트에서 모든 수학 문제를 제외하여 생성된 데이터 세트의 오염을 제거했다. 소중한 고품질 수학 추론 데이터를 활용하기 위해 생성된 데이터를 MwpBench의 훈련 세트와 추가로 결합한다. 우리는 결과 데이터세트 **MathScaleQA**라고 부른다. 검증 단계(섹션 3.4)는 검증 단계가 결과를 개선하지 않는다는 것을 발견하기 때문에 최종 파이프라인에서 제외된다(섹션 5.3의 세부사항 참조). 파이프라인의 각 단계에 대한 예시적인 출력은 부록 A.4에 제공된다.\n' +
+      '\n' +
+      '모델 트레이닝 MathScaleQA에서의 질문들은 다음과 같이 Alpaca 프롬프트(Taori et al., 2023)를 사용하여 포맷된다.\n' +
+      '\n' +
+      '그림 2: MathScale 파이프라인에서 개념 그래프 구성 프로세스의 실행 예.\n' +
+      '\n' +
+      '아래는 작업을 설명하는 지시사항입니다. 요청을 적절하게 완료하는 응답을 작성합니다.\n' +
+      '\n' +
+      '```\n' +
+      '###Instruction: {question}\n' +
+      '```\n' +
+      '###Response: ```\n' +
+      '\n' +
+      '우리의 트레이닝 파이프라인은 오픈-인스트럭트(Wang et al., 2023) 툴킷으로부터 적응된다. LLaMA-2 7B 및 13B 모델(Touvron et al., 2023)과 Mistral 7B 모델(Jiang et al., 2023)을 백본 모델로 활용한다. 학습률 2e-5를 사용하여 3개의 에폭에 대한 MathScaleQA 데이터셋을 학습하고, 생성된 모델을 _MathScale_-7B, _MathScale_-13B 및 _MathScale-Mistral_-7B_라고 한다. 우리는 향후 작업에서 LLaMA-2 70B 모델에 대한 탐사를 남긴다.\n' +
+      '\n' +
+      '### 모델의 비교\n' +
+      '\n' +
+      '종합적인 평가를 위해, 우리는 비교를 위해 수학적 추론에 특화된 다양한 이전 LLM 세트를 선택한다.\n' +
+      '\n' +
+      'Close-Source Models은 OpenAI가 개발한 가장 성능이 뛰어난 GPT 모델인 경량화된 GPT-3.5-Turbo-0613과 강력한 GPT-4-0314를 포함하며, 이 모델들은 수학적 추론에 능숙하고 상한의 역할을 하는 것으로 알려져 있다.\n' +
+      '\n' +
+      '또한 오픈 소스 모델과 오픈 소스 수학 모델을 비교한다. 특히 WizardMath (Luo et al., 2023), GAIR-Abel (Chern et al., 2023), MetaMath (Yu et al., 2023), 및 MAMmoTH (Yue et al., 2023)와 비교한다. WizardMath(Luo et al., 2023)는 evol-instruct(Xu et al., 2023) 및 강화 학습에 기초한다. MetaMath(Yu et al., 2023)는 답변 또는 질문 측면 패러프레이징을 사용하여 GSM8K(Cobbe et al., 2021) 및 MATH(Hendrycks et al., 2021)를 증강함으로써 데이터세트에 대해 트레이닝된다. MAMmoTH(Yue et al., 2023)를 훈련시키는데 사용되는 데이터세트는 GPT-4 CoT(Wei et al., 2022) 및/또는 PoT(Gao et al., 2023; Chen et al., 2022) 주석들을 갖는 13개의 기존의 수학 데이터세트들의 모음을 포함한다. 우리는 CoT 자연어 스타일 수학 솔루션을 사용하여 모든 모델을 평가한다. 우리는 일부 모델(예: GPT-4 및 MAMmoTH)이 자연 언어 솔루션 외에도 수학 문제의 코드 솔루션을 생성할 수 있음을 발견했다. 공정한 비교를 위해 위의 모든 모델은 훈련 데이터의 솔루션이 GPT 주석이 달린 코드 솔루션으로 대체되는 경우 코드 해석 스타일 솔루션을 생성할 수 있기 때문에 코드 해석 스타일 솔루션을 사용하여 비교하는 것을 삼간다. 또한 위저드마쓰 v1.1은 미스트랄 기반 수학 모델이며 학습 데이터가 어떻게 구성되어 있는지 모른다(저자들은 위저드마쓰 v1.1의 학습 데이터에 대한 세부 정보를 공개하지 않았다). 우리는 수학적 추론에 대한 10개의 데이터 세트를 포함하는 MwpBench에서 모든 모델을 평가한다. 우리는 10개의 데이터 세트와 마이크로 평균 및 매크로 평균의 정확도를 보고한다. 알렉사 템플릿을 사용하여 모든 모델에 프롬프트합니다(섹션 4.1 참조). (Luo et al., 2023)은 추론 동안 개선된 프롬프트를 추천했다(즉, 표준 알렉사 템플릿 이후에 단계적으로 생각하자). 그러나 일부 모델에 대한 MwpBench의 혼합 결과를 비교하여 관찰한다. 예를 들어, GSM8K에서는 개선된 결과를 관찰하지만 MATH에서는 감소된 결과를 관찰한다. 따라서 우리는 이 최적화를 모든 모델에 비교하여 사용하지 않는다.\n' +
+      '\n' +
+      '### Main Results\n' +
+      '\n' +
+      '표 5에 나타난 바와 같이, MathScale은 LLaMA-2 7B, LLaMA-2 13B 또는 Mistral 7B를 기반으로 하는 다른 모델에 비해 MwpBench 상에서 최상의 마이크로 평균 및 매크로 평균 점수를 획득한다. 구체적으로, 평균적으로 _MathScale_-7B는 MwpBench 전체에서 35.0%(마이크로) 및 37.5%(매크로) 정확도를 달성하여 동등한 크기의 최상의 대응물을 각각 42.9% 및 43.7% 능가한다. 그 경향은 _MathScale_-13B 및 _MathScale_-Mistral에 대해 유사하다. 이것은 또한 백본 모델에 관계없이 MathScaleQA 데이터 세트의 효과를 확인한다. 가다오벤치-수학, AGIEval-Gadokao-MATH, AGIEval-SAT-MATH에는 훈련 세트가 없다. 이러한 도메인 외 테스트 세트에서도 _MathScale_-7B는 비교에서 다른 오픈 소스 모델보다 훨씬 우수하다. 프론티어 LLM과 비교할 때, MathScale-Mistral은 GPT-3.5-터보에 대한 마이크로 및 매크로 평균 모두에서 성능 패리티를 보여준다(표 5의 첫 번째 블록 참조). 또한 부록 A.5의 MATH 및 CollegeMath 데이터 세트에 대한 하위 집합 성능을 포함하여 다양한 주제 및 분야에 걸친 모델 기능을 분석했습니다.\n' +
+      '\n' +
+      '##5 분석 및 논의\n' +
+      '\n' +
+      '###수학 축척의 스케일링 특성\n' +
+      '\n' +
+      '섹션 3에서 설명한 바와 같이 고정된 수학 개념 집합이 주어지면 개념 그래프를 반복하면 수학적 개념의 다른 구성을 생성할 수 있으므로 많은 양의 새로운 수학 데이터를 합성할 수 있다. 우리는 LLaMA-2 7B를 기본 모델로 사용하여 MathScale의 스케일링 특성을 연구한다. MathScaleQA 데이터 세트의 크기를 스케일링할 때, 우리는 그림 3에 묘사된 바와 같이 MwpBench 내의 모든 데이터 세트에 걸쳐 MathScale-7b 모델의 성능에서 거의 로그 성장을 관찰한다. 최대 200만 예(전체 MathScaleQA 크기)까지 스케일링 곡선을 그린다. 또한 각각의 훈련 크기에서 MathScale과 WizardMath 및 MetaMath를 비교한다. MathScale은 동등한 양의 훈련 데이터를 사용할 때 모든 데이터 세트(GSM8K 제외)에서 두 모델 모두를 능가합니다. 그림 3의 스케일링 곡선을 고려할 때, 우리는 MathScale의 성능이 훨씬 더 많은 합성 트레이닝 예제로 계속 향상될 수 있다고 예상한다. 자원 제약으로 인해 우리는 200만 개의 예를 넘어 훈련 세트 스케일링을 향후 작업에 맡긴다.\n' +
+      '\n' +
+      '개념 추출을 위한### 어블레이션\n' +
+      '\n' +
+      '개념 추출 과정(3.1절)에서는 20K 시드 문항을 모두 사용하며, 다음의 두 문항에 대한 답을 시도한다. _1) 씨앗 질문의 수가 중요합니까? 2) 추출된 개념의 개수가 중요한가?_ 우리는 빠른 실험을 위해 결과적인 훈련 예제의 크기를 25K로 제어한다. 모든 실험에서 우리는 LLAMA-2 7B 모델을 백본 모델로 사용한다.\n' +
+      '\n' +
+      '종자 질문의 영향을 평가하기 위해 먼저 MwpBench 훈련 세트에서 종자 질문의 50%를 무작위로 제거한다(즉, 10K 종자 질문만 사용한다). 결과는 표 6에 나와 있다. 우리는 MwpBench 드롭에 대한 매크로 평균을 2.9% 관찰한다. 또한, 시드 질문의 데이터 소스를 GSM8K와 MATH의 훈련 세트로만 제한하면 3.5%의 성능 감소가 있다. 위의 이러한 결과는 더 크고 다양한 종자 질문 세트를 통합하는 것이 유익함을 나타낸다.\n' +
+      '\n' +
+      '수학적 개념의 수 또한 추출된 수학 개념의 영향을 조사한다. <표 6>과 같이 주제나 지식점의 절반을 제거함으로써 MwpBench에서 거시적 평균이 눈에 띄게 감소하는 것을 관찰할 수 있다. 특히, 지식 포인트 제거는 더 큰 성능 저하(즉, -8.6%에서 50% 지식 포인트 v.s. -2.3%에서 토픽의 50%)로 이어진다. 이는 지식 포인트가 수학 척도의 효과를 높이는 데 중요한 역할을 한다는 점을 강조한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c} \\hline \\hline\n' +
+      '**Methods** & **Macro** & **Relative** \\\\  & **Average** & **Change** \\\\ \\hline MathScale & 14.5 & - \\\\ \\hline Remove 50\\% Seed Questions & 14.0 & -2.9\\% \\\\ Restrict Data Source & 13.9 & -3.5\\% \\\\ to GSM8K and MATH only & 13.9 & -3.5\\% \\\\ \\hline Remove 50\\% Topics & 14.1 & -2.3\\% \\\\ Remove 50\\% Knowledge Points & 13.2 & -8.6\\% \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 6: MwpBench에서 제어 훈련 크기가 25K인 개념 추출의 절제 연구.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c c c c c c c c} \\hline \\hline\n' +
+      '**모델** & **GSM8K** & **MAT** &\n' +
+      '\\begin{tabular}{c} **College** \\\\ **Math** \\\\ \\end{tabular} & **TAL** & **Math23k** & **Ape210k** & **Gaokao** & **AGIE** & **AGIE** & **AGIE** & **Micro** & **Macro** \\\\  & & & & & & & **Math** & **Math** & **Math** & **Average** & **Average** \\\\ \\hline \\multicolumn{11}{c}{_Closed-source Models_} \\\\ GPT-4 & **92.9** & **51.8** & **24.4** & **51.8** & **76.5** & **61.5** & **35.4** & **28.2** & **68.6** & **50.7** & **52.0** & **54.2** \\\\ GPT-3.5-Turbo & 74.1 & 37.8 & 21.6 & 42.9 & 62.5 & 44.0 & 23.2 & 15.3 & 55.8 & 37.4 & 39.8 & 41.5 \\\\ \\hline \\multicolumn{11}{c}{_Models based on LLAMA-2 13B_} \\\\ LLaMA-2 13B & 7.1 & 3.5 & 1.2 & 6.3 & 9.5 & 7.9 & 0.7 & 0.4 & 6.8 & 3.7 & 4.5 & 4.7 \\\\ WizardMath & 62.0 & 14.3 & 7.8 & 18.7 & 38.3 & 25.2 & 8.2 & 3.4 & 29.4 & 15.8 & 20.2 & 22.3 \\\\ MAmmoTH & 56.5 & 12.6 & 6.5 & 17.3 & 39.5 & 28.1 & 5.9 & 4.9 & 20.5 & 12.5 & 18.9 & 20.4 \\\\ GAIR-Abel & 66.4 & 16.6 & 7.9 & 21.1 & 42.2 & 27.8 & 7.0 & 4.9 & 30.3 & 18.2 & 22.3 & 24.3 \\\\ MetaMath & 70.8 & 22.8 & 10.1 & 25.4 & 48.6 & 31.6 & 9.6 & 5.6 & 38.2 & 22.9 & 26.8 & 28.6 \\\\ MathScale 13B & **71.3** & **33.8** & **20.4** & **38.1** & **61.1** & **43.7** & **20.0** & **12.3** & **55.8** & **34.7** & **37.1** & **39.1** \\\\ \\hline \\multicolumn{11}{c}{_Models based on LLAMA-2 7B_} \\\\ LLaMA-2 7B & 4.5 & 4.2 & 2.3 & 7.6 & 6.8 & 7.3 & 2.1 & 2.9 & 2.9 & 5.0 & 4.7 & 4.6 \\\\ WizardMath & 52.8 & 10.3 & 6.8 & 14.0 & 32.5 & 19.2 & 5.9 & 6.1 & 22.5 & 11.7 & 15.8 & 17.1 \\\\ MAmmoTH & 50.0 & 9.5 & 6.2 & 13.3 & 34.6 & 21.4 & 3.9 & 2.7 & 19.6 & 10.9 & 15.6 & 17.2 \\\\ GAIR-Abel & 57.6 & 12.7 & 6.6 & 18.3 & 35.4 & 24.5 & 4.3 & 4.4 & 23.5 & 14.6 & 18.5 & 20.2 \\\\ MetaMath & 66.2 & 20.6 & 9.4 & 22.5 & 44.0 & 29.9 & 5.9 & 5.1 & 36.2 & 20.8 & 24.5 & 26.1 \\\\ MathScale 7B & **66.3** & **31.1** & **20.9** & **35.2** & **59.0** & **41.8** & **19.6** & **12.6** & **57.8** & **31.1** & **35.0** & **37.5** \\\\ \\hline \\multicolumn{11}{c}{_Models based on Mistral 7B_} \\\\ Mistral 7B & 15.5 & 10.1 & 7.5 & 17.9 & 18.5 & 15.5 & 6.2 & 5.9 & 22.5 & 10.4 & 11.9 & 13.0 \\\\ WizardMath v1.1 & **78.1** & 32.8 & 16.0 & 34.4 & 58.3 & 41.4 & 16.1 & 9.6 & 55.8 & **33.0** & 35.4 & 37.6 \\\\ MetaMath Mistral & 77.4 & 28.4 & 15.7 & 31.4 & 55.1 & 38.1 & 15.3 & 10.1 & 50.9 & 28.4 & 32.7 & 35.1 \\\\ MathScale Mistral & 74.8 & **35.2** & **21.8** & **39.9** & **64.4** & **46.0** & **21.4** & **14.3** & **57.8** & 32.9 & **38.7** & **40.8** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 5: MwpBench에 대한 성능 메트릭. 모든 평가는 일관되고 공정한 비교를 보장하기 위해 MwpBench에서 제공하는 드라이버를 사용하여 수행되었다. 각 섹션 내에서 가장 높은 결과는 굵은 글꼴로 강조 표시됩니다. "AGIE"는 AGIEval의 약자입니다.\n' +
+      '\n' +
+      '### 생성 데이터의 유효성 검증\n' +
+      '\n' +
+      'MathScaleQA에서 생성된 QA 쌍이 올바르지 않을 수 있습니다. 따라서 3.4절에서 별도의 검증 단계를 소개하고, 이 절에서는 MathScaleQA에서 생성된 5K 데이터에 대한 제어 실험을 설계하고 다시 LLaMA-2 7B를 기본 모델로 사용한다.\n' +
+      '\n' +
+      'GPT-4 v.s. GPT-3.5 정확도는 무작위로 선택된 100개의 데이터 포인트에 수동으로 주석을 달고 GPT-3.5-터보 및 GPT-4로 답변을 생성했으며 GPT-4는 87%의 인상적인 정확도를 보여주며 GPT-3.5-터보에 의해 69%의 정확도를 크게 능가했다. 따라서 GPT-4를 사용하여 참조 솔루션을 생성하고 합성 솔루션을 검증하여 잘못된 솔루션을 GPT-4 참조 솔루션으로 대체했다.\n' +
+      '\n' +
+      '5K 예제 내에서 26%의 솔루션이 GPT-4에 의해 잘못된 것으로 식별되어 대체된다. 모든 GPT-3.5 솔루션과 GPT-4 솔루션이 있는 또 다른 두 가지 설정이 있습니다. 결과는 표 7에 나와 있으며 원래 3.5-터보 솔루션을 사용하면 검증 단계를 사용하는 것과 유사한 결과가 도출된다는 것을 관찰한다.\n' +
+      '\n' +
+      '이 관찰은 직관에 어긋난다. GPT-3.5에서 생성된 합성 데이터에 대한 교육이 필수 증류이기 때문일 수 있다. 일부 솔루션이 부정확하더라도 GPT-3.5의 분산을 모방하기 위해 오픈 소스 LLMs(예: LLaMA-2 또는 Mistral)에 여전히 도움이 될 수 있다. 또한 신경 기계 번역 증류에서 부정확한 번역을 검증하는 단계도 무시된다는 것을 알 수 있다(Kim & Rush, 2016). 따라서 최종 MathScale 파이프라인에서 검증 및 수정 단계를 생략하도록 한다.\n' +
+      '\n' +
+      '신선한 수학 데이터세트에서의### 성능\n' +
+      '\n' +
+      'GPT-3.5에 의해 생성된 MathScaleQA는 MwpBench 테스트 세트와의 중복을 방지하기 위해 엄격하게 제거되지만, 테스트 세트들 중 일부가 GPT-3.5-터보로 유출되거나 LLaMA-2의 트레이닝 데이터에 포함될 가능성은 여전히 작을 수 있다. GPT-3.5-터보는 사용자들이 API3을 통해 제출한 인간 주석이 달린 쿼리들을 사용하기 때문에, 이러한 쿼리들은 GSM8K와 같은 테스트 세트들을 포함할 수 있다. LLaMA-2의 훈련 세트는 공개되지 않았으며 MwpBench의 테스트 세트에 일부 예가 포함되어 있는지 여부를 확신할 수 없다.\n' +
+      '\n' +
+      '각주 3: [https://openai.com/research/instruction-following](https://openai.com/research/instruction-following)\n' +
+      '\n' +
+      '그림 3: MathScaleQA에서 서로 다른 크기의 훈련 데이터셋을 사용한 MwpBench에서의 성능.\n' +
+      '\n' +
+      '이 문제를 해결하기 위해 우리는 중국 고등 교육 국가 입시를 위해 6월에 열린 최신 가오카오 수학 시험의 최신 30개 수학 문제로 구성된 새로운 데이터 세트를 수동으로 큐레이션한다. 우리는 이 데이터세트인 _FreshGaokaoMath-2023_라고 하며, 우리는 Fresh-GaokaoMath-2023이 LLaMA-2 또는 GPT-3.5-터보의 훈련 데이터에 포함될 가능성이 없다고 믿는다. 왜냐하면 LLaMA-2와 GPT-3.5-터보는 Fresh-GaokaoMath-2023이 생성되기 전에 출시되기 때문이다.\n' +
+      '\n' +
+      'LLaMA-2 7B 기반 모델 MathScale-7B를 GPT-3.5-Turbo 및 GPT-4 뿐만 아니라 두 개의 다른 LLaMA-2 7B 기반 모델(즉, WizardMath-7B 및 MetaMath-7B)과 비교하여 결과는 표 8에 나와 있다. MathScale은 표 5에 나와 있는 주요 결과와 일치하는 WizardMath 및 MetaMath를 일관되게 능가하며, 새로운 수학 문제를 처리하는 데 있어 MathScale의 견고성과 적응성을 보여준다.\n' +
+      '\n' +
+      '##6 관련 업무\n' +
+      '\n' +
+      '**ChatGPT 기반 명령어 튜닝** 수학 명령어 튜닝의 발전을 주도하는 중추적인 측면은 데이터 합성을 위한 ChatGPT의 사용이다. 예를 들어, WizardMath(Luo et al., 2023)는 제약 조건 추가, 심화, 구체화, 추론 단계 증가 및 입력 복잡화의 다섯 가지 연산을 통합하여 포괄적인 진화를 촉진하는 강화된 evol-instruct를 도입했다. 유사하게, MetaMath(Yu et al., 2023)는 질문에 대해 부트스트래핑 전략을 채용하여, 답변 증강, 재구문, 자기 검증, 및 FOBAR을 통합한다. 이러한 방법들이 효과적이지만, 호흡 공간은 본질적으로 수동으로 설계된 작동들에 국한된다. 우리의 접근법은 ChatGPT가 인간의 수학적 학습에서 인지 과정을 모방할 수 있도록 하여 이전 방법론이 직면한 한계를 극복하고자 한다.\n' +
+      '\n' +
+      '**도구 통합 수업 조정** 최근 연구들도 수학을 위한 ChatGPT 기반 수업 조정에 도구를 통합하는 것을 탐구했다. ToRA(Gou et al., 2023)는 궤적 데이터를 합성하기 위해 자연 언어 추론과 프로그램 기반 도구 사용을 결합한다. 각각의 궤적은 최종 답에 도달할 때까지 추론, 프로그래밍 및 프로그램 출력을 반복적으로 연결한다. 우리의 현재 초점은 오로지 자연 언어 추론에 있다. MathScale 파이프라인 내의 도구 통합은 흥미로운 전망이지만, 우리는 향후 연구를 위해 탐색을 보류한다.\n' +
+      '\n' +
+      '## 7 Conclusions\n' +
+      '\n' +
+      '본 논문에서는 프론티어 LLM을 이용하여 고품질의 수학적 추론 데이터를 생성하기 위한 간단하고 확장 가능한 방법인 _MathScale_을 제안한다. 또한 K-12, 대학 및 경쟁 수준의 수학 문제를 다루는 수학 단어 문제의 포괄적인 벤치마크인 MwpBench를 구성한다. MwpBench에서 평가된 MathScale-7B는 모든 데이터 세트에서 최첨단 성능을 달성하여 동등한 크기의 최고의 피어를 각각 마이크로 평균 정확도에서 42.9%, 매크로 평균 정확도에서 43.7% 능가한다.\n' +
+      '\n' +
+      '## Broader Impact\n' +
+      '\n' +
+      '본 논문은 학계에서 일관되고 공정한 모델 비교를 육성하기 위해 새로운 평가 벤치마크와 함께 대규모 언어 모델로 고품질 합성 데이터를 생성하는 확장 가능한 방법을 도입하여 수학적 추론을 발전시키고자 한다. 우리의 노력은 수학적 능력을 평가하는 데 중점을 두고 있지만 모델이 연구에서 조사되지 않은 편향을 나타낼 수 있다는 점에 유의하는 것이 중요하다. 이러한 편향을 해결하고 모델의 사회적 가치와 정렬을 보장하는 것이 필수적이며 기술적 성과와 윤리적 고려를 모두 포함하는 포괄적인 평가의 필요성을 강조한다.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* Chen et al. (2022) Chen, W., Ma, X., Wang, X., and Cohen, W. W. Program of thoughts prompting: Disentangling computation from reasoning for numerical reasoning tasks. _ ArXiv:2211.12588_, 2022.\n' +
+      '* Chern et al. (2023) Chern, E., Zou, H., Li, X., Hu, J., Feng, K., Li, J., and Liu, P. Generative ai for math: Abel. [https://github.com/GAIR-NLP/abel] (https://github.com/GAIR-NLP/abel), 2023.\n' +
+      '* Cobbe 등 (2019) Cobbe, K., Kosaraju, V., Bavarian, M., Chen, M., Jun, H., Kaiser, L., Plappert, M., Tworek, J., Hilton, J., Nakano,\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c} \\hline \\hline\n' +
+      '**Methods** & **Micro Average** & **Macro Average** \\\\ \\hline\n' +
+      '100\\% GPT-3.5 용액 & **10.6** & **11.5**\\\\\n' +
+      '74\\% GPT-3.5 용액 및 26\\% GPT-4 보정 용액 & 10.2 & 11.1\\\\\\\n' +
+      '100\\% GPT-4 Solutions & 9.8 & 10.9 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 7: MwpBench에서 5K의 제어 훈련 크기를 갖는 검증 단계의 절제 연구.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c} \\hline \\hline\n' +
+      '**Model** & **Fresh-GaokaoMath-2023** \\\\ \\hline GPT-4 & 43.3 \\\\ GPT-3.5-Turbo & 40.0 \\\\ \\hline WizardMath-7B & 13.3 \\\\ MetaMath-7B & 16.6 \\\\ MathScale-7B & **30.0** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 8: Fresh-GaokaoMath-2023에 대한 성능 메트릭.\n' +
+      '\n' +
+      'R., et al. Training verifiers to solve math word problems. _ arXiv preprint arXiv:2110.14168_, 2021.\n' +
+      '* Corral(2008) Corral, M. 코럴의 베터 칼컬러스 2008년\n' +
+      '* Evans and Rosenthal (2004) Evans, M. J. and Rosenthal, J. S. _Probability and statistics: The science of uncertainty_. 맥밀란, 2004년\n' +
+      '* Gao et al. (2023) Gao, L., Madaan, A., Zhou, S., Alon, U., Liu, P., Yang, Y., Callan, J., and Neubig, G. PAL: Program-aided language models. Krause, A., Brunskill, E., Cho, K., Engelhardt, B., Sabato, S., and Scarlett, J. (eds.), _Proceedings of the 40th International Conference on Machine Learning_, volume 202 of _Proceedings of Machine Learning Research_, pp. 10764-10799. PMLR, 23-29 Jul 2023. URL[https://proceedings.mlr.press/v202/gao23f.html](https://proceedings.mlr.press/v202/gao23f.html).\n' +
+      '* Gou et al. (2023) Gou, Z., Shao, Z., Gong, Y., Yang, Y., Huang, M., Duan, N., Chen, W., et al. Tora: A tool-integrated reasoning agent for mathematical problem solving. _ arXiv preprint arXiv:2309.17452_, 2023.\n' +
+      '* Grinstead and Snell(2006) Grinstead, C. M. and Snell, J. L. _Grinstead and Snell\'s introduction to probability_. 찬스 프로젝트 2006년\n' +
+      '* Guichard(2009) Guichard, D. _Calculus_. 2009년\n' +
+      '* Hendrycks et al. (2021) Hendrycks, D., Burns, C., Kadavath, S., Arora, A., Basart, S., Tang, E., Song, D., and Steinhardt, J. 수학 데이터셋으로 수학 문제 해결을 측정하는 단계. _ arXiv preprint arXiv:2103.03874_, 2021.\n' +
+      '* Jiang et al. (2023) Jiang, A. Q., Sablayrolles, A., Mensch, A., Bamford, C., Chaplot, D. S., Casas, D. d. l., Bressand, F., Lengyel, G., Lample, G., Saulnier, L., et al. Mistral 7b. _ arXiv preprint arXiv:2310.06825_, 2023.\n' +
+      '* Kim and Rush(2016) Kim, Y. 및 Rush, AM. Sequence-level knowledge distillation. Su, J., Duh, K., and Carreras, X. (eds.), _Proceedings of the 2016 Conference on Empirical Methods in Natural Language Processing_, pp. 1317-1327, Austin, Texas, November 2016. Association for Computational Linguistics. doi: 10.18653/v1/D16-1139. URL[https://aclanthology.org/D16-1139](https://aclanthology.org/D16-1139).\n' +
+      '* 커틀러 and 파라(2017) 커틀러, K. and Farah, I. _A First Course in Linear Algebra, 2017A version (Lyryx)_. 라이릭스, 2017년\n' +
+      '* Luo et al. (2023) Luo, H., Sun, Q., Xu, C., Zhao, P., Lou, J., Tao, C., Geng, X., Lin, Q., Chen, S., and Zhang, D. Wizard-math: Empowering mathematical reasoning for large language models via reinforced evol-instruct. _ arXiv preprint arXiv:2308.09583_, 2023.\n' +
+      '* Selinger(2018) Selinger, P. Matrix theory and linear algebra, 2018. URL[https://www.mathstat.dal.ca/~selinger/linear-algebra/](https://www.mathstat.dal.ca/~selinger/linear-algebra/) 1학년이나 2학년 대학생들을 위한 선형 대수에 대한 소개. 크리에이티브 커먼즈 CC에서 4.0 라이선스로 라이선스를 받았습니다. 2018년 10월 26일에 마지막으로 업데이트되었습니다.\n' +
+      '* Stitz and Zeager (2013) Stitz, C. and Zeager, J. _Precalculus_. Stitz Zeager Open Source Mathematics, 2013\n' +
+      '* TAL(2023) TAL. Tal-scq5k, 2023. URL[https://github.com/math-eval/TAL-SCQ5K](https://github.com/math-eval/TAL-SCQ5K). 깃허브 저장소입니다.\n' +
+      '*Tall (2013) Tall, D. _인간이 수학적으로 생각하는 법을 배우는 방법: 수학의 세 가지 세계를 탐구하는_. 케임브리지 대학 출판사 2013년\n' +
+      '* Taori et al. (2023) Taori, R., Gulrajani, I., Zhang, T., Dubois, Y., Li, X., Guestrin, C., Liang, P., and Hashimoto, T. B. Stanford alaca: An instruction-following llama model. [https://github.com/tatsu-lab/stanford_alpaca] (https://github.com/tatsu-lab/stanford_alpaca), 2023.\n' +
+      '* Touvron et al. (2023) Touvron, H., Martin, L., Stone, K., Albert, P., Almahairi, A., Babaei, Y., Bashlykov, N., Batra, S., Bhargava, P., Bhosale, S., et al. Llama 2: Open foundation and fine-tuned chat models. _ arXiv preprint arXiv:2307.09288_, 2023.\n' +
+      '* Trench(2001) Trench, W. F. _Elementary Differential Equation_. Brooks/Cole Thomson Learning, San Antonio, Texas, USA, 2001. URL[http://ramanujan.math.trinity.edu/wtrench/texts/TRENCH_DIFF_EQNS_I.PDF](http://ramanujan.math.trinity.edu/wtrench/texts/TRENCH_DIFF_EQNS_I.PDF) 프리 에디션 1.01(2013년 12월).\n' +
+      '* Wallace(2010) Wallace, T. _ 시작 및 중간 대수_. 2010년\n' +
+      '* Wang et al. (2017) Wang, Y., Liu, X., and Shi, S. 수학 단어 문제에 대한 심층 신경 해결기. In _Proceedings of the 2017 conference on empirical methods in natural language processing_, pp. 845-854, 2017.\n' +
+      '* Wang et al. (2023) Wang, Y., Ivison, H., Dasigi, P., Hessel, J., Khot, T., Chandu, K. R., Wadden, D., MacMillan, K., Smith, N. A., Beltagy, I., et al. 얼마나 멀리 낙타가 갈 수 있는가? 개방형 리소스에 대한 명령어 튜닝 상태를 탐색합니다. _ arXiv preprint arXiv:2306.04751_, 2023.\n' +
+      '* Wei et al. (2021) Wei, J., Bosma, M., Zhao, V. Y., Guu, K., Yu, A. W., Lester, B., Du, N., Dai, A. M., and Le, Q. V. Finetuned language models are zero-shot learners. _ arXiv preprint arXiv:2109.01652_, 2021.\n' +
+      '* Wei et al. (2022) Wei, J., Wang, X., Schuurmans, D., Bosma, M., Xia, F., Chi, E., Le, Q. V., Zhou, D., et al. Chain-of-thought prompting elicits reasoning in large language models. _ 신경 정보 처리 시스템_, 35:24824-24837, 2022에서의 발전.\n' +
+      '* Xu et al. (2021) Xu, C., Sun, Q., Zheng, K., Geng, X., Zhao, P., Feng, J., Tao, C., and Jiang, D. Wizardlm: Empowering large language models to follow complex instructions. _ arXiv preprint arXiv:2304.12244_, 2023.\n' +
+      '*[Yu et al.2023] Yu, L., Jiang, W., Shi, H., Yu, J., Liu, Z., Zhang, Y., Kwok, J. T., Li, Z., Weller, A., and Liu, W. 메타매스: 큰 언어 모델에 대해 자신의 수학적 질문을 부트스트랩합니다. _ arXiv preprint arXiv:2309.12284_, 2023.\n' +
+      '*[Yue et al.2023] Yue, X., Qu, X., Zhang, G., Fu, Y., Huang, W., Sun, H., Su, Y., and Chen, W. 매머드: 하이브리드 명령어 튜닝을 통해 수학 일반주의 모델을 구축합니다. _ arXiv preprint arXiv:2309.05653_, 2023.\n' +
+      '*[Zhang et al.2023] Zhang, X., Li, C., Zong, Y., Ying, Z., He, L., and Qiu, X. 고카카오 벤치마크에서 대형 언어 모델의 성능을 평가합니다. 2023년\n' +
+      '*[Zhao et al.2020] Zhao, W., Shang, M., Liu, Y., Wang, L., and Liu, J. Ape210k: A large-scale and template-rich dataset of math word problems. _ arXiv preprint arXiv:2009.11506_, 2020.\n' +
+      '* [Zhong et al.2023] Zhong, W., Cui, R., Guo, Y., Liang, Y., Lu, S., Wang, Y., Saied, A., Chen, W., and Duan, N. 농업: 기초 모델 평가를 위한 인간 중심 벤치마크. _ arXiv preprint arXiv:2304.06364_, 2023.\n' +
+      '\n' +
+      '## 부록, 부록\n' +
+      '\n' +
+      '### MwpBench: 비단어 문제를 단어 문제로 변환\n' +
+      '\n' +
+      'TAL-SCQ(TAL, 2023), GaokaoBench-Math(Zhang et al., 2023), AGIEval(Zhong et al., 2023)과 같은 데이터 세트의 경우, 문제는 객관식 형식으로 제시된다. 문제 유형의 영향을 제거하고 수학적 문제를 해결하는 LLM의 내재적 능력에 집중하기 위해 이러한 비단어 문제를 단어 문제로 변환했다.\n' +
+      '\n' +
+      '####a.1.1 필터링 질문\n' +
+      '\n' +
+      '처음에는 객관식 형식에 크게 의존하는 질문을 식별하고 필터링했다. 이 필터링은 객관식 질문을 나타내는 특정 키워드 및 구문을 사용하여 수행되었다.\n' +
+      '\n' +
+      '```\n' +
+      '1defis_bad_question(question):\n' +
+      '2question=question.lower()\n' +
+      '3\n' +
+      '4keywords={\n' +
+      '5"?",\n' +
+      '6"which_off_the_following",\n' +
+      '7"which_one",\n' +
+      '8"which_is",\n' +
+      '9"the_following",\n' +
+      '10"which_statement"\n' +
+      '11]\n' +
+      '12\n' +
+      '13forkeywordin keywords:\n' +
+      '14ifkeywordinquestion:\n' +
+      '15print(f"Filtered_question:_{question}")\n' +
+      '16returnTrue\n' +
+      '17returnFalse\n' +
+      '```\n' +
+      '\n' +
+      '목록 1: 필터링 질문\n' +
+      '\n' +
+      '####a.1.2 질문-답변 쌍 생성\n' +
+      '\n' +
+      '앞서 언급한 문항들을 걸러낸 후 나머지 문항들은 해당 정답 선택과 짝을 이루었다. 이러한 변환은 각 문제가 단어 문제로 제시되고 그 해결이 뒤따르는 형식을 낳았다.\n' +
+      '\n' +
+      '### MwpBench: 영어가 아닌 문제를 영어로 번역\n' +
+      '\n' +
+      'Math23k(Wang et al., 2017), Ape210k(Zhao et al., 2020), GaokaoBench-Math(Zhang et al., 2023), 및 AGIEval-Gaokao(Zhong et al., 2023)와 같은 여러 데이터 세트에 대해, 문제는 원래 중국어로 제시된다. 우리는 통일성을 보장하고 다국어 표현의 효과를 완화하기 위해 이러한 중국어 문제를 영어로 번역했다. 번역은 GPT-3.5-터보 API에 의해 촉진되었다. 후처리 과정에서 발생하는 구문 분석 오류로 인해 몇 가지 예는 제외되었다. 번역 요청에 채용된 프롬프트 템플릿은 아래에 제공된다:\n' +
+      '\n' +
+      '```\n' +
+      '1fwantyoutactsasMathTranslator.YourtaskistotranslateChinesemathquestionsintongEnglishmathquestions.\n' +
+      '2Makesuretokeeptheoriginalquestionnumbers.\n' +
+      '3MakesuretokeepthemathformulainLatexformat.\n' +
+      '4Thetranslationsshouldbeclear,accurate,andeasilyunderstandableforstudentswhoarenativeEnglishspeakers.\n' +
+      '5#ChineseMathQuestions#:\n' +
+      '6<insertchinesequestions>\n' +
+      '7#EnglishMathQuestions#:\n' +
+      '\n' +
+      '### 대학수학: 교과서의 추출\n' +
+      '\n' +
+      '대학수학 데이터 세트를 구성하기 위해 GPT-3.5-터보 API를 사용하여 원시, 분할된 LaTeX 연습 및 해당 솔루션에서 질문과 답변을 구문 분석하고 추출했다.\n' +
+      '\n' +
+      '####a.3.1. 운동에서 질문 추출\n' +
+      '\n' +
+      '1차 목표는 수학 교과서의 원시, 잠재적으로 구조화되지 않은 질문을 잘 정형화된 LaTeX 형식의 질문으로 변환하는 것이었다. 아래는 이 추출 프로세스에 사용한 프롬프트 템플릿입니다.\n' +
+      '\n' +
+      '나는 네가 수학 파서 역할을 했으면 좋겠어. 당신의 과제는 수학 교과서의 엉망진창인 질문을 잘 짜여진 LaTeX 형식의 질문으로 변환하는 것이다.\n' +
+      '\n' +
+      '원래 질문 번호를 유지하십시오.\n' +
+      '\n' +
+      '필요한 경우 구문 분석된 질문에 원래 지침을 작성하여 더 쉽게 이해할 수 있도록 합니다.\n' +
+      '\n' +
+      '필요한 경우 깨진 질문은 건너뛰십시오.\n' +
+      '\n' +
+      '<insert demo>\n' +
+      '\n' +
+      '#Raw Questions#: """<연습의 장을 삽입"\n' +
+      '\n' +
+      '#Well-structured LaTeX-formatted Questions#:\n' +
+      '\n' +
+      '#### a.3.2. 솔루션에서 답변 추출\n' +
+      '\n' +
+      '마찬가지로, 해답의 경우, 우리의 목표는 교과서에서 원시적이고 지저분한 해답을 명확한 LaTeX 형식의 해답으로 바꾸는 것이었다. 이 작업의 템플릿은 다음과 같습니다.\n' +
+      '\n' +
+      '나는 네가 수학 파서 역할을 했으면 좋겠어. 당신의 과제는 수학 교과서의 엉망진창인 답을 잘 짜여진 LaTeX 형식의 답으로 변환하는 것이다.\n' +
+      '\n' +
+      '원래 답변 번호를 유지하십시오.\n' +
+      '\n' +
+      '필요한 경우 깨진 답변은 건너뛰십시오.\n' +
+      '\n' +
+      '<insert demo>\n' +
+      '\n' +
+      '#Raw Answers#: """<Inert of answer""\n' +
+      '\n' +
+      '#Well-structured LaTeX-formatted Answers#:\n' +
+      '\n' +
+      '앞서 언급한 프롬프트 템플릿을 사용하여 포괄적인 질문 및 답변 세트를 추출하여 CollegeMath 데이터 세트의 기초를 형성할 수 있었다.\n' +
+      '\n' +
+      '### 수학 규모 : 콘크리트 실시예\n' +
+      '\n' +
+      '####a.4.1. 더 많은 추출 주제\n' +
+      '\n' +
+      '다양성을 설명하기 위해 무작위로 선택된 30개의 주제 세트가 아래에 나열된다:\n' +
+      '\n' +
+      '*산술 연산" "단어 문제 해결" "수학" "돈과 금융" "문제 해결 전략" "산술" "비례" "산술 연산" "단위의 변환" "측정과 무게" "곱셈과 덧셈" "예산" "기본 산술" "임금과 연장" "산술 수열" "지수 성장" "재무 계산" "문제 해결" "경제" "시간" "비율과 비율" "문제 해결" "거리" "속도"\n' +
+      '\n' +
+      '####a.4.2 더 많은 추출 지식 포인트\n' +
+      '\n' +
+      '마찬가지로, 우리는 콘텐츠의 깊이와 폭을 보여주기 위해 무작위로 선택된 30개의 지식 포인트 목록을 제공한다:\n' +
+      '\n' +
+      '*구슬의 무작위 선택" "내적의 정의와 속성" "복잡한 수의 조작" "7일 주기의 개념을 적용하는 방법" "전체 시간을 계산하는 능력" "수의 조합" "주간 소득의 계산" "상대 운동" "센티미터와 킬로미터 사이의 관계 이해" "행렬의 인식" "두 양 사이의 비례 관계" "에르고딕 마르코프 체인" "값의 추가" "다른 변수 사이의 관계 파악" "분수를 정수로 변환하는 능력" "지수 방정식을 풀기 위해 로그를 사용하는 능력" "곱셈의 적용" "6면 다이에 특정 수를 롤링하는 능력" "무게 단위를 이해하는 능력"\n' +
+      '\n' +
+      '개별 주제의### 평가\n' +
+      '\n' +
+      '표 9와 같이 MATH에 대한 부분 집합 성능을 살펴보았는데, MathScale은 다양한 주제에 걸쳐 지속적으로 우수한 결과를 제공한다는 것을 알 수 있다.\n' +
+      '\n' +
+      '우리는 또한 대학 수준에서 대학수학에 대한 부분집합 성능을 자세히 설명한다. 표 10에 나타난 바와 같이 MwpBench 트레이닝 세트의 시드 질문은 대수, 사전 미적분, 미적분만을 포함하고 있음에도 불구하고, MathScale은 벡터 미적분, 확률, 선형 대수를 포함하는 OOD의 테스트 세트에서 강력한 성능을 보여준다. 그러나 도전의 영역은 모든 모델이 제한된 성공을 보여주는 미분 방정식이다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c c c} \\hline \\hline \\multirow{2}{*}{**Model**} & \\multicolumn{6}{c}{**MATH**} \\\\ \\cline{2-7}  & \\multirow{2}{*}{Prealgebra} & \\multirow{2}{*}{Algebra} & Intermediate Algebra & \\multirow{2}{*}{Prealiculus} & \\multirow{2}{*}{Probability} & \\multirow{2}{*}{Geometry} & Number Theory \\\\ \\hline \\multicolumn{7}{c}{_closed-source models_} \\\\ GPT-4 & **75.2** & **71.3** & **25.3** & **30.4** & **52.5** & **41.7** & **45.7** \\\\ GPT-3.5 & 59.3 & 55.5 & 17.3 & 20.1 & 30.1 & 29.8 & 30.3 \\\\ \\hline \\multicolumn{7}{c}{_open-source models fine-tuned on LLaMA-2 13B_} \\\\ WizardMath & 23.6 & 21.4 & 7.5 & 7.1 & 10.9 & 12.3 & 6.8 \\\\ MAMmoTH & 21.4 & 17.2 & 6.9 & 7.8 & 11.8 & 8.7 & 6.2 \\\\ GAIR-Abel & 28.3 & 23.3 & 8.1 & 9.1 & 13.0 & 15.0 & 9.4 \\\\ MetaMath & 39.3 & 32.1 & 11.9 & 10.2 & 18.5 & 17.7 & 15.3 \\\\ MathScale & **52.9** & **53.4** & **13.6** & **17.3** & **24.6** & **25.6** & **25.7** \\\\ \\hline \\multicolumn{7}{c}{_open-source models fine-tuned on LLaMA-2 7B_} \\\\ WizardMath & 16.5 & 15.2 & 6.3 & 5.8 & 6.7 & 8.5 & 5.9 \\\\ MAMmoTH & 15.1 & 12.5 & 6.5 & 4.3 & 9.9 & 7.3 & 6.1 \\\\ GAIR-Abel & 21.4 & 17.6 & 7.7 & 6.9 & 10.1 & 9.8 & 7.4 \\\\ MetaMath & 34.0 & 29.6 & 8.7 & 9.8 & 17.5 & 15.4 & 17.5 \\\\ MathScale & **48.9** & **49.3** & **12.4** & **15.2** & **23.2** & **23.3** & **23.8** \\\\ \\hline \\multicolumn{7}{c}{_open-source models fine-tuned on Mistral 7B_} \\\\ WizardMath v1.1 & 51.4 & 50.7 & 13.9 & **19.9** & 25.5 & 24.4 & 22.4 \\\\ MetaMath Mistral & 47.1 & 41.4 & 13.2 & 12.6 & 23.4 & 23.7 & 19.8 \\\\ MathScale & **55.9** & **52.8** & **14.6** & 18.6 & **28.9** & **26.5** & **27.5** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 9: MATH에 대한 다양한 주제에 걸친 성능 메트릭스. 각 섹션 내에서 가장 높은 수행 결과를 굵은 글꼴로 강조 표시합니다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c c c} \\hline \\hline \\multirow{2}{*}{**Model**} & \\multicolumn{6}{c}{**CollegeMath**} \\\\ \\cline{2-7}  & Algebra & Precalculus & Calculus & Vector Calculus & Probability & Linear Algebra & Differential Equation \\\\ \\hline \\multicolumn{7}{c}{_closed-source models_} \\\\ GPT-4 & **41.1** & **21.2** & **20.6** & **29.0** & **11.5** & **6.5** & **1.2** \\\\ GPT-3.5 & 37.7 & 16.6 & 17.8 & 32.7 & 10.0 & 3.0 & 1.2 \\\\ \\hline \\multicolumn{7}{c}{_open-source models fine-tuned on LLaMA- 2 13B_} \\\\ WizardMath & 12.0 & 7.4 & 8.2 & 14.5 & 2.8 & 0.3 & 0.3 \\\\ MAmnoTH & 11.2 & 4.2 & 7.0 & 8.1 & 2.8 & 1.5 & 0.0 \\\\ GAIR-Abel & 15.3 & 6.0 & 5.0 & 3.6 & 2.1 & 1.9 & 1.6 \\\\ MetaMath & 19.4 & 9.8 & 5.6 & 8.1 & 1.4 & 1.1 & 0.3 \\\\ MathScale & **35.0** & **17.8** & **15.8** & **24.5** & **7.9** & **5.0** & **1.9** \\\\ \\hline \\multicolumn{7}{c}{_open-source models fine-tuned on LLaMA- 2 7B_} \\\\ WizardMath & 9.7 & 5.2 & 10.2 & 11.8 & 1.4 & 1.1 & 0.3 \\\\ MAmnoTH & 9.5 & 4.8 & 7.0 & 10.0 & 2.1 & 3.4 & 0.0 \\\\ GAIR-Abel & 12.0 & 4.2 & 5.2 & 6.3 & 3.5 & 1.5 & **1.6** \\\\ MetaMath & 19.1 & 6.8 & 4.4 & 5.4 & 2.8 & 2.6 & 0.3 \\\\ MathScale & **34.2** & **19.6** & **18.8** & **27.2** & **7.9** & **5.0** & 0.6 \\\\ \\hline \\multicolumn{7}{c}{_open-source models fine-tuned on Mistral 7B_} \\\\ WizardMath v1.1 & 29.3 & 14.0 & 11.4 & 16.3 & 5.0 & 2.3 & 0.0 \\\\ MetaMath Mistral & 28.1 & 12.2 & 11.2 & 21.8 & 7.1 & **3.8** & 0.6 \\\\ MathScale & **37.1** & **18.0** & **19.4** & **27.2** & **8.6** & **3.8** & **1.6** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 10: CollegeMath에 대한 다양한 주제에 걸친 성과 측정 기준. 각 섹션 내에서 가장 높은 수행 결과를 굵은 글꼴로 강조 표시합니다.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
