@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '[MISSING_PAGE_FAIL:1]\n' +
+      '\n' +
+      'need to operate at scale to handle larger and multiple complex input sources at the same time. Thus, the need for a DLRS that can both upscale and downscale effectively, adjusting to varying dataset sizes and computational constraints, is paramount. This scalability is encompassed in what is known as a "scaling law" (Kaplan et al., 2020).\n' +
+      '\n' +
+      'To date, the primary trend of DLRS up-scaling is through _sparse scaling_, i.e., expanding the sizes of embedding tables by adding more entries to reduce collision and widening their dimensions for increased expressiveness. Consequently, DLRS have reached trillions of parameters (Kang et al., 2020; Mudigere et al., 2021; Lian et al., 2021) with embedding tables dominating the parameter count.\n' +
+      '\n' +
+      'Unfortunately, the traditional way of up-scaling has a few practical drawbacks. Merely expanding the sparse component of a model does not enhance its ability to capture the complex interactions among an increasing number of features. Moreover, this trend notably diverges from the trend of hardware advancements, as most improvements in the next generation accelerators lie in the compute capacity (Luo et al., 2018, 2017), which embedding table lookups can not utilize. Thus, simply expanding embedding table leads to prohibitive infrastructure costs with suboptimal accelerator utilization, especially in distributed settings.\n' +
+      '\n' +
+      'Our work aims to find an alternative scaling mechanism for recommendation models, that can establish the scaling law, similar to that established in the LLM domain. Namely, we would like to devise a unified architecture whose quality can be continuously improved in conjunction with dataset size, compute and parameter budgets, with a synergistic strategy.\n' +
+      '\n' +
+      'We focus on upscaling interaction components, dubbed _dense scaling_, to mitigate the quality and efficiency drawbacks from sparse scaling. However, existing models cannot benefit from this paradigm for various reasons. For example, DLRM faces scalability constraints, being limited to capturing only second-order interactions, which restricts its effectiveness on complex datasets. Moreover, existing models lack a comprehensive process for scaling up. For example, DCNv2 and AutoInt+ focus on tuning certain hyperpartners, leading to rapidly diminishing returns when scaling up. Additionally, even with modern tricks like residual connection (He et al., 2016), layernorm (Ba et al., 2016), gradient clip (Pascanu et al., 2013)), up-scaling existing models is prone to training stability issues (Tang et al., 2023).\n' +
+      '\n' +
+      'To establish a scaling law for recommendation models, we propose Wukong, a simple yet effective interaction architecture that exhibits effective dense scaling properties. Inspired by the principles of binary exponentiation, our key innovation is to use a series of stacked Factorization Machines (FMs) to efficiently and scalably capture any-order feature interactions. In our design, each FM is responsible of capturing second order interactions with respect to its inputs, and the outputs from these FMs are subsequently transformed by MLPs into new embeddings, which encode the interactions results and serve as inputs to the next layers.\n' +
+      '\n' +
+      'We evaluated Wukong\'s performance using six public datasets and a large-scale internal dataset. The results demonstrate that Wukong outperforms state-of-the-art models across all public datasets in terms of AUC, indicating the effectiveness of Wukong\'s architecture and its ability to generalize across a wide range of recommendation tasks and datasets. On our internal dataset, Wukong not only significantly outperforms existing models in terms of quality at comparable levels of complexity but also shows continuous enhancements in quality when scaled up across two orders of magnitude in model complexity, extending beyond 100 GFLOP/example or equivalently up to GPT-3/LLaMa-2 scale of total training compute, where prior arts fall short.\n' +
+      '\n' +
+      '## 2 Related Work\n' +
+      '\n' +
+      'Deep Learning Recommendation Systems (DLRS)Existing DLRS share a similar structure. A typical model consists of a sparse and a dense component. The sparse component is essentially embedding lookup tables that transform sparse categorical features into dense embeddings, whereas the dense component is responsible for capturing interactions among these embeddings to generate a prediction.\n' +
+      '\n' +
+      'Dense Interaction ArchitecturesCapturing interaction between features is the key to effective DLRS, and various prior arts have been proposed for this cause. For instance, AFN+ (Cheng et al., 2020) transforms features into a logarithmic space to capture arbitrary order of interactions; AutoInt+ (Song et al., 2019) uses multi-head self-attention; DLRM and DeepFM (Naumov et al., 2019; Guo et al., 2017) leverage Factorization Machines (FM) (Rendle, 2010) to explicitly capture second order interactions; HOFM (Blondel et al., 2016) optimizes FM to efficiently capture higher order of interactions; DCNv2 (Wang et al., 2021) uses CrossNet, which captures interactions via stacked feature crossing, which can be viewed as a form of elementwise input attention. FinalMLP (Mao et al., 2023) employs a bilinear fusion to aggregate results from two MLP streams, each takes stream-specific gated features as input. MaskNet (Wang et al., 2021) adopts a series of MaskBlocks for interaction capture, applying "input attention" to the input itself and intermediate activations of DNN; xDeepFM (Lian et al., 2018) combines a DNN with a Compressed Interaction Network, which captures interactions through outer products and compressing the results with element-wise summation.\n' +
+      '\n' +
+      'Scaling up DLRSExisting literature mainly focuses on scaling up the sparse component of models (Kang et al., 2020; Mudigere et al., 2021; Lian et al., 2021). There is limited discussion on the scalability of dense interaction architectures. Among the few investigated, their scalability are often unsatisfactory. For example, AutoInt+ observes diminishing gains with more than two layers on public datasets. Similarly, DCNv2 experiences rapidly diminishing returns when expanding beyond two layers or increasing the rank size, despite being tested on a large-scale production dataset.\n' +
+      '\n' +
+      '## 3 Design of Wukong\n' +
+      '\n' +
+      'We keep two objectives in mind when designing Wukong\'s architecture: (1) to effectively capture the intricate high-order feature interactions; and (2) to ensure Wukong\'s quality scale gracefully with respect to dataset size, GFLOP/example and parameter budgets.\n' +
+      '\n' +
+      '### Overview\n' +
+      '\n' +
+      'In Wukong, categorical and dense features initially pass through an **Embedding Layer** (Sec. 3.2), which transforms these inputs into _Dense Embeddings_.\n' +
+      '\n' +
+      'As shown in Figure 2, Wukong subsequently adopts an **Interaction Stack** (Sec. 3.3), a stack of unified neural network layers to capture the interaction between embeddings. The Interaction Stack draws inspiration from the concept of binary exponentiation, allowing each successive layer to capture exponentially higher-order interactions. Each layer in the Interaction Stack consists of a **Factorization Machine Block** (FMB, Sec. 3.4) and a **Linear Compression Block** (LCB, Sec. 3.5). FMB and LCB independently take in input from last layer and their outputs are ensembled as the output for the current layer. Following the interaction stack is a final Multilayer Perceptron (MLP) layer that maps the interaction results into a prediction.\n' +
+      '\n' +
+      '### Embedding Layer\n' +
+      '\n' +
+      'Given a multi-hot categorical input, an embedding table maps it to a dense embedding. This process involves a series of lookups, each corresponding to a "hot" dimensions within the input. The lookup results are then aggregated using a pooling operation, with summation being the typical method in the realm of embeddings.\n' +
+      '\n' +
+      'In our design, the embedding dimension is standardized for all embeddings generated by the Embedding Layer, known as the global embedding dimension \\(d\\). To accommodate the varying significance of different features, multiple embeddings are generated for each feature deemed significant. In contrast, less important features are allocated smaller underlying embedding dimensions. These smaller embeddings are then collectively grouped, concatenated, and transformed into \\(d\\)-dimensional embeddings using a MLP.\n' +
+      '\n' +
+      'Dense inputs are transformed by an MLP into latent embeddings that share the same \\(d\\) dimension, and are joined with the embedding outputs of categorical input. This yields an output tensor of size \\(X_{0}\\in\\mathbb{R}^{n\\times d}\\), where \\(n\\) is the total number of embeddings from the dense and sparse part. \\(X_{0}\\) is then ready to be further processed by the Interaction Stack.\n' +
+      '\n' +
+      'Note that unlike conventional approaches like DCN (Wang et al., 2021), we interpret each embedding vector as a whole unit (detailed later), and hence our representation of \\(X_{0}\\in\\mathbb{R}^{n\\times d}\\) as opposed to \\(X_{0}\\in\\mathbb{R}^{nd}\\).\n' +
+      '\n' +
+      '### Interaction Stack\n' +
+      '\n' +
+      'The interaction modules stack \\(l\\) identical interaction layers, where each layer captures progressively higher-order feature interactions at an exponential rate using Factorization Machines (FMs).\n' +
+      '\n' +
+      'An interaction layer has two blocks in parallel: a Factorization Machine Block (FMB) and a Linear Compression Block (LCB). FMB computes feature interactions between input embeddings of the layer, and LCB simply forwards linearly compressed input embeddings of the layer. The outputs of FMB and LCB are then concatenated.\n' +
+      '\n' +
+      'For layer \\(i\\) in the stack, its results can contain feature interactions with arbitrary order from 1 to \\(2^{i}\\). This can be simply shown by induction. Let\'s assume the input of layer \\(i\\) contains interactions of order from 1 to \\(2^{i-1}\\), which is true for the first layer (i.e. \\(i=1\\)). Since FMB generates \\((o_{1}+o_{2})\\)-order feature interactions given \\(o1\\) and \\(o2\\)-order interactions, then we have immediately the output of layer \\(i\\) containing 1\n' +
+      '\n' +
+      'Figure 2: Wukong employs an interaction stack to capture feature interactions. Each layer in the stack consists of a Factorization Machine Block and a Linear Compress Block.\n' +
+      '\n' +
+      'to \\(2^{i}\\)-order interactions, with the lower bound achieved from the output of LCB and the upper bound achieved by the FM interacting two \\(2^{i-1}\\)-order interactions from the input.\n' +
+      '\n' +
+      'To help stabilize training, we also adopt residual connections across layers, followed by layer normalization (LN). Putting everything together, we have\n' +
+      '\n' +
+      '\\[X_{i+1}=\\mathrm{LN}(\\mathrm{concat}(\\mathrm{FMB_{i}}(X_{i}),\\mathrm{LCB_{i}}(X_ {i}))+X_{i})\\]\n' +
+      '\n' +
+      'Depending on the specific configurations of FMB and LCB, \\(X_{i}\\) may have a different number of embeddings than \\(X_{i+1}\\), which usually happens at the first layer. To handle this case, the residual can be linearly compressed to match the shape.\n' +
+      '\n' +
+      '### Factorization Machine Block (FMB)\n' +
+      '\n' +
+      'A FMB contains a Factorization Machine (FM) followed by a MLP. The FM is used to capture explicit feature interactions of the input embeddings, with the output being a 2D interaction matrix where each element represents the interaction between a pair of embeddings. This interaction matrix is flattened and converted to a vector with shape of \\((n_{F}\\times d)\\) through the MLP, and reshaped to \\(n_{F}\\) embeddings for later use.\n' +
+      '\n' +
+      'Operationally, a FMB does the following:\n' +
+      '\n' +
+      '\\[\\mathrm{FMB}(X_{i})=\\mathrm{reshape}(\\mathrm{MLP}(\\mathrm{LN}(\\mathrm{flatten }(\\mathrm{FM}(X_{i})))))\\]\n' +
+      '\n' +
+      'Wukong\'s FM module is fully customizable: for example, in the most basic version, we followed the FM design in (Naumov et al., 2019), i.e., taking the dot product between all pairs of embedding vectors, \\(FM(X)=XX^{T}\\). We discuss more optimized FM designs in Sec. 3.6.\n' +
+      '\n' +
+      '### Linear Compress Block (LCB)\n' +
+      '\n' +
+      'LCB simply linearly recombines embeddings without increasing interaction orders, which is critical in ensuring that the invariance of interaction order is maintained throughout the layers. Specifically, it guarantees that the \\(i\\)-th interaction layer captures interaction orders ranging from 1 to \\(2^{i}\\). The operation performed by a LCB can be described as follows:\n' +
+      '\n' +
+      '\\[\\mathrm{LCB}(X_{i})=W_{L}X_{i}\\]\n' +
+      '\n' +
+      'where \\(W_{L}\\in\\mathbb{R}^{n_{L}\\times n_{i}}\\) is a weight matrix, \\(n_{L}\\) is a hyperparameter indicating the number of compressed embeddings, and \\(n_{i}\\) is the number of input embeddings of layer \\(i\\).\n' +
+      '\n' +
+      '### Optimized FM\n' +
+      '\n' +
+      'In its basic form where a pairwise dot-product is used, FM\'s computation and storage complexity grows quadratically with the number of embeddings. This quickly becomes prohibitive on real-world datasets with thousands of features.\n' +
+      '\n' +
+      'To allow effective feature interaction while lowering compute cost, we adopt a similar scheme to (Sharma, 2023; Anonymous, 2019) that leverage low-rank property in pairwise dot product matrix, which was observed in many real-world datasets (Wang et al., 2021).\n' +
+      '\n' +
+      'When \\(d<=n\\), the dot-product interaction \\(XX^{T}\\) is a \\(d\\)-rank matrix, which is often the case on large datasets whose number of features is larger than the embedding dimension. Therefore, we can effectively reduce the size of output matrix from \\(n\\times n\\) to \\(n\\times k\\), where \\(k\\) is a hyperparameter, by multiplying \\(XX^{T}\\) with a learnable projection matrix \\(Y\\) of shape \\(n\\times k\\) (i.e., computing \\(XX^{T}Y\\)) without loss of information in theory. This reduces memory requirement to store the interaction matrix. We can then take advantage of the associative law to compute \\(X^{T}Y\\) first, further reducing compute complexity from \\(O(n^{2}d)\\) to \\(O(nkd)\\) with \\(k<<n\\).\n' +
+      '\n' +
+      'Furthermore, to enhance the model quality, the projection matrix \\(Y\\) can be made attentive to the input by processing linearly compressed input through a MLP. We use the optimized FM in our following experiments by default, unless mentioned otherwise.\n' +
+      '\n' +
+      '### Complexity Analysis\n' +
+      '\n' +
+      'We assume each layer in the Interaction Stack uses the same hyperparameters, and the largest FC in the MLP has size \\(h\\).\n' +
+      '\n' +
+      'For the first layer, the time complexity of FMB is the sum of the FM and the MLP, which is \\(O(nkd)\\approx O(ndh)\\) and \\(O(nkh+h^{2}+n_{F}dh)\\approx O(ndh+h^{2})\\), respectively. The time complexity of LCB is \\(O(nn_{L}d)\\approx O(ndh)\\). For subsequent layers, the time complexity is \\(O(n^{\\prime}dh+h^{2})\\), where \\(n^{\\prime}=n_{L}+n_{F}\\). Hence, the total time complexity of Wukong is \\(O(ndh+ln^{\\prime}dh+h^{2})\\approx O(ndhogn+h^{2})\\).\n' +
+      '\n' +
+      '### Scaling Wukong\n' +
+      '\n' +
+      'Having defined the Wukong architecture, we summarize the main hyperparameters that are related to scale up and later we describe our efforts to upscaling Wukong with respect to these hyperparameters.\n' +
+      '\n' +
+      '* [noitemsep,topsep=0pt]\n' +
+      '* \\(l\\): number of layers in the Interaction Stack.\n' +
+      '* \\(n_{F}\\): number of embeddings generated by FMB\n' +
+      '* \\(n_{L}\\): number of embeddings generated by LCB\n' +
+      '* \\(k\\): number of compressed embeddings in optimized FM\n' +
+      '* \\(MLP\\): number of layers and FC size in the MLP of FMB\n' +
+      '\n' +
+      'During scaling up, we initially focus on increasing \\(l\\) to enable the model to capture higher-order interactions. Following this, we enlarge other hyperparameters to augment the model\'s capacity of capturing broader range of interactions.\n' +
+      '\n' +
+      '### Intuition Behind Wukong\'s Enhanced Effectiveness\n' +
+      '\n' +
+      'Compared to existing work using FM as their primary interaction architecture, Wukong\'s innovative approach of stacking FMs greatly enhances the conventional FM\'s capability. This allows Wukong to capture interactions of any order, making it highly effective for large-scale, complex datasets that require higher-order reasoning. While there are efforts towards high-order FM, Wukong\'s exponential rate of capturing high-order interactions offers great efficiency, bypassing the linear complexity seen in HOFM and avoiding the costly outer product in xDeepInt.\n' +
+      '\n' +
+      'While MLPs have shown limitations in implicitly capturing interactions (Beutel et al., 2018), Wukong diverges from approaches that rely on MLPs for interaction capture. Instead, Wukong primarily employs MLPs to transform the results of interactions into embedding representations, which are then used for further interactions. This distinct use of MLPs enhances the model\'s ability to process and interpret complex, heterogeneous features effectively.\n' +
+      '\n' +
+      'Additionally, Wukong treats each embedding as a single unit, focusing on embedding-wise interactions. This approach significantly reduces computational demands compared to architectures that capture element-wise interactions, as it avoids the less useful intra-embedding and cross-dimensional interactions. Consequently, Wukong not only enhances the efficiency of the recommendation system but also maintains its effectiveness in capturing relevant feature interactions.\n' +
+      '\n' +
+      '## 4 Implementation\n' +
+      '\n' +
+      'This section discusses practices to effectively train high-complexity Wukong on large-scale datasets.\n' +
+      '\n' +
+      'Overall, distributed training is required to make Wukong training feasible. For the embedding layer, we use a column-wise sharded embedding bag implementation provided by Neo (Mudigere et al., 2021) and NeuroShard (Zha et al., 2023). On the dense part, we balance the trade-off between performance and memory capacity by adopting FSDP (Zhao et al., 2023) and tune the sharding factor so that the model fits in the memory without creating too much redundancy.\n' +
+      '\n' +
+      'To enhance training efficiency, we employ both automatic operator fusion through torch.fx (Reed et al., 2022) to improve training performance. In addition, we aggressively apply quantization to reduce compute, memory, and communication overheads simultaneously. Specifically, we train Wukong\'s embedding tables in FP16, and communicate embedding lookup results in FP16 in the forward pass and BF16 in the backward pass; we use BF16 quantization during the transport and reduction of gradients for dense parameters in the backward pass.\n' +
+      '\n' +
+      '## 5 Overview of Evaluations\n' +
+      '\n' +
+      'We evaluate Wukong using six public datasets and an internal dataset, details of which are summarized in Table 1. The results of these evaluations are organized in two sections.\n' +
+      '\n' +
+      'In Section 6, we evaluate on six public datasets, focusing on demonstrating the effectiveness of Wukong in the low complexity realm. Our results show that **Wukong surpasses previous state-of-the-art methods across all six datasets, demonstrating its effectiveness.**\n' +
+      '\n' +
+      'In Section 7, we evaluate on our large-scale in-house dataset to demonstrate the scalability of Wukong. The dataset contains 30 times more samples and 20 times more features compared to one of the largest dataset Criteo. Our results reveals that **(1) Wukong consistently outperforms all baseline models in terms of both model quality and runtime speed, maintaining this superiority across all complexity scales; (2) Wukong exhibits a better scaling trend in comparison to baseline models.** We also conduct an ablation study to gain understanding of the individual contributions and the effectiveness of each component within Wukong.\n' +
+      '\n' +
+      '## 6 Evaluation on Public Datasets\n' +
+      '\n' +
+      'In this section, we aim to demonstrate the effectiveness of Wukong across a variety of public datasets. Unless noted otherwise, we use the preproc provided by the BARS benchmark (Zhu et al., 2022) for consistency with prior work.\n' +
+      '\n' +
+      '### General Evaluation Setup\n' +
+      '\n' +
+      '#### 6.1.1 Datasets\n' +
+      '\n' +
+      '**Frappe (Baltrunas)** is an app usage log. This datasets predicts whether a user uses the app with the given contexts.\n' +
+      '\n' +
+      '**MicroVideo (Chen et al., 2018)** is a content understanding-based dataset provided by THACIL work containing interactions between users and micro-videos. This log contains multimodal embeddings, together with traditional features.\n' +
+      '\n' +
+      '**MovieLens Latest (Harper and Konstan, 2015)** is a well known dataset that contains users\' ratings on movies.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c} \\hline \\hline  & **\\#Samples** & **\\#Features** \\\\ \\hline Frappe & 0.29M & 10 \\\\ MicroVideo & 1.7M & 7 \\\\ MovieLens Latest & 2M & 3 \\\\ KuaiVideo & 13M & 8 \\\\ TaobaoAds & 26M & 21 \\\\ Criteo Terabyte & 4B & 39 \\\\ Internal & 146B & 720 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 1: Statistics of our evaluation datasets.\n' +
+      '\n' +
+      'KualVideo (Kuaishou) is the competition dataset released by Kuaishou. The dataset is used to predict the click probability of a user on new micro-videos. This dataset also contains content understanding-based embeddings along with other categorical and float features.\n' +
+      '\n' +
+      'TaobaoAds (Tianchi, 2018)This dataset includes 8 days of ads click through rate (CTR) prediction on Taobao.\n' +
+      '\n' +
+      'Criteo Terabyte (Criteo)This dataset contains 24 days of ads click feedback. We used the last day of data for testing.\n' +
+      '\n' +
+      '#### 6.1.2 Baselines\n' +
+      '\n' +
+      'We benchmark Wukong against seven widely recognized state-of-the-art models used in both academia and industry, including AFN+ (Cheng et al., 2020), AutoInt+ (Song et al., 2019), DLRM (Naumov et al., 2019), DCNv2 (Wang et al., 2021a), FinalMLP (Mao et al., 2023), MaskNet (Wang et al., 2021b) and xDeepFM (Lian et al., 2018).\n' +
+      '\n' +
+      '#### 6.1.3 Metrics\n' +
+      '\n' +
+      'AucArea Under the Curve (AUC) provides an aggregated measure of the model\'s ability to correctly classify positives and negatives across all thresholds. A higher AUC value indicates a better model performance.\n' +
+      '\n' +
+      'LogLossThe log loss quantifies the penalty based on how far the prediction is from the actual label. The lower the log loss, the better the model.\n' +
+      '\n' +
+      '### Model-Specific Setup\n' +
+      '\n' +
+      'For the five smaller datasets, aside from Criteo, we adopted the public BARS evaluation framework (Zhu et al., 2022; 2021). We directly use the best searched model configs on BARS whenever possible, and use the provided model default hyperparameters for the rest. In addition to the default embedding dimension provided in the framework, we further test an embedding dimension of 128 and report whichever of these two configurations yielded better results. For Wukong, we tune the dropout rate and optimizer settings and compression of LCB to adapt to the number of features.\n' +
+      '\n' +
+      'We leverage the larger Criteo dataset to evaluate the model performance on realistic online recommendation systems, where one-pass training is performed. In light of the new training setup, we conducted extensive grid search using the system described in Sec. 4 for all baselines and Wukong to facilitate fair comparisons. This exhaustive process involved nearly 3000 individual runs. We provide the model-specific search space in Appendix A. The best searched model hyperparameters were later used as the base config in Sec 7.\n' +
+      '\n' +
+      '### Results\n' +
+      '\n' +
+      'We summarize the results in Table 2. Overall, Wukong is able to achieve state-of-the-art results in terms of AUC across all public datasets. This result demonstrates the effectiveness of Wukong\'s architecture and its ability to comprehend diverse datasets and to generalize across a wide range of recommendation tasks.\n' +
+      '\n' +
+      '## 7 Evaluation on an Internal Dataset\n' +
+      '\n' +
+      'In this section, our demonstrate the scalability of Wukong and gain a deep understanding of how different individual components of Wukong contribute to its effectiveness, using a large-scale dataset.\n' +
+      '\n' +
+      '### Evaluation Setup\n' +
+      '\n' +
+      '#### 7.1.1 Dataset\n' +
+      '\n' +
+      'This dataset contains 146B entries in total and has 720 distinct features. Each feature describes a property of either the item or the user. There are two tasks associated with this dataset: _(Task1)_ predicting whether a user has showed interested in an item (e.g., clicked) and _(Task2)_ whether a conversion happened (e.g., liked, followed).\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c c c c c c} \\hline \\hline  & \\multicolumn{2}{c}{**Frappe**} & \\multicolumn{2}{c}{**MicroVideo**} & \\multicolumn{2}{c}{**MovieLens L.**} & \\multicolumn{2}{c}{**KualVideo**} & \\multicolumn{2}{c}{**TaobaoAds**} & \\multicolumn{2}{c}{**Criteo TB**} \\\\  & AUC & LogLoss & AUC & LogLoss & AUC & LogLoss & AUC & LogLoss & AUC & LogLoss \\\\ \\hline \\multicolumn{11}{l}{_Baselines_} \\\\ AFN+ & 0.9812 & 0.2340 & 0.7220 & 0.4142 & 0.9648 & 0.3109 & 0.7348 & 0.4372 & 0.6416 & 0.1929 & 0.8023 & 0.1242 \\\\ AutoInt+ & 0.9806 & 0.1754 & 0.7155 & 0.4203 & 0.9693 & 0.2178 & 0.7297 & 0.4376 & 0.6437 & 0.1930 & 0.8073 & 0.1233 \\\\ DCNv2 & 0.9774 & 0.2325 & 0.7187 & 0.4162 & 0.9683 & 0.2169 & 0.7360 & 0.4383 & 0.6457 & 0.1926 & 0.8096 & 0.1227 \\\\ DLRM & 0.9846 & 0.1465 & 0.7173 & 0.4179 & 0.9685 & 0.2160 & 0.7357 & 0.4382 & 0.6430 & 0.1931 & 0.8076 & 0.1232 \\\\ FinalMLP & **0.9868** & 0.1280 & 0.7247 & 0.4147 & **0.9723** & 0.2211 & 0.7374 & 0.4435 & 0.6434 & 0.1928 & 0.8096 & 0.1226 \\\\ MaskNet & 0.9816 & 0.1701 & 0.7255 & 0.4157 & 0.9676 & 0.2383 & 0.7376 & 0.4372 & 0.6433 & 0.1927 & 0.8100 & 0.1227 \\\\ xDeepFM & 0.9780 & 0.2441 & 0.7167 & 0.4172 & 0.9667 & 0.2089 & 0.718 & 0.4565 & 0.6342 & 0.1961 & 0.8084 & 0.1229 \\\\ \\multicolumn{11}{l}{_Ours_} \\\\ Wukong & **0.9868** & 0.1757 & **0.7292** & 0.4148 & **0.9723** & 0.1794 & **0.7414** & 0.4367 & **0.6488** & 0.1954 & **0.8106** & 0.1225 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 2: Evaluation results on six public datasets. The model with **best AUC** and **best LogLoss** on each dataset are highlighted.\n' +
+      '\n' +
+      '#### 7.1.2 Metrics\n' +
+      '\n' +
+      'GFLOP/exampleGiga Floating Point Operations per example (GFLOP/example) quantifies the computational complexity during model training.\n' +
+      '\n' +
+      'PF-daysThe total amount of training compute equivalent to running a machine operating at 1 PetaFLOP/s for 1 day.\n' +
+      '\n' +
+      '#ParamsModel size measured by the number of parameters in the model. The sparse embedding table size was fixed to 627B parameters.\n' +
+      '\n' +
+      'Relative LogLossLogLoss improvement relative to a fixed baseline. We opt to use the DLRM with the basic config as the baseline. A 0.02% Relative LogLoss improvement is considered as significant on this dataset. We report relative LogLoss on the last 1B-window during online training.\n' +
+      '\n' +
+      '#### 7.1.3 Baselines\n' +
+      '\n' +
+      'We adhere to the same baseline setup as detailed in Sec. 6.1.2. However, xDeepFM was not included in the reported results, due to the incompatibility of its expensive outer product operation with the large-scale dataset, consistently causing out-of-memory issues even in minimal setups.\n' +
+      '\n' +
+      '#### 7.1.4 Training\n' +
+      '\n' +
+      'We used the best optimizer configuration found in our pilot study across all experiments, i.e., Adam with lr=0.04 with beta1=0.9, beta2=1 for dense part and Rowwise Adagrad with lr=0.04 for sparse embedding tables. Models were trained and evaluated in an online training manner. We fix the embedding dimension to 160 across all runs.\n' +
+      '\n' +
+      'We set the hyperparameters with the best configuration found on the Criteo Terabyte evaluation described in Sec. 6 as a starting point, and gradually scale up parameter count for each model. We use a global batch size of 262,144 for all experiments. Each experiment was run on 128 or 256 H100 GPUs depending on the model size.\n' +
+      '\n' +
+      '### Results\n' +
+      '\n' +
+      'We observed comparable results for both tasks, and report results for _Task1_ in the main text, while the detailed results of _Task2_ are provided in Appendix B.\n' +
+      '\n' +
+      'Quality vs. Compute ComplexityIn Fig. 1, we depict the relationship between quality and compute complexity. The results show that Wukong consistently outperforms all baselines across various complexity levels, achieving over 0.2% improvement in LogLoss. Notably, Wukong holds its scaling law across two orders of magnitude in model complexity - we observe a significant 0.4% enhancement in quality with a 200-fold complexity rise, up to GPT-3/LAMa-2 scale in total training compute 1 approximately translating to a 0.1% improvement for every quadrupling of complexity. Among baselines, AFN+, DLRM and FinalMLP tend to reach a plateau after a certain complexity level, while AutoInt+, DCNv2 and MaskNet failed to further enhance quality 2. Nonetheless, even DCNv2, the top-performing baseline, demands a 40-fold increase in complexity to match Wukong\'s quality.\n' +
+      '\n' +
+      'Footnote 1: Projecting the 160 PF-days of total training compute on the internal dataset to a 365-day timeframe, assuming the use of continuous online training.\n' +
+      '\n' +
+      'Footnote 2: AutoInt+ and DCNv2 consistently faced significant training instability issue when further scaled up. AutoInt+ recovered from loss explosion, albeit with reduced model quality; while DCNv2 failed to recover, and its quality was estimated from performance before the explosion. MaskNet was hindered by excessive memory consumption, leading to out-of-memory errors, blocking further scaling up.\n' +
+      '\n' +
+      'Quality vs. Model SizeIn Fig. 3, we illustrate the correlation between model quality and model size. Echoing the trends observed in compute complexity scaling above, Wukong consistently outperforms all baselines by rougly 0.2% across all scales of model size. while demonstrating a steady improvement trend up to over 637 billion parameters.\n' +
+      '\n' +
+      'Model-Specific ScalingThroughout the scaling process, we employed distinct strategies per model. Detailed hyperparameter settings for each run are provided in Appendix B. Scaling processes of each model are summarized as follows:\n' +
+      '\n' +
+      '_Wukong_ We scaled up Wukong by tuning the hyperparameters detailed in Sec. 3.8.\n' +
+      '\n' +
+      '_AFN+_ We scaled up AFN\'s hidden layers, ensemble DNN, and the number of logarithmic neurons. The results show that scaling up AFN does not improve model quality.\n' +
+      '\n' +
+      '_AutoInt+_ We scaled up multi-head attention and the ensemble DNN. Model quality of this model is initially worse than others, but improves notably when scaling up.\n' +
+      '\n' +
+      'Figure 3: Scalability of Wukong with respect to # parameters.\n' +
+      '\n' +
+      'DLRMWe scaled up the top MLP. The results show that the quality starts saturated beyond 31 GFLOP/example.\n' +
+      '\n' +
+      'DCNv2We scaled up both Cross Network and Deep Network. Scaling up Cross Network did not yield any quality improvement. The training stability of DCNv2 is worse than other models and we applied strict gradient clipping.\n' +
+      '\n' +
+      'FinalMLPWe scaled up the two MLP streams and the Feature Selection modules. The results show that the model quality improves in the low complexity region, but starts to saturate beyond 36 GFLOP/example.\n' +
+      '\n' +
+      'MaskNetWe tested both Parallel and Serial MaskNet, and found that the Parallel variant is better. We decreased the initial reduction ratio to ensure the model has a runnable size, and progressively scaled up number of MaskBlocks, the DNN and the reduction ratio.\n' +
+      '\n' +
+      '### Ablation\n' +
+      '\n' +
+      'Significance of Individual ComponentsOur goal is to demonstrate the importance of FMB, LCB and the residual connection in Wukong\'s Interaction Stack. To this end, we performed experiments in which each component was individually deactivated by zeroing out its results.\n' +
+      '\n' +
+      'As shown in Fig. 4, nullifying FMB results in a large quality degradation. Interestingly, the deactivation of either LCB or the residual leads to only a modest decline in quality, while disabling both causes a substantial degradation. This observation implies that by zero-padding FMB outputs and incorporating a residual connection, LCB can be simplified.\n' +
+      '\n' +
+      'Impact of Scaling Individual ComponentsWe aim to dissect the contributions in model quality when scaling up each hyperparameter within Wukong. We started from a base configuration and proceeded to incrementally double each hyperparameter. The results are depicted in Fig. 5. We observed that increasing the number of Wukong layers \\(l\\) leads to a substantial uplift in model quality, due to higher-order interactions being captured. Additionally, augmenting the MLP size results in considerable performance enhancements. Elevating \\(k\\) and \\(n_{F}\\) proves beneficial, while \\(n_{L}\\) has plateaued for the base configuration. Notably, a combined scale-up of \\(k,n_{F},n_{L}\\) delivers more pronounced quality improvements than scaling each individually.\n' +
+      '\n' +
+      '## 8 Discussions\n' +
+      '\n' +
+      'Practically Serving Scaled-up ModelsScaling up to high complexity presents notable challenges for real-time serving. Potential solutions include training a multi-task foundation model to amortize costs: distilling knowledge from the large models into small, efficient ones for serving.\n' +
+      '\n' +
+      'Implication on Resource-Limited Research and BusinessesWukong\'s efficiency and scalability offer significant advantages to researchers and businesses with limited resources. Its capability to match the accuracy of other models with forty times less computing resources enables cutting-edge recommendation research and applications, even in environments with limited computation resources.\n' +
+      '\n' +
+      'Limitation and Future WorkWe also note limitations and caveats to our work, which can be goals in future work.\n' +
+      '\n' +
+      'Understanding the exact limit of Wukong\'s scalability is an important area of research. Due to the massive compute requirement, we have not been able to reach a level of complexity where the limit applies.\n' +
+      '\n' +
+      'While Wukong demonstrates superior quality in various evaluations, a comprehensive theoretical understanding of its underlying principles, particularly in contrast to architectures like transformers which share stacked dot product structure, remains an area that needs further exploration.\n' +
+      '\n' +
+      'Additionally, Wukong\'s generalizability beyond recommendation, particularly in domains that involve heterogeneous input data sources similar to distinct features in recommendation, remains to be further explored and understood.\n' +
+      '\n' +
+      '## 9 Conclusion\n' +
+      '\n' +
+      'We proposed an effective network architecture, named Wukong. We demonstrated that Wukong establishes a scaling law in the domain of recommendation that is not previously observed - Wukong is able to efficiently scale up and down across two order of magnitude in compute com\n' +
+      '\n' +
+      'Figure 4: Significance of individual components.\n' +
+      '\n' +
+      'Figure 5: Impact of scaling individual components.\n' +
+      '\n' +
+      'plexity while maintaining a competitive edge over other state of the art models, making it a scalable architecture that can serve as a backbone from small vertical models to large foundational models across a wide range of tasks and datasets.\n' +
+      '\n' +
+      '## Impact Statements\n' +
+      '\n' +
+      'This paper presents work whose goal is to advance the field of Machine Learning. There are many potential societal consequences of our work, none which we feel must be specifically highlighted here.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* Anonymous (2019) Anonymous. Dot product matrix compression for machine learning. _Technical Disclosure Commons_, 2019.\n' +
+      '* Ba et al. (2016) Ba, J. L., Kiros, J. R., and Hinton, G. E. Layer normalization. _arXiv preprint arXiv:1607.06450_, 2016.\n' +
+      '* mobile app usage. URL [https://www.baltrunas.info/context-aware](https://www.baltrunas.info/context-aware).\n' +
+      '* Beutel et al. (2018) Beutel, A., Covington, P., Jain, S., Xu, C., Li, J., Gatto, V., and Chi, E. H. Latent cross: Making use of context in recurrent recommender systems. In _Proceedings of the eleventh ACM international conference on web search and data mining_, pp. 46-54, 2018.\n' +
+      '* Blondel et al. (2016) Blondel, M., Fujino, A., Ueda, N., and Ishihata, M. Higher-order factorization machines. _Advances in Neural Information Processing Systems_, 29, 2016.\n' +
+      '* Bommasani et al. (2021) Bommasani, R., Hudson, D. A., Adeli, E., Altman, R., Arora, S., von Arx, S., Bernstein, M. S., Bohg, J., Bosselut, A., Brunskill, E., et al. On the opportunities and risks of foundation models. _arXiv preprint arXiv:2108.07258_, 2021.\n' +
+      '* Chen et al. (2018) Chen, X., Liu, D., Zha, Z.-J., Zhou, W., Xiong, Z., and Li, Y. Temporal hierarchical attention at category- and item-level for micro-video click-through prediction. In _MM_, 2018.\n' +
+      '* Cheng et al. (2020) Cheng, W., Shen, Y., and Huang, L. Adaptive factorization network: Learning adaptive-order feature interactions. In _Proceedings of the AAAI Conference on Artificial Intelligence_, volume 34, pp. 3609-3616, 2020.\n' +
+      '* Covington et al. (2016) Covington, P., Adams, J., and Sargin, E. Deep neural networks for youtube recommendations. In _Proceedings of the 10th ACM conference on recommender systems_, pp. 191-198, 2016.\n' +
+      '* Criteo (2017) Criteo. Criteo 1tb click logs dataset. [https://ailab.criteo.com/download-criteo-1tb-click-logs-dataset/](https://ailab.criteo.com/download-criteo-1tb-click-logs-dataset/).\n' +
+      '* Guo et al. (2017) Guo, H., Tang, R., Ye, Y., Li, Z., and He, X. Deepfm: a factorization-machine based neural network for ctr prediction. _arXiv preprint arXiv:1703.04247_, 2017.\n' +
+      '* Harper & Konstan (2015) Harper, F. M. and Konstan, J. A. The movielens datasets: History and context. _ACM Trans. Interact. Intell. Syst._, 5(4), dec 2015. ISSN 2160-6455. doi: 10.1145/2827872. URL [https://doi.org/10.1145/2827872](https://doi.org/10.1145/2827872).\n' +
+      '* He et al. (2016) He, K., Zhang, X., Ren, S., and Sun, J. Deep residual learning for image recognition. In _Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR)_, June 2016.\n' +
+      '* Kang et al. (2020) Kang, W.-C., Cheng, D. Z., Yao, T., Yi, X., Chen, T., Hong, L., and Chi, E. H. Learning to embed categorical features without embedding tables for recommendation. _arXiv preprint arXiv:2010.10784_, 2020.\n' +
+      '* Kaplan et al. (2020) Kaplan, J., McCandlish, S., Henighan, T., Brown, T. B., Chess, B., Child, R., Gray, S., Radford, A., Wu, J., and Amodei, D. Scaling laws for neural language models. _arXiv preprint arXiv:2001.08361_, 2020.\n' +
+      '* Kuaishou (2018) Kuaishou. URL [https://www.kuaishou.com/activity/uimc](https://www.kuaishou.com/activity/uimc).\n' +
+      '* Lian et al. (2018) Lian, J., Zhou, X., Zhang, F., Chen, Z., Xie, X., and Sun, G. xdeepfm: Combining explicit and implicit feature interactions for recommender systems. In _Proceedings of the 24th ACM SIGKDD international conference on knowledge discovery & data mining_, pp. 1754-1763, 2018.\n' +
+      '* Lian et al. (2021) Lian, X., Yuan, B., Zhu, X., Wang, Y., He, Y., Wu, H., Sun, L., Lyu, H., Liu, C., Dong, X., Liao, Y., Luo, M., Zhang, C., Xie, J., Li, H., Chen, L., Huang, R., Lin, J., Shu, C., Qiu, X., Liu, Z., Kong, D., Yuan, L., Yu, H., Yang, S., Zhang, C., and Liu, J. Persia: An open, hybrid system scaling deep learning-based recommenders up to 100 trillion parameters. November 2021.\n' +
+      '* Liu et al. (2022) Liu, Z., Zou, L., Zou, X., Wang, C., Zhang, B., Tang, D., Zhu, B., Zhu, Y., Wu, P., Wang, K., et al. Monolith: Real time recommendation system with collisionless embedding table. corr abs/2209.07663 (2022), 2022.\n' +
+      '* Luo et al. (2017) Luo, L., Liu, M., Nelson, J., Ceze, L., Phanishayee, A., and Krishnamurthy, A. Motivating in-network aggregation for distributed deep neural network training. In _Workshop on Approximate Computing Across the Stack_, 2017.\n' +
+      '* Luo et al. (2018) Luo, L., Nelson, J., Ceze, L., Phanishayee, A., and Krishnamurthy, A. Parameter hub: a rack-scale parameter server for distributed deep neural network training. In _Proceedings of the ACM Symposium on Cloud Computing_, pp. 41-54, 2018.\n' +
+      '\n' +
+      '* Mao et al. (2023) Mao, K., Zhu, J., Su, L., Cai, G., Li, Y., and Dong, Z. Finalmlp: An enhanced two-stream mlp model for ctr prediction. _arXiv preprint arXiv:2304.00902_, 2023.\n' +
+      '* Mudigere et al. (2021) Mudigere, D., Hao, Y., Huang, J., Tulloch, A., Sridharan, S., Liu, X., Ozdal, M., Nie, J., Park, J., Luo, L., et al. High-performance, distributed training of large-scale deep learning recommendation models. _arXiv preprint arXiv:2104.05158_, 2021.\n' +
+      '* Naumov et al. (2019) Naumov, M., Mudigere, D., Shi, H.-J. M., Huang, J., Sundaraman, N., Park, J., Wang, X., Gupta, U., Wu, C.-J., Azzolini, A. G., et al. Deep learning recommendation model for personalization and recommendation systems. _arXiv preprint arXiv:1906.00091_, 2019.\n' +
+      '* Pascanu et al. (2013) Pascanu, R., Mikolov, T., and Bengio, Y. On the difficulty of training recurrent neural networks. In _International conference on machine learning_, pp. 1310-1318. Pmlr, 2013.\n' +
+      '* Reed et al. (2022) Reed, J., DeVito, Z., He, H., Ussey, A., and Ansel, J. Torch. fx: Practical program capture and transformation for deep learning in python. _Proceedings of Machine Learning and Systems_, 4:638-651, 2022.\n' +
+      '* Rendle (2010) Rendle, S. Factorization machines. In _2010 IEEE International Conference on Data Mining_, pp. 995-1000. ieeeexplore.ieee.org, December 2010.\n' +
+      '* Sharma (2023) Sharma, S. Feature fusion for the uninitiated! by siddharth sharma! medium. [https://siddharth-1729-65206.medium.com/feature-fusion-for-the-uninitiated-4c593802922](https://siddharth-1729-65206.medium.com/feature-fusion-for-the-uninitiated-4c593802922). (Accessed on 01/24/2024).\n' +
+      '* Song et al. (2019) Song, W., Shi, C., Xiao, Z., Duan, Z., Xu, Y., Zhang, M., and Tang, J. Autoint: Automatic feature interaction learning via self-attentive neural networks. In _Proceedings of the 28th ACM international conference on information and knowledge management_, pp. 1161-1170, 2019.\n' +
+      '* Tang et al. (2023) Tang, J., Drori, Y., Chang, D., Sathiamoorthy, M., Gilmer, J., Wei, L., Yi, X., Hong, L., and Chi, E. H. Improving training stability for multitask ranking models in recommender systems. _arXiv preprint arXiv:2302.09178_, 2023.\n' +
+      '* Tianchi (2018) Tianchi. Ad display/click data on taobao.com, 2018. URL [https://tianchi.aliyun.com/dataset/dataDetail?dataId=56](https://tianchi.aliyun.com/dataset/dataDetail?dataId=56).\n' +
+      '* Wang et al. (2021) Wang, R., Shivanna, R., Cheng, D., Jain, S., Lin, D., Hong, L., and Chi, E. Dcn v2: Improved deep & cross network and practical lessons for web-scale learning to rank systems. In _Proceedings of the web conference 2021_, pp. 1785-1797, 2021a.\n' +
+      '* Wang et al. (2021) Wang, Z., She, Q., and Zhang, J. Masknet: Introducing feature-wise multiplication to ctr ranking models by instance-guided mask. _arXiv preprint arXiv:2102.07619_, 2021b.\n' +
+      '* Zha et al. (2023) Zha, D., Feng, L., Luo, L., Bhushanam, B., Liu, Z., Hu, Y., Nie, J., Huang, Y., Tian, Y., Kejariwal, A., et al. Pre-train and search: Efficient embedding table sharding with pre-trained neural cost models. _Proceedings of Machine Learning and Systems_, 5, 2023.\n' +
+      '* Zhao et al. (2023) Zhao, Y., Gu, A., Varma, R., Luo, L., Huang, C.-C., Xu, M., Wright, L., Shojanazeri, H., Ott, M., Shleifer, S., et al. Pytorch fsdp: experiences on scaling fully sharded data parallel. _arXiv preprint arXiv:2304.11277_, 2023.\n' +
+      '* 5, 2021_, pp. 2759-2769. ACM, 2021. doi: 10.1145/3459637.3482486. URL [https://doi.org/10.1145/3459637.3482486](https://doi.org/10.1145/3459637.3482486).\n' +
+      '* 15, 2022_, pp. 2912-2923. ACM, 2022a. doi: 10.1145/3477495.3531723. URL [https://doi.org/10.1145/3477495.3531723](https://doi.org/10.1145/3477495.3531723).\n' +
+      '\n' +
+      '## Appendix A Model-Specific Grid Search Space on Criteo\n' +
+      '\n' +
+      'We use Adam for dense arch optimization and use Rowwise AdaGrad for sparse arch optimization with a linear warmup period for the first 10% steps. We use \\(8*16384=131,072\\) global batch size. All models use ReLU for activation. Weopted to use 128 as embedding dimension, as it shows better results on all models in our pilot experiments. We use FP32 in all runs. Due to the dataset volume and model size, we use Mudigere et al. (2021) as the sparse distributed training framework and data parallel for dense synchronization.\n' +
+      '\n' +
+      'To facilitate fair comparisons, we conducted extensive grid search (>3000 runs) over both general hyper-parameters and model-specific configs on Criteo Dataset.\n' +
+      '\n' +
+      'For all the models, both sparse and dense learning rate was separately tuned in \\(\\{1e^{-3},1e^{-2},1e^{-1}\\}\\). For MLPs in all the models, the number of hidden layers ranged in \\(\\{1,2,3,4\\}\\) with their layer sizes in \\(\\{512,1024,2048\\}\\). To reduce the excessively large search space, we did a pilot experiments on the optimizer hyperparameters, and found that setting learning rate to \\(1e^{-3}\\) for dense and \\(1e^{-1}\\) for sparse works the best for all models. We fixed the learning rate in the following runs. We now describe model-specific search space:\n' +
+      '\n' +
+      '**AFN+** The AFN hidden units and DNN hidden units are the same across all runs, followed the general MLP search space. The number of logarithmic neurons ranges in \\(\\{128,256,512,1024\\}\\).\n' +
+      '\n' +
+      '**AutoInt+** We created the search space based on the best configurations reported in the paper Song et al. (2019), with a larger value being considered additionally per hyperparameter. The number of attention layers ranged in \\(\\{3,4\\}\\), with attention dim ranged in \\(\\{256,512\\}\\). The number of attention heads are in \\(\\{4,8\\}\\). The DNN hidden units follow the general MLP search space.\n' +
+      '\n' +
+      '**DCNv2** The number of cross layers ranged from 1 to 4. Rank searched in either full-rank or \\(512\\).\n' +
+      '\n' +
+      '**DLRM** The bottom MLP layer sizes and numbers was set to \\([512,256]\\).\n' +
+      '\n' +
+      '**FinalMLP** We followed the public benchmark setup Zhu et al. (2022), by setting FeatureSelection (FS) to all float features for one stream, and searching over one of 8 selected sparse features for the other stream. FS MLP is set to \\([800]\\). Number of heads is fixed to \\(256\\).\n' +
+      '\n' +
+      '**MaskNet** We tested both Parallel MaskNet and Serial MaskNet. For the Parallel variant, we consider the number of blocks in \\(\\{1,8,16\\}\\) and the block dimension in \\(\\{64,128\\}\\). For the Serial variant, we consider the number of layers in \\(\\{1,4,8\\}\\) with the layer size in \\(\\{64,256,1024\\}\\). We fixed the reduction ratio to 1 for both variants.\n' +
+      '\n' +
+      '**xDeepInt** We considered Compressed Interaction Network (CIN) with the number of layers in \\(\\{3,4\\}\\) and the layer dimension in \\(\\{16,32,64\\}\\).\n' +
+      '\n' +
+      '**Wukong** The bottom MLP layer sizes and numbers was set to \\([512,256]\\). \\(l\\) ranged from \\(1\\) to \\(4\\); \\(n_{F}\\) and \\(n_{L}\\) are set to the same value, ranged in \\(\\{8,16\\}\\). \\(k\\) is fixed to \\(24\\).\n' +
+      '\n' +
+      '## Appendix B Model-Specific Scaling-up Configurations\n' +
+      '\n' +
+      'Please refer to Table 3 for details.\n' +
+      '\n' +
+      '## Appendix C Analysis of High Order Interactions in Wukong\n' +
+      '\n' +
+      'The traditional factorization machine approach solves second order interaction problem by minimizing Naumov et al. (2019):\n' +
+      '\n' +
+      '\\[\\min\\underset{i,j\\in S}{\\Sigma}r_{ij}-X^{1}X^{1}{}^{T}\\]\n' +
+      '\n' +
+      'where \\(r_{ij}\\in R\\) is the rating of the \\(i\\)-th product by the \\(j\\)-th user for \\(i\\) = 1,..., m and \\(j\\) = 1,..., n; X denotes the user and item representations (embeddings), and the superscript \\(1\\) denotes the embedding contains \\(1\\)st order information. The dot product of these embedding vectors yields a meaningful prediction of the subsequent rating for 2nd order interactions. In Wukong, this meaningful interactions are then transformed to 2nd order interaction representations \\(X^{2}\\) using MLP. In the 2nd layer FMB, with a residual and LCB connection, a dot product of \\((X^{1}+X^{2})(X^{1}+X^{2})^{T}\\) yield both meaningful interaction from 1st order to 4th order. By analogy, a \\(l\\)-layer Wukong solves a problem by minimizing:\n' +
+      '\n' +
+      '\\[\\min\\underset{i,j\\in S}{\\Sigma}(r_{ij}-\\underset{k\\in 1,2,\\dots,2^{l-1}}{ \\Sigma}X^{k}{}^{T})\\]\n' +
+      '\n' +
+      'Thus, comparing to the traditional factorization approach, Wukong is able to solve the recommendation problem with a more sufficient interaction orders.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c} \\hline \\hline\n' +
+      '**Hyperparameters** & **GFLOP/example** & **\\#Params** & **Relative LogLoss** & **Relative LogLoss** \\\\  & & & (Task1) & (Task2) \\\\ \\hline _AFN+_ & & & & \\\\ DNN=4x2048, afn=4x2048, nlog=1024 & 4.41 & 628.22 & 0.11 & 0.05 \\\\ DNN=4x4096, afn=4x2048, nlog=1024 & 7.65 & 628.74 & 0.12 & 0.06 \\\\ DNN=4x4096, afn=4x4096, nlog=2048 & 13.08 & 629.46 & 0.21 & 0.14 \\\\ DNN=4x8192, afn=4x8192, nlog=4096 & 43.4 & 633.95 & 0.12 & 0.06 \\\\ _AutoInt+_ & & & & \\\\ Attention=3x256, nhead=4, DNN=2x256 & 7.72 & 627.73 & 0.39 & 0.24 \\\\ Attention=3x512, nhead=4, DNN=2x256 & 18.58 & 627.77 & 0.15 & 0.05 \\\\ Attention=3x512, nhead=8, DNN=3x8192 & 42.53 & 631.49 & -0.09 & -0.16 \\\\ Attention=3x512, nhead=16, DNN=3x10240 & 49.58 & 632.59 & -0.1 & -0.2 \\\\ Attention=3x512, nhead=16, DNN=3x16384 & 68.83 & 635.57 & 0.13 (lossX) & 0.01 (lossX) \\\\ _DCN_ & & & & \\\\ |=2, rank=512, MLP=4x2048 & 3 & 628.11 & -0.27 & -0.27 \\\\ |=2, rank=512, MLP=4x4096 & 4.67 & 628.37 & -0.29 & -0.32 \\\\ |=2, rank=512, MLP=4x16384 & 17.85 & 630.42 & -0.38 & -0.41 \\\\ |=2, rank=512, MLP=4x32768 & 43.88 & 634.46 & -0.43 & -0.45 \\\\ |=2, rank=512, MLP=4x51200 & 84.71 & 640.79 & (LossX) & (LossX) \\\\ _DLRM_ & & & & \\\\ TopMLP=2x512 & 1.37 & 627.78 & (Baseline) & (Baseline) \\\\ TopMLP=4x512 & 1.37 & 627.78 & -0.11 & -0.08 \\\\ TopMLP=4x2048 & 3.85 & 628.17 & -0.23 & -0.21 \\\\ TopMLP=4x4096 & 7.29 & 628.7 & -0.28 & -0.27 \\\\ TopMLP=4x8192 & 14.61 & 629.84 & -0.32 & -0.31 \\\\ TopMLP=4x16384 & 31 & 632.39 & -0.37 & -0.35 \\\\ TopMLP=4x32768 & 71.23 & 638.62 & -0.36 & -0.34 \\\\ _FinalMLP_ & & & & \\\\ MLP1=4x4096, MLP2=2x1024, output_dim=64, & 3.93 & 628.25 & -0.11 & -0.16 \\\\ no\\_fs & & & & \\\\ MLP1=4x4096, MLP2=2x1024, output_dim=64, & 8.17 & 628.91 & -0.23 & -0.27 \\\\ f=15/05601, f8=5[75600,115200], fs_MLP=1x2048 & & & & \\\\ MLP1=4x8192, MLP=2x2048, output_dim=64, & 16.9 & 630.27 & -0.34 & -0.36 \\\\ f=15/05601, f8=5[75600,11520], fs_MLP=1x4096 & & & & \\\\ MLP1=8x8192, MLP=2x2048, output_dim=64, & 18.77 & 630.56 & -0.37 & -0.38 \\\\ f=15/05601, f8=5[75600,115200], fs_MLP=2x4096, & & & & \\\\ MLP1=4x6384, MLP2=2x4096, output_dim=64, & 36.26 & 633.27 & -0.34 & -0.34 \\\\ f=15/05601, f8=5[75600,115200], fs_MLP=1x8192 & & & & \\\\ _MaskNet_ & & & & \\\\ MLP=1x512, nblock=1, dim=128, reduction=0.01 & 1.76 & 627.92 & -0.09 & -0.12 \\\\ MLP=1x512, nblock=4, dim=128, reduction=0.01 & 6.8 & 628.7 & -0.22 & -0.25 \\\\ MLP=3x2048, nblock=4, dim=128, reduction=0.01 & 6.88 & 628.71 & -0.28 & -0.3 \\\\ MLP=3x2048, nblock=4, dim=128, reduction=0.05 & 32.36 & 632.67 & -0.37 & -0.37 \\\\ MLP=3x2048, nblock=4, dim=128, reduction=0.1 & 64.21 & 637.61 & -0.4 & -0.4 \\\\ _Wukong_ & & & & & \\\\ |=2, nrl=8, nf=8, k=24, MLP=3x2048 & 0.53 & 627.74 & -0.35 & -0.32 \\\\ |=4, nrl=32, nf=32, k=24, MLP=3x2048 & 1.25 & 627.82 & -0.45 & -0.43 \\\\ |=8, nrl=32, nf=32, k=24, MLP=3x2048 & 2.12 & 627.95 & -0.53 & -0.49 \\\\ |=8, nrl=48, nf=48, k=48, MLP=3x4096 & 5.6 & 628.46 & -0.6 & -0.6 \\\\ |=8, nrl=96, nf=96, k=96, MLP=3x8192\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
