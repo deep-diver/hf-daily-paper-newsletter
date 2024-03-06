@@ -1,1 +1,2 @@
 - [GALA: Generating Animatable Layered Assets from a Single Scan](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/9/2024-01-24+GALA%3A+Generating+Animatable+Layered+Assets+from+a+Single+Scan.yaml) / 2024-01-24
+- [MagicClay: Sculpting Meshes With Generative Neural Fields](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/38/2024-03-06+MagicClay%3A+Sculpting+Meshes+With+Generative+Neural+Fields.yaml) / 2024-03-06

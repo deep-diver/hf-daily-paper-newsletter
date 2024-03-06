@@ -24,3 +24,4 @@
 - [MOSAIC: A Modular System for Assistive and Interactive Cooking](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/35/2024-03-01+MOSAIC%3A+A+Modular+System+for+Assistive+and+Interactive+Cooking.yaml) / 2024-03-01
 - [RT-H: Action Hierarchies Using Language](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/37/2024-03-05+RT-H%3A+Action+Hierarchies+Using+Language.yaml) / 2024-03-05
 - [Twisting Lids Off with Two Hands](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/37/2024-03-05+Twisting+Lids+Off+with+Two+Hands.yaml) / 2024-03-05
+- [RT-Sketch: Goal-Conditioned Imitation Learning from Hand-Drawn Sketches](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/38/2024-03-06+RT-Sketch%3A+Goal-Conditioned+Imitation+Learning+from+Hand-Drawn+Sketches.yaml) / 2024-03-06
