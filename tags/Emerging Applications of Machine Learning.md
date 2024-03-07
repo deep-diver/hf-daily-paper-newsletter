@@ -32,3 +32,4 @@
 - [Video as the New Language for Real-World Decision Making](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/34/2024-02-28+Video+as+the+New+Language+for+Real-World+Decision+Making.yaml) / 2024-02-28
 - [Priority Sampling of Large Language Models for Compilers](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/35/2024-03-01+Priority+Sampling+of+Large+Language+Models+for+Compilers.yaml) / 2024-03-01
 - [ViewDiff: 3D-Consistent Image Generation with Text-to-Image Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/37/2024-03-05+ViewDiff%3A+3D-Consistent+Image+Generation+with+Text-to-Image+Models.yaml) / 2024-03-05
+- [Caduceus: Bi-Directional Equivariant Long-Range DNA Sequence Modeling](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/39/2024-03-07+Caduceus%3A+Bi-Directional+Equivariant+Long-Range+DNA+Sequence+Modeling.yaml) / 2024-03-07

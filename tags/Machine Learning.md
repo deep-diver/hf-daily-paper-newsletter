@@ -1,2 +1,3 @@
 - [Multi-line AI-assisted Code Authoring](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/19/2024-02-07+Multi-line+AI-assisted+Code+Authoring.yaml) / 2024-02-07
 - [Graph Mamba: Towards Learning on Graphs with State Space Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/24/2024-02-14+Graph+Mamba%3A+Towards+Learning+on+Graphs+with+State+Space+Models.yaml) / 2024-02-14
+- [Caduceus: Bi-Directional Equivariant Long-Range DNA Sequence Modeling](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/39/2024-03-07+Caduceus%3A+Bi-Directional+Equivariant+Long-Range+DNA+Sequence+Modeling.yaml) / 2024-03-07
