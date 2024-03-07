@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# 역추적: 질의의 원인 검색\n' +
+      '\n' +
+      '로즈 E. 왕 파완 위라완 오마르 카타바\n' +
+      '\n' +
+      '노아 굿맨 도로티 뎀스키\n' +
+      '\n' +
+      'Stanford University\n' +
+      '\n' +
+      'rewang@cs.stanford.edu, ddemszky@stanford.edu\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      '많은 온라인 콘텐츠 포털은 사용자들이 그들의 이해(예를 들어, 강의)를 보충하기 위해 질문을 할 수 있게 한다. 정보 검색(IR) 시스템은 이러한 사용자 질의에 대한 답변을 제공할 수 있지만, 콘텐츠를 개선하고자 하는 강사와 같은 콘텐츠 작성자를 직접 지원하지 않는다. 본 논문에서는 사용자 질의의 원인이 될 수 있는 텍스트 세그먼트를 시스템에서 검색하는 _backtracing_의 태스크를 소개한다. 우리는 콘텐츠 전달과 의사소통을 향상시키기 위해 역추적(backtracing)이 중요한 세 가지 실제 영역을 공식화한다: (a) 강의 영역의 학생 혼란의 원인 이해, (b) 뉴스 기사 영역의 독자 호기심, (c) 대화 영역의 사용자 감정. 우리는 인기 있는 정보 검색 방법 및 언어 모델링 방법, 바이 인코더, 재순위화 및 가능성 기반 방법 및 ChatGPT의 제로 샷 성능을 평가한다. 전통적인 IR 시스템들이 의미적으로 관련된 정보(예를 들어, "여러 번 투영하는 것이 여전히 동일한 포인트로 이어지는" 질의에 대한 "투영 행렬들"에 대한 세부사항들)를 검색하는 동안, 그들은 종종 인과적으로 관련된 컨텍스트를 놓친다(예를 들어, 강사는 "두 번 투영하는 것은 하나의 투영과 동일한 답변을 얻는다"라고 진술한다). 본 연구의 결과는 역추적에 대한 개선의 여지가 있으며 새로운 검색 접근법이 필요하다는 것을 보여준다. 우리는 우리의 벤치마크가 사용자 질의에 영향을 미치는 언어적 트리거를 식별하고 콘텐츠 생성을 정제하는 역추적, 산란 시스템에 대한 향후 검색 시스템을 개선하는 역할을 하기를 바란다.1\n' +
+      '\n' +
+      '각주 1: 우리의 코드와 데이터는 공개된다: [https://github.com/rosewang208/backtracing](https://github.com/rosewang208/backtracing)\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      '강사와 같은 콘텐츠 제작자 및 커뮤니케이터는 혼동을 해결하고 품질을 향상시키기 위해 콘텐츠에 대한 피드백을 크게 중시한다(Evans and Guymon, 1978; Hativa, 1998). 예를 들어, 학생이 강의 내용에 의해 혼란스러워할 때, 그들은 설명을 구하는 질문들을 강의 포럼에 게시한다. 강사들은 강의에서의 _where_ 오해가 그들의 교재들을 개선하기 위해 비롯되는 것을 결정하기를 원한다(McKone, 1999; Harvey, 2003; Gormally et al., 2014). 이러한 _content creators_의 니즈는 자신의 정보 니즈를 만족시키기 위해 Q&A 방법과 같은 정보 검색(IR) 시스템에 직접 의존할 수 있는 학생들과 같은 _information seekers_의 니즈와 다르다(Schutze et al., 2008; Yang et al., 2015; Rajpurkar et al., 2016; Joshi et al., 2017; Yang et al., 2018).\n' +
+      '\n' +
+      '질의의 원인을 식별하는 것은 명시적 라벨링의 부족, 추가 정보의 내재적 특성, 큰 말뭉치 크기, 질의와 말뭉치를 모두 이해하기 위한 필요한 도메인 전문성으로 인해 어려울 수 있다. 도 1에 도시된 예를 고려한다. 먼저, 학생은 강의의 어떤 부분이 원인이 되는지 명시적으로 플래그하지 않는다.\n' +
+      '\n' +
+      '도 1: 백트레이싱의 태스크는 쿼리를 취하고 이 쿼리를 트리거하는 컨텍스트를 식별한다. 쿼리의 원인을 식별하는 것은 쿼리와 코퍼스를 모두 이해할 수 있는 명시적 레이블링, 큰 코퍼스 크기 및 도메인 전문 지식의 부족으로 인해 어려울 수 있다.\n' +
+      '\n' +
+      '그들의 질문은, 그러나 그들은 강의 내용 밖에서 추가적인 정보에 대한 잠재된 필요성을 표현한다 둘째, 강의 녹취록과 같은 텍스트는 긴 문서이다; 강사는 그들이 받는 모든 학생 질문에 대한 정확한 혼란의 원인을 찾는데 어려움을 겪을 것이다. 마지막으로, 일부 질의는 학생의 혼란 이면의 주제와 이유를 이해하기 위한 도메인 전문 지식을 필요로 하며, 모든 학생 질문이 강의 내용을 그대로 반영하는 것은 아니며, 이는 역추적을 흥미롭고 어렵게 만든다.\n' +
+      '\n' +
+      '이 작업을 정형화하기 위해, 우리는 _backtracing_이라는 새로운 검색 작업을 소개한다. 질의(예를 들어, 학생 질문) 및 코퍼스(예를 들어, 강의 녹취록)가 주어지면, 시스템은 질의를 유발했을 가능성이 가장 높은 문장을 식별해야 한다. 우리는 콘텐츠 전달 및 커뮤니케이션을 개선하기 위해 역추적(backtracing)이 중요한 세 가지 실제 영역을 공식화한다. 첫째는 강의 영역으로서 학생 혼란의 원인을 찾는 것이 목표이며, 질의는 학생의 질문이고 말뭉치는 강의자의 녹취록이다. 두 번째는 뉴스 기사 도메인에서 사용자의 호기심을 유발하는 원인을 검색하는 것이 목표인 뉴스 기사 도메인이며, 질의는 사용자의 질문이고 말뭉치는 뉴스 기사이다. 셋째는 사용자의 감정(예를 들어, 분노)의 원인을 검색하는 것이 목표인 대화 도메인이다; 질의는 감정을 표현하는 사용자의 대화 턴이고 코퍼스는 완전한 대화이다. 도 2는 이들 도메인 각각에 대한 예를 도시한다. 이러한 다양한 도메인은 BEIR Thakur 등(2021)과 같은 이종 IR 데이터 세트와 유사하게 콘텐츠 생성을 개선하기 위한 역추적의 적용 가능성과 공통 과제를 보여준다.\n' +
+      '\n' +
+      '우리는 고밀도 리트리버 기반 Reimers and Gurevych (2019); Guo et al. (2020); Karpukhin et al. (2020) 또는 re-ranker 기반 시스템 Nogueira and Cho (2019); Craswell et al. (2020); Ren et al. (2021). 또한, 후보 세그먼트가 있거나 없는 말뭉치에서 조건화된 질의우도를 측정하는 것과 같이, 사전 학습된 언어 모델(PLM)을 사용하여 말뭉치 Sachan et al. (2022)의 변형에 따라 조건화된 질의의 확률을 추정하는 유사도 기반 검색 방법을 평가한다. 마지막으로 긴 문맥 윈도우 gpt-3.5-turbo-16k ChatGPT 모델은 긴 텍스트를 처리하고 명령어 후속을 수행할 수 있기 때문에 평가한다. 우리는 방이 있다는 것을 발견한다.\n' +
+      '\n' +
+      '도 2: 올바른 트리거링 컨텍스트를 검색하는 것은 사용자의 요구를 더 잘 만족시키고 콘텐츠 전달을 개선하는 방법에 대한 통찰력을 제공할 수 있다. 우리는 사용자의 질의에 대한 문맥을 제공하는 데 있어서 역추적(backtracing)이 중요한 세 가지 실세계 영역을 정형화한다. (a) 목표는 학생 혼란의 원인을 검색하는 강의 영역; (b) 목표는 독자의 호기심을 유발하는 원인을 검색하는 뉴스 기사 영역; (c) 목표는 사용자 감정의 원인(예: 분노)을 검색하는 대화 영역. 사용자의 쿼리는 회색 상자에 표시되고 트리거링 컨텍스트는 녹색 강조 문장이다. 밀집 리트리버 기반 및 리랭커 기반 시스템과 같은 인기 있는 검색 시스템은 빨간색으로 표시된 잘못된 컨텍스트를 검색한다.\n' +
+      '\n' +
+      '모든 방법에 대한 역추적 개선을 위해. 예를 들어, 바이 인코더 시스템 Reimers 및 Gurevych(2019)는 쿼리가 그것을 야기하는 텍스트 세그먼트와 의미적으로 유사하지 않을 때 투쟁한다; 이것은 종종 대화 및 강의 도메인에서 발생하며, 여기서 쿼리는 원래 콘텐츠와는 다르게 표현될 수 있다. 전반적으로, 본 연구의 결과는 역추적(backtracing)이 학습 도메인에서 가장 좋은 모델의 상위 3개의 정확도는 \\(44\\%\\)에 불과하다는 것과 같은 인과적 관련성을 고려하기 위해 새로운 검색 접근법이 필요한 어려운 작업임을 나타낸다.\n' +
+      '\n' +
+      '요약하면, 우리는 이 논문에서 다음과 같은 기여를 한다:\n' +
+      '\n' +
+      '* 우리는 코퍼스로부터 질의의 원인을 검색하는 것이 목표인 역추적이라는 새로운 작업을 제안한다. 이 작업은 _정보 탐색자_의 질문에 비추어 자신의 콘텐츠를 개선하고자 하는 _콘텐츠 작성자_의 정보 요구를 대상으로 한다.\n' +
+      '* 사용자의 질의를 유발하는 컨텍스트를 식별하는 데 역추적(backtracing)이 중요한 역할을 하는 세 개의 도메인으로 구성된 벤치마크를 공식화한다: 강의 설정에서 학생 혼란의 원인 검색, 뉴스 기사 설정에서 독자 호기심, 대화 설정에서 사용자 감정.\n' +
+      '* 우리는 바이 인코더 및 재순위 아키텍처를 포함한 인기 있는 검색 시스템의 집합과 말뭉치의 변이에 따라 조건화된 질의의 확률을 추정하기 위해 사전 훈련된 언어 모델을 사용하는 가능성 기반 방법을 평가한다.\n' +
+      '* 역추적을 수행하기 위한 현재의 검색 방법에는 개선의 여지가 있고 한계가 있음을 보여주며, 이는 작업이 어려울 뿐만 아니라 새로운 검색 접근법이 필요함을 시사한다.\n' +
+      '\n' +
+      '##2 관련 업무\n' +
+      '\n' +
+      '정보 검색(IR)의 태스크는 사용자 Schutze et al.(2008); Thakur et al.(2021)의 정보 요구를 만족시키는 관련 문서들 또는 통로들을 검색하는 것을 목표로 한다. 이전의 IR 기법들은 랭킹 모델 Guo et al. (2016); Xiong et al. (2017); Khattab and Zaharia (2020) 및 표현-초점 언어 모델 Peters et al. (2018); Devlin et al. (2018); Reimers and Gurevych (2019). 최근의 연구들은 또한 검색 Zhuang 및 Zuccon (2021); Zhuang et al. (2021); Sachan et al. (2022); PLM을 사용하는 장점은 도메인- 또는 태스크-특정 트레이닝을 필요로 하지 않으며, 이는 새로운 모델들을 트레이닝하기 위한 충분한 데이터가 없는 설정들에 유용하다. 이러한 접근법은 다양한 작업에 대한 정보에 액세스하는 _정보 탐색자를 지원하는 데 상당한 발전을 이루었다. 이러한 작업의 예는 현재 기사의 맥락에서 사용자를 위해 읽을 뉴스 기사를 추천하는 것(2005); Soboroff et al. (2018), 건강 관련 우려를 만족시키기 위해 관련 바이오-의료 기사를 검색하는 것(2015); Boteva et al. (2016); Roberts et al. (2021); Soboroff (2021), 연구자의 문헌 검색을 가속화하기 위해 관련 학술 기사를 찾는 것(2021), 또는 질문 양 et al. (2015); Rajpurkar et al. (2016); Joshi et al. (2017); Yang et al. (2018)을 포함한다.\n' +
+      '\n' +
+      '그러나, _content creators_의 반대 요구는 더 적은 탐구를 받았다. 예를 들어, 강의의 어떤 측면이 학생들을 혼란스럽게 하는지 이해하는 것은 아직 탐구되지 않은 상태로 남아 있으며 콘텐츠 제작자에게 개선 영역을 표시한다. 백트레이싱은 사용자들이 왜 애초에 질의를 발행하고 그들의 정보를 트리거하는 것이 Cheng 등(2010); Kong 등(2015); Koskela 등(2018)을 필요로 하는지를 이해하기 위해 이전의 사용자 브라우징 행동으로부터 검색 의도를 예측하는 작업과 관련된다. 우리의 접근 방식과 이전 작업의 주요 차이점은 입력 데이터와 예측 작업의 특성이다. 이전의 방법들은 미래의 검색 결과들을 순위화하기 위해 관찰가능한 사용자 브라우징 패턴들(예를 들어, 방문된 URL들 및 클릭 행동들)에 의존하지만, 우리의 역추적 프레임워크는 사용자 질의에 대한 컨텍스트 및 예측을 위한 출력 공간으로서 콘텐츠 자체의 언어를 활용한다. 이러한 관점의 전환을 통해 콘텐츠 제작자는 행동 패턴과 달리 사용자 쿼리에 영향을 미치는 특정 맥락적, 언어적 트리거에 대한 세분화된 통찰력을 얻을 수 있다.\n' +
+      '\n' +
+      '또 다른 관련 과제는 질문 생성이며, 이는 또한 교육 Heilman and Smith (2010); Duan et al. (2017); Pan et al. (2019). 질문 생성 설정이 해답이 소스 문서에서 식별될 수 있다고 가정하는 동안, 역추적은 해답 자체보다는 질문에 대한 트리거에 관심이 있다. 우리의 영역을 포함하여 많은 경우에 질문에 대한 답은 제공된 외부에 존재할 수 있다.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:4]\n' +
+      '\n' +
+      '학생들이 새로운 개념에 대한 혼란을 표현하기 위해 질문을 할 수 있도록. 강사는 강의의 어떤 부분이 혼란을 야기하는지 알 수 있어 이익을 얻을 수 있다. MIT OpenCourseWare 수학 비디오의 강의 녹취록과 혼란을 표현하는 유튜브의 실제 사용자 코멘트를 포함하는 SightWang et al.(2023)의 페어링된 코멘트-강좌 데이터셋을 적용한다. 이러한 코멘트들은 백트레이싱 프레임워크에서 자연스럽게 쿼리로서 작용하는 반면, 코멘트들은 애초에 _caused_ 코멘트를 무엇에 대한 지상-진실 타겟 주석들을 갖지 않는다. 우리의 작업은 이러한 주석에 기여한다. 대학 수준의 수학 주제에 대한 역추적과 유창한 과제에 익숙한 두 명의 주석자(본 논문의 공동 저자)는 질의 2에 주석을 달며, 최대 5개의 문장을 선택하고 해당 동영상을 사용하여 과제를 수행할 수 있다. \\ (20\\) 질의는 두 주석자에 의해 주석이 부여되며, 이 주석들은 높은 일치도를 공유한다: 주석자는 질의의 \\(70\\%\\)에 대해 동일한 타겟 문장을 식별하고, 서로 근접한 타겟 문장을 선택한다. _ 이러한 주석 결과는 합의로 역추적을 수행하는 것이 가능함을 나타낸다._ 부록 B는 주석 인터페이스 및 동의에 대한 자세한 내용을 포함한다. 최종 데이터세트는 210개의 주석이 달린 예를 포함하며, 다른 IR 데이터세트 Craswell 등(2020, 2021); Sobroff(2021).3 쿼리가 하나 이상의 타겟 문장을 갖는 경우, 정확도 기준은 타겟 문장과 예측된 문장 사이에 중복이 있는지 여부이다(섹션 3의 태스크 정의 참조).\n' +
+      '\n' +
+      '각주 2: 주석은 강의와 질의를 모두 이해하고 그에 따라 역추적하기 위해 수학 주제에 능숙해야 한다.\n' +
+      '\n' +
+      '뉴스 기사 기사 우리는 뉴스 기사 영역을 구성하기 위해 기사를 읽을 때 실제 뉴스 기사 및 크라우드 워커가 작성한 질문을 사용한다. 뉴스 기사는 독자들이 호기심 질문을 하는 자연스러운 설정으로, 더 많은 정보에 대한 필요성을 표현한다. 이를 위해 Ko et al. (2020)의 데이터 셋을 활용하여 독자의 호기심을 유발하는 기사 문장에 의해 색인된 질문과 뉴스 기사를 대상으로 하였다. 우도 기반 검색 방법(예: \\(1024\\) 토큰)에 사용되는 모델의 가장 작은 컨텍스트 창 내에 들어갈 수 없는 기사를 필터링하여 데이터 세트를 수정한다. 이 적응된 데이터 세트는 관리 가능한 텍스트 길이를 유지하면서 더 많은 컨텍스트 정보를 통합하고 더 산만한 문장을 처리하는 방법의 능력을 평가할 수 있게 한다. 최종 데이터 세트는 1382개의 예를 포함한다.\n' +
+      '\n' +
+      '대화에는 _anger_와 _fear_와 같은 감정에 주석이 달린 2인 대화와 대화의 회전 수준에서 감정의 원인을 사용한다. 대화는 화자가 분노와 같은 강한 감정을 불러일으키는 무언가를 우연히 말할 수 있는 인간의 상호작용을 위한 자연스러운 설정이다. 이러한 감정은 도 2의 예와 같은 누적 또는 비인접 상호작용으로부터 발생할 수 있다. 쿼리를 통해 표현된 감정을 불러일으키는 콘텐츠를 식별하는 것은 혼란을 야기하는 콘텐츠와 다르지만, 둘 모두를 처리하는 능력은 인과적 관련성에 기초하여 정보를 검색하는 일반적이고 효과적인 역추적 시스템의 핵심이다. 특정 감정을 이끌어내는 발화를 식별하면 시스템과 정제된 갈등 해결 도구에서 더 나은 감정 지능을 위한 길을 열 수 있다. 본 논문에서는 Poria et al. (2021)의 대화 데이터셋을 이용하여 감정과 그 원인에 대한 턴-레벨 주석을 포함하고, 감정 원인을 인식하도록 설계하였다. 질의는 감정으로 주석이 달린 화자의 대화 전환 중 하나이며 말뭉치는 대화 전환의 전부이다. 충분한 주의를 산만하게 하는 문장들이 있는지 확인하기 위해, 우리는 적어도 5개의 문장들과 대화를 사용하고 대화에서 마지막 주석이 달린 발화를 사용한다. 최종 데이터 세트에는 671개의 예가 포함되어 있습니다.\n' +
+      '\n' +
+      '### Domain Analysis\n' +
+      '\n' +
+      '섹션 6의 실험 결과를 맥락화하기 위해 먼저 역추적과 관련하여 데이터 세트의 구조적 속성을 분석한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l r|c|c|c} \\hline \\hline  & & **Lec** & **News** & **Conv** \\\\ \\hline Query & Total & \\(210\\) & \\(1382\\) & \\(671\\) \\\\  & Avg. words & \\(30.9\\) & \\(7.1\\) & \\(11.6\\) \\\\  & Max words & \\(233\\) & \\(27\\) & \\(62\\) \\\\  & Min words & \\(4\\) & \\(1\\) & \\(1\\) \\\\ \\hline Corpus & Total & \\(11042\\) & \\(2125\\) & \\(8263\\) \\\\  & Avg. size & \\(525.8\\) & \\(19.0\\) & \\(12.3\\) \\\\  & Max size & \\(948\\) & \\(45\\) & \\(6110\\) \\\\  & Min size & \\(273\\) & \\(7\\) & \\(6\\) \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 1: 역추적을 위한 쿼리 및 코퍼스 크기에 대한 데이터셋 통계량. Lec은 강의 영역, News는 뉴스 기사 영역, Conv는 대화 영역이다. 말뭉치 크기는 강의 및 뉴스 기사의 문장 수준과 대화의 대화 전환 수준에서 측정된다.\n' +
+      '\n' +
+      '원인과 질의가 얼마나 유사한가?이 질문에 답하기 위해 그림 4의 지면-진실 원인 문장(GT)에 질의의 의미적 유사성을 플롯한다. 또한 임의의 말뭉치 문장에 질의의 최대 유사성(Max)과 지면-진실과 최대 유사성(Diff)의 차이를 플롯한다. 이것은 주의력 있는 문장들을 지상-진실 문장들과 비교한다; 차이가 클수록, 덜 가능성 있는 의미적 관련성은 역추적을 수행하는 데 필요한 _causal_ 관련성에 대한 프록시로서 사용될 수 있다. 이는 또한 주의 분산기 문장이 더 높은 유사성을 나타내기 때문에 유사성 기반 방법의 성능이 좋지 않음을 나타낸다. Semantic similarity Reimers and Gurevych (2019)를 측정하기 위해 all-MiniLM-L12-v2 S-BERT 모델을 사용하였다.\n' +
+      '\n' +
+      '특히, 질의와 그 근거-진실은 낮은 파란색 막대로 표시된 도메인 간에 낮은 의미 유사성을 나타낸다. 또한 녹색 막대로 표시된 대화 및 강의는 지상 진실 문장과 최대 유사성 문장 간의 차이가 가장 큰 반면 뉴스 기사는 가장 작다. 이것은 질의와 표면 수준의 유사성을 공유하는 주어진 문서에 다수의 패시지가 있을 수 있지만, 대다수의 패시지는 대화 및 강의 도메인에서 질의를 야기하지 않는다는 것을 시사한다. 뉴스 기사 도메인에서, 질의 및 원인 문장은 일반적으로 짧고 관심 있는 이벤트 또는 명사를 언급하기 때문에 더 높은 의미 유사성을 나타낸다. 전체적으로, 이 분석은 핵심적인 통찰을 가져온다: 의미적 관련성이 항상 인과적 관련성을 동일시하지는 않는다\n' +
+      '\n' +
+      '원인은 코퍼스에 어디에 있습니까?원인의 위치를 이해하면 쿼리에 대한 원인을 식별하는 데 얼마나 많은 컨텍스트가 필요한지 알 수 있습니다. 그림 5는 말뭉치 문서 내 원인 문장 위치 분포를 시각화한 것이다. 이러한 도표는 일부 도메인이 특정 섹션에 집중된 원인이 있지만 다른 도메인은 더 많은 확산 패턴을 나타냄을 보여준다. 뉴스 기사 영역의 경우 문서의 시작 부분에서 눈에 띄는 피크가 있는데, 이는 원인을 식별하기 위해 거의 맥락이 필요하지 않음을 시사한다. 이는 독자의 관심을 사로잡기 위해 중요한 정보가 조기에 소개되는 뉴스 기사의 전형적인 구조와 일치한다. 결과적으로 독자들은 시작부터 즉각적인 질문을 할 수 있다. 반대로 대화 영역에서는 마지막에 분포가 최고조에 달하는데, 이는 원인 규명을 위해 대화에서 더 많은 맥락이 필요함을 시사한다. 마지막으로 강의 영역에서는 분포가 비교적 균일하여 보다 넓은 맥락적 의존성을 시사한다. 혼동의 원인은 교육 전달 전반에 걸쳐 일관된 명확성의 중요성을 강조하면서 어떤 섹션에서도 발생한다.\n' +
+      '\n' +
+      '흥미로운 정성적 관찰은 다른 쿼리에 대한 공유 원인 위치가 있다는 것이다. 강의 영역의 예는 그림 6에 나와 있으며, 여기서 다른 학생 질문이 동일한 원인 문장에 매핑된다. 이는 모델이 역추적을 효과적으로 수행하고 강의자가 수정해야 하는 혼란의 공통 위치를 자동으로 식별할 수 있는 가능성을 보여준다.\n' +
+      '\n' +
+      '그림 4: 각 데이터 세트 플롯은 지면 진실 원인 문장(GT), 최대 유사도를 가진 코퍼스 문장(Max), 최대 및 지면 진실 유사성 문장 간의 차이(Diff)에 대한 쿼리 유사성을 보여준다.\n' +
+      '\n' +
+      '그림 5: 각 행 그림은 지면-진실 원인 문장이 말뭉치 문서에 있는 영역의 히스토그램이다. x축은 원인 문장의 위치를 보고하며, 0은 원인 문장이 첫 번째 문장이고 1이 마지막 문장임을 의미한다. y축은 해당 위치의 원인 문장 수를 보고합니다.\n' +
+      '\n' +
+      '## 5 Methods\n' +
+      '\n' +
+      '우리는 기존의 최신 검색 방법의 집합을 평가하고 상위 1과 상위 3의 정확도를 보고한다: 상위 1과 3 후보 문장에는 지상 진리 문장이 포함됩니까? 최고 k 정확도를 보고하는 것은 검색 설정에서 표준 메트릭입니다. 또한 Top-1 후보와 Top-3 후보 사이의 최소 거리를 보고한다: 메소드의 후보와 지상 진실 문장 사이의 최소 거리는 얼마인가? 상기 방법들은 크게 유사도 기반(즉, 문장 유사도를 이용한) 및 유사도 기반 검색 방법들로 분류될 수 있다. Sachan et al.(2022)과 유사하게, 유사도 기반 검색 방법들은 PLM들을 사용하여 말뭉치의 변형들에 조건화된 질의의 확률을 측정하고 유사도 기반 검색 방법들 보다 더 표현적일 수 있다; 우리는 이러한 변형들을 아래에서 상세히 설명한다. PLM으로는 GPT-2 Radford et al. (2019), GPT-J Wang and Komatsuzaki (2021), OPT-6.7B Zhang et al. (2022)를 사용한다. 또한 시각과 같은 긴 텍스트 설정에 이상적인 긴 컨텍스트 창을 가진 새로운 모델인 gpt-3.5-터보-16k로 평가한다. 그러나 이 모델은 확률 점수를 출력하지 않기 때문에 상위 1개의 결과만 보고한다.\n' +
+      '\n' +
+      '랜덤.이 방법은 말뭉치에서 문장을 무작위로 검색합니다.\n' +
+      '\n' +
+      '편집 거리.이 방법은 질의에서 편집 거리가 가장 작은 문장을 검색합니다.\n' +
+      '\n' +
+      'Bi-encoder.이 방법은 가장 성능이 좋은 S-BERT 모델 Reimers and Gurevych(2019)를 사용하여 의미 유사도가 가장 높은 문장을 검색한다. 우리는 큰 세트의 질문-답변 쌍에 대해 훈련된 다중-qa-MiniLM-L6-cos-v1과 문장-변환기의 다양한 텍스트 쌍에 대해 훈련된 전체-MiniLM-L12-v2를 인코더로 사용한다.\n' +
+      '\n' +
+      '교차 인코더.이 방법은 교차 인코더에 의해 예측된 유사성 점수가 가장 높은 문장을 선택한다. 우리는 ms-marco-MiniLM-L-6-v2 Thakur 등(2021)을 사용한다.\n' +
+      '\n' +
+      '이 방법은 bi-encoder를 사용하여 코퍼스로부터 상위 \\(k\\) 후보 문장들을 검색한 후, cross-encoder를 사용하여 \\(k\\) 문장들의 순위를 재조정한다. 우리는 bi-encoder로 all-MiniLM-L12-v2를 사용하고 cross-encoder로 ms-marco-MiniLM-L6-v2를 사용한다. 가장 작은 데이터셋인 Daily Dialog는 최소 5문장이므로 모든 데이터셋에 \\(k=5\\)을 사용한다.\n' +
+      '\n' +
+      'gpt-3.5-turbo-16k.이 방법은 라인-넘버 코퍼스와 쿼리를 제공하고, 쿼리를 발생시켰을 가능성이 가장 높은 라인 넘버를 생성한다. gpt-3.5-터보-16k에 사용된 프롬프트는 부록 C에 있다.\n' +
+      '\n' +
+      '단일 문장 유사도 기반 검색 \\(p(q|x_{t})\\). 이 방법은 \\(p(q|x_{t})\\)을 최대화하는 문장 \\(x_{t}\\in X\\)을 검색한다. 코퍼스와 쿼리를 컨텍스트화하기 위해 도메인별 프리픽스를 코퍼스 및 쿼리에 추가합니다. 예를 들어, Sight에서, 우리는 코퍼스 문장에 "선생님이 말한다:"를, 질의문에 "학생이 묻는다:"를 준비한다. 공간 제약으로 인해 부록 C는 사용된 접두사를 모두 포함한다.\n' +
+      '\n' +
+      'Auto-regressive likelihood-based retrieval \\(p(q|x_{\\leq t})\\) 이 방법은 \\(p(q|x_{\\leq t})\\을 최대화하는 문장 \\(x_{t}\\)을 검색한다. 이 방법은 역추적을 수행함에 있어 선행 문맥의 중요성을 평가한다. 강의는 전체 코퍼스가 컨텍스트 창에 들어갈 수 없는 유일한 도메인입니다. 이것은 \\(|x_{\\leq t}|\\)이 문맥 윈도우 한계보다 길 때 \\(x_{t}\\)에 대한 \\(p(q|x_{\\leq t})\\)을 항상 평가할 수 없다는 것을 의미한다. 이러한 이유로 우리는 말뭉치 \\(X\\)를 \\(k\\) 문장(즉, \\(X_{0:k-1}, X_{k:2k-1},\\dots\\)의 청크로 분할하고 각각의 청크 내에서 각각의 \\(x_{t}\\)을 평가한다. 예를 들어, \\(x_{t}\\in X_{k:2k-1}\\)인 경우, \\(x_{t}\\)에 대한 자동 회귀 우도 점수는 \\(p(q|X_{k:t})\\)이다. 최소 모델 컨텍스트 윈도우에 적합할 수 있는 최대 문장 수(쿼리 추가)이므로 \\(k=20\\)로 평가한다.\n' +
+      '\n' +
+      'Average Treatment Effect (ATE) likelihood-based retrieval \\(p(q|X)-p(q|X\\setminus x_{t})\\). 이 방법은 인과 추론 Holland (1986)에서 치료 효과로부터 영감을 얻는다. 우리는 ATE가 검색 기준으로 어떻게 사용될 수 있는지 설명한다. 우리의 설정에서 치료는 문장인지 여부이다.\n' +
+      '\n' +
+      '그림 6: 여러 학생들이 강의의 특정 부분에 대해 질문을 던지는 일반적인 혼란 지점의 예.\n' +
+      '\n' +
+      '(x_{t}\\)는 코퍼스에 포함된다. 우리는 치료가 질의 가능성에 미치는 영향에 관심이 있다:\n' +
+      '\n' +
+      '\\[\\texttt{ATE}(x_{t})=p_{\\theta}(q|X)-p_{\\theta}(q|X\\setminus\\{x_{t}\\}). \\tag{2}\\]\n' +
+      '\n' +
+      'ATE 가능성 방법은 \\(\\texttt{ATE}(x_{t})\\)을 최대화하는 문장을 검색한다. 쿼리의 가능성에 가장 큰 영향을 미치는 문장입니다. 우리는 뉴스 기사 및 대화에 대한 식 2를 최대화하는 문장을 직접 선택한다. 본 논문에서는 강의에 대한 자동 회귀 검색 방법과 동일한 텍스트 청킹을 수행한다. 만약 X_{k:2k-1}\\에서 \\(x_{t}\\)이면, \\(x_{t}\\)에 대한 ATE 가능성 점수는 \\(p(q|X_{k:2k-1})-p(q|X_{k:2k-1}\\setminus\\{x_{t}\\})으로 측정된다.\n' +
+      '\n' +
+      '## 6 Results\n' +
+      '\n' +
+      '정확도 결과는 표 2에 요약되어 있고, 거리 결과는 표 3에 요약되어 있다.\n' +
+      '\n' +
+      '가장 성능이 좋은 모델은 적당한 정확도를 얻을 수 있다. 예를 들어, 많은 주의력 문장들이 있는 강의 영역에서 가장 성능이 좋은 모델은 최고 3\\(44\\%\\)의 정확도만을 얻을 수 있다. 산란문장이 적은 대화영역에서 가장 성능이 좋은 모델은 상위 3\\(65\\%\\)의 정확도만을 보인다. 이는 인과적 관련성을 측정하는 것이 어렵고 기존의 회수 작업과는 확연히 다르다는 점을 강조한다.\n' +
+      '\n' +
+      '예를 들어, Bi-Encoder(all-MiniLM)와 같은 유사성 기반 방법은 뉴스 기사 도메인에서 상위 3\\(75\\%\\)의 정확도로 잘 수행되지만, 대화 도메인에서는 상위 3\\(37\\%\\)의 정확도로만 관리된다. 이러한 결과는 4절의 도메인 분석에서 의미적 관련성이 인과적 관련성에 대한 신뢰할 수 있는 대용물이 아니라는 점을 보완한다. 흥미롭게도, 긴 문서 도메인 강의에서 긴 문맥 모델 gpt-3.5-turbo-16k는 단일 문장 가능성 방법과 같은 비문맥적 방법보다 더 나쁜 성능을 보인다. 이는 컨텍스트를 설명하는 것이 현재 모델에 대해 어렵다는 것을 시사한다.\n' +
+      '\n' +
+      '단일 문장 방법은 일반적으로 대화를 제외하고 자기회귀적 방법을 능가한다.이 결과는 뉴스 기사의 시작과 강의에서 원인의 위치가 균일하게 집중되는 섹션 4의 도메인 분석에서 관찰된 결과를 보완하여 원인을 식별하기 위한 맥락이 거의 필요하지 않음을 시사한다. 반대로 대화는 트리거링 컨텍스트를 구별하기 위해 더 많은 컨텍스트를 필요로 하며, 이는 자기회귀 방법이 단일 문장 방법보다 일반적으로 더 나은 성능을 발휘하는 이유를 시사한다.\n' +
+      '\n' +
+      'ATE 우도 방법은 다른 방법들에 비해 크게 개선되지 않는다. ATE 우도 방법은 원인 문장의 효과를 계산하기 위해 설계되었지만, 단일 문장 우도 방법과 같은 비맥락적 방법과 경쟁한다. 이것은 카운터를 측정하기 위해 우도 방법을 사용하는 데 어려움을 시사한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c l|c c|c c|c c} \\hline \\hline  & \\multicolumn{2}{c}{**Lecture**} & \\multicolumn{2}{c}{**News Article**} & \\multicolumn{2}{c}{**Conversation**} \\\\  & & @1 & @3 & @1 & @3 & @1 & @3 \\\\ \\hline Random & 0 & 3 & 6 & 21 & 11 & 31 \\\\ Edit & 4 & 8 & 7 & 18 & 1 & 16 \\\\ BM25 & 8 & 15 & 43 & 65 & 1 & 35 \\\\ Bi-Encoder (Q\\&A) & 23 & 37 & 48 & 71 & 1 & 32 \\\\ Bi-Encoder (all-MiniLM) & 26 & 40 & 49 & 75 & 1 & 37 \\\\ Cross-Encoder & 22 & 39 & 66 & **85** & 1 & 15 \\\\ Re-ranker & **30** & **44** & 66 & **85** & 1 & 21 \\\\ gpt-3.5-turbo-16k & 15 & N/A & **67** & N/A & **47** & N/A \\\\ \\hline\n' +
+      '**Single-sentence** & GPT2 & 21 & 34 & 43 & 64 & 3 & 46 \\\\ \\(p(q|s_{t})\\) & GPTJ & \\(23\\) & 42 & **67** & **85** & 5 & **65** \\\\  & OPT 6B & **30** & 43 & 66 & 82 & 2 & 56 \\\\ \\hline\n' +
+      '**Autoregressive** & GPT2 & 11 & 16 & 9 & 18 & 5 & 54 \\\\ \\(p(q|s_{\\leq t})\\) & GPTJ & 14 & 24 & 55 & 76 & 8 & 60 \\\\  & OPT 6B & 16 & 26 & 52 & 73 & 18 & **65** \\\\ \\hline\n' +
+      '**ATE** & GPT2 & \\(13\\) & 21 & 51 & 68 & 2 & 24 \\\\ \\(p(q|S)-p(q|S/\\{s_{t}\\})\\) & GPTJ & 8 & 18 & **67** & 79 & 3 & 18 \\\\  & OPT 6B & 2 & 6 & 64 & 76 & 3 & 22 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 2: **정확도((\\(\\uparrow\\) % betterd.)** 각 열에서 가장 좋은 모델들은 볼드형이다. 각 데이터 세트에 대해 상위 1 및 3개의 정확도를 보고한다. gpt-3.5-turbo-16k는 랭킹 문장에 대한 결정론적 연속 점수를 출력하지 않기 때문에 상위 3 정확도에 대해 N/A를 보고한다.\n' +
+      '\n' +
+      '질문에 대한 문장의 사실적 효과.\n' +
+      '\n' +
+      '## 7 Conclusion\n' +
+      '\n' +
+      '본 논문에서는 질의를 유발할 가능성이 가장 높은 텍스트 세그먼트를 검색하는 백-트레이싱(back-tracing)의 새로운 태스크를 소개한다. 이 작업은 정보 탐색자의 질의에 비추어 콘텐츠를 개선하고자 하는 _콘텐츠 작성자의 정보 요구를 해결한다. 뉴스 기사, 강의 설정 등 다양한 영역을 아우르는 벤치마크를 소개한다. 우리는 일반적인 IR 방법, 가능성 기반 검색 방법 및 gpt-3.5-turbo-16k를 포함한 일련의 방법을 평가한다. 본 연구의 결과는 기존의 검색 방법들에 비해 개선의 여지가 있음을 보여준다. 이러한 결과는 역추적은 인과적 관련성에 대한 더 나은 맥락적 이해와 추론을 가진 새로운 검색 접근법이 필요한 도전적인 과제임을 시사한다. 우리는 벤치마크가 역추적을 위한 미래의 검색 시스템을 개선하는 토대가 되기를 바라며, 궁극적으로 콘텐츠 생성자가 사용자 쿼리를 이해하고 콘텐츠를 정제하며 사용자에게 더 나은 경험을 제공할 수 있도록 권한을 부여하는 시스템을 발전시킨다.\n' +
+      '\n' +
+      '### Limitations\n' +
+      '\n' +
+      '단일 문장 초점.우리의 접근법은 주로 주어진 질의를 야기한 가장 가능성 있는 단일 문장을 식별하는 데 중점을 둔다. 그러나 특정 시나리오에서 쿼리는 문장의 그룹 또는 조합에 따라 달라질 수 있다. 이러한 종속성을 무시하면 방법의 정확도가 제한될 수 있다.\n' +
+      '\n' +
+      '다른 도메인의 콘텐츠 제작자.우리의 평가는 주로 대화, 새로운 기사 및 강의 설정에 중점을 둡니다. 이러한 도메인은 귀중한 통찰력을 제공하지만 역추적 방법의 성능은 과학적 기사 및 검토자의 쿼리와 같은 다른 맥락에서 다를 수 있다. 향후 작업은 광범위한 도메인 및 데이터 소스에 걸쳐 역추적 방법의 일반화 가능성을 탐구해야 한다.\n' +
+      '\n' +
+      '긴 텍스트 설정.강의 녹취록의 길이로 인해 녹취록을 분할하고 가능성 기반 검색 방법으로 전달해야 했다. 이 접근법은 전체 전사체에 존재하는 중요한 컨텍스트를 생략하여 가능성 기반 검색 방법의 정확도에 잠재적으로 영향을 미칠 수 있다. 더 큰 텍스트를 효과적으로 처리하고 모델 용량 제약을 극복하기 위한 기술을 탐색하는 것은 긴 텍스트 설정에서 역추적 성능을 개선하는 데 도움이 될 것이며, 여기서 역추적은 피드백을 제공하는 데 유용하다고 상상할 수 있다.\n' +
+      '\n' +
+      '멀티모달 소스. 우리의 접근법은 원인이 된 코퍼스에서 가장 가능성 있는 텍스트 세그먼트를 식별한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c l|c c|c c|c c} \\hline \\hline  & \\multicolumn{2}{c}{**Lecture**} & \\multicolumn{2}{c}{**News Article**} & \\multicolumn{2}{c}{**Conversation**} \\\\  & & @1 & @3 & @1 & @3 & @1 & @3 \\\\ \\hline Random & 167.5 & 67.8 & 7.6 & 3.0 & 3.7 & 1.7 \\\\ Edit & 157.9 & 70.7 & 7.7 & 3.4 & 1.3 & 0.9 \\\\ BM25 & 122.7 & 50.7 & 4.6 & 1.4 & 1.3 & 0.7 \\\\ Bi-Encoder (Q&A) & 91.9 & 35.2 & 4.1 & 1.2 & 1.3 & 0.8 \\\\ Bi-Encoder (all-MiniLM) & 84.7 & 38.6 & 3.7 & 1.0 & 1.3 & 0.7 \\\\ Cross-Encoder & 96.6 & 33.8 & 2.5 & **0.6** & 1.3 & 0.9 \\\\ Re-ranker & 92.2 & 41.4 & 2.7 & **0.6** & 1.3 & 0.9 \\\\ gpt-3.5-turbo-16k & 73.9 & N/A & **1.5** & N/A & **1.0** & N/A \\\\ \\hline\n' +
+      '**Single-sentence** & GPT2 & \\(5.4^{*}\\) & \\(2.1^{*}\\) & 4.6 & 1.5 & 1.5 & 0.6 \\\\ \\(p(q|s_{t})\\) & GPTJ & \\(\\mathbf{5.0^{*}}\\) & \\(\\mathbf{1.9^{*}}\\) & 2.5 & 0.7 & 1.4 & **0.4** \\\\ OPT 6B & \\(5.2^{*}\\) & \\(2.3^{*}\\) & 2.7 & 0.8 & 1.3 & 0.5 \\\\ \\hline\n' +
+      '**Autoregressive** & GPT2 & \\(5.6^{*}\\) & \\(3.4^{*}\\) & 7.2 & 4.8 & 2.0 & 0.8 \\\\ \\(p(q|s_{\\leq t})\\) & GPTJ & \\(5.5^{*}\\) & \\(3.4^{*}\\) & 1.8 & 0.8 & 2.0 & 0.8 \\\\ OPT 6B & \\(5.1^{*}\\) & \\(3.5^{*}\\) & 1.9 & 1.0 & 1.9 & 0.7 \\\\ \\hline\n' +
+      '**ATE** & GPT2 & \\(7.4^{*}\\) & \\(2.8^{*}\\) & 4.7 & 1.3 & 1.5 & 0.9 \\\\ \\(p(q|S)-p(q|S/\\left\\{s_{t}\\right\\})\\) & GPTJ & \\(7.2^{*}\\) & \\(3.2^{*}\\) & 2.9 & 0.9 & 1.6 & 1.0 \\\\ OPT 6B & \\(7.1^{*}\\) & \\(\\mathbf{1.9^{*}}\\) & \\(3.2\\) & 1.1 & 2.4 & 1.0 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 3: ** Ground Truth로부터의 최소 문장 거리((\\(\\downarrow\\) better)** 각 열의 최상의 모델이 볼드링되어 있다. 각 데이터 세트에 대해, 우리는 방법의 상위\\(1\\) 및 \\(3\\) 후보의 지상 진리 원인 문장으로부터 최소 문장 거리를 보고하며, 0은 방법이 항상 지상 진리 후보 문장을 예측한다는 것을 의미한다. 강의 도메인의 가능성 기반 방법에 대한 주목은 컨텍스트 창 제한으로 인해 원문의 20문장 청크에서 평가되었다. 상단 문장이 상단 청크에 없는 경우 거리 메트릭에서 제외됩니다. 영향을 받는 메트릭을 별표로 표시하였다.\n' +
+      '\n' +
+      '주어진 질의 그러나, 멀티모달 설정에서, 쿼리는 또한 다른 데이터 유형, 예를 들어 전사체에서 캡처되지 않은 시각적 큐에 의해 야기될 수 있다. 이러한 비텍스트 데이터를 무시하는 것은 메소드의 정확도를 제한할 수 있다.\n' +
+      '\n' +
+      '## Ethics Statement\n' +
+      '\n' +
+      '콘텐츠 제작자가 사용자 피드백을 기반으로 콘텐츠를 정제할 수 있도록 하는 것은 더 유익한 자료를 생산하는 데 기여한다. 따라서 본 연구는 역추적을 통해 콘텐츠 제작자를 보조함으로써 사용자의 교육적 경험을 향상시킬 수 있는 가능성을 가지고 있다. 그럼에도 불구하고 우리는 우리의 일과 미래의 일을 통해 발생할 수 있는 잠재적인 편견이나 의도하지 않은 결과를 염두에 두고 있다. 예를 들어, 현재 벤치마크는 영어 데이터 세트에 대한 역추적의 정확도를 분석하고 주로 영어 텍스트에 대해 훈련된 PLM을 사용한다. 결과적으로 현재 역추적 결과 또는 벤치마크에서 도출된 추론은 다국어 질의의 원인을 정확하게 포착하지 못할 수 있으므로 주의하여 해석해야 한다. 또 다른 예는 사용자 감정의 원인을 찾는 것이 콘텐츠 제작자들에 의해 악용될 수 있다는 것이다. 우리는 이것을 데이터 세트에서 사용자를 식별하거나 상업적 이득을 위해 데이터를 사용하는 것 외에도 허용할 수 없는 작업 사용 사례로 간주한다.\n' +
+      '\n' +
+      '## Acknowledgements\n' +
+      '\n' +
+      '이 프로젝트를 시작할 때 유익한 대화를 해주신 마이클 장과 딜립 아루무감님께 감사드립니다. 우리는 또한 논문에 대한 유용한 피드백에 대해 가브리엘 포에시아에게 감사하고 싶습니다.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* J. 데블린, M. 장경 이경호 Toutanova (2018)Bert: 언어 이해를 위한 심층 양방향 변압기의 사전 훈련. ArXiv:1810.04805. 인용: SS1.\n' +
+      '*N. Chaswell, B. Mitra, E. Yilmaz, and D. Campos (2021)Overview of the trec 2020 deep learning track. 인용: SS1.\n' +
+      '*N. Craswell, B. Mitra, E. Yilmaz, D. Campos, and E. M. Voorhees (2020)Overview of the trec 2019 deep learning track. 인용: SS1.\n' +
+      '* J. 데블린, M. 장경 이경호 Toutanova (2018)Bert: 언어 이해를 위한 심층 양방향 변압기의 사전 훈련. ArXiv:1810.04805. 인용: SS1.\n' +
+      '*N. Duan, D. Tang, P. Chen, M. Zhou(2017) Question Question Generation for question answering. In Proceedings of the 2017 conference on empirical methods in natural language processing, pp. 866-874. Cited by: SS1.\n' +
+      '* W. E. Evans and R. E. Guymon (1978)Clarity of explanation: a powerful indicator of teachers effectiveness. 인용: SS1.\n' +
+      '*N. Fuhr(2018) Ir 평가에서 흔히 발생하는 실수들, 그리고 그것들을 어떻게 피할 수 있는지. Acm sigir forum, Vol. 51, pp. 32-41. Cited by: SS1.\n' +
+      '* C. Gormally, M. Evans와 P. Brickman (2014) 고등교육에서 가르치는 것에 대한 피드백: 변화를 촉진할 기회를 무시함. CBE--Life Sciences Education13(2), pp. 187-199. Cited by: SS1.\n' +
+      '*J. Guo, Y. 팬규 Ai, W. 브루스 크로프트(2016) ad-hoc 검색을 위한 심층 관련성 매칭 모델. In Proceedings of the 25th ACM international on conference on information and knowledge management, pp. 55-64. Cited by: SS1.\n' +
+      '* M. 곽용 양동섭 쉔과 N. Constant (2020)Multireqa: 검색 질의 응답 모델에 대한 교차 도메인 평가. 인용: SS1.\n' +
+      '* L. Harvey(2003) 학생 피드백[1]. 고등 교육에서의 품질 9(1), pp. 3-20. 인용: SS1.\n' +
+      '*N. Hativa (1998) 대학 교수에서의 명료성의 결여: 사례 연구. Higher Education, pp. 353-381. Cited by: SS1.\n' +
+      '* M. Heilman and N. A. Smith (2010) 좋은 질문이야! 질문 생성에 대한 통계 순위입니다. In Human language technologies: The 2010 annual conference of the North American Chapter of the Computational Linguistics, pp. 609-617. Cited by: SS1.\n' +
+      '* P. W. Holland (1986)Statistics and causal inference. Journal of the American statistical Association81(396), pp. 945-960. Cited by: SS1.\n' +
+      '* M. 조시, E. Choi, D. S. Weld, L. Zettlemoyer (2017)Triviaqa: 읽기 이해를 위한 대규모 멀리 감독된 챌린지 데이터 세트. The Proceedings of the 55th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers), pp. 1601-1611. Cited by: SS1.\n' +
+      '* V. 카르푸킨 B. 오구즈, S. 민필루이스 우승 에두노프, D. 첸, W. Yih(2020)Dense passage retrieval for open-domain question answering. In Proceedings of the 2020 Conference on Empirical Methods in Natural Language Processing (EMNLP), Online, pp. 6769-6781. External Links: Link, Document Cited by: SS1, SS2.1.\n' +
+      '*O. Khattab and M. Zaharia(2020)Colbert: 버트를 통한 상황화된 후기 상호작용을 통한 효율적이고 효과적인 통로 검색. In Proceedings of the 43rd International ACM SIGIR conference on research and development in Information Retrieval, pp. 39-48. Cited by: SS1.\n' +
+      '*W. 고태 천영 Huang, G. Durrett, and J. J. Li(2020) Inquisitive question generation for high level text comprehension. ArXiv:2010.01657. 인용: SS1.\n' +
+      '*W. 공룡 이종루오 Chang, and J. Allan (2015) Predictive search intent based on pre-search context. In Proceedings of the 38th International ACM SIGIR Conference on Research and Development in Information Retrieval, pp. 503-512. Cited by: SS1.\n' +
+      '* M. 코젤라, P. 루크코넨, T. 루샬로 Sjoberg, and P. Floreen (2018) Proactive information retrieval by capturing search intent from primary task context. ACM Transactions on Interactive Intelligent Systems (TiiS)8 (3), pp. 1-25. Cited by: SS1.\n' +
+      '* M. 라이브러리(2023) 미니체인 라이브러리. 참고: [https://github.com/srush/minichain#typed-prompts](https://github.com/srush/minichain#typed-prompts) External Links: Link Cited by: SS1.\n' +
+      '* I. McKenzie (2023)Inverse scaling prize: 처음 수상자를 찾았다. 참고: [https://irmckenzie.co.uk/round1#](https://irmckenzie.co.uk/round1#): -?:text=model%20should%20answer. -,%20newline 사용. - We%20saw%20many External Links: Link Cited by: SS1.\n' +
+      '* K. E. McKone(1999) 학생 피드백 분석은 교수자 효과를 향상시킨다. Journal of Management Education23(4), pp. 396-415. Cited by: SS1.\n' +
+      '*R. 노기라와 K. Cho (2019) Passage re-ranking with bert. ArXiv:1901.04085. 인용: SS1.\n' +
+      '* L. 판원 레이태 추아, M. Kan(2019) 최근 신경 질문 생성의 발전. ArXiv:1905.08949. 인용: SS1.\n' +
+      '* E. Perez, D. Kiela, and K. Cho(2021) 언어 모델을 사용한 진정한 소수 샷 학습. neural information processing systems34, pp. 11054-11070. Cited by: SS1.\n' +
+      '* M. E. 피터스, M. 뉴만 아이이어 가드너, C. 클라크, K 이와 L. Zettlemoyer (2018)Deep contextualized word representation. In Proceedings of the 2018 Conference of the North American chapter of the Association for Computational Linguistics: Human Language Technologies, Volume 1(Long Papers), pp. 2227-2237. External Links: Link, Document Cited by: SS1.\n' +
+      '* S. 포리아 마점더, D. 하자리카, D. 고살, R. Bhardwaj, S. P. Bai, J. Hong, R. 고쉬 A. 로이, N. Chhaya, et al.(2021)Recognizing emotion cause in conversation. Cognitive Computation13, pp. 1317-1332. Cited by: SS1.\n' +
+      '* A. Radford, J. Wu, R. Child, D. Luan, D. Amodei, I. Sutskever, et al.(2019)Language models are unsupervised multitask learners. OpenAI blog1(8), pp. 9. Cited by: SS1.\n' +
+      '* P. Rajpurkar, J. Zhang, K. Lopyrev, and P. Liang(2016)Squad: 100,000+문항의 기계 이해에 관한 것이다. In Proceedings of the 2016 Conference on Empirical Methods in Natural Language Processing, pp. 2383-2392. Cited by: SS1.\n' +
+      '*N. Reimers and I. Gurevych(2019)Sentence-bert: 문장 임베딩s using siamese bert-networks. ArXiv:1908.10084. 인용: SS1.\n' +
+      '*N. Reimers and I. Gurevych(2019)Sentence-bert: 문장 임베딩s using siamese bert-networks. ArXiv:1908.10084. 인용: SS1.\n' +
+      '*R. 렌영 Qu, J. Liu, W. X. Zhao, Q. She, H. Wu, H. Wang, and J. Wen(2021)Rocketqav2: joint training method for dense passage retrieval and passage re-ranking. ArXiv:2110.07367. 인용: SS1.\n' +
+      '*K. Roberts, D. Demner-Fushman, E. M. Voorhees, S. Bedrick, and W. R. Hersh (2021)Overview of the trec 2021 clinical trials track. The Proceedings of the Thirtieth Text REtrieval Conference (TREC 2021), Cited by: SS1.\n' +
+      '* D. S. Sachan, M. 루이스 조시, 아하잔안 이재노, L. Zettlemoyer(2022) 제로 샷 질문 생성으로 통과 검색 개선 ArXiv:2204.07496. 인용: SS1.\n' +
+      '* H. Schutze, C. D. Manning, and P. Raghavan(2008)roduction to information retrieval, volume 39. Cambridge University Press Cambridge. 인용: SS1.\n' +
+      '* I. Soboroff(2021)Overview of trec 2021. In 30th Text REtrieval Conference. 게이더스버그, 메릴랜드, 인용: SS1.\n' +
+      '* I. Soboroff, S. Huang, and D. Harman(2018)Trec 2018 뉴스 트랙 개요. In TREC, Vol. 409, pp. 410. Cited by: SS1.\n' +
+      '*N. 타쿠르 Reimers, A. Ruckle, A. Srivastava, and I. Gurevych (2021)Beir: a heterogenous benchmark for zero-shot evaluation of information retrieval models. ArXiv:2104.08663. 인용: SS1.\n' +
+      '* G. Tsatsaronis, G. Balikas, P. Malakasiotis, I. Pattalas, M. Zschunke, M. R. Alvers, D. Weissenborn, A.\n' +
+      '\n' +
+      'Krishara, Sergios Petridis, Dimitris Polychronopoulos, et al. 2015. A overview of the bioasq large-scale biomedical semantic indexing and question answering competition. _ BMC 생물정보학_, 16(1):1-28.\n' +
+      '* Voorhees et al. (2021) Ellen Voorhees, Tasmeer Alam, Steven Bedrick, Dina Demner-Fushman, William R Hersh, Kyle Lo, Kirk Roberts, Ian Soboroff, and Lucy Lu Wang. 2021. Trec-covid: pandemic information retrieval test collection 구축. _ACM SIGIR Forum_, 54페이지, 1-12페이지. ACM New York, NY, USA.\n' +
+      '* Voorhees (2005) Ellen M Voorhees. 2005. 트레크 로버스트 회수 트랙. _ACM SIGIR Forum_, vol 39, pages 11-20. ACM New York, NY, USA.\n' +
+      '* Wang and Komatsuzaki (2021) Ben Wang and Aran Komatsuzaki. 2021. Gpt-j-6b: 60억 파라미터 자기회귀 언어 모델.\n' +
+      '* Wang et al. (2023) Rose Wang, Pawan Wirawarn, Noah Goodman, and Dorottya Demszky. 2023. Sight: 고등교육 성적표로부터 수집된 학생 통찰력에 대한 큰 주석이 달린 데이터세트. In _Proceedings of Innovative Use of NLP for Building Educational Applications_.\n' +
+      '* Xiong et al. (2017) Chenyan Xiong, Zhuyun Dai, Jamie Callan, Zhiyuan Liu, and Russell Power. 2017. End-to-end neural ad-hoc ranking with kernel pooling. _Proceedings of the 40th International ACM SIGIR conference on research and development in information retrieval_, pages 55-64.\n' +
+      '* Yang et al. (2015) Yi Yang, Wen-tau Yih, and Christopher Meek. 2015. Wikiqa: 오픈 도메인 질문 응답을 위한 챌린지 데이터세트. _Proceedings of the 2015 conference on empirical methods in natural language processing_, pages 2013-2018.\n' +
+      '* Yang et al. (2018) Zhilin Yang, Peng Qi, Saizheng Zhang, Yoshua Bengio, William Cohen, Ruslan Salakhutdinov, and Christopher D Manning. 2018. Hotpotqa: 다양하고 설명 가능한 멀티홉 질문 응답을 위한 데이터셋. _Proceedings of the 2018 Conference on Empirical Methods in Natural Language Processing_, pages 2369-2380.\n' +
+      '* Zhang et al. (2022) Susan Zhang, Stephen Roller, Naman Goyal, Mikel Artetxe, Moya Chen, Shuohui Chen, Christopher Dewan, Mona Diab, Xian Li, Xi Victoria Lin, Todor Mihaylov, Myle Ott, Sam Shleifer, Kurt Shuster, Daniel Simig, Punit Singh Koura, Anjali Sridhar, Tianlu Wang, and Luke Zettlemoyer. 2022. Opt: 미리 훈련된 트랜스포머 언어 모델을 개방한다.\n' +
+      '* Zhuang et al. (2021) Shengyao Zhuang, Hang Li, and Guido Zuccon. 2021. 정보 검색을 위한 심층 질의 가능성 모델. In _Advances in Information Retrieval: 43rd European Conference on IR Research, ECIR 2021, Virtual Event, March 28-April 1, 2021, Proceedings, Part II 43_, pages 463-470. Springer.\n' +
+      '* Zhuang and Zuccon (2021) Shengyao Zhuang and Guido Zuccon. 2021. Tilde: passage reranking을 위한 Term independent likelihood model. [Proceedings of the 44th International ACM SIGIR Conference on Research and Development in Information Retrieval_, pages 1483-1492].\n' +
+      '* Ziems et al. (2023) Caleb Ziems, William Held, Omar Shaikh, Jiao Chen, Zhehao Zhang, and Diyi Yang. 2023. 대형 언어 모델이 계산 사회 과학을 변형시킬 수 있는가? _ arXiv preprint arXiv:2305.03514_.\n' +
+      '\n' +
+      '## 부록 A 계산 설정\n' +
+      '\n' +
+      '우리는 A6000 기계의 슬러름 기반 대학 계산 클러스터에 대한 실험을 실행했다. 실험은 시간이 지남에 따라 길이가 다양했으며 일부는 실행(예: 무작위 기준선)하는 데 1시간 미만이 걸렸지만 다른 일부는 실행(예: 강의의 ATE 가능성 기반 방법)하는 데 며칠이 걸렸다.\n' +
+      '\n' +
+      '## 부록 B 강의 주석 인터페이스\n' +
+      '\n' +
+      '[그림 7]은 강의 데이터 세트에 주석을 달기 위해 사용된 인터페이스를 보여준다.\n' +
+      '\n' +
+      '## 부록 C 스코어링을 위한 문맥화된 접두사\n' +
+      '\n' +
+      '이 절에서는 가능성 기반 검색 방법과 gpt-3.5-터보-16k에 사용된 프롬프트에 대해 설명합니다.\n' +
+      '\n' +
+      'gpt-3.5-turbo-16k에 사용된 프롬프트는 NLP, 교육 및 사회 과학 McKenzie (2023); Library (2023); Ziems et al. (2023); Wang et al. (2023). 구체적으로 말뭉치의 문장을 객관식 옵션으로 열거하고 각 옵션을 뉴라인으로 분리한다. 프롬프트가 시작될 때 태스크에 대한 컨텍스트를 추가하고, 프롬프트가 끝날 때 태스크에 대한 JSON 형식의 텍스트를 출력하는 제약 조건을 추가한다. 우리는 모델이 텍스트를 바람직한 형식으로 출력하는 데 신뢰할 수 있음을 발견했다.\n' +
+      '\n' +
+      '### Lecture\n' +
+      '\n' +
+      '우도 기반 검색 방법은 공백으로 문장을 연결하고 "교사가 수업을 하고 학생이 질문을 한다.\\nTeacher:"를 말뭉치에 미리 준비한다. 텍스트는 우리가 작업에서 사용하는 PLM의 학습 데이터 세트에 사용되지 않는 전사된 오디오에서 나오기 때문에 확률이 약간 더 잘 보정되기 위해 추가 컨텍스트가 추가되는 것이 중요하다는 것을 발견했다. 쿼리의 경우 "학생:"이 텍스트에 미리 지정됩니다. 예를 들어, \\(X=\\) "교사가 수업을 하고 있고, 학생이 질문을 한다.\\nTeacher:[문장 1][문장 2] …", \\(q=\\) "학생:[질문]."\n' +
+      '\n' +
+      'gpt-3.5-turbo-16k에 사용된 프롬프트는 그림 8에 나와 있다.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:13]\n' +
+      '\n' +
+      '**gpt-3.5-turbo-16k 뉴스기사**\n' +
+      '\n' +
+      '다음 글을 생각해 보십시오:\n' +
+      '\n' +
+      '{line-numbered article}\n' +
+      '\n' +
+      '다음은 다음과 같은 질문입니다.\n' +
+      '\n' +
+      '{query}\n' +
+      '\n' +
+      '어떤 기사 행이 이 질문을 유발했을 가능성이 가장 높은가? 가능한 답변이 여러 개 있으면 나열하십시오. 답변을 ["행 번호": 정수, "이성": "이 행이 이 쿼리를 일으켰을 가능성이 가장 높은 이유"로 형식화합니다.\n' +
+      '\n' +
+      '그림 10: 대화용 gpt-3.5-turbo-16k 프롬프트. 라인 번호 대화의 경우, 화자가 각 턴에 추가되고, 턴은 라인 브레이크에 의해 분리되며, 각 라인은 그 라인 번호로 시작한다. 쿼리를 위해 스피커도 추가됩니다. 예를 들어, 라인 넘버 대화는 “0. Speaker A:[utterance]\\n1. Speaker B:[utterance]\\n2. Speaker A:[utterance]...”와 같이 보일 수 있고, 질의는 “Speaker A:[query]”와 같이 보일 수 있다.\n' +
+      '\n' +
+      '그림 9: 뉴스 기사를 위한 gpt-3.5-turbo-16k 프롬프트. 행 번호가 매겨진 기사의 경우, 각 문장에 “Text:”가 선행되고, 문장들은 줄 바꿈에 의해 분리되며, 각 행은 그것의 줄 번호로 시작한다. 질의의 경우 "질문:"이 텍스트에 미리 지정됩니다. 예를 들어, 라인 번호의 기사는 “0. 텍스트:[문장 1]\\n1. 텍스트:[문장 2]\\n2. 텍스트:[문장 3]…”과 같고, 쿼리는 “질문:[질문]”과 같다.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
