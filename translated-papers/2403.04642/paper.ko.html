@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# 강화학습으로 추론하기 위한 대용량 언어 모델 교수\n' +
+      '\n' +
+      'Alex Havvilla\\({}^{1,2,*}\\), Yuqing Du\\({}^{4}\\), Sharath Chandra Raparthy\\({}^{1}\\), Christoforos Nalmpantis\\({}^{1}\\), Jane Dwivedi-Yu\\({}^{1}\\), Maksym Zhuravinskyi\\({}^{3}\\), Eric Hambro\\({}^{1,**}\\), Sainbayar Sukhbaatar\\({}^{1}\\), Roberta Raileanu\\({}^{1}\\)\n' +
+      '\n' +
+      '({}^{1}\\)Meta, \\({}^{2}\\)Georgia Institute of Technology, \\({}^{3}\\)StabilityAI, \\({}^{4}\\)UC Berkeley\n' +
+      '\n' +
+      '({}^{**}}\\)Meta 인턴쉽 동안 작업\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      '인간 피드백으로부터의 강화 학습(**RLHF**)은 LLM 출력을 인간 선호도와 정렬하기 위한 지배적인 접근법으로 등장했다. RLHF의 성공에 영감을 받아 LLM 추론 능력 향상에 대한 피드백(Expert Iteration, Proximal Policy Optimization(**PPO**), Return-Conditioned RL)으로부터 학습하는 다중 알고리즘의 성능을 연구한다. 우리는 학습된 보상 모델을 통해 LLM에 제공되는 희소 및 밀집 보상을 휴리스틱하게 조사한다. 우리는 또한 감독 미세 조정(**SFT**) 데이터가 있거나 없는 여러 모델 크기와 초기화에서 시작한다. 전반적으로, 대부분의 경우 전문가 반복이 가장 잘 수행되는 모든 알고리즘이 비교 가능하게 수행됨을 알 수 있다. 놀랍게도, Expert Iteration의 샘플 복잡도는 PPO의 샘플 복잡도와 유사하며, 사전 훈련된 체크포인트로부터 수렴하기 위해 최대 10^{6}\\의 샘플 순서로 필요하다. 우리는 RL 훈련 모델 동안 SFT 모델에 의해 이미 생성된 솔루션을 넘어 상당히 탐구하지 못한다는 결론을 내리고 이것이 왜 그런 것인지 조사한다. 또한, SFT 트레이닝 동안 maj@1과 pass@96 메트릭 성능 사이의 트레이드 오프와 반대로 RL 트레이닝이 두 가지 모두를 동시에 개선하는 방법에 대해 논의한다. 그런 다음 RLHF에 대한 연구 결과의 의미와 LLM 미세 조정에서 RL의 향후 역할에 대해 논의함으로써 결론을 내린다.\n' +
+      '\n' +
+      '**날짜 :** 3월 8일 2024\n' +
+      '\n' +
+      '**대응:** Alex Havvilla at ahavrilla3@gatech.edu\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      '대형 언어 모델(**LLMs**)의 추론 능력은 수많은 수학, 과학 및 코드 벤치마크에 대한 성능으로 측정됨에 따라 빠르게 향상되고 있다(Cobbe et al., 2021; Hendrycks et al., 2021; Sawada et al., 2023; Liang et al., 2022; Srivastava et al., 2022; Rein et al., 2023; Mialon et al., 2023; Chollet, 2019; Mishra et al., 2022; Hendrycks et al., 2021; Austin et al., 2021; Patel et al., 2021; Gao et al., 2021). 동시에, 인간 피드백으로부터의 강화 학습(Reinforcement Learning from Human Feedback;RLHF)(Bai et al., 2022; Ziegler et al., 2019; Ouyang et al., 2022) 및 명령어 미세 조정(Wei et al., 2021; Mishra et al., 2021)은 LLM을 인간 선호도에 정렬하는 데 상당한 진전을 이루었다. 모델 지시성의 향상은 지시 프롬프트를 통해 복잡한 행동에 더 쉽게 접근할 수 있도록 함으로써 명백한 모델 능력을 더욱 증가시켰다. 이는 Chain-of-Thought(Wei et al., 2022) 또는 Tree-of-Thoughts(Yao et al., 2023)와 같은 LLM 추론 능력을 증대시키는 다수의 점점 더 정교한 프롬핑 전략들로 이어졌다.\n' +
+      '\n' +
+      'AlphaGo(Silver et al., 2017), AlphaStar(Vinyals et al., 2019), OpenAI Dota 2(Berner et al., 2019)와 같은 강화 학습(RL)의 이전 작업은 RL 기술이 게임 환경에서 정교한 계획 및 추론이 가능한 신경망을 훈련하는 데 사용될 수 있음을 보여준다. 키케로(Bakhtin et al., 2022)는 특히 RL 훈련된 기획 에이전트와 대화 미세 조정 LLM을 결합하여 보드 게임 외교에서 거의 초인적인 성능을 달성하는 데 성공한다. 이러한 이전의 성공과 문제 해결의 내재적 상호 작용성을 고려할 때, LLM 추론에 RL을 적용하는 것은 자연스러운 다음 단계로 보인다. 본 논문에서는 다양한 보상 체계와 모델 초기화에 걸쳐 LLM의 추론 능력을 향상시키기 위해 RL의 아이디어를 어떻게 사용할 수 있는지 연구한다.\n' +
+      '\n' +
+      '우리는 질의응답 튜플의 분포로 정의되는 추론과제 \\(\\tau\\)에 대해 서로 다른 RL 알고리즘의 성능을 비교하는 것으로 시작한다. Task \\(\\tau\\)은 결정론적 동역학으로 토큰이 액션과 누적 상태 역할을 하는 _Markov Decision Process_ (**MDP**) 4-tuple \\((\\mathcal{S},\\mathcal{A},P_{a},R_{a})\\)을 정의하기 위해 확장될 수 있다. 기본적으로 최종 답변이 맞는 경우 +1의 희소 보상을 사용하지만 참조 솔루션에서 중간 단계에 일치하는 밀집된 보상과 보상 모델을 사용하여 합성적으로 생성된 보상을 실험한다. 우리는 감독 미세 조정(SFT) 체크포인트 및 사전 훈련된 체크포인트에서 시작하여 7B 및 13B 매개변수로 모델을 평가한다. 과제 특정 테스트 세트에서 모델 성능을 평가하는 4가지 메트릭을 보고한다: 1) 질문당 한 번 탐욕스럽게 샘플링하여 계산된 maj@1 점수, 2) 질문당 K = 96회 샘플링하여 계산된 maj@96 점수 및 최종 답변에 균일하게 투표하여 계산된 maj@96 점수, 3) K = 96회 샘플링하여 계산된 rerank@96 점수 및 결과 기반 보상 모델(**ORM**)을 사용하여 최종 답변을 선택하고 4) 모델 K = 96회 샘플링하여 계산된 pass@96 점수.\n' +
+      '\n' +
+      '우리는 전반적으로 가장 간단한 방법인 Expert Iteration (**EI**)(Anthony et al., 2017)이 대부분의 보상 설정 및 모델 초기화에 대해 모든 메트릭에서 가장 잘 수행한다는 것을 발견했다. 놀랍게도, EI는 프록시멀 정책 최적화(**PPO**)와 같은 보다 정교한 알고리즘만큼 샘플 효율적이며, 둘 다 사전 훈련된 체크포인트에서 초기화될 때에도 수렴하는 데 몇 천 개의 샘플만 필요하다. 또한 RL 미세 조정 후 사전 훈련된 모델 성능과 SFT 모델 성능 사이의 간격이 크게 줄어들고(\\(<\\) GSM8K에서 10% 간격), 더 큰 모델은 더 작은 간격을 갖는다. 또한, 이전 작업은 감독 미세 조정 동안 테스트 시간 maj@1 성능과 pass@96 성능 사이의 트레이드오프를 식별했으며(Cobbe et al., 2021), 지속적인 훈련은 pass@96 점수를 희생시키면서 maj@1 점수를 증가시켰다. 우리는 이에 대한 핵심 이유로 데이터 세트의 제한된 다양성을 식별한다. 우리는 RL 미세 조정이 훈련 중에 자체 데이터를 생성하여 학습해야 하는 더 다양한 예제 세트를 생성한다는 사실로 인해 두 메트릭을 동시에 개선할 수 있음을 보여준다.\n' +
+      '\n' +
+      '그런 다음 EI 및 반환 조건 RL이 PPO와 경쟁하는 이유에 대해 논의하여 두 가지 주요 요인을 제안한다. 먼저, 우리가 고려하는 추론 작업은 전적으로 결정론적 역학을 가지고 있다: 직접 행동 복제 및 복귀 조건화된 RL이 잘 수행되는 것으로 알려진 설정이다(Brandfonbrener et al., 2022). 대조적으로, PPO는 종종 고도의 확률성을 갖는 환경에서 성공한다(Bhargava et al., 2023). 둘째, RL 미세 조정 과정에서 모델에 의해 수행되는 정교한 탐색의 부족을 식별한다. 이 제한은 사전 훈련된 모델을 미세 조정할 때 PPO가 가질 수 있는 성능 또는 샘플 복잡성 이점에 크게 영향을 미친다. 우리는 특히 RL 훈련 초기에 패스@96 점수를 빠르게 포화시키는 것을 언급하면서 많은 관찰에서 이러한 결론에 도달한다. 우리는 RLHF에 대한 관찰의 영향과 RL을 통한 LLM 미세 조정의 미래에 대한 논의로 결론을 내린다.\n' +
+      '\n' +
+      '요약하면, 우리는 다음과 같은 기여를 한다:\n' +
+      '\n' +
+      '* 다양한 유형의 보상, 모델 크기 및 초기화를 사용하여 추론 작업에 대한 LLM의 PPO 미세 조정에 대한 포괄적인 연구.\n' +
+      '* 전문가 반복 및 반환 조건 RL과의 비교에서 전문가 반복을 확실하게 발견하면 전반적으로 최상의 성능과 경쟁력 있는 샘플 복잡성을 얻을 수 있다.\n' +
+      '* RLHF에 대한 연구 결과의 의미와 LLM에 대한 RL 미세 조정의 미래에 대한 논의로 탐사를 주요 제한 요소로 식별한다.\n' +
+      '\n' +
+      '##2 관련 업무\n' +
+      '\n' +
+      'LLM Reasoning: State-of-the-art 대형 언어 모델들(OpenAI, 2023; Touvron et al., 2023; Bai et al., 2022; Chowdhery et al., 2022)은 광범위한 수학, 과학 및 코드 벤치마크들에 의해 연구된 바와 같이 하드 추론 태스크들에 대해 점점 더 인상적인 능력들을 입증한다(Cobbe et al., 2021; Hendrycks et al., 2021; Sawada et al., 2023; Liang et al., 2022; Srivastava et al., 2022; Rein et al., 2023; Mialon et al., 2023; Chollet, 2019; Mishra et al., 2022; Hendrycks et al., 2021a; Austin et al., 2021; Patel et al., 2021; Gao et al., 2021). cain of thought_(**CoT**)(Wei et al., 2022) 및 관련 기술들(Chen et al., 2022; Yao et al., 2023; Besta et al., 2023)은 이러한 유형의 태스크들에 대해 LLM 성능을 강하게 부스팅하는 지배적인 방법들로서 등장하였다. CoT 방법을 사용하면 LLM이 문제를 올바르게 해결하는 데 필요한 중간 계산을 포함하는 "생각 사슬"을 먼저 생성함으로써 최종 답변을 연기할 수 있다.\n' +
+      '\n' +
+      '또 다른 작업 라인은 베이스 LLM 추론 능력과 계획 및 검색 알고리즘을 결합하여 광범위한 작업에 대한 성능을 더욱 향상시킨다(Yao et al., 2023; Besta et al., 2023; Ye et al., 2022; Yao et al., 2022; Dohan et al., 2022). 예를 들어, 생각의 트리(Yao et al., 2023)는 LLM과 폭 첫 번째 검색 알고리즘을 결합하여 LLM에 의존하여 액션을 제안하고 상태를 평가한다. 다른 작업들은 LLM들을 도구들과 결합한다(Schick et al., 2023; Qin et al., 2023; Zhou et al., 2023a). 추론 능력을 더욱 부스팅한다. GPT-4를 생성 및 자체 검증을 위한 파이썬 코드 해석기와 결합하면 하드 MATH 벤치마크에서 인상적인 84%를 달성한다(Hendrycks et al., 2021; Zhou et al., 2023a).\n' +
+      '\n' +
+      '다른 작품들은 자연어에서의 수학적 추론을 위한 LLMs에 초점을 맞추고 있다(Cobbe et al., 2021; Lewkowycz et al., 2022; Azerbayev et al., 2023; Lightman et al., 2023; Patel et al., 2021; Zhu et al., 2023; Rafailov et al., 2023). 특히 본 연구와 관련된 것은 Cobbe et al.(2021) 이며, 이는 GPT-3를 지도 수학 단어 문제(**MWP**) 추론 추적에 대해 미세 조정한다. 또한, 중간 단계 \\(P_{i}=(S_{1},...,S_{i})\\) 즉 \\(p(is\\_correct(A)|Q,P_{i})\\)에서 \\(A\\)은 prefix \\(P_{i}\\)을 갖는 해로서, 중간 단계 \\(P_{i}=(S_{i},...,S_{i})\\(P(is\\_correct(A)|Q,P_{i})\\)의 prefix를 주어 문제를 정확하게 풀 확률을 예측하는 Outcome Based Reward Models(**ORMs**)이라는 해 검증자를 훈련시킨다. 프로세스 기반 보상 모델들(**PRMs**)(Uesato et al., 2022; Lightman et al., 2023)은 또한 솔루션들의 단계-레벨 정확도를 대신 보도록 훈련될 수 있다. 보다 최근의 작업(Luo et al., 2023)은 PPO 동안 보상 신호로서 GPT-4 피드백으로부터 증류된 PRM을 이용한다.\n' +
+      '\n' +
+      'LLM 미세 조정을 위한 RRL:인간 피드백으로부터 강화 학습(RLHF)은 LLM을 미세 조정하기 위한 RL 기술의 가장 잘 알려진 응용일 수 있다. RLHF(Christiano et al., 2017; Ziegler et al., 2019; Stiennon et al., 2020; Ouyang et al., 2022; Bai et al., 2022; Glaese et al., 2022; Peng et al., 2021; Ramamurthy et al., 2022)는 태스크 \\(\\tau\\)에 대한 인간 선호도를 캡처하기 위해 _reward model_를 트레이닝함으로써 가장 자주 작업한다. 그런 다음 보상 모델을 사용하여 정책 개선이 수행된 작업에서 프롬프트에 대한 LLM 응답을 점수화한다. PPO는 가장 많이 사용되고 있지만(Ouyang et al., 2022; Bai et al., 2022), ReST(Gulcehre et al., 2023), Reward-Ranked Fine-tuning(Dong et al., 2023), AlpacaFarm(Dubois et al., 2023) 등 최근 여러 연구에서 표준 교차 엔트로피 손실과 함께 높은 응답에 대해 단순 미세 조정을 시연하여 유사한 성능을 얻을 수 있다. 우리는 일반적으로 이 종류의 알고리즘을 전문가 반복이라고 부른다.\n' +
+      '\n' +
+      'LLM 미세 조정을 위한 RL을 연구하는 대규모 작업체도 RLHF 구 외부에 존재한다. 텍스트 게임들에 대한 작업(Yao et al., 2020; Ammanabrolu and Riedl, 2019) 및 다른 상호작용 텍스트 환경들(Zhou et al., 2023b; Carta et al., 2023)은 상호작용 및 RL을 통해 LLM들을 접지하려고 한다. RL은 제어 가능한 생성 및 질의 응답 태스크에 대한 모델 성능 향상에도 적용되었다(Lu et al., 2022; Liu et al., 2022). LLM 추론 능력을 향상시키기 위해 다양한 형태의 전문가 반복이 또한 적용되었다(Huang et al., 2022; Yuan et al., 2023; Zelikman et al., 2022; Uesato et al., 2022). 예를 들어, "Scaling Relationship on Learning Mathematical Reasoning with Large Language Models"(Yuan et al., 2023)은 GSM8K 상의 다수의 모델 사이즈에 걸쳐 단일 라운드의 전문가 반복을 적용한다. 그들은 더 작은 모델에 대한 모든 메트릭에서 상당한 이득을 관찰하며, 더 큰 모델에 대해서는 이득이 감소한다. 관련 작업체는 코드 생성을 위한 RL을 연구한다(Le et al., 2022; Shen et al., 2023; Roziere et al., 2023). 특히 Shen et al.(2023)은 \\(\\sim\\)30%에서 \\(\\sim\\)60%로 점프하는, 단일 라운드의 전문가 반복 후에 StarCoder의 (Li et al., 2023) maj@1 성능이 크게 증가했다고 보고한다.\n' +
+      '\n' +
+      '위의 모든 작업에도 불구하고, 태스크, 사전 훈련 데이터, 감독 미세 조정 데이터, 사용된 RL 알고리즘 및 보상 소스의 광범위한 분산으로 인해 RL 미세 조정 동안 가장 큰 영향을 설명하는 요소가 정확히 무엇인지 불분명하다. 우리의 연구는 LLM 추론 능력 향상에 적용될 때 서로 다른 알고리즘이 어떻게 비교되는지 정확히 이해하기 위해 이러한 모든 요인에 대한 철저한 분석을 수행한다. 결과적으로 우리는 RL을 통해 LLM 개선을 위한 주요 병목 현상을 식별하고 유망한 미래 방향에 대한 논의를 제공할 수 있다.\n' +
+      '\n' +
+      '## 3 Methods\n' +
+      '\n' +
+      'RL 문제로서의 추론\n' +
+      '\n' +
+      '추론 작업에서 LLM을 미세 조정할 때 다양한 RL 알고리즘에 대한 성능 및 샘플 복잡도 요구 사항을 연구한다. 우리는 RL 문헌에서 대표적인 알고리즘으로 Expert Iteration (EI)(Anthony et al., 2017), Proximal Policy Optimization (PPO)(Schulman et al., 2017), Return-Conditioned RL(RCRL)(Brandfonbrener et al., 2022)을 고려한다. 일반적으로 모든 RL 알고리즘의 목표는 과제 \\(\\tau\\)에 대한 학생정책 \\(\\pi\\)의 기대 미래수익 \\(\\mathbb{E}_{A\\sim\\pi(Q), (Q,\\cdot)\\in\\tau}R(A)\\)을 최대화하는 것이다. 우리는 가장 높은 수익률 정책을 최적 정책이라고 부른다. 우리가 선택한 알고리즘들은 각각 다른 방법으로 \\(\\pi^{*}\\)을 찾는 것이다.\n' +
+      '\n' +
+      '**PPO**는 _online_RL 알고리즘의 일례이다. 온라인 알고리즘은 탐사 단계에서 생성된 데이터를 이용하여 \\(\\pi_{\\theta}\\) 갱신되는 탐사 단계와 정책 개선 단계 모두에 관여한다. PPO는 또한 학습 중인 학생 정책\\(\\pi_{\\theta}\\)에서 탐색 중 모델 롤아웃을 샘플링하는 _on-policy_ 알고리즘이다. 정책개선 시 학생\\(\\pi_{\\theta}\\)은 목적적인 보상을 위해 직접 극대화하여 기울기 하강을 통해 매개 변수를 업데이트한다.\n' +
+      '\n' +
+      'bb{E}_{t}\\left[min(\\frac{\\pi(a_{t}|s_{t})}{\\pi_{t}{text{old}(a_{t}|s_{t})}\\hat{A}_{t},clip(1-\\epsilon,1+\\epsilon,\\frac{\\pi(a_{t}|s_{t}}{\\pi_{\\text{old}}(a_{t}|s_{t})\\hat{A}_{t}\\right]\\hat{A}_{t},clip(1-\\epsilon,1+\\epsilon,\\frac{\\pi(a_{t}|s_{t})}{\\pi_{\\text{old}(a_{t}|s_{t})\\hat{A}_{t}\\right]\\hat{A}_{t},clip(1-\\epsilon,1+\\epsilon,\\frac{\\pi(a_\n' +
+      '\n' +
+      '여기서 \\(\\hat{A}_{t}\\)는 \\(Q(s,a)\\)(상태 \\(s\\))에서 행동 후 기대수익률 \\(a\\)과 값 \\(V(s)\\)(상태 \\(s\\))의 차이인 _advantage_를 추정한다.\n' +
+      '\n' +
+      '실제로 PPO의 경우 질문당 0.7 및 \\(N=4\\) 롤아웃의 온도에서 한 번에 1024 롤아웃을 샘플링한다. 학습은 배치 크기가 256인 \\(K=4\\) PPO 에폭에 대해 이 샘플들에서 실행되며, 추가로 LoRA (Hu et al., 2021)와 \\(r=128\\)를 사용하여 학습된다. 훈련은 4000 그래디언트 단계에 대해 실행됩니다. 그런 다음 유효성 검사 세트에서 성능을 통해 최상의 검사점을 선택합니다.\n' +
+      '\n' +
+      '**전문가 반복**도 온라인이지만 PPO보다 정책 외입니다. 초기 전문가 정책 근사치\\(\\hat{\\pi}_{0}^{*}\\)는 정책 개선 전에 질문당 전체 트레인 세트\\(K\\) 시간에 샘플링된다. 초기 정책(\\pi_{0}\\)으로부터 반복 샘플링을 사용하여 \\(\\hat{\\pi}{0}^{*}\\)을 구성하는 경우가 많다. 예를 들어, AlphaZero(Silver et al., 2017) 및 후속 작업(Schick et al., 2023)은 \\(\\pi_{0}\\)과 몬테카를로 트리 검색을 결합한다. 샘플링\\(\\hat{\\pi}_{0}^{*}\\)은 초기 롤아웃 집합(D_{1}\\)을 구성하고 이를 표준 교차 엔트로피 손실:\\(\\sum_{\\tau\\in D}\\sum_{t=1}^{H}-log(\\pi_{\\theta}(a_{t}|s_{t}))을 통해 정책\\(\\pi_{1}\\)으로 다시 증류한다. 이 과정을 반복하여 데이터세트 \\(D_{i}=R_{i}\\cup D_{i-1}\\)에 대한 정책 \\(\\pi_{i}\\)을 구성할 수 있으며, 여기서 \\(R_{i}\\)은 \\(\\pi_{i-1}\\)에 의한 탐사에 해당한다.\n' +
+      '\n' +
+      '본 논문에서는 학생 정책(\\pi_{\\theta}\\)을 거부 샘플링하여 최적 정책(\\hat{\\pi}^{*}\\)에 대한 근사치를 구성한다. 질문(Q\\)에 대한 \\(K\\) 샘플 \\(S_{1},...,S_{K}\\)을 생성한 후, 임계값 \\(T\\)이하로 돌아오는 \\(Q,S_{i})\\)쌍을 모두 필터링하여 \\(D_{1}\\)을 구성한다. 그런 다음 나머지 샘플에 대해 중복 제거를 수행합니다.\n' +
+      '\n' +
+      '실제로, 전문가 반복 탐사 단계에서 각 질문을 열차의 온도\\(T=1.0\\)로 설정(K=96\\)할 때 샘플링한다. 트레이닝 세트를 구성하기 위해 잘못된 솔루션과 중복을 필터링합니다. 중요한 것은 SFT와 동일한 하이퍼파라미터를 갖는 사전 훈련된 베이스 모델로부터 미세 조정이 수행된다. 이는 유효성 검사 세트의 성능이 포화될 때까지 반복됩니다.\n' +
+      '\n' +
+      '**Return Conditioned RL** Return Conditioned RL 알고리즘은 액션을 샘플링할 때 현재 상태\\(s\\)와 원하는 반환\\(R\\) 모두에 대해 조건화된 정책을 훈련시키려고 한다. 이는 원하는 수익률에 따라 변할 수 있는 수익 조건화 정책을 배우려는 욕구에 의해 동기가 부여된다. 그런 다음 가능한 가장 높은 반환에서 컨디셔닝을 통해 최상의 성능을 샘플링할 수 있습니다.\n' +
+      '\n' +
+      '우리는 의사 결정 변압기와 유사한 이러한 종류의 알고리즘의 오프라인 버전을 고려한다(Chen et al., 2021). 학습 데이터세트 \\(D\\)는 상태, 동작, 복귀 \\(\\tau=((s_{t},a_{t},g_{t}))_{t=1}^{H}\\) 궤적을 생성함으로써 구성된다. 훈련은 주어진 상태와 복귀를 예측하여 수행한다. \\(\\sum_{\\tau\\in D}\\sum_{t=1}^{H}-log(\\pi_{\\theta}(a_{t}|s_{t},g_{t}))\\ 실제로 우리는 질문(Q\\)이 주어졌을 때 가장 잘 훈련된 EI 정책(\\pi_{\\text{EI}}\\)으로부터 각 \\(S=(S_{1},...,S_{L})\\)을 샘플링하여 \\(D\\)을 구성한다. 우리는 \\(P_{i}=(S_{1},...,S_{i})\\)로부터 \\(\\pi_{\\text{EI}}\\) K를 여러 번 샘플링하여 각 단계 \\(S_{i}\\)에 대한 반환 레이블을 생성한다. 이 결과는 생성된 최종 답변의 정확성을 평가하는 이진 레이블 \\(l_{1},..,l_{K}\\)을 생성한다. \\ 그런 다음 평균 수익률\\(\\frac{1}{K}\\sum_{k=1}^{K}l_{k}\\geq T\\)이 "[BAD]"로 표시되면 (S_{i}\\)은 "[GOOD]"로 표시된다. 일반적으로 우리는 \\(T=0.5\\)을 설정한다. 그런 다음 데이터 세트를 필터링하여 균형 잡힌 수의 올바른 솔루션과 잘못된 솔루션을 보장합니다. 단계 레이블 생성 프로세스에 대한 자세한 내용은 부록의 F절을 참조하십시오.\n' +
+      '\n' +
+      '**결과 기반 리워드 모델링** 다수의 작업(Cobbe et al., 2021; Uesato et al., 2022)은 단어 문제에 대한 후보 솔루션의 _verifier_로서 결과 기반 리워드 모델 **ORMs**를 훈련한다. 그런 다음 ORM을 사용하여 학생 모델에 의해 생성된 여러 후보 솔루션의 순위를 재조정하여 성능을 크게 높일 수 있다. ORM에 대한 학습 데이터는 과제 데이터 세트에서 질문당 \\(Q\\)의 해를 샘플링하여 학생 정책 \\(\\pi\\)을 사용하여 생성된다. ORM은 단계 \\(P_{i}=(S_{1},...,S_{i})\\), \\(P_{i}\\subseteq A=(S_{1},...,S_{L})\\)의 중간 시퀀스로부터 정확한 최종 정답 \\(p(\\texttt{is\\_correct(A)}|Q,P_{i})\\)에 도달할 확률을 예측하여 분류기로 학습된다)\n' +
+      '\n' +
+      '## 4 Experiments\n' +
+      '\n' +
+      '우리는 GSM8K 및 SVAMP(Patel et al., 2021): 두 개의 수학 단어 문제 벤치마크에 대한 평가를 수행한다. 또한 GSM8K에서는 먼저 SFT 데이터가 있는 경우와 SFT 데이터가 없는 경우의 두 가지 데이터 체계를 고려한다. 우리는 96개 샘플(maj@96)에서 다수결, 96개 샘플(rerank@96)에서 ORM 기반 재순위화, 96개 샘플(pass@96) 중 가장 좋은 샘플(pass@96) 정확도뿐만 아니라 그리디 샘플링(maj@1) 정확도를 사용하여 모든 모델을 평가한다. 달리 명시되지 않는 한 테스트 시간 샘플링은 maj@1에 대해 탐욕스럽게 수행되며 그렇지 않으면 온도가 0.7이다. 우리는 RCRL 모델을 "[GOOD]" 토큰에서 컨디셔닝하면서 한 번에 한 단계/라인씩 샘플링한다. 우리는 "단계"라는 개념이 일반적으로 명확하게 정의되지 않았지만, 우리의 경우 각 단계를 문장이나 뉴라인으로 끝나는 것으로 간단히 간주할 수 있다. 모든 실험은 명령어 조정 Llama-2 7B 및 Llama-2 13B 모델을 사용하여 수행된다.\n' +
+      '\n' +
+      '### SFT 초기화를 통한 결과\n' +
+      '\n' +
+      'SFT 데이터에 액세스할 때 먼저 코사인 워밍업 일정으로 전체 배치 크기가 128이고 초기 lr이 2e-5가 2e-7로 감쇠된 4개의 에폭에 대해 라마-2 모델을 미세 조정한다. 우리는 결과 모델을 **SFT**라고 부른다. PPO로 미세 조정할 때 이 체크포인트를 사용하여 초기화합니다. 대조적으로, EI와 RCRL 모두에 대해 우리는 SFT 체크포인트로 데이터를 생성하지만 미리 훈련된 기본 모델에서 시작하도록 훈련을 재설정한다. Zelikman et al.(2022)과 유사하게, 우리는 이 모델 리셋팅이 최상의 성능을 달성하는 데 중요하다는 것을 발견한다. 7B 및 13B 모델 모두에 대한 결과가 표 1에 보고되어 있다.\n' +
+      '\n' +
+      '경쟁적인 샘플 복잡성으로 최고의 성능을 달성합니다.\n' +
+      '\n' +
+      '놀랍게도, EI는 7B 및 13B 모델에서 각각 0.485 및 0.53의 maj@1 정확도로 최상의 성능을 달성한다. 두 모델 크기에 대해 \\(n=2\\) 전문가 반복 후에 최상의 탐욕 정확도가 달성된다(도 2 참조). 그 후 공연은 안정된다. 전체적으로 EI는 SFT 기준선에 비해 약 7%의 상당한 개선을 제공한다. maj@96, rerank@96 및 pass@96 점수에서도 유사한 이득을 볼 수 있다.\n' +
+      '\n' +
+      'PPO 모델은 EI를 저평가하며 ORM 유도 PPO는 SFT 기준선에 비해 약 5%의 가장 큰 개선을 제공한다. 다시, maj@96, rerank@96 및 pass@96 정확도는 유사한 개선을 보여준다. 흥미롭게도 SFT 초기화 위에 대한 추가 교육에도 불구하고 PPO 모델은 추가 감독 미세 조정 후 볼 수 있는 회귀와 비교할 때 경쟁적인 재순위@96 및 통과@96 점수를 유지한다. 우리는 이것이 모델을 업데이트하는 데 사용되는 탐색 데이터 세트의 상대적으로 더 다양한 특성 때문이라고 믿는다.\n' +
+      '\n' +
+      '마지막으로, RCRL 모델은 균등 균형으로 EI 생성 데이터에 대한 훈련에도 불구하고 EI 모델을 과소 수행한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l r r r r r r r r} \\hline \\hline  & \\multicolumn{2}{c}{maj@1} & \\multicolumn{2}{c}{maj@96} & \\multicolumn{2}{c}{rerank@96\\({}^{\\dagger}\\)} & \\multicolumn{2}{c}{pass@96} \\\\ \\cline{2-9}  & 7B & 13B & 7B & 13B & 7B & 13B & 7B & 13B \\\\ \\hline SFT & 0.41 & 0.48 & 0.47 & 0.53 & 0.54 & 0.68 & 0.72 & 0.84 \\\\ EI\\({}_{n}\\) & **0.48** & **0.53** & **0.55** & **0.59** & 0.64 & **0.71** & 0.8 & **0.88** \\\\ ORM EI\\({}_{n}\\) & **0.48** & **0.53** & 0.54 & 0.58 & **0.65** & **0.71** & **0.81** & 0.87 \\\\ ORM RCRL & 0.45 & 0.51 & 0.5 & 0.56 & 0.54 & 0.69 & 0.73 & 0.83 \\\\ Sparse PPO & 0.44 & 0.51 & 0.49 & 0.55 & 0.58 & 0.67 & 0.77 & 0.85 \\\\ Dense PPO & 0.43 & 0.50 & 0.47 & 0.54 & 0.53 & 0.65 & 0.71 & 0.81 \\\\ Sparse ORM PPO & 0.46 & 0.51 & 0.51 & 0.55 & 0.59 & 0.67 & 0.79 & 0.83 \\\\ Dense ORM PPO & 0.46 & 0.51 & 0.52 & 0.55 & 0.59 & 0.67 & 0.76 & 0.83 \\\\ \\hline Lema\\({}^{*}\\) & 0.40 & 0.62 & 0.54 & 0.69 & N/A & N/A \\\\ RFT & 0.47 & 0.54 & 0.58 & 0.65 & N/A & N/A \\\\ WizardMath & 0.55 & 0.64 & N/A & N/A & N/A & N/A \\\\ GPT-3\\({}^{**}\\) & 0.2 & 0.31 & N/A & 0.39 & 0.55 & 0.71 & NA \\\\ GPT-4\\({}^{***}\\) & 0.91 & N/A & N/A & N/A & & N/A \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 1: SFT로부터 초기화할 때의 결과. EI\\({}_{n}\\)은 7B의 경우 \\(n=2\\), 13B의 경우 \\(n=2\\)과 수렴할 때까지의 n 라운드의 전문가 반복을 나타낸다. \\(n=2\\) ({}^{\\dagger}\\)Note 모든 재순위는 EI\\({}_{n}\\)의 샘플로 훈련된 ORM을 사용하여 수행된다. 다른 작업의 결과는 참고용으로 하단에 포함되어 있습니다. N/A는 사용할 수 없음을 나타냅니다. \\ ({}^{*}\\)Llema results reported for 7B/34B sizes without fine-tuning. \\ ({}^{**}\\)GPT-3 결과는 7B/175B 크기에 대해 보고되었다. \\ ({}^{***}\\)GPT-4 크기를 알 수 없습니다.\n' +
+      '\n' +
+      '\'[GOOD]\'와 \'[BAD]\' 단계 레이블 사이에 있습니다. 이는 전체 롤아웃에 대해 희소 라벨만을 사용하는 Du et al.(2023)의 유사한 결과와 일치한다. 또한 RCRL 모델을 무조건 샘플링할 때 모델은 종종 \'[BAD]\' 레이블에 따라 완벽하게 유효한 단계를 생성하여 정확한 최종 답변을 생성한다. 이러한 결과는 RCRL 모델이 \'[GOOD]\' 대 \'[BAD]\'를 구성하는 것을 올바르게 학습하지 못하고 있음을 시사한다. 이는 RCRL 모델이 열차 시간에 부분적으로 올바른 솔루션의 정보를 유용하게 통합할 수 없음을 시사한다. 절제(부록의 sec. A를 참조) 양수 대 음수 레이블의 비율은 균형 잡힌 비율이 최악의 성능을 산출하며, 양수 데이터의 양이 증가하면 더 나은 결과가 도출됩니다.\n' +
+      '\n' +
+      '그림 2에서 로그 축척에서 모델 성능에 대한 모델 롤아웃 수를 표시합니다. PPO 모델은 약 60,000번의 롤아웃 후에 최고의 정확도를 달성하는 반면 EI 모델은 더 많은 크기로 훈련한다. 그러나 두 경우 모두 열차 시간이 하루 정도 소요됩니다. 이는 주로 PPO의 메모리 요구 사항으로 인해 롤아웃 처리량이 감소하고 열차 시간에서 미니 배치 크기가 작아지기 때문이다. 또한 SFT의 경우 EI에 대해 질문당 샘플 수를 \\(K=96\\)에서 줄이는 실험을 하지 않았다. 그러나 성능에 영향을 미치지 않고 이 수를 크게 줄일 수 있을 것으로 기대합니다. 표본 복잡성 요구 사항에 대한 보다 철저한 조사는 그림 5를 참조하십시오.\n' +
+      '\n' +
+      '**ORM 또는 고밀도 보상의 추가 지침은 거의 혜택을 제공하지 않습니다. 전반적으로 ORM은 PPO 성능을 약간 개선하고 EI 성능에 미미한 영향을 미칩니다. 두 알고리즘 모두 샘플 복잡도 측면에서 개선점을 제공한다. 그러나, 이것은 최종 실적을 바꾸지는 않는다. 다른 보상 체제에 대한 모델 롤아웃 수에 대한 성능을 나타내는 그림 4 및 4를 참조하십시오.\n' +
+      '\n' +
+      '기껏해야 밀도 높은 보상을 제공하는 것은 휴리스틱하거나 ORM을 통해 제공될 때 성능에 추가적인 이점을 제공하지 않는다. 휴리스틱 밀도가 높은 보상을 제공하는 것은 희박한 설정에 비해 모델 성능에 약간 해를 끼치기도 합니다. 우리는 중간 모델 생성 단계를 참조 솔루션과 비교하여 중간 보상을 제공한다고 회상한다. 이것은 열차 세트의 정확한 솔루션에 더 많은 과잉 적합을 장려하여 솔루션 다양성을 제한할 수 있다.\n' +
+      '\n' +
+      '**RL은 pass@96 성능에 영향을 미치지 않으면서 maj@1 정확도를 향상시킨다. pass@96 정확도를 보다 자세히 살펴보면 대부분의 유사한 크기의 모델이 최상의 결과의 3% 이내임을 알 수 있다. 이는 충분한 샘플링을 통해 대부분의 모델이 매우 유사한 범위의 문제를 해결할 수 있음을 보여준다. 또한, 초기 최고 EI 모델의 pass@96 정확도가 SFT 체크포인트보다 훨씬 높은 것으로 보이지만, 이는 SFT 체크포인트가 덜 다양한 데이터 세트에 대해 훨씬 더 많은 훈련을 받았기 때문이다. 간단히 절반의 단계에 대한 감독 미세 조정은 maj@1 = 0.36이지만 pass@96 = 0.76인 체크포인트를 생성한다. 이는 RL 훈련이 대부분의 경우, 감독 미세 조정 광량으로 달성할 수 있는 pass@n 정확도에 크게 개선되지 않고 maj@1 정확도에 영향을 미친다는 것을 시사한다.\n' +
+      '\n' +
+      '대부분의 모델 중 pass@96 정확도의 근접성은 rerank@96 성능과 뚜렷한 대조를 이룬다. 여기서 우리는 \\(EI\\) 모델이 다른 모델보다 약 5%의 리드를 즐긴다는 것을 발견한다. 언뜻 보기에 이것은 모순처럼 보인다.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:7]\n' +
+      '\n' +
+      'SVAMP는 더 많은 샘플이 수렴해야 하지만 훨씬 더 높은 정확도로 수렴해야 한다. EI는 GSM8K에서 여전히 더 높은 샘플 복잡성을 갖는 것으로 보이지만, 앞서 언급한 바와 같이 이는 탐색 단계 동안 각 프롬프트를 오버샘플링하기 때문일 수 있다. 이를 테스트하기 위해 EI의 각 라운드당 샘플 수를 \\(K=96\\)에서 \\(K=4\\)으로 줄인다. 결과적인 EI 모델은 수렴하기 위해 더 많은 반복이 필요하지만 훨씬 적은 총 샘플을 필요로 하며, 또한 정확도는 프롬프트당 \\(K=96\\) 샘플보다 단지 몇 퍼센트 포인트 낮다. 프롬프트 **El당 \\(K=4\\) 롤아웃을 사용하면 GSM8K에서 PPO**와 동일한 샘플 복잡도를 갖는다.\n' +
+      '\n' +
+      '이것은 신경망을 처음부터 훈련시키는 보다 고전적인 RL 문제에 대한 EI 및 PPO의 성능과 비교할 때 특히 놀라운 발견이다. 종종 PPO는 이러한 설정에서 훨씬 더 나은 샘플 복잡성을 즐깁니다. 여기서 중요한 차이점 중 하나는 RL 훈련 동안 직면하는 행동 및 탐구의 유형에 매우 강한 편향을 부여하는 사전 훈련 모델에서 우리 학생을 초기화한다는 것이다. 이 설정에서 매우 작은 샘플 복잡성과 EI 및 PPO의 비교 가능성은 모두 모델이 진정으로 복잡한 탐사에 관여하지 않고 대신 주로 사전 훈련 단계에서 이미 알고 있는 것에 의존한다는 더 많은 증거를 제공한다.\n' +
+      '\n' +
+      '### Implementation Details\n' +
+      '\n' +
+      'RL 훈련은 건축 및 하이퍼파라미터 선택에 상당히 민감할 수 있다는 것은 잘 알려져 있다. 이것은 LLM 미세조정의 경우 더욱 그렇다. 이 섹션에서는 우리가 작업에서 가장 중요하다고 발견한 요인을 제거하고 논의한다.\n' +
+      '\n' +
+      '**PPO 모델 아키텍처 및 훈련 매개 변수** 메모리를 절약하기 위해 PPO 정책 및 가치 헤드에 대한 공동 아키텍처를 사용합니다. 상대적으로 큰 값 분기(L=4 트랜스포머 층)를 사용하고 값 분기로부터 정책 트렁크로 오는 기울기를 분리하는 것이 중요하다는 것을 발견했다. 분리 없이 우리는 Stiennon et al.(2020)에서 유사하게 관찰된 바와 같이 값 구배가 정책 구배를 방해한다는 것을 발견했다.\n' +
+      '\n' +
+      '도 5: 사전 훈련된 초기화로부터 GSM8K 상의 샘플 복잡도.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c c c c} \\hline \\hline  & \\multicolumn{2}{c}{maj@1} & \\multicolumn{2}{c}{maj@n} & \\multicolumn{2}{c}{rerank@n\\({}^{\\dagger}\\)} & \\multicolumn{2}{c}{pass@n} \\\\ \\cline{2-9}  & 7B & 13B & 7B & 13B & 7B & 13B & 7B & 13B \\\\ \\hline Prompted & 0.06 & 0.05 & 0.2 & 0.25 & 0.24 & 0.29 & 0.3 & 0.36 \\\\ EI\\({}_{n}\\) & **0.58** & **0.69** & **0.6** & **0.75** & **0.62** & **0.78** & **0.70** & **0.93** \\\\ Sparse PPO & 0.44 & 0.51 & 0.55 & 0.66 & 0.58 & 0.73 & 0.72 & 0.89 \\\\ Sparse ORM PPO & 0.43 & 0.51 & 0.52 & 0.64 & 0.54 & 0.71 & 0.65 & 0.85 \\\\ Dense ORM PPO & 0.44 & 0.52 & 0.51 & 0.63 & 0.55 & 0.73 & 0.67 & 0.85 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 3: SVAMP에 SFT 초기화를 사용하여 **not**일 때 7B/13B 모델에 대한 결과. EI\\({}_{n}\\)은 \\(n\\) 반복 후 가장 좋은 EI 모델을 나타낸다. EI가 PPO보다 뛰어납니다.\n' +
+      '\n' +
+      '두 분기에 대한 큰 업데이트가 있는 불안정성 값 분기 및 분리값 기울기가 큰 학생의 maj@1 점수와 기본값을 비교하는 그림 7을 참조하십시오.\n' +
+      '\n' +
+      'Low rank adaptation (LoRA)(Hu et al., 2021) with rank \\(r=128\\)은 여전히 성능을 유지하면서 전체 층 미세 조정을 더욱 안정화시키는데 크게 도움을 주었다 (Sun et al., 2023). 충분히 큰 배치 크기(BS = 256)와 작은 lr = 1e-6도 안정화에 도움이 되었다. 우리는 또한 상단 M 층만을 부분 미세 조정으로 실험했다. 이렇게 하면 메모리가 절약되지만 몇 퍼센트의 성능으로 저장됩니다.\n' +
+      '\n' +
+      '또한 100회 이상의 구배 업데이트 후 모델 붕괴를 방지하는 데 0.05의 사소한 KL 패널티가 중요하다는 것을 발견했다. 이는 KL 제약에 대한 상당한 필요성을 보지 못하는 Bai et al.(2022)과 대조적이다. 우리는 여기서 그 중요성을 고장난 자연어와 <<x+y=z>> 태그에 포함된 계산으로 구성된 추론 작업에서 발견되는 텍스트의 다소 부자연스러운 분포에 기인한다. Bai 등(2022)에서 고려된 것과 같이 순수한 자연어 대화와 더 가까운 분포를 갖는 작업의 경우 KL 제약은 덜 필요한 것으로 보인다.\n' +
+      '\n' +
+      '**샘플링 매개변수는 탐사에 영향을 미칩니다** PPO 훈련 중 좋은 탐사를 위해 사용하기에 가장 좋은 온도는 초기화에 크게 의존한다는 것을 발견했습니다. SFT 검문소에서 시작할 때는 T = 0.7을 선택하지만 미리 훈련된 프롬프트 모델에서 시작할 때는 고온에서 샘플링하면 붕괴가 발생하는 경우가 많다. 이 경우 우리는 저온(T = 0.2)을 선택한다. PPO에 대한 잠재적으로 더 나은 결과는 훈련 과정에서 탐사 온도를 어닐링함으로써 달성될 수 있다. 우리는 EI에서 탐사하는 동안 사용된 샘플링 온도에 대해 유사하게 실험했으며, 궁극적으로 너무 많은 퇴행성 용액을 샘플링하지 않고 용액 다양성을 최대화하기 위해 \\(T=1.0\\)을 결정했다.\n' +
+      '\n' +
+      '또한 더 많은 솔루션 다양성을 촉진하기 위해 PPO 훈련 동안 최상의 K개의 N(KoN) 샘플링을 실험했다. 이 설정에서 단일 프롬프트에서 N 롤아웃의 K 최고 보상 샘플은 훈련을 위해 보관되고 나머지는 폐기된다. 파라미터 K\\(\\ll\\)N을 선택하면 높은 보상 샘플을 우선시하고 낮은 보상 샘플을 폐기하여 큐레이션된 EI 데이터 세트와 더 유사한 학습 분포가 생성된다.\n' +
+      '\n' +
+      '그러나 한 가지 중요한 고려 사항은 K/N 비율이 훈련 시간과 샘플 복잡성에 미치는 영향이며 비율이 작을수록 비례적으로 더 오래 걸린다. 예를 들어, K=1,N=8은 기본 K=1,N=1보다 8배의 시간이 소요되며, 대부분의 구성이 K=1,N=1보다 성능이 감소하는 작은 K/N 비율에는 궁극적으로 거의 도움이 되지 않으며, 실제로 K=4,N=4를 설정하는 것이 가장 효과적임을 알 수 있었다. K와 N의 다양한 선택의 성능을 비교한 그림 8을 참조하라.\n' +
+      '\n' +
+      '**모델 크기와 초기화는 탐색에 영향을 미칩니다** 학생 초기화의 품질과 학생의 크기가 훈련 중 참여하는 탐색 유형에 유의한 영향을 미친다는 것을 발견했습니다. 특히 더 큰 모델은 더 다양한 탐사에 관여하는 반면 일반화가 더 나쁜 모델은 덜 다양한 탐사에 관여한다(부록 섹션 B 참조). 이것은 차례로 훈련될 때 모델 성능에 직접적인 영향을 미칩니다.\n' +
+      '\n' +
+      '도 8: 트레이닝 동안 maj@1 점수에 대한 N 샘플링 파라미터의 베스트 K. K=4, N=4는 빠른 런타임과 최상의 성능을 산출한다.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:10]\n' +
+      '\n' +
+      '우리의 환경에서 중요한 것은 이전에 강력한 탐사를 제공하는 사전 훈련된 모델의 사용이다. 그러한 사전이 없다면 고차원적인 텍스트적 행위 공간에서의 탐구는 불가능할 것이다. 그러나 이 이전은 또한 추가 SFT 훈련이 상황을 악화시킬 뿐만 아니라 훈련 초기에 참여하는 탐사를 제한하는 것으로 판단된다. 우리는 추론 문제에 대한 복잡하고 풍부한 탐구를 장려하는 새로운 기술의 발견을 LLM 추론 능력의 진보의 근본으로 본다. Tree of Thought(Yao et al., 2023) 및 LLM 생성 능력과 진화 알고리즘을 결합하는 것과 같은 보다 정교한 프롬프트 전략(Lehman et al., 2022)은 이미 이러한 방향으로 진전을 이루기 시작했다.\n' +
+      '\n' +
+      '위에서 언급한 제한된 탐색 외에도 추론 환경은 완전히 결정론적이라는 점에 주목한다. 이는 EI 및 RCRL 알고리즘이 이미 이론적으로 잘 작동하는 것으로 알려진 설정이다(Brandfonbrener et al., 2022). PPO는 높은 확률성을 가진 환경에서 더 많은 이점을 누린다. 또한, RLHF에서의 선행 연구는 PPO가 인간 선호 만족도 및 후속 명령에서 EI 유형 접근법보다 우수하다는 것을 발견한다(Gulcehre et al., 2023; Dubois et al., 2023; Kirk et al., 2023). 중요한 것은 우리의 환경에서 우리는 항상 최적화할 신뢰할 수 있는 지상 진실 보상을 가지고 있다는 것이다. 그러나, RLHF에서, 모델들은 신뢰할 수 없는 보상 모델에 대해 최적화되어야 하고, 종종 과잉 최적화를 초래한다(Gao et al., 2022). RLHF 작업 대 추론 작업에서 EI보다 PPO의 상대적으로 우수한 성능은 PPO가 이러한 과잉 최적화를 더 잘 완화함을 시사한다. PPO 교육은 클립된 목표와 추가 KL 제한 모두를 통해 초기 정책에서 벗어난 학생 모델에 불이익을 주기 때문에 이것은 그리 놀라운 일이 아니다. 대조적으로, EI 훈련에는 그러한 보호 기능이 내장되어 있지 않다.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* Ammanabrolu and Riedl (2019) Prithviraj Ammanabrolu and Mark Riedl. 그래프 기반 심층 강화 학습으로 텍스트 어드벤처 게임을 할 수 있습니다. Jill Burstein, Christy Doran, and Thamar Solorio에서 편집자, _Proceedings of the 2019 Conference of the North American chapter of the Computational Linguistics Association for Computational Linguistics: Human Language Technologies, Volume 1(Long and Short Papers)_, pages 3557-3565, Minneapolis, Minnesota, June 2019. Computational Linguistics Association. doi: 10.18653/v1/N19-1358. URL[https://aclanthology.org/N19-1358](https://aclanthology.org/N19-1358).\n' +
+      '* Anthony et al. (2017) Thomas W. 앤서니, 정톈, 데이비드 바버 딥러닝과 트리 탐색으로 빠르고 느리게 사고합니다. _Neural Information Processing Systems_, 2017. URL[https://api.semanticscholar.org/CorpusID:19449905](https://api.semanticscholar.org/CorpusID:19449905)에서,\n' +
+      '* Austin et al. (2021) Jacob Austin, Augustus Odena, Maxwell Nye, Maarten Bosma, Henryk Michalewski, David Dohan, Ellen Jiang, Carrie J. Cai, Michael Terry, Quoc V. 르와 찰스 서튼 대용량 언어 모델을 사용한 프로그램 합성 ArXiv_, abs/2108.07732, 2021. URL[https://api.semanticscholar.org/CorpusID:237142385](https://api.semanticscholar.org/CorpusID:237142385)\n' +
+      '* Azerbayev et al. (2023) Zhangir Azerbayev, Hailey Schoelkopf, Keiran Paster, Marco Dos Santos, Stephen McAleer, Albert Q. 장, 지아 덩, 스텔라 바이더만, 션 웰렉 Llemma: 수학을 위한 개방형 언어 모델. _ ArXiv_, abs/2310.10631, 2023. URL[https://api.semanticscholar.org/CorpusID:264172303](https://api.semanticscholar.org/CorpusID:264172303).\n' +
+      '* Bai et al. (2021) Yuntao Bai, Saurav Kadavath, Sandipan Kundu, Amanda Askell, John Kernion, Andy Jones, Anna Chen, Anna Goldie, Azalia Mirhoseini, Cameron McKinnon, Carol Chen, Danny Hernandez, Dawn Drain, Deep Ganguli, Dustin Li, Eli Tran-Johnson, E Perez, Jamie Kerr, Jared Mueller, Jeff Ladish, J Landau, Kamal Ndousse, Kamille Lukosuite, Liane Lovitt, Michael Sellitto, Nelson Elhage, Nicholas Schiefer, Noem\'i Mercado, Nova DasSarma, Robert Lasenby, Robera Larson, Sam Ringer, Scott Johnston, Shauna Kravec, Sheer El Showk, Stanislav Fort, Tamera Lanham, Timothy Telleen-Lawton, Tristan Hume, Dario Amodei, Nicholas Joseph 헌법 ai: ai 피드백으로 인한 무해함 _ ArXiv_, abs/2212.08073, 2022. URL[https://api.semanticscholar.org/CorpusID:254823489](https://api.semanticscholar.org/CorpusID:254823489).\n' +
+      '* Bakhtin et al. (2022) Anton Bakhtin, Noam Brown, Emily Dinan, Gabriele Farina, Colin Flaherty, Daniel Fried, Andrew Goff, Jonathan Gray, Hengyuan Hu, Athul Paul Jacob, Mojtaba Komeili, Karthik Konath, Minae Kwon, Adam Lerer, Mike Lewis, Alexander H. Miller, Sasha Mitts, Adithya Renduchintala, Stephen Roller, Dirk Rowe, Weiyan Shi, Joe Spisak, Alexander Wei, David Wu, Hugh Zhang, and Markus Zijlstra. ij.diplomacyi/i의 게임에서 인간 수준의 플레이? by combining language models with strategic reasoning. _ Science_, 378(6624):1067-1074, 2022. doi: 10.1126/science.ade9097. URL[https://www.science.org/doi/abs/10.1126/science.ade9097](https://www.science.org/doi/abs/10.1126/science.ade9097)을 포함할 수 있다.\n' +
+      '* Berner et al. (2022) Christopher Berner, Greg Brockman, Brooke Chan, Vicki Cheung, Przemyslaw Debialak, Christy Dennison, David Farhi, Quirin Fischer, Shariq Hashme, Christopher Hesse, Rafal Jozefowicz, Scott Gray, Catherine Olsson, Jakub W. 파초키, 마이클 페트로프, 헨리케 폰드 드 올리베이라 핀토, 조나단 라이만, 팀 살리만, 제레미 슐라터, 조나스 슈나이더, 시더, 일리아 슈츠키버, 지탕, 필리핀 월스키, 수잔 장. 대규모 심층 강화 학습이 있는 Dota 2. _ ArXiv_, abs/1912.06680, 2019. URL[https://api.semanticscholar.org/CorpusID:209376771](https://api.semanticscholar.org/CorpusID:209376771).\n' +
+      '* Besta et al. (2023) Maciej Besta, Nils Blach, Alevs Kubivcek, Robert Gerstenberger, Lukas Gianinazzi, Joanna Gajda, Tomasz Lehmann, Michal Podstawski, Hubert Niewiadomski, Piotr Nyczyk, and Torsten Hoefler. 생각 그래프: 대규모 언어 모델로 정교한 문제를 해결합니다. _ ArXiv_, abs/2308.09687, 2023. URL[https://api.semanticscholar.org/CorpusID:261030303](https://api.semanticscholar.org/CorpusID:261030303)\n' +
+      '* Bhargava et al. (2023) Prajwal Bhargava, Rohan Chitnis, Alborz Geramifard, Shagun Sodhani, and Amy Zhang. 시퀀스 모델링은 오프라인 강화 학습의 강력한 경쟁자입니다. _ ArXiv_, abs/2305.14550, 2023. URL[https://api.semanticscholar.org/CorpusID:258866105](https://api.semanticscholar.org/CorpusID:258866105)\n' +
+      '* Brandfonbrener et al. (2022) David Brandfonbrener, Alberto Bietti, Jacob Buckman, Romain Laroche, and Joan Bruna. 오프라인 강화 학습을 위한 리턴 조건 지도 학습은 언제 작동합니까? _ ArXiv_, abs/2206.01079, 2022. URL[https://api.semanticscholar.org/CorpusID:249282285](https://api.semanticscholar.org/CorpusID:249282285)\n' +
+      '* Carta et al. (2023) Thomas Carta, Clement Romac, Thomas Wolf, Sylvain Lamprier, Olivier Sigaud, and Pierre-Yves Oudeyer. 온라인 강화 학습이 있는 대화형 환경에서 대형 언어 모델을 접지합니다. _ ArXiv_, abs/2302.02662, 2023. URL[https://api.semanticscholar.org/CorpusID:256615643](https://api.semanticscholar.org/CorpusID:256615643).\n' +
+      '* Chen et al. (2021) Lili Chen, Kevin Lu, Aravind Rajeswaran, Kimin Lee, Aditya Grover, Michael Laskin, P. Abbeel, A. Srinivas, and Igor Mordatch. 결정 변압기: 시퀀스 모델링을 통한 강화 학습. _Neural Information Processing Systems_, 2021. URL[https://api.semanticscholar.org/CorpusID:235294299](https://api.semanticscholar.org/CorpusID:235294299)에서,\n' +
+      '* Chen et al. (2022) Wenhu Chen, Xueguang Ma, Xinyi Wang, and William W. 세스 프롬프트하는 생각의 프로그램: 수치 추론 작업을 위한 추론으로부터 계산의 분산. _ ArXiv_, abs/2211.12588, 2022.\n' +
+      '* Chollet(2019) Francois Chollet. 지능의 척도로요 ArXiv_, abs/1911.01547, 2019. URL[https://api.semanticscholar.org/CorpusID:207870692](https://api.semanticscholar.org/CorpusID:207870692).\n' +
+      '* Chowdhery et al. (2022) Aakanksha Chowdhery, Sharan Narang, Jacob Devlin, Maarten Bosma, Gaurav Mishra, Adam Roberts, Paul Barham, Hyung Won Chung, Charles Sutton, Sebastian Gehrmann, Parker Schuh, Kensen Shi, Sasha Tsyashchenko, Joshua Maynez, Abhishek Rao, Parker Barnes, Yi Tay, Noam M. 샤제르, 비노드쿠마르 프라바하카란, 에밀리 레이프, 난두, 벤톤 C. 허친슨, 라이너 교황, 제임스 브래드버리, 제이콥 오스틴, 마이클 이사드, 가이 구르 아리, 펑청 인, 토주 듀크, 안셀름 레브스카야, 산제이 게마와트, 수니파 데브, 헨리크 미칼레우스키, 자비에르 가르시아, 베단트 미스라, 케빈 로빈슨, 리암 페더스, 데니 저우, 다프네 이폴리토, 다비드 루안, 현택 임, 바렛 조프, 알렉산더 스피리도노프, 라이언 세파시, 다비드 도한, 시바니 아그라발, 마크 오메닉, 앤드류 M. 다이, 타누말라야 산카라야나 필라이, 마리 펠랏, 아티토르 루코위츠, 에리카 모레이라, 르원 차일드, 올렉산드르 폴로조프, 캐서린 리, 종웨이 주, 셰지 왕, 브레넌 새타, 마크 디아즈, 오르한 피라트, 미셸 카타스타, 제이슨 웨이, 캐슬린 S. 마이어-헬스턴, 더글러스 엑, 제프 딘, 슬라브 페트로프, 노아 피델 Palm: 경로를 이용한 언어 모델링 스케일링 J 마흐 배워 Res._ , 24:240:1-240:113, 2022. URL[https://api.semanticscholar.org/CorpusID:247951931](https://api.semanticscholar.org/CorpusID:247951931)\n' +
+      '* Christiano et al. (2017) Paul F Christiano, Jan Leike, Tom Brown, Miljan Martic, Shane Legg, and Dario Amodei. 인간의 선호로부터 심층 강화 학습. _ 신경 정보 처리 시스템_, 30, 2017의 발전.\n' +
+      '* Cobbe et al. (2021) Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian, Mark Chen, Heewoo Jun, Lukasz Kaiser, Matthias Plappert, Jerry Tworek, Jacob Hilton, Reiichiro Nakano, Christopher Hesse, and John Schulman. 수학 단어 문제를 해결하기 위한 검증자 훈련 ArXiv_, abs/2110.14168, 2021. URL[https://api.semanticscholar.org/CorpusID:239998651](https://api.semanticscholar.org/CorpusID:239998651).\n' +
+      '* Dohan et al. (2022) David Dohan, Winnie Xu, Aitor Lewkowycz, Jacob Austin, David Bieber, Raphael Gontijo Lopes, Yuhuai Wu, Henryk Michalewski, Rif A. Saurous, Jascha Narain Sohl-Dickstein, Kevin Murphy, and Charles Sutton. 언어 모델이 폭주한다. _ ArXiv_, abs/2207.10342, 2022.\n' +
+      '* Dong et al. (2023) Hanze Dong, Wei Xiong, Deepanshu Goyal, Rui Pan, Shizhe Diao, Jipeng Zhang, Kashun Shum, and T. 장 래프트: 생성 기초 모델 정렬을 위한 보상 순위 미세 조정. _ ArXiv_, abs/2304.06767, 2023. URL[https://api.semanticscholar.org/CorpusID:258170300](https://api.semanticscholar.org/CorpusID:258170300)\n' +
+      '* Du et al. (2023) Yuqing Du, Alexander Havrilla, Sainbayar Sukhbaatar, Pieter Abbeel, and Roberta Raileanu. 언어 모델의 추론 개선에 관한 연구 In _I Can\'t Believe It\'s Not Better Workshop: Failure Modes in the Age of Foundation Models_, 2023. URL[https://openreview.net/forum?id=tCZFmDyPFm](https://openreview.net/forum?id=tCZFmDyPFm).\n' +
+      '* Dubois et al. (2023) Yann Dubois, Xuechen Li, Rohan Taori, Tianyi Zhang, Ishaan Gulrajani, Jimmy Ba, Carlos Guestrin, Percy Liang 및 Tatsunori Hashimoto. Alpacafarm: 인간의 피드백으로부터 학습하는 방법들에 대한 시뮬레이션 프레임워크. _ ArXiv_, abs/2305.14387, 2023. URL[https://api.semanticscholar.org/CorpusID:258865545](https://api.semanticscholar.org/CorpusID:258865545).\n' +
+      '* Du et al. (2022)Leo Gao, Jonathan Tow, Stella Biderman, Sid Black, Anthony DiPofi, Charles Foster, Laurence Golding, Jeffrey Hsu, Kyle McDonell, Niklas Muennighoff, Jason Phang, Laria Reynolds, Eric Tang, Anish Thite, Ben Wang, Kevin Wang, And Andy Zou. 2021년 9월, 수-샷 언어 모델 평가를 위한 프레임워크. URL[https://doi.org/10.5281/zenodo.5371628](https://doi.org/10.5281/zenodo.5371628)\n' +
+      '* Gao et al. (2022) Leo Gao, John Schulman, and Jacob Hilton. 보상 모델 과잉 최적화를 위한 법률 확장 In _International Conference on Machine Learning_, 2022. URL[https://api.semanticscholar.org/CorpusID:252992904](https://api.semanticscholar.org/CorpusID:252992904).\n' +
+      '*Glaese et al. (2021) Amelia Glaese, Nathan McAleese, Maja Trkebacz, John Aslanides, Vlad Firoiu, Timo Ewalds, Maribeth Rauh, Laura Weidinger, Martin Chadwick, Phoebe Thacker, Lucy Campbell-Gillingham, Jonathan Uesato, Po-Sen Huang, Ramona Comanescu, Fan Yang, A. See, Sumanth Dathathri, Rory Greig, Charlie Chen, Doug Fritz, Jaume Sanchez Elias, Richard Green, Sovna Mokr\'a, Nicholas Fernando, Boxi Wu, Rachel Foley, Susannah Young, Iason Gabriel, William S. 아이작, 존 F. J. 멜러, 데미스 하사비스, 코레이 카부쿠오글루, 리사 앤 헨드릭스, 그리고 제프리 어빙. 표적화된 인간 판단을 통해 대화 에이전트의 정렬을 개선합니다. _ ArXiv_, abs/2209.14375, 2022. URL[https://api.semanticscholar.org/CorpusID:252596089](https://api.semanticscholar.org/CorpusID:252596089)\n' +
+      '*Gulcehre et al. (2023) Caglar Gulcehre, Tom Le Paine, Srivatsan Srinivasan, Ksenia Konyushkova, Lotte Weerts, Abhishek Sharma, Aditya Siddhant, Alexa Ahern, Maiosen Wang, Chenjie Gu, Wolfgang Macherey, A. Doucet, Orhan Firat, and Nando de Freitas. 언어 모델링을 위한 강화된 셀프 트레이닝(레스트). _ ArXiv_, abs/2308.08998, 2023. URL[https://api.semanticscholar.org/CorpusID:261031028](https://api.semanticscholar.org/CorpusID:261031028)\n' +
+      '* Hendrycks et al. (2021a) Dan Hendrycks, Collin Burns, Saurav Kadavath, Akul Arora, Steven Basart, Eric Tang, Dawn Song, and Jacob Steinhardt. 2021a 수학 데이터 세트를 사용하여 수학적 문제 해결을 측정한다.\n' +
+      '* Hendrycks et al. (2021b) Dan Hendrycks, Collin Burns, Saurav Kadavath, Akul Arora, Steven Basart, Eric Tang, Dawn Xiaodong Song, and Jacob Steinhardt. 상기 수학 데이터셋으로 수학 문제 풀이를 측정하는 단계; _ ArXiv_, abs/2103.03874, 2021b. URL[https://api.semanticscholar.org/CorpusID:232134851](https://api.semanticscholar.org/CorpusID:232134851)\n' +
+      '* Hu et al. (2021) J. Edward Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, and Weizhu Chen. Lora: 대형 언어 모델의 낮은 랭크 적응. _ ArXiv_, abs/2106.09685, 2021. URL[https://api.semanticscholar.org/CorpusID:235458009](https://api.semanticscholar.org/CorpusID:235458009).\n' +
+      '* Huang et al. (2022) Jiaxin Huang, Shixiang Shane Gu, Le Hou, Yuexin Wu, Xuezhi Wang, Hongkun Yu, 및 Jiawei Han. 대형 언어 모델은 스스로 개선할 수 있습니다. _ ArXiv_, abs/2210.11610, 2022.\n' +
+      '* Jiang et al. (2020) Minqi Jiang, Edward Grefenstette, and Tim Rocktaschel. 우선 순위화된 레벨 재생입니다. In _International Conference on Machine Learning_, 2020. URL[https://api.semanticscholar.org/CorpusID:222208809](https://api.semanticscholar.org/CorpusID:222208809).\n' +
+      '* Kirk et al. (2023) Robert Kirk, Ishita Mediratta, Christoforos Nalmpantis, Jelena Luketina, Eric Hambro, Edward Grefenstette, and Roberta Raileanu. llm 일반화 및 다양성에 대한 rhlf의 영향 이해 arXiv preprint arXiv:2310.06452_, 2023.\n' +
+      '* Le et al. (2022) Hung Le, Yue Wang, Akhilesh Deepak Gotmare, Silvio Savarese, and Steven C. H. Hoi. Coderl: 사전 훈련된 모델과 심층 강화 학습을 통한 코드 생성 마스터링 ArXiv_, abs/2207.01780, 2022. URL[https://api.semanticscholar.org/CorpusID:250280117](https://api.semanticscholar.org/CorpusID:250280117)을 포함할 수 있다.\n' +
+      '* Lehman et al. (2022) Joel Lehman, Jonathan Gordon, Shawn Jain, Kamal Ndousse, Cathy Yeh, and Kenneth O. 스탠리 대형 모델을 통한 진화 2022. URL[https://api.semanticscholar.org/CorpusID:249848020](https://api.semanticscholar.org/CorpusID:249848020)\n' +
+      '* Lewkowycz et al. (2022) Aitor Lewkowycz, Anders Andreassen, David Dohan, Ethan Dyer, Henryk Michalewski, Vinay Venkatesh Ramasesh, Ambrose Slone, Cem Anil, Imanol Schlag, Theo Gutman-Solo, Yuhuai Wu, Behnam Neyshabur, Guy Gur-Ari, and Vedant Misra. 언어 모델을 이용한 정량적 추론 문제 해결 ArXiv_, abs/2206.14858, 2022. URL[https://api.semanticscholar.org/CorpusID:250144408](https://api.semanticscholar.org/CorpusID:250144408).\n' +
+      '* Li et al. (2023) Raymond Li, Loubna Ben Allal, Yangtian Zi, Niklas Muennighoff, Denis Kocetkov, Chenghao Mou, Marc Marone, Christopher Akiki, Jia Li, Jenny Chim, Qian Liu, Evgenii Zheltonozhskii, Terry Yue Zhuo, Thomas Wang, Olivier Dehaene, Mishig Davaadorj, Joel Lamy-Poirier, Joao Monteiro, Oleh Shliazhko, Nicolas Montier, Nicholas Meade, Armel Bebaze, Ming-Ho Yee, Logesh Kumar Umapathi, Jian Zhu, Benjamin Lipkin, Muthasam Oblokuulov, Zhiro Wang, Rudra Murthy, Jason Stillerman, Siva Sanklepat, Dmitry Abulkhanov, Nourhan Fahmy, Urvashi Bhattacharyya, W. 유, 스와야르 싱, 사샤 루치오니, 파울로 빌레가스, 막심 쿠나코프, 페도르 즈다노프, 마누엘 로메로, 토니 리, 나데이 티모르, 제니퍼 딩, 클레어 슐레신저, 헤일리 쇤코프, 야나 에버트, 트리 다오, 마얀크 미쉬라, 알렉산더 구, 제니퍼 로빈슨, 캐롤린 제인 앤더슨, 브렌단 돌란-가빗, 덴마크 계약자, 시바 레디, 다니엘 프리드, 드즈미트리 바다나우, 야신 제르나이트, 카를로스 무노즈 페란디스, 션 M. 휴즈, 토마스 울프, 아르준 구하, 레안드로 폰 베르라, 하르 드 브리스. 스타코더: 출처가 당신과 함께 할 수 있기를! _ ArXiv_, abs/2305.06161, 2023. URL[https://api.semanticscholar.org/CorpusID:258588247](https://api.semanticscholar.org/CorpusID:258588247).\n' +
+      '* Liu et al. (2020) Percy Liang, Rishi Bommasani, Tony Lee, Dimitris Tsipras, Dilara Soylu, Michihiro Yasunaga, Yian Zhang, Deepak Narayanan, Yuhuai Wu, Ananya Kumar, Benjamin Newman, Binhang Yuan, Bobby Yan, Ce Zhang, Christian Cosgrove, Christopher D. Manning, Christopher Re, Diana Acosta-Navas, Drew A. Hudson, E. Zelikman, Esin Durmus, Faisal Ladhak, Frieda Rong, Hongyu Ren, Huaxiu Yao, Jue Wang, Keshav Santhanam, Laurel J. Orr, Lucia Zheng, Mert Yukekgoni, Niladri S. Orr, Nathan Kim, Neel Guha, Niladri S. 채터지, 오 Khattab, Peter Henderson, Qian Huang, Ryan Chi, Sang Michael Xie, Shibani Santurkar, Surya Ganguli, Tatsunori Hashimoto, Thomas Icard, Tianyi Zhang, Vishrav Chaudhary, William Wang, Xuechen Li, Yifan Mai, Yuhui Zhang, Yuta Koreeda. 언어 모델에 대한 전체론적 평가 ArXiv_, abs/2211.09110, 2022. URL[https://api.semanticscholar.org/CorpusID:263423935](https://api.semanticscholar.org/CorpusID:263423935)\n' +
+      '* Lightman et al. (2023) Hunter Lightman, Vineet Kosaraju, Yura Burda, Harrison Edwards, Bowen Baker, Teddy Lee, Jan Leike, John Schulman, Ilya Sutskever, and Karl Cobbe. 차근차근 확인해 봅시다. _ ArXiv_, abs/2305.20050, 2023. URL[https://api.semanticscholar.org/CorpusID:258987659](https://api.semanticscholar.org/CorpusID:258987659).\n' +
+      '* Liu et al. (2022) Jiacheng Liu, Skyler Hallinan, Ximing Lu, Pengfei He, Sean Welleck, Hannaneh Hajishirzi, and Yejin Choi. 레이니어: 상식적인 질문 답변을 위한 강화된 지식 인트로스펙터. _ ArXiv_, abs/2210.03078, 2022. URL[https://api.semanticscholar.org/CorpusID:252735191](https://api.semanticscholar.org/CorpusID:252735191).\n' +
+      '* Lu et al. (2022) Ximing Lu, Sean Welleck, Liwei Jiang, Jack Hessel, Lianhui Qin, Peter West, Prithviraj Ammanabrolu, and Yejin Choi. 쿼크: 강화되지 않은 학습으로 제어 가능한 텍스트 생성 ArXiv_, abs/2205.13636, 2022. URL[https://api.semanticscholar.org/CorpusID:249152301](https://api.semanticscholar.org/CorpusID:249152301).\n' +
+      '* Luo et al. (2023) Haipeng Luo, Qingfeng Sun, Can Xu, Pu Zhao, Jian-Guang Lou, Chongyang Tao, Xiubo Geng, Qingwei Lin, Shifeng Chen, and Dongmei Zhang. Wizardmath: 강화된 evol-instruct를 통해 큰 언어 모델에 대한 수학적 추론력을 강화한다. _ ArXiv_, abs/2308.09583, 2023. URL[https://api.semanticscholar.org/CorpusID:261030818](https://api.semanticscholar.org/CorpusID:261030818).\n' +
+      '* Mialon et al. (2023) Gregoire Mialon, Clementine Fourrier, Craig Swift, Thomas Wolf, Yann Andre LeCun, and Thomas Scialom. 가이아: 일반 비서들의 벤치마크입니다. 2023. URL[https://api.semanticscholar.org/CorpusID:265351664](https://api.semanticscholar.org/CorpusID:265351664)\n' +
+      '* Mishra et al. (2021) Swaroop Mishra, Daniel Khashabi, Chitta Baral, and Hannaneh Hajishirzi. 자연어 크라우드소싱 지침을 통한 교차 작업 일반화 _Annual Meeting of the Association for Computational Linguistics_, 2021. URL[https://api.semanticscholar.org/CorpusID:237421373](https://api.semanticscholar.org/CorpusID:237421373).\n' +
+      '* Mishra et al. (2022) Swaroop Mishra, Pan Lu, and A. Kalyan. 수학적 추론에 대한 통일된 벤치마크 2022. URL[https://api.semanticscholar.org/CorpusID:257405677](https://api.semanticscholar.org/CorpusID:257405677)\n' +
+      '* OpenAI(2023) OpenAI. Gpt-4 기술 보고서입니다 ArXiv_, abs/2303.08774, 2023. URL[https://api.semanticscholar.org/CorpusID:257532815](https://api.semanticscholar.org/CorpusID:257532815).\n' +
+      '* Ouyang et al. (2022) Long Ouyang, Jeff Wu, Xu Jiang, Diogo Almeida, Carroll L. Wainwright, Pamela Mishkin, Chong Zhang, Sandhini Agarwal, Katarina Slama, Alex Ray, John Schulman, Jacob Hilton, Fraser Kelton, Luke E. Miller, Maddie Simens, Amanda Askell, Peter Welinder, Paul Francis Christiano, Jan Leike, and Ryan J. Lowe. 인간의 피드백으로 지시를 따르도록 언어 모델을 훈련시키는 것 ArXiv_, abs/2203.02155, 2022. URL[https://api.semanticscholar.org/CorpusID:246426909](https://api.semanticscholar.org/CorpusID:246426909).\n' +
+      '* Patel et al. (2021) Arkil Patel, Satwik Bhattacharya, and Navin Goyal. nlp 모델은 정말 간단한 수학 단어 문제를 해결할 수 있습니까? 2021년입니다.\n' +
+      '*Peng et al. (2021) Xiangyu Peng, Siyan Li, Sarah Wiegreffe, and Mark Riedl. 독자 추론: 2021년 상식 추론으로 자동화된 스토리 생성을 안내합니다.\n' +
+      '*진 등 (2023) Yujia Qin, Shi Liang, Yining Ye, Kunlun Zhu, Lan Yan, Ya-Ting Lu, Yankai Lin, Xin Cong, Xiangru Tang, Bill Qian, Sihan Zhao, Runchu Tian, Ruobing Xie, Jie Zhou, Marc H. Gerstein, Dahai Li, Zhiyuan Liu, and Maosong Sun. 툴mn: 16000+ 실세계 아피스를 마스터하기 위해 대형 언어 모델을 촉진합니다. _ ArXiv_, abs/2307.16789, 2023. URL[https://api.semanticscholar.org/CorpusID:260334759](https://api.semanticscholar.org/CorpusID:260334759).\n' +
+      '* Rafailov et al. (2023) Rafael Rafailov, Archit Sharma, Eric Mitchell, Stefano Ermon, Christopher D. Manning, and Chelsea Finn. 직접 선호도 최적화: 언어 모델이 은밀하게 보상 모델입니다. _ ArXiv_, abs/2305.18290, 2023. URL[https://api.semanticscholar.org/CorpusID:258959321](https://api.semanticscholar.org/CorpusID:258959321)\n' +
+      '* Ramamurthy et al. (2022) Rajkumar Ramamurthy, Prithviraj Ammanabrolu, Kiante Brantley, Jack Hessel, Rafet Sifa, Christian Bauckhage, Hannaneh Hajishirzi, and Yejin Choi. 강화 학습(not)은 자연어 처리를 위한 것입니까?: 벤치마크, 기준선 및 자연어 정책 최적화를 위한 빌딩 블록. _ ArXiv_, abs/2210.01241, 2022. URL[https://api.semanticscholar.org/CorpusID:252693405](https://api.semanticscholar.org/CorpusID:252693405)\n' +
+      '* Ramamurthy et al. (2021)David Rein, Betty Li Hou, Asa Cooper Stickland, Jackson Petty, Richard Yuanzhe Pang, Julien Dirani, Julian Michael, and Samuel R. 보우먼 Gpqa: 대학원 수준의 구글 인증 q&a 벤치마크. _ ArXiv_, abs/2311.12022, 2023. URL[https://api.semanticscholar.org/CorpusID:265295009](https://api.semanticscholar.org/CorpusID:265295009).\n' +
+      '*Roziere et al. (2023) Baptiste Roziere, Jonas Gehring, Fabian Gloeckle, Sten Sootla, Itai Gat, Xiaoqing Ellen Tan, Yossi Adi, Jingyu Liu, Tal Remez, Jeremy Rapin, Artyom Kozhevnikov, Ivan Evtimov, Joanna Bitton, Manish Bhatt, Cristian Canton Ferrer, Aaron Grattafiori, Wenhan Xiong, Alexandre Defossez, Jade Copet, Faisal Azhar, Hugo Touvron, Louis Martin, Nicolas Usunier, Thomas Scialom and Gabriel Synnaeve. 코드 라마 2023 코드 기반 모델 공개\n' +
+      '*Salimans and Chen (2018) Tim Salimans and Richard J. Chen. 몬테주마의 복수를 단 한 번의 시연으로 배우는 거죠 ArXiv_, abs/1812.03381, 2018. URL[https://api.semanticscholar.org/CorpusID:54463584](https://api.semanticscholar.org/CorpusID:54463584)\n' +
+      '* Sawada et al. (2023) Tomohiro Sawada, Daniel Paleka, Alex Havrilla, Pranav Tadepalli, Paula Vidas, Alexander Kranias, John J. Nay, Kshitij Gupta, and Aran Komatsuzaki. Arb: 대형 언어 모델에 대한 고급 추론 벤치마크__ ArXiv_, abs/2307.13692, 2023. URL[https://api.semanticscholar.org/CorpusID:260155126](https://api.semanticscholar.org/CorpusID:260155126)\n' +
+      '* Schick et al. (2023) Timo Schick, Jane Dwivedi-Yu, Roberto Dessi, Roberta Raileanu, Maria Lomeli, Luke Zettlemoyer, Nicola Cancedda, and Thomas Scialom. 도구 형성기: 언어 모델은 스스로 도구를 사용하는 법을 배울 수 있습니다. _ ArXiv_, abs/2302.04761, 2023. URL[https://api.semanticscholar.org/CorpusID:256697342](https://api.semanticscholar.org/CorpusID:256697342).\n' +
+      '* Schulman et al. (2017) John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Radford, and Oleg Klimov. 근위 정책 최적화 알고리즘. _ ArXiv_, abs/1707.06347, 2017. URL[https://api.semanticscholar.org/CorpusID:28695052](https://api.semanticscholar.org/CorpusID:28695052)\n' +
+      '* Sennrich et al. (2015) Rico Sennrich, Barry Haddow, and Alexandra Birch. 단일 언어 데이터로 신경망 기계 번역 모델을 개선합니다. _ ArXiv_, abs/1511.06709, 2015. URL[https://api.semanticscholar.org/CorpusID:15600925](https://api.semanticscholar.org/CorpusID:15600925).\n' +
+      '* Shen et al. (2023) Bo Shen, Jiaxin Zhang, Taihong Chen, Daoguang Zan, Bing Geng, An Fu, Muhan Zeng, Ailun Yu, Jichuan Ji, Jingyang Zhao, Yuenan Guo, and Qianxiang Wang. Pangu-coder2: 랭킹 피드백을 갖는 코드에 대한 대형 언어 모델을 부스팅하는 단계 _ ArXiv_, abs/2307.14936, 2023. URL[https://api.semanticscholar.org/CorpusID:260202985](https://api.semanticscholar.org/CorpusID:260202985)\n' +
+      '* Silver et al. (2017) David Silver, Thomas Hubert, Julian Schrittwieser, Ioannis Antonoglou, Matthew Lai, Arthur Guez, Marc Lanctot, L. 시프레, 다산 쿠마란, 소어 그레이펠, 티모시 P. 릴리크랩, 카렌 시모얀, 데미스 하사비스. 일반적인 강화학습 알고리즘으로 셀프플레이에 의한 체스와 소기의 숙달. _ ArXiv_, abs/1712.01815, 2017. URL[https://api.semanticscholar.org/CorpusID:33081038](https://api.semanticscholar.org/CorpusID:33081038)\n' +
+      '* Srivastava et al. (2017) Aarohi Srivastava, Abhinav Rastogi, Abhishek Rao, Abuwal Md Shoeb, Abubakar Abid, Adam Fisch, Adam R. 브라운, 아담 산토로, 아디티야 굽타, 아드리아 가리가-알론소, 아그네츠카 클루스카, 아토르 루코위츠, 악샤트 아가왈, 알레티아 파워, 알렉스 레이, 알렉스 워스타트, 알렉산더 W. Kocurek, Ali Safaya, Ali Tazarv, Alice Xiang, Allicia Parrish, Allen Nie, Aman Hussain, Amanda Askell, Amanda Dsouza, Ambrose Slone, Ameet Annasaheb Rahane, Anantharaman S. Iyer, Anders Andreassen, Andrea Madotto, Andrea Santilli, Andreas Stuhlmuller, Andrew M. Dai, Andrew La, Andrew Kyle Lampinen, Andy Zou, Angela Jiang, Angelica Chen, Anh Vuong, Animesh Guottari, Arfa Tabassum, Arul Menezes, Arun Kirubarajan, Asher Mullokandov, Ashish Sabharwal, Austin Herrick, Avia Efrat, Aykut Erdem, Bill Rathkopf, Chenta Mung, Chitta Baral, Chiyu Wu, Citta Boigt, Cedney Argateu, Dan Hardhen Lin, Dan Hardhen Lin, Bake Stehen Lee, Barret Zoph, Bartlomiej Bojanowski, Daniel Levy, Daniel Mosegui Gomzalez, Danielle R. 페르시크, 대니 에르난데스, 단키 첸, 다프네 이폴리토, 다비드 길보아, 다비드 에르겐스, 데바요티 다타, 딥 갠굴리, 데르키스 에르겔리, 데르키 켐, 데르키 탐, 디에르케 헵스, 데르헤르키, 데르헤르흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐흐 Balis, Jonathan Batchelder, Jonathan Berant, Jorg Frohberg, Jos Rozen, Jose Hernandez-Orallo, Joseph Boudeman, Joseph Guerr, Joseph Jones, Joshua Tenenbaum, Joshua S. 룰, 조이스 추아, 카밀 칸클레르츠, 카렌 리브스쿠, 카텔 고팔라크리슈난, 카테리나 이그나테바, 카쟈 마커트, 카케니오몬드, 코리 월리스 매튜슨, 크리스틴 치아풀로, 크세니아 슈카루타, 쿠마르 슈리드하르, 카일 맥도넬, 카일 리처드슨, 라리아 레이놀즈, 레오 가오, 루청 허, 루이스 올리베로스 콜론, 루크 메츠, 루크 노블, 루드비히 슈센, 루이히 보스마, 마르코 바르티칸, 마르코 마르타 루이스, 마르코 포타스트, 마테르 테르 호베, 루이 필리페 모레시, 마르코 마르케르 마티아스 하겐, 마티아스 슈베르트, 메디나 바이테미로바, 니클라스 무엔히토프, 니티시 시리시 케스카르, 니니비타 아이르, 니클라스 데커스, 니클라스 무엔히토프, 니티시 시리시 케스카르, 니니비타 아이르, 노아 피델, 올리버 장, 오마르 아르히네즈, 니키타 엘바키아, 미히히로 야스나가, 미히르 케일, 마이크 케인, 미케일 베빌라콰, 미히히로 야스나가, 미히르 케일, 마이크 장, 피터 에커슬리, 푸먼 히아리아, 파르티 리, 파르티 리앙, 파르티 리앙, 파르티 리앙, 파르티 리앙, 파르티 리앙, 파르티 리앙, 파르티 리앙, 파르티 리앙, 파르티 리앙, 파르티 리앙, 파르티 리앙, 파르티 리앙, 파르티 리앙, 파르티 리앙, 파르티 리앙, 파르 파틸, 푸야 페체슈쿠르, 프리티 올리, 치오주 메이, 칭 루이, 진랑첸, 라빈 반자데, 레이첼 에타 루돌프, 래퍼 가브리엘, 라헬 하바커, 라몬 리스코, 라파엘 밀리에르, 리듬 가르크, 리처드 반스, 리프 A. 사우루스, 리쿠 아라카와, 로베 레이맥커스, 로버트 프랭크, 로한 시칸드, 로만 노박, 로난 레브라스, 로난 리우, 로완 제이콥스, 루이 장, 루슬란 살라쿠트디노프, 라이언 치, 라이언 리, 라이언 양, 사히브 싱, 사이프 M. Mohammad, Sajant Anand, Sam Dillavou, Sam Shleifer, Sam Wiseman, Samuel Gruetter, Samuel R. 새뮤얼 S. 보먼 Schoenholz, Sanghyun Han, Sanjeev Kwatra, Sarah A. Rous, Sarik Ghazarian, Sayan Ghosh, Sean Casey, Sebastian Bischoff, Sebastian Gehrmann, Sebastian Schuster, Sepideh Sadeghi, Shadi S. 함단, 샤론 저우, 샤샨크 스리바스타바, 셰리 시, 시하 싱, 시마 아사디, 시샹 샤샨 구, 쉬부브 파흐치가르, 쉬함 토쉬니왈, 쉬암 우파드니왈, 시아몰리마 데브나스, 시아막 샤케리, 사이먼 소르메이어, 시몬 멜지, 시바 레디, 스네하 프리실라 마키니, 이수환, 스펜서 토렌, 스리하르샤 하트와, 스타니슬라스 데하엔, 스테판 디비치, 스테파노 에르몬, 스텔라 바이더만, 스테판 프라사드, 스티븐 티 피안타도시, 스튜어트 M. 시베르, 서머 미셔기, 스베틀라나 키리첸코, 스와루프 미쉬라, 탈 린젠, 탈 슈스터, 타오 리, 타오 유, 타리크 알리, 테-린 우, 테오 데스보르드 왕, 티베리우스 닉시모토, 티모 쉬크, 티모 요르히 코르너, 트렌턴 장, 트리샤르 니에르, 토바이어스 슈텐베르그, 타일러 샤우, 유리 샤흐르, 빅토리아 니야나이, 비카스 라바슈, 비샤만 바흐르, 요나탄 바이오, 비샤만 바흐르, 요나탄 바이오, 비샤만 바흐르, 유후 세이드, 주오예 자오, 지푸 왕, 지이 왕, 지이 우. 모방 게임을 넘어: 언어 모델의 능력을 정량화하고 추론합니다. 2022. URL[https://api.semanticscholar.org/CorpusID:263625818](https://api.semanticscholar.org/CorpusID:263625818)\n' +
+      '* Stiennon et al. [2020] Nisan Stiennon, Long Ouyang, Jeff Wu, Daniel M. Ziegler, Ryan J. Lowe, Chelsea Voss, Alec Radford, Dario Amodei, and Paul Christiano. Learning to summarize from human feedback. _ArXiv_, abs/2009.01325, 2020. URL [https://api.semanticscholar.org/CorpusID:221665105](https://api.semanticscholar.org/CorpusID:221665105).\n' +
+      '* Sun et al. [2023] Simeng Sun, Dhawal Gupta, and Mohit Iyyer. Exploring the impact of low-rank adaptation on the performance, efficiency, and regularization of rhf. _ArXiv_, abs/2309.09055, 2023. URL [https://api.semanticscholar.org/CorpusID:2618844555](https://api.semanticscholar.org/CorpusID:2618844555).\n' +
+      '* Touvron et al. [2023] Hugo Touvron, Louis Martin, Kevin Stone, Peter Albert, Amjad Almahairi, Yasmine Babaei, Nikolay Bashlykov, Soumya Batra, Prajwal Bhargava, Shruti Bhosale, Dan Bikel, Lukas Blecher, Cristian Canton Ferrer, Moya Chen, Guillem Cucurull, David Esiobu, Jude Fernandes, Jeremy Fu, Wenyin Fu, Brian Fuller, Cynthia Gao, Vedanuj Goswami, Naman Goyal, Anthony Hartshorn, Saghar Hosseini, Rui Hou, Hakan Inan, Marcin Kardas, Viktor Kerkez, Madian Khabsa, Isabel Kloumann, Artem Korenev, Punit Singh Koura, Marie-Anne Lachaux, Thibaut Lavril, Jenya Lee, Diana Liskovich, Yinghai Lu, Yuning Mao, Xavier Martinet, Todor Mihaylov, Pushkar Mishra, Igor Molybog, Yixin Nie, Andrew Poulton, Jeremy Reizenstein, Rashi Rungta, Kalyan Saladi, Alan Schelten, Ruan Silva, Eric Michael Smith, Ranjan Subramanian, Xiaoqing Ellen Tan, Binh Tang, Ross Taylor, Adina Williams, Jian Xiang Kuan, Puxin Xu, Zheng Yan, Iliyan Zarov, Yuchen Zhang, Angela Fan, Melanie Kambadur, Sharan Narang, Aurelien Rodriguez, Robert Stojnic, Sergey Edunov, and Thomas Scialom. Llama 2: Open foundation and fine-tuned chat models, 2023.\n' +
+      '* Wang et al. [2020] Jonathan Uesato, Nate Kushman, Ramana Kumar, Francis Song, Noah Siegel, L. 왕, 안토니아 크레스웰, 제프리 어빙, 이리나 히긴스 과정 및 결과 기반 피드백으로 수학 단어 문제를 해결합니다. _ ArXiv_, abs/2211.14275, 2022. URL[https://api.semanticscholar.org/CorpusID:254017497](https://api.semanticscholar.org/CorpusID:254017497).\n' +
+      '*354, 2019. URL[https://api.semanticscholar.org/CorpusID:204972004](https://api.semanticscholar.org/CorpusID:204972004).\n' +
+      '* Wei et al. [2021] Jason Wei, Maarten Bosma, Vincent Zhao, Kelvin Guu, Adams Wei Yu, Brian Lester, Nan Du, Andrew M. Dai, and Quoc V. Le. Finetuned language models are zero-shot learners. _ArXiv_, abs/2109.01652, 2021. URL [https://api.semanticscholar.org/CorpusID:237416585](https://api.semanticscholar.org/CorpusID:237416585).\n' +
+      '* Wei et al. [2022] Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Ed Huai hsin Chi, F. Xia, Quoc Le, and Denny Zhou. Chain of thought prompting elicits reasoning in large language models. _ArXiv_, abs/2201.11903, 2022.\n' +
+      '* Yao et al. [2020] Shunyu Yao, Rohan Rao, Matthew J. Hausknecht, and Karthik Narasimhan. Keep calm and explore: Language models for action generation in text-based games. _ArXiv_, abs/2010.02903, 2020. URL [https://api.semanticscholar.org/CorpusID:222142129](https://api.semanticscholar.org/CorpusID:222142129).\n' +
+      '* Yao et al. [2022] Shunyu Yao, Jeffrey Zhao, Dian Yu, Nan Du, Izhak Shafran, Karthik Narasimhan, and Yuan Cao. React: Synergizing reasoning and acting in language models. _ArXiv_, abs/2210.03629, 2022. URL [https://api.semanticscholar.org/CorpusID:252762395](https://api.semanticscholar.org/CorpusID:252762395).\n' +
+      '* Yao et al. [2023] Shunyu Yao, Dian Yu, Jeffrey Zhao, Izhak Shafran, Thomas L. Griffiths, Yuan Cao, and Karthik Narasimhan. Tree of thoughts: Deliberate problem solving with large language models. _ArXiv_, abs/2305.10601, 2023. URL [https://api.semanticscholar.org/CorpusID:258762525](https://api.semanticscholar.org/CorpusID:258762525).\n' +
+      '* Ye et al. [2022] Anbang Ye, Christopher Cui, Taiwei Shi, and Mark O. Riedl. Neural story planning. _ArXiv_, abs/2212.08718, 2022. URL [https://api.semanticscholar.org/CorpusID:254854533](https://api.semanticscholar.org/CorpusID:254854533).\n' +
+      '* Yuan et al. [2023] Zheng Yuan, Hongyi Yuan, Cheng Li, Guanting Dong, Chuanqi Tan, and Chang Zhou. Scaling relationship on learning mathematical reasoning with large language models. _ArXiv_, abs/2308.01825, 2023. URL [https://api.semanticscholar.org/CorpusID:260438790](https://api.semanticscholar.org/CorpusID:260438790).\n' +
+      '* Zelikman et al. [2022] Eric Zelikman, Yuhuai Wu, Jesse Mu, and Noah D. Goodman. Star: Bootstrapping reasoning with reasoning, 2022.\n' +
+      '* Zhou et al. [2023a] Aojun Zhou, Ke Wang, Zimu Lu, Weikang Shi, Sichun Luo, Zipeng Qin, Shaoqing Lu, Anya Jia, Linqi Song, Mingjie Zhan, and Hongsheng Li. 코드 기반 자기 검증이 적용된 gpt-4 코드 해석기를 사용하여 도전적인 수학 단어 문제를 해결한다. _ ArXiv_, abs/2308.07921, 2023a. URL[https://api.semanticscholar.org/CorpusID:260900008](https://api.semanticscholar.org/CorpusID:260900008)\n' +
+      '* Zhou et al. [2023b] Wei Zhou, Xiangyu Peng, and Mark O. 리들 대화 형성: npc 상호 작용을 통해 에이전트를 임파워링합니다. _ ArXiv_, abs/2307.15833, 2023b. URL[https://api.semanticscholar.org/CorpusID:260333931](https://api.semanticscholar.org/CorpusID:260333931)\n' +
+      '* Zhu et al. [2023] Xinyu Zhu, Junjie Wang, Lin Zhang, Yuxiang Zhang, Yongfeng Huang, Ruyi Gan, Jiaxing Zhang, and Yujiu Yang. Solving math word problems via cooperative reasoning induced language models. Association for Computational Linguistics, 2023. doi: 10.18653/v1/2023.acl-long.245. URL [https://doi.org/10.18653%2Fv1%2F2023.acl-long.245](https://doi.org/10.18653%2Fv1%2F2023.acl-long.245).\n' +
+      '* Ziegler et al. [2019] Daniel M Ziegler, Nisan Stiennon, Jeffrey Wu, Tom B Brown, Alec Radford, Dario Amodei, Paul Christiano, and Geoffrey Irving. Fine-tuning language models from human preferences. _arXiv preprint arXiv:1909.08593_, 2019.\n' +
+      '\n' +
+      '## 부록 A RCRL 라벨 밸런스\n' +
+      '\n' +
+      '또한 RCRL 훈련 데이터에서 \'[GOOD]\' 레이블과 \'[BAD]\' 레이블의 비율을 다르게 실험한다. 이는 풍부한 부정적인 데이터를 더 잘 활용하려는 욕구에 의해 동기화되어 긍정적인 데이터보다 생성하기가 훨씬 쉽다. 학생에게 이 데이터로**가 아닌 것을 가르치는 것이 이상적으로는 유효한 솔루션의 수를 증가시킬 것이다. 기본적으로 우리는 양성 샘플과 음성 샘플의 수를 균형 있게 조정합니다.\n' +
+      '\n' +
+      '우리는 SFT 데이터 없이 LLama-2 7 GSM8K에 대한 실험을 수행한다. 우리는 전문가 반복(\\(K=1\\)의 한 라운드만 적용하여 **El-minimal**라고 하는 학생 모델을 생성한다. 이 설정에서 우리는 단계 수준에서 레이블을 제공하는 것이 아니라 전체 솔루션에 대해 \'[GOOD]\' 및 \'[BAD]\' 레이블만 제공한다. 결과는 5에 보고된다.\n' +
+      '\n' +
+      '우리는 긍정 훈련 데이터의 양이 부정 데이터의 양보다 크게 클 때 최고의 성능을 달성한다는 것을 발견한다. 이러한 경우 RCRL 모델의 maj@1 점수는 EI 최소 모델을 생성하는 데이터의 maj@1 점수를 약간 초과한다. 그러나, 긍정 훈련 데이터와 부정 훈련 데이터의 양의 균형을 맞추면 성능이 저하됨을 알 수 있다. 이것은 우리의 7B 학생이 제공된 부정적인 시연을 통해 효과적으로 배우지 못한다는 것을 시사한다. 우리는 더 큰 모델이나 더 쉬운 작업이 더 나은 결과를 줄 것이라고 의심한다.\n' +
+      '\n' +
+      '## 부록 B 반복에 걸친 EI 개선\n' +
+      '\n' +
+      '그림 10과 10은 전문가 반복 라운드에 대한 모델의 maj@1 점수를 표시한다. 두 데이터 세트 모두에서 점수는 최대 4라운드 이후 수렴할 때까지 단조롭게 증가하고 있다. SFT 체크포인트에서 초기화된 모델은 미리 훈련된 모델보다 더 빠르게 수렴합니다. 각 라운드의 전문가 반복 샘플\\(K*\\texttt{num\\_train}\\) 롤아웃과 가장 긴 실행 훈련 루프는 최대 5*4*7000\\approx 10^{6}\\의 샘플을 생성한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c|c|c} \\hline \\hline  & positive:negative ratio & GSM8K (maj@1) \\\\ \\hline\n' +
+      '**EI-minimal** & - & 0.17 \\\\ \\hline  & 100:1 & **0.18** \\\\\n' +
+      '**RCRL** & 10:1 & **0.18** \\\\  & 1:1 & 0.15 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 5: 서로 다른 비율의 양성 및 음성 샘플을 사용하여 SFT가 없는 RCRL. 음성 샘플의 비율을 늘리면 일반적으로 성능이 감소한다. 기껏해야 우리는 **RCRL**을 사용하여 매우 미미한 이익만을 봅니다. 참고: **El-minimal**는 질문당 \\(K=1\\)으로 하나의 반복에 대해 EI를 실행하는 것을 말한다.\n' +
+      '\n' +
+      '그림 10: GSM8K 테스트 대 EI 모델의 정확도. 반복 횟수. _ EI scratch_ models has no SFT number of iterations. \\ 프롬프트당 (K=4\\) 샘플을 사용하여 다음 라운드에 대한 미세 조정 데이터 세트를 구성한다.\n' +
+      '\n' +
+      '도 11 및 도 12는 솔루션 고유성에 대한 두 개의 개별 메트릭에 의해 측정된 바와 같이 전문가 반복의 라운드에 걸친 솔루션의 다양성을 보고한다. _ exact diversity_check for equality of two solutions using exact string match. _ trace diversity_는 먼저 최종 해답에 도달하기 위해 사용되는 중간 계산의 시퀀스로서 해의 _trace_를 추출함으로써 두 해 사이의 평등을 검사한다. 그런 다음 이 추적 표현에 대해 정확한 일치가 수행된다.\n' +
+      '\n' +
+      '** 솔루션 다양성이 증가한 다음 훈련에 걸쳐 감소** 전문가 반복의 처음 두 라운드에 걸쳐 두 모델 크기에 대한 솔루션 다양성 증가의 모든 측정치 처음 두 라운드 후에 미량 다양성은 모두 안정되고 일부 경우에는 약간 감소하는 것으로 판단된다. 정확한 다양성은 13B에서 계속 증가하지만 처음 두 라운드 동안과 같은 속도는 아니다. 처음 두 라운드에 걸쳐 솔루션 다양성의 가장 큰 증가는 maj@1 성능의 가장 큰 이득이 발생할 때도 일치한다. 이것은 성적이 높은 학생이 동일한 문제에 대해 많은 올바르지만 독특한 해결책을 생성할 수 있다는 직관에 증거를 제공한다. 또한, 전문가 반복의 나중 라운드 동안 maj@1 점수가 약간 향상되지만 다양성은 어려움을 겪는다는 것을 알 수 있다. 이는 패스@n과 솔루션 다양성을 모두 줄이는 과정에서 교육이 maj@1 점수에 과도하게 적합하기 시작한다는 추가 증거를 제공한다. 우리는 같은 행동을 본다.\n' +
+      '\n' +
+      '**더 큰 모델은 더 다양한 솔루션을 생성합니다** 위의 수치는 또한 13B 모델이 7B 모델보다 훨씬 더 다양한 출력을 생성한다는 것을 보여줍니다. 이것은 더 많은 훈련이 이루어짐에 따라 격차가 점점 커지는 미세 조정 라운드 동안 사실입니다. 흥미롭게도 13B 모델은 4 라운드의 전문가 반복 후 모든 샘플링에서 _exactly_ 고유 솔루션을 생성하는 것으로 판단된다. 그러나 그 미량 다양성은 두 번 후에 최고조에 달한다.\n' +
+      '\n' +
+      '도 11: EI의 라운드들에 걸친 GSM8K 모델 출력의 다양성. (SFT 없음)\n' +
+      '\n' +
+      '도 12: EI의 라운드들에 걸친 SVAMP 모델 출력의 다양성. \\ (K=96\\) 샘플이 프롬프트당 사용된다. _ positive_다양성은 정확한 최종 답변을 가진 솔루션의 하위 집합에서 다양성을 측정한다.\n' +
+      '\n' +
+      '13B를 나타내는 라운드는 솔루션의 기본 계산 구조를 변경하지 않고 의미론적 다양성을 도입하는 경향이 있다.\n' +
+      '\n' +
+      '## 부록 C 샘플 복잡도\n' +
+      '\n' +
+      '이 섹션에서는 섹션 4의 결과와 함께 벤치마크에 모든 샘플 복잡성을 표시합니다. 그림 15 및 15는 감독된 미세 조정 없이 GSM8K에 대한 결과를 보고한다. 그림 15와 17은 SVAMP에 대한 결과를 보고한다.\n' +
+      '\n' +
+      'SFT 경우와 같이, 프롬프트된 GSM8K 모델에서 EI 및 PPO를 안내하기 위해 ORM을 사용하는 것은 샘플 복잡성을 다소 감소시키지만 최상의 성능을 향상시키지 않는다(ORM 보상이 수렴 maj@1 점수를 약간 손상시키는 경우). 우리는 밀도가 높은 ORM 보상을 제공할 때 동일한 이야기를 볼 수 있으며, 샘플 민감성을 더욱 감소시키지만 최종 수렴 성능을 희생한다. 우리의 최고의 결과는 여전히 지상 진실 점수만을 사용한 결과입니다. 우리는 ORM 보상에 의해 도입된 성능 저하가 더 큰 보상 모델로 완화될 수 있다고 의심한다. 그러나, 우리는 더 큰 모델을 사용하는 것이 단지 지상 진실 보상보다 개선될 것이라고 믿지 않는다. SVAMP에서도 유사한 결과가 나타난다.\n' +
+      '\n' +
+      '도 14: GSM8K(SFT 없음) 상의 디폴트 대 ORM 안내 EI 학생들의 샘플 복잡도. ORM은 처음에 샘플 복잡성을 개선하지만 궁극적으로 그라운드 트루스만을 사용하는 것보다 성능이 떨어진다.\n' +
+      '\n' +
+      '도 13: gsm8k sft 다이버시티\n' +
+      '\n' +
+      '도 15: GSM8K(SFT 없음) 상의 디폴트 대 ORM 안내 PPO 학생들의 샘플 복잡도. EI에서와 유사하게 ORM은 지상 진실 보상만을 사용하는 것보다 maj@1 점수를 향상시키지만 결국에는 성능이 떨어진다.\n' +
+      '\n' +
+      '## 부록 D 교육과정 학습을 위한 RL\n' +
+      '\n' +
+      '바닐라 PPO 외에도 교육과정 학습 문헌의 알고리즘으로 역추적(Salimans and Chen, 2018)과 Prioritized Level Replay(**PLR**)(Jiang et al., 2020)을 실험한다. 이러한 알고리즘은 더 쉬운 하위 문제에서 더 어려운 하위 문제로 일반화하는 모델을 이상적으로 학습하면서 하위 문제의 "교육과정"을 구성하는 것을 목표로 한다.\n' +
+      '\n' +
+      '특히 역추적은 솔루션 공간의 탐사를 개선하기 위해 고품질 감독 궤적을 사용하는 데 의존하기 때문에 자연스러운 선택이다. 이는 부분 완전 해 \\((Q,P_{i})\\)에 대한 학생 정책 \\(\\pi\\)을 샘플링하여 수행되며, 여기서 \\(P_{i}\\)은 중간 그라운드 진리 단계 \\((S_{1},...,S_{i})\\)의 시퀀스이다. 알고리즘은 부분 해를 초기화하기 위해 최종 해로부터 얼마나 멀리 떨어져 있는지를 나타내는 초기 임계값 \\(\\tau_{0}\\in(0,1)\\)을 설정하여 진행한다. 기본적으로 우리는 \\(\\tau_{0}=0.9\\)을 사용한다. 그런 다음, \\(P_{i}\\)에서 풀 수 있는 각 문제 \\(Q\\)에 대해 마지막 단계 \\(S_{i}\\)과 다음 번에 \\(Q\\)을 샘플링할 때 \\(P_{i-1}\\)의 조건을 제거한다.\n' +
+      '\n' +
+      'PLR은 SFT 데이터에 대한 접근에 의존하지 않으며, 대신 평균 절대 우위에 의해 추정된 "학습 가능성"이 높은 문제를 휴리스틱하게 우선시한다. 이 잠재력으로 문제를 우선시하면 모델이 너무 쉽지도 너무 어렵지도 않은 문제에 집중할 수 있어 탐색 예산을 효율적으로 사용할 수 있다. 우리는 GSM8K에서 감독된 미세 조정 LLama-2 7B를 사용하여 학생을 초기화한다. 결과는 그림 19에 보고되어 있다.\n' +
+      '\n' +
+      '전반적으로 우리는 두 방법 모두 기본 PPO의 성능을 초과하지 않는다는 것을 발견했다. 우리는 이것이 사전 훈련과 감독된 미세 조정으로 인해 모델이 처음부터 참여하는 제한된 탐색 때문이라고 가정한다. 특히 역추적을 사용할 때 더 중간 단계가 있는 더 어려운 데이터 세트에서 더 나은 결과가 달성될 수 있다고 추측한다.\n' +
+      '\n' +
+      '## 부록 E 데이터 증강\n' +
+      '\n' +
+      '또한 역번역(Sennrich et al., 2015)에서 영감을 얻은 접근법을 통해 합성 \\((Q,A)\\) 훈련 쌍을 생성하는 실험을 하였다. 우리는 \\((Q,A)\\) 쌍의 지도 미세 조정 데이터세트 \\(\\mathcal{D}\\)에 대한 액세스를 가정하고 일반적인 학생 모델로 \\(Q\\to A\\) 모델 \\(M_{Q\\to A}\\)을 훈련한다. 우리는 이 모델을 검증자라고 부른다. 우리는 또한 \\(\\mathcal{D}\\)을 사용하여 질문에 대한 답과 질문에 대한 답을 각각 매핑하는 \\(M_{A\\to Q}\\) 및 \\(M_{A\\to A}\\) 형태의 모델을 훈련시킬 수 있다. 우리는 미리 훈련된 모델 \\(M\\)을 미세 조정함으로써 \\(M_{A\\to Q}\\)을 훈련하여 \\(p(A|Q)\\)을 예측한다. 여기서 \\((Q,A)\\sim\\mathcal{D}\\). 우리는 \\(M_{A\\to A}\\)와 \\(M_{A\\to Q}\\)의 조합이라고 부른다. 우리는 다음과 같이 \\(M_{A\\to A}\\)에 대한 열차를 구성한다. \\(Q,A)\\in\\mathcal{D}\\의 각 \\(A\\)에 대해 조건부 프롬프트 역할을 하는 \\(\\mathcal{D}\\)에서 무작위로 세 개의 다른 대답 \\(A_{1},A_{2},A_{3}\\)을 샘플링한다. 그런 다음 \\(p(A|A_{1},A_{2},A_{3})\\)를 최소화하여 \\(M_{A\\to A}\\)을 훈련한다.\n' +
+      '\n' +
+      '각 지상진리답변(A\\in\\mathcal{D}\\)\\(K=8\\)에 대해 M(M_{A\\to A}\\)을 샘플링하여, 합성답변(\\mathcal{A}\\) 데이터세트를 구축하였다. 그런 다음 거꾸로 모델 \\(M_{A\\to Q}\\)을 사용하여 각 합성 답에 대한 질문을 생성한다. 이는 합성 \\((Q,A)\\) 데이터세트 \\(\\mathcal{D}_{\\text{synth}}\\)를 형성한다. 마지막으로 각 합성 \\((Q,A)\\) 쌍에 대해 각 질문에 대해 학생 모델 \\(M_{Q\\to A}\\)\\(K=20\\)을 샘플링하고 학생 모델의 최종 답변이 "의도된" 최종 답변과 일치하는지 확인한다. 우리는 의도된 최종 답을 복구하는 학생 생성 해의 백분율을 합성 \\((Q,A)\\) 쌍에 대한 _score_라고 한다. 우리는 그림 20에 점수의 분포를 표시한다.\n' +
+      '\n' +
+      '우리는 50,000개가 넘는 대부분의 합성쌍이 학생들이 해를 복구하지 못한다는 것을 알 수 있다. 이것은 a) 학생이 문제를 풀기에 너무 약하기 때문이거나 b) 그 문제는 풀기가 불가능하다. 어느 쪽이든, 우리는 학생들을 위한 이러한 새로운 훈련 데이터를 포함하고 싶지 않을 것이다. 마찬가지로, 우리는 학생들이 항상 풀어야 하는 문제, 즉 점수가 \\(=1\\)인 문제를 너무 쉽기 때문에 포함하고 싶지 않을 것이다. 덧붙여, 우리는 \\((0,\\epsilon)\\) 범위의 작은 점수를 가진 질문들을 경계해야 한다. 많은 질문이 잘못 해결되었지만 여전히 정확한 최종 답변에 도착할 것으로 예상됩니다. 이러한 문제는 교육 데이터 세트에서 제외해야 합니다.\n' +
+      '\n' +
+      '우리는 최고 품질 데이터\\((Q,A)\\)이 이웃에서 점수를 가질 것으로 예상한다\\((\\frac{1}{2}-\\tau,\\frac{1}{2}+\\tau)\\). 이 질문들은 우리 학생들에게 너무 어렵지는 않지만 너무 쉽지는 않아야 한다. 그림 6은 \\((\\frac{1}{2}-\\tau,\\frac{1}{2}+\\tau)\\) 범위의 점수로 지상진실 데이터와 합성 생성된 데이터를 조합하여 미세 조정한 학생 모델의 성능을 보여준다. 모든 모델은 초기 lr = 2e-5 코사인 감쇠가 2e-7로 된 5개의 에폭에 대해 훈련되며, 미리 훈련된 기본 모델로 라마-2 7B가 사용된다.\n' +
+      '\n' +
+      '도 19: 디폴트 PPO 및 SFT와 비교하여 우선 순위화된 레벨 재생(PLR) 및 역추적 기술에 대한 GSM8K 상의 maj@1 스코어.\n' +
+      '\n' +
+      '불행히도, 합성적으로 생성된 모든 양의 데이터를 도입하는 것은 성능을 저하시키는 것 같다. 합성적으로 생성된 \\((Q,A)\\) 쌍을 수동으로 검사하면 그 이유가 명확해진다. 매우 많은 수의 거짓 긍정이 있다. 표 7에 나타낸 합성 쌍의 다음 예를 고려한다:\n' +
+      '\n' +
+      '이것은 교육 데이터에서 원하지 않는 저품질 샘플의 예입니다. 이러한 표본은 기술적으로 정답이 120이 아니라 100이기 때문에 0의 점수를 갖는 것이 이상적이지만, SFT\\(M_{Q\\to A}\\) 학생 각 표본에 대한 점수를 구성하기 위해 사용하는 SFT\\(M_{Q\\to A}\\) 표본은 최종 답을 120으로 47%의 시차를 두고 계산한다. 검증자는 질문을 구성할 때 만든 \\(M_{A\\to A}\\) 모델과 정확히 같은 실수를 하는데, 이는 유사한 분포에 대해 훈련되었기 때문일 수 있다.\n' +
+      '\n' +
+      '우리는 이러한 종류의 사소한 비해를 감지할 수 있는 더 큰 모델을 사용하는 것이 역방향 합성 데이터를 생성하는 데 실질적으로 더 나을 것이라고 의심한다. 유사하게, 생성기 및 검증기로 개별 모델을 사용하는 것은 양자가 동일한 실수를 할 확률을 감소시켜, 각 쌍에 대한 점수의 신뢰도를 향상시킬 수 있다. 우리는 이것을 미래의 일로 남겨둔다.\n' +
+      '\n' +
+      '## 부록 F RCRL 스텝 레이블 생성 과정\n' +
+      '\n' +
+      '각 단계에서 실수를 식별하기 위해 사용될 수 있는 또 다른 자연적 후보는 PRM(Process Based Reward Model)(Lightman et al., 2023)이다. PRM은 최종 답에 미치는 영향과 무관하게 단계 \\(S_{i}\\), \\(p(S_{i}\\text{ correct}|Q,S_{1},S_{2},...,S_{i})\\)의 정확성 확률을 추정한다. 그러나 이는 비용이 많이 들며 인간의 주석이 달린 샘플을 수집해야 한다. 대신 추론 과제의 최적값 함수_\\(V^{*}\\)을 근사화하는 방법을 제안한다. \\ (V^{*}\\)는 논리적으로 유효한 중간 상태 \\(S_{j}\\)로부터 추론 작업을 성공적으로 해결할 수 있는 _optimal policy_의 값 함수에 해당한다. 이러한 최적값 함수는 실수 없는 솔루션 프리픽스에 대해 \\(V^{*}(Q,S_{1},...,S_{i})=1\\)을 가지며, 프리픽스에 오류가 이미 포함되어 있으면 오답이 발생할 수 있다. 그러나 주의할 점은 \\(V^{*}\\)\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c} \\hline  & maj@1 \\\\ \\hline \\(\\tau=0.1\\) & 0.38 \\\\ \\(\\tau=0.2\\) & 0.36 \\\\ \\(\\tau=0.3\\) & 0.34 \\\\ \\hline SFT & 0.41 \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 6: 다양한 양의 합성 데이터로 훈련하는 모델의 성능 대. SFT 기준선입니다. 참고: \\(\\tau\\)은 필터링되지 않은 \\(\\frac{1}{2}\\) 주변의 점수 근방의 크기를 나타낸다.\n' +
+      '\n' +
+      '그림 20: 합성적으로 거꾸로 된 점수는 \\((Q,A)\\) 쌍을 생성했다. 주: 점수는 정방향 학생 모델 \\(M_{Q\\to A}\\)이 의도된 최종 답을 회복하는 횟수의 백분율을 나타낸다.\n' +
+      '\n' +
+      'PRM과 정확히 일치하지 않는다. 이는 부분해 \\(S_{1},...,S_{i}\\)는 \\(j\\neq i\\)과 유효터미널 \\(S_{i}\\)에서 실수(V^{*}(Q,S_{1},...,S_{i})=0\\)와 \\(PRM(Q,S_{1},...,S_{i})=1\\)을 갖기 때문이다. 이 구별을 명확하게 하기 위해 우리는 모델을 훈련하여 \\(V^{*}\\) 단계적 ORM 또는 **SORMs**에 직접 근사하도록 한다.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
