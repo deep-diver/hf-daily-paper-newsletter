@@ -53,3 +53,4 @@
 - [Priority Sampling of Large Language Models for Compilers](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/35/2024-03-01+Priority+Sampling+of+Large+Language+Models+for+Compilers.yaml) / 2024-03-01
 - [EasyQuant: An Efficient Data-free Quantization Algorithm for LLMs](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/38/2024-03-06+EasyQuant%3A+An+Efficient+Data-free+Quantization+Algorithm+for+LLMs.yaml) / 2024-03-06
 - [Learning to Decode Collaboratively with Multiple Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/39/2024-03-07+Learning+to+Decode+Collaboratively+with+Multiple+Language+Models.yaml) / 2024-03-07
+- [Radiative Gaussian Splatting for Efficient X-ray Novel View Synthesis](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/40/2024-03-08+Radiative+Gaussian+Splatting+for+Efficient+X-ray+Novel+View+Synthesis.yaml) / 2024-03-08

@@ -38,3 +38,4 @@
 - [Twisting Lids Off with Two Hands](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/37/2024-03-05+Twisting+Lids+Off+with+Two+Hands.yaml) / 2024-03-05
 - [RT-Sketch: Goal-Conditioned Imitation Learning from Hand-Drawn Sketches](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/38/2024-03-06+RT-Sketch%3A+Goal-Conditioned+Imitation+Learning+from+Hand-Drawn+Sketches.yaml) / 2024-03-06
 - [Stop Regressing: Training Value Functions via Classification for Scalable Deep RL](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/39/2024-03-07+Stop+Regressing%3A+Training+Value+Functions+via+Classification+for+Scalable+Deep+RL.yaml) / 2024-03-07
+- [Teaching Large Language Models to Reason with Reinforcement Learning](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/40/2024-03-08+Teaching+Large+Language+Models+to+Reason+with+Reinforcement+Learning.yaml) / 2024-03-08
