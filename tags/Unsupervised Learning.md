@@ -23,3 +23,4 @@
 - [DistriFusion: Distributed Parallel Inference for High-Resolution Diffusion Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/35/2024-03-01+DistriFusion%3A+Distributed+Parallel+Inference+for+High-Resolution+Diffusion+Models.yaml) / 2024-03-01
 - [Learning and Leveraging World Models in Visual Representation Learning](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/36/2024-03-04+Learning+and+Leveraging+World+Models+in+Visual+Representation+Learning.yaml) / 2024-03-04
 - [Twisting Lids Off with Two Hands](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/37/2024-03-05+Twisting+Lids+Off+with+Two+Hands.yaml) / 2024-03-05
+- [CogView3: Finer and Faster Text-to-Image Generation via Relay Diffusion](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/41/2024-03-11+CogView3%3A+Finer+and+Faster+Text-to-Image+Generation+via+Relay+Diffusion.yaml) / 2024-03-11
