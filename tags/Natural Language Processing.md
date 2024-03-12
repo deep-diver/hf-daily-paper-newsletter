@@ -287,3 +287,4 @@
 - [DeepSeek-VL: Towards Real-World Vision-Language Understanding](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/41/2024-03-11+DeepSeek-VL%3A+Towards+Real-World+Vision-Language+Understanding.yaml) / 2024-03-11
 - [ELLA: Equip Diffusion Models with LLM for Enhanced Semantic Alignment](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/41/2024-03-11+ELLA%3A+Equip+Diffusion+Models+with+LLM+for+Enhanced+Semantic+Alignment.yaml) / 2024-03-11
 - [Gemini 1.5: Unlocking multimodal understanding across millions of tokens of context](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/41/2024-03-11+Gemini+1.5%3A+Unlocking+multimodal+understanding+across+millions+of+tokens+of+context.yaml) / 2024-03-11
+- [Stealing Part of a Production Language Model](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/42/2024-03-12+Stealing+Part+of+a+Production+Language+Model.yaml) / 2024-03-12
