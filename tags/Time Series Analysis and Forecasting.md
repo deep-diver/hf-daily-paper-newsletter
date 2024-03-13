@@ -2,3 +2,4 @@
 - [World Model on Million-Length Video And Language With RingAttention](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/24/2024-02-14+World+Model+on+Million-Length+Video+And+Language+With+RingAttention.yaml) / 2024-02-14
 - [Hierarchical State Space Models for Continuous Sequence-to-Sequence Modeling](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/26/2024-02-16+Hierarchical+State+Space+Models+for+Continuous+Sequence-to-Sequence+Modeling.yaml) / 2024-02-16
 - [Rolling Diffusion Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/26/2024-02-16+Rolling+Diffusion+Models.yaml) / 2024-02-16
+- [Chronos: Learning the Language of Time Series](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/43/2024-03-13+Chronos%3A+Learning+the+Language+of+Time+Series.yaml) / 2024-03-13
