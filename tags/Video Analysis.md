@@ -1,0 +1,1 @@
+- [Video Mamba Suite: State Space Model as a Versatile Alternative for Video Understanding](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/45/2024-03-15+Video+Mamba+Suite%3A+State+Space+Model+as+a+Versatile+Alternative+for+Video+Understanding.yaml) / 2024-03-15

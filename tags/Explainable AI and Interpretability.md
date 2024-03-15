@@ -32,3 +32,4 @@
 - [Consolidating Attention Features for Multi-view Image Editing](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/31/2024-02-23+Consolidating+Attention+Features+for+Multi-view+Image+Editing.yaml) / 2024-02-23
 - [CLoVe: Encoding Compositional Language in Contrastive Vision-Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/32/2024-02-26+CLoVe%3A+Encoding+Compositional+Language+in+Contrastive+Vision-Language+Models.yaml) / 2024-02-26
 - [MobiLlama: Towards Accurate and Lightweight Fully Transparent GPT](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/33/2024-02-27+MobiLlama%3A+Towards+Accurate+and+Lightweight+Fully+Transparent+GPT.yaml) / 2024-02-27
+- [Veagle: Advancements in Multimodal Representation Learning](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/45/2024-03-15+Veagle%3A+Advancements+in+Multimodal+Representation+Learning.yaml) / 2024-03-15

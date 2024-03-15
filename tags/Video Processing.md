@@ -1,0 +1,1 @@
+- [Video Editing via Factorized Diffusion Distillation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/45/2024-03-15+Video+Editing+via+Factorized+Diffusion+Distillation.yaml) / 2024-03-15

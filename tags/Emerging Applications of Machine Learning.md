@@ -34,3 +34,4 @@
 - [ViewDiff: 3D-Consistent Image Generation with Text-to-Image Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/37/2024-03-05+ViewDiff%3A+3D-Consistent+Image+Generation+with+Text-to-Image+Models.yaml) / 2024-03-05
 - [Caduceus: Bi-Directional Equivariant Long-Range DNA Sequence Modeling](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/39/2024-03-07+Caduceus%3A+Bi-Directional+Equivariant+Long-Range+DNA+Sequence+Modeling.yaml) / 2024-03-07
 - [Pix2Gif: Motion-Guided Diffusion for GIF Generation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/40/2024-03-08+Pix2Gif%3A+Motion-Guided+Diffusion+for+GIF+Generation.yaml) / 2024-03-08
+- [Glyph-ByT5: A Customized Text Encoder for Accurate Visual Text Rendering](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/45/2024-03-15+Glyph-ByT5%3A+A+Customized+Text+Encoder+for+Accurate+Visual+Text+Rendering.yaml) / 2024-03-15

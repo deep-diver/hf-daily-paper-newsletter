@@ -28,3 +28,4 @@
 - [3D Diffusion Policy](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/39/2024-03-07+3D+Diffusion+Policy.yaml) / 2024-03-07
 - [Learning Generalizable Feature Fields for Mobile Manipulation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/43/2024-03-13+Learning+Generalizable+Feature+Fields+for+Mobile+Manipulation.yaml) / 2024-03-13
 - [Motion Mamba: Efficient and Long Sequence Motion Generation with Hierarchical and Bidirectional Selective SSM](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/43/2024-03-13+Motion+Mamba%3A+Efficient+and+Long+Sequence+Motion+Generation+with+Hierarchical+and+Bidirectional+Selective+SSM.yaml) / 2024-03-13
+- [3D-VLA: A 3D Vision-Language-Action Generative World Model](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/45/2024-03-15+3D-VLA%3A+A+3D+Vision-Language-Action+Generative+World+Model.yaml) / 2024-03-15
