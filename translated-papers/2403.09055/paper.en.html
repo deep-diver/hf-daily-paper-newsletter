@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# StreamMultDiffusion: Real-Time Interactive Generation with Region-Based Semantic Control\n' +
+      '\n' +
+      'Jaerin Lee\n' +
+      '\n' +
+      '1ASRI, Department of ECE,\n' +
+      '\n' +
+      '1\n' +
+      '\n' +
+      'Daniel Sungho Jung\n' +
+      '\n' +
+      '2Interdisciplinary Program in Artificial Intelligence,\n' +
+      '\n' +
+      '3\n' +
+      '\n' +
+      'Kanggeon Lee\n' +
+      '\n' +
+      '1ASRI, Department of ECE,\n' +
+      '\n' +
+      '1\n' +
+      '\n' +
+      'Kyoung Mu Lee\n' +
+      '\n' +
+      '1ASRI, Department of ECE,\n' +
+      '\n' +
+      '1\n' +
+      '\n' +
+      'Footnote 1: email: {ironjr,dqj5182,dlrkdrjs97,kyoungmu}@snu.ac.kr\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      'The enormous success of diffusion models in text-to-image synthesis has made them promising candidates for the next generation of end-user applications for image generation and editing. Previous works have focused on improving the usability of diffusion models by reducing the inference time or increasing user interactivity by allowing new, fine-grained controls such as region-based text prompts. However, we empirically find that integrating both branches of works is nontrivial, limiting the potential of diffusion models. To solve this incompatibility, we present StreamMultiDiffusion, the first real-time region-based text-to-image generation framework. By stabilizing fast inference techniques and restructuring the model into a newly proposed _multi-prompt stream batch_ architecture, we achieve \\(\\times 10\\) faster panorama generation than existing solutions, and the generation speed of \\(1.57\\) FPS in region-based text-to-image synthesis on a single RTX 2080 Ti GPU. Our solution opens up a new paradigm for interactive image generation named _semantic palette_, where high-quality images are generated in real-time from given multiple hand-drawn regions, encoding prescribed semantic meanings (_e.g.,_ eagle, girl). Our code and demo application are available at [https://github.com/ironjr/StreamMultiDiffusion](https://github.com/ironjr/StreamMultiDiffusion).\n' +
+      '\n' +
+      'Keywords:Diffusion model Streaming diffusion model Text-to-image generation Region-based generation Panorama generation\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      'Generative models are in a blaze of publicity. This level of public attention in this field cannot be explained under the absence of remarks on diffusion models [1, 28, 29, 30, 31, 39], a now dominant paradigm of generative models leading to massive commercialization of image generators. The great magnitude of the success of diffusion models is largely attributed to their realistic and high-resolution production of images [30], as well as intuitive user interfaces for text-to-image synthesis [2, 8]. Despite the good prospects, we are still left with major challenges before we can bring forth the professional-grade tools out of current diffusion models. Here, we can categorize these challenges into two groups: (1) the needfor faster inference from large-scale diffusion models [23; 24; 32] and (2) the need for more intelligent controls over these models [37; 4; 39]. Note that both goals should be satisfied at the same time for real-world applications.\n' +
+      '\n' +
+      'Several breakthroughs have been made. On the former line of works dealing with time, DDIM [32] and latent consistency models (LCM) [23; 24; 33] have reduced the number of required inference steps from several thousand to a few tens and then down to 4. Furthermore, StreamDiffusion [15] has recently demonstrated sub-second inference from large diffusion models [30] with a pipelined architecture, enabling real-time applications. In the latter line of works dealing with conditioning, ControlNet [39] and IP-Adapter [37] have demonstrated various fine-grained controls over the generation process from image-type conditions, while MultiDiffusion [4] has enabled region-based text prompting for image generation. These two lines of works are developed almost orthogonally. This opens up the chance for ideas from the two branches of works to be jointly applicable for a faster controllable generation. For example, faster sampling with LCM scheduling [23] can be realized through the low-rank adaptation (LoRA) technique [12; 24] that tweaks the existing network weights, when ControlNet [39] can be attached to the model for receiving image-type control input.\n' +
+      '\n' +
+      'However, in many other cases, this interoperability could be better. For example, as shown in Figure 3, naively applying MultiDiffusion [4] to an accelerated\n' +
+      '\n' +
+      'Figure 1: Overview. Our StreamMultiDiffusion is a real-time solution for arbitrary-shaped region-based text-to-image generation. This streaming architecture enables an interactive application framework, dubbed _semantic palette_, where image is generated in real-time based on online user commands of hand-drawn semantic masks.\n' +
+      '\n' +
+      ' diffusion model with a reduced number of inference steps [24] leads to discordant generation with abrupt boundaries between prompt masks. In the worst case, for example in panorama generation in Figure 2, MultiDiffusion does not work but rather yields blurry non-images when used with acceleration techniques. This is largely because of MultiDiffusion\'s sub-optimal procedure to condition the image generation process with multiple, region-based prompts. As the conditioning process heavily relies on a long sequence of intermediate inference steps to harmonize U-Net latents emerged from each regional prompt, a few inference steps are not sufficient. Our primary goal is to propose a major improvement over MultiDiffusion, which allows \\(\\times 10\\) faster controllable text-to-image synthesis. To this end, we first stabilize MultiDiffusion with three techniques to build an LCM-compatible framework for fast region-based text-to-image synthesis and panorama generation: (1) _latent pre-averaging_, (2) _mask-centering bootstrapping_, and (3) _quantized masks_.\n' +
+      '\n' +
+      'Ever since our ancestors had drawn the first animal paintings on the cavern wall of Lascaux, human hands have always been the best tools to explore our creativity. We believe that the most important requirement for professional image tools is to be _handy_. That is, in order to make a diffusion model an ideal tool, we need a brush-like editing interface with real-time response. Inspired by StreamDiffusion [15], we finally restructure our algorithm into a _multi-prompt\n' +
+      '\n' +
+      'Figure 2: Acceleration of panorama generation by MD [4] using LCM LoRA [24] does not work. This example shows the incompatibility between current region-based text-to-image synthesis algorithms and fast sampling techniques. The images of size \\(512\\times 3072\\) are sampled with 50 steps for MD and 4 steps for MD+LCM and Ours.\n' +
+      '\n' +
+      'stream batch architecture_, allowing a streaming interface for the region-based text-to-image synthesis framework. The resulting algorithm, named StreamMultiDiffusion, is a real-time responsive image generation and editing tool. By embracing the high-quality image synthesis ability of powerful diffusion models, fast sampling techniques of consistency models, a streamable pipelined architecture, and the high controllability of a region-based prompting algorithm, our StreamMultiDiffusion suggests a novel semantic drawing framework, dubbed _semantic palette_, as a next-generation image creation paradigm.\n' +
+      '\n' +
+      '## 2 Related Work\n' +
+      '\n' +
+      '### Accelerating Inference of Diffusion Models\n' +
+      '\n' +
+      'Diffusion models, such as those operating in latent space as demonstrated by [30, 32], have shown impressive performance in high-resolution image synthesis tasks. These models employ an iterative reverse process to progressively denoise samples. However, a notable drawback of diffusion models is their slow generation speed due to the considerable number of steps in the reverse process, which limits real-time applicability. Early methods such as [32], extend the forward diffusion process from DDPM [11] to a non-Markovian, significantly improving sampling efficiency and exhibiting superior consistency compared to DDPM [11]. Other works have proposed various methods to enhance ODE solvers [20, 21] without additional training, allowing faster sampling speeds within \\(10-20\\) sampling steps for image generation. Subsequent approaches primarily focus on distilling large diffusion models to achieve one or few steps while maintaining high image fidelity. For instance, LCM [24] distilled from a latent diffusion model with consistency regularization can be efficiently trained using LoRA [12]. Methods such as adversarial distillation proposed by Lin et al. [17] bring large diffusion models to high-fidelity and real-time image generators. Additionally, StreamDiffusion [15] introduces a novel architecture tailored for real-time interactive image generation, increasing model throughput to sub-second levels through batching denoising processes. These advances have introduced a new paradigm in image generation and its applications, such as streaming generative models. However, they may face challenges in controllability.\n' +
+      '\n' +
+      '### Controlling Diffusion Models\n' +
+      '\n' +
+      'Early methods to control the image generation process, such as image translation, paint-to-image, or editing with scribbles, attempted to refine latent variables iteratively in the reverse process [7]. These methods involved sampling pixel values around masks [22] or perturbing conditional reference images [25] to achieve user-controllable outcomes. Following the introduction of Stable Diffusion [30], WebUI [2] received significant public attention. Furthermore, ControlNet [39] was developed to enable precise control over aspects such as the shape, composition, and meaning of images without compromising the representation ability of the original image generation model, leading to various extensions [9] and further research. Recent works have introduced methods to broaden the application of diffusion models to various control domains, such as extending diffusion models with multiple prompts and irregular-sized canvases [4], or enhancing the embedding capabilities of text or image prompts to ensure more robust and precise control over diffusion models [37].\n' +
+      '\n' +
+      '### Diffusion Models as Image Editing Tools\n' +
+      '\n' +
+      'Existing methods [10, 13, 14, 19, 25, 34, 36] on image editing with diffusion models generate an entirely new image, with image guidance and specific conditions as input. Despite their ability to generate high-quality images that are moderately aligned with image guidance and conditional inputs, the generated images are often highly distinct from the original image. Especially, text-condition-driven image editing [10, 13, 14, 19, 26] has been actively studied with the core motivation of diverse and realistic image generation. While some of their results show image edit on specific spatial locations (_e.g.,_ replacing specific object, changing pose of a human or animal), as users can only edit image output with text conditions, there still exist inherent limitations to detailed image editing on specific spatial regions within an image. Some of the non-text-conditioned image editing methods [34, 36] also exist with condition as another image. However, such methods also do not support localized image editing. The most relevant work with our StreamMultiDiffusion is SDEdit [25], which synthesizes and edits an image based on user\'s stroke paintings. However, the method does not contain an explicit mechanism to ensure harmonization on border regions between user\'s stroke paintings and original image. Unlike existing methods that do not ensure localized image editing, with sole guidance of text as a condition for image editing, or support harmonization on border regions, our Stream\n' +
+      '\n' +
+      'Figure 3: Our StreamMultiDiffusion enables fast region-based text-to-image generation by stable acceleration of MultiDiffusion [4]. PreAvg, Bstrap, and QMask stand for the _latent pre-averaging_, _mask-centering bootstrapping_, and _quantized masks_, our first three proposed strategies. Each method used in (d), (e), (f) contains the method used in the previous image. The images are sampled as single tiles of size \\(768\\times 512\\).\n' +
+      '\n' +
+      'MultiDiffusion explicitly allows localized image editing with harmonization on border regions between user\'s stroke paintings and original image.\n' +
+      '\n' +
+      'Most of the pioneering works [3, 22, 27, 35] on image inpainting with diffusion models simply generate the most reasonable content for masked regions within an image. In terms of the perspective of the task "inpainting", these methods serve as robust and powerful tools to regenerate masked regions of an image. Recent works [3, 27, 35] on image inpainting combine the generative power of diffusion along with the spatial constraints that the task of "inpainting" gives; hence the methods serve as a powerful image editing pipeline. GLIDE [27] proposes a text-guided image inpainting framework that fills in masked image regions with a given text prompt under text-conditioned diffusion models. SmartBrush [35] performs multi-modal image inpainting to address the misalignment issue between text and mask. Blended diffusion [3] focuses on developing and demonstrating image editing with an image inpainting pipeline that uses a pretrained language image model to focus on user-provided text prompts for image inpainting and editing. Our StreamMultiDiffusion differs from existing image inpainting methods by explicitly harmonizing between user-provided drawing regions and the original input image with the support of semantic drawing and editing.\n' +
+      '\n' +
+      '## 3 StreamMultiDiffusion\n' +
+      '\n' +
+      '### Preliminary: MultiDiffusion\n' +
+      '\n' +
+      'A typical text-conditional image diffusion model [30]\\(\\mathbf{\\epsilon}_{\\theta}:\\mathbb{R}^{H\\times W\\times D}\\times\\mathbb{R}^{K} \\times[0,T]\\rightarrow\\mathbb{R}^{H\\times W\\times D}\\) is an additive Gaussian noise estimator defined over an image or a latent space \\(\\mathbb{R}^{H\\times W\\times D}\\,\\). In addition to an image \\(\\mathbf{x}\\in\\mathbb{R}^{H\\times W\\times D}\\,\\), the model receives text embeddings \\(\\mathbf{y}\\in\\mathbb{R}^{K}\\) and a sampling iteration \\(t\\in[0,T]\\) as conditional input, where \\(T\\in\\mathbb{N}\\) is a finite maximum timestep that is conventionally set to \\(T=\\) 1,000. Given a target domain image \\(\\mathbf{x}_{0}\\in\\mathbb{R}^{H\\times W\\times D}\\,\\), the forward diffusion process with a timestep \\(t\\) produces a noisy image \\(\\mathbf{x}_{t}\\in\\mathbb{R}^{H\\times W\\times D}\\,\\):\n' +
+      '\n' +
+      '\\[\\mathbf{x}_{t}=\\sqrt{\\alpha(t)}\\mathbf{x}_{0}+\\sqrt{1-\\alpha(t)}\\mathbf{\\epsilon}\\,, \\tag{1}\\]\n' +
+      '\n' +
+      'where \\(\\alpha:[0,T]\\rightarrow[0,1]\\) is a monotonically decreasing function of noise schedule with \\(\\alpha(0)=1\\) and \\(\\alpha(T)=0\\,\\). We can regard the forward diffusion process as a (scaled) linear interpolation between the image \\(\\mathbf{x}_{0}\\) and a unit white Gaussian noise tensor \\(\\mathbf{\\epsilon}\\sim\\mathcal{N}(0,1)^{H\\times W\\times D}\\,\\). The diffusion model \\(\\mathbf{\\epsilon}_{\\theta}\\) is trained to estimate the noise component \\(\\mathbf{\\epsilon}\\) from a given noisy image \\(\\mathbf{x}_{t}\\,\\), where the text condition \\(\\mathbf{y}\\) and the time step \\(t\\) are given as useful hints for guessing, _i.e._, \\(\\mathbf{\\epsilon}_{\\theta}(\\mathbf{x}_{t},t,\\mathbf{y})\\approx\\mathbf{\\epsilon}\\,\\). At generation time, the pre-trained diffusion model \\(\\mathbf{\\epsilon}_{\\theta}\\) is consulted multiple times to _estimate_ an image \\(\\hat{\\mathbf{x}}_{0}\\approx\\mathbf{x}_{0}\\) from pure noise \\(\\mathbf{x}_{T}\\sim\\mathcal{N}(0,1)^{H\\times W\\times D}\\) that correlates to the information described in conditional input \\(\\mathbf{y}\\,\\). Although the reshaping equation (1) gives a simple estimator of the original image \\(\\mathbf{x}_{0}\\) as in:\n' +
+      '\n' +
+      '\\[\\mathbf{x}_{0|t}=\\frac{1}{\\sqrt{\\alpha(t)}}\\left(\\mathbf{x}_{t}-\\sqrt{1-\\alpha(t)}\\bm {\\epsilon}_{\\theta}(\\mathbf{x}_{t},t,\\mathbf{y})\\right)\\approx\\mathbf{x}_{0}\\,, \\tag{2}\\]due to ill-posedness of additive white Gaussian noise (AWGN) denoising problem [38], this direct one-step inference typically produces highly blurry estimate of \\(\\mathbf{x}_{0}\\) if \\(t\\) is close to \\(T\\), enforcing practitioners to rely on various multi-step inference algorithms [11, 20, 32]:\n' +
+      '\n' +
+      '\\[\\hat{\\mathbf{x}}_{0}=\\textsc{MultiStepSampler}(\\mathbf{x}_{T},\\mathbf{y};\\mathbf{\\epsilon}_{ \\theta},\\alpha,\\mathbf{t})\\approx\\mathbf{x}_{0}\\,, \\tag{3}\\]\n' +
+      '\n' +
+      'where \\(\\mathbf{t}=\\{t_{1},\\ldots,t_{n}\\}\\subset\\{0,1,\\ldots T\\}\\subset\\mathbb{N}\\) is a set of intermediate timesteps \\(t\\) that defines a monotonically decreasing sequence of timesteps typically starting from \\(T-1\\). Each of these algorithms can be expressed as a recursive call to a single-step reverse diffusion.\n' +
+      '\n' +
+      '\\[\\mathbf{x}_{t_{i-1}}=\\textsc{Step}(\\mathbf{x}_{t_{i}},\\mathbf{y},i,\\mathbf{\\epsilon};\\mathbf{ \\epsilon}_{\\theta},\\alpha,\\mathbf{t})\\,, \\tag{4}\\]\n' +
+      '\n' +
+      'which is a combination of equations (2) and (1). Here, we denote \\(i\\) as the index of the current time step \\(t_{i}\\). Optional added noise \\(\\mathbf{\\epsilon}\\) is explicitly stated.\n' +
+      '\n' +
+      'Although the high-level algorithm represented in equation (3) and (4) embraces almost every generation methods for conditional diffusion models [11, 20, 32], it does not consider cases of high demand in practice: the case where the desired shape of the image \\(\\hat{\\mathbf{x}}_{0}^{\\prime}\\in\\mathbb{R}^{H^{\\prime}\\times W^{\\prime}\\times D}\\) is different from that of the training set (\\(H\\times W\\)) and the case where multiple different text prompts \\(\\mathbf{y}_{1},\\ldots,\\mathbf{y}_{p}\\) correlate to different regions of the generated images. Those are the problems dealt in the MultiDiffusion framework [4], whose main idea is to integrate multiple possibly overlapping tiles of intermediate latents by averaging their features for every sampling step \\(t_{i}\\).\n' +
+      '\n' +
+      '\\[\\mathbf{x}_{t_{i-1}}^{\\prime} =\\textsc{MultiDiffusionStep}(\\mathbf{x}_{t_{i}}^{\\prime},\\mathbf{y},i, \\mathcal{W};\\textsc{Step}) \\tag{5}\\] \\[=\\frac{1}{\\sum_{\\mathbf{w}\\in\\mathcal{W}}\\mathbf{w}}\\odot\\sum_{\\mathbf{w}\\in \\mathcal{W}}\\textsc{Step}(\\texttt{crop}(\\mathbf{w}\\odot\\mathbf{x}_{t_{i}}^{\\prime}), \\mathbf{y}_{\\mathbf{w}},i;\\mathbf{\\epsilon}_{\\theta},\\alpha,\\mathbf{t})\\,, \\tag{6}\\]\n' +
+      '\n' +
+      'where \\(\\odot\\) is an element-wise multiplication, \\(\\mathbf{w}\\in\\mathcal{W}\\subset\\{0,1\\}^{H^{\\prime}\\times W^{\\prime}}\\) is a binary mask for each latent tile, \\(\\mathbf{y}_{\\mathbf{w}}\\in\\mathbb{R}^{K}\\) is a conditional embedding corresponding to the tile \\(\\mathbf{w}\\), and \\(\\texttt{crop}:\\mathbb{R}^{H^{\\prime}\\times W^{\\prime}\\times D}\\times\\mathcal{W }\\rightarrow\\mathbb{R}^{H\\times W\\times D}\\) is a cropping operation that chops possibly large \\(\\mathbf{x}_{t_{i}}^{\\prime}\\) into tiles having the same size as training images. The detailed algorithmic differences between ours and the baseline MultiDiffusion [4] are discussed in Appendix 0.A.\n' +
+      '\n' +
+      '### Stabilizing MultiDiffusion\n' +
+      '\n' +
+      'Unfortunately, simply replacing the Stable Diffusion (SD) model [30] with a Latent Consistency Model (LCM) [23] and the default DDIM sampler [32] with an LCM sampler [23] does not lead to faster MultiDiffusion. This incompatibility greatly limits potential applications of _both_ LCM and MultiDiffusion. We discuss each of the causes and seek for faster and stronger alternatives.\n' +
+      '\n' +
+      '**Step 1: LCM Compatibility with Latent Pre-Averaging.** The primary reason for the blurry panorama image of Figure 2 is that the original MultiDiffusion algorithm does not consider different types of underlying reverse diffusion step functions Step. We can classify existing reverse diffusion algorithms into two categories: (1) ones that add newly sampled noises to the latents at every step and (2) ones that do not add noises but only denoise the latents. For example, DPM-Solver [20], the default sampler for LCM [23], is an instance of the former class, while DDIM [32], the default sampler for MultiDiffusion [4], is an example of the latter. Since MultiDiffusion algorithm relies on averaging intermediate latents, applying MultiDiffusion effectively cancels the prompt-wise added noises in Step, and therefore undermines the quality. We can avoid this problem with a simple workaround. First, we split the Step function into a deterministic denoising part and an optional noise addition:\n' +
+      '\n' +
+      '\\[\\mathbf{x}_{t_{i-1}} =\\tilde{\\mathbf{x}}_{t_{i-1}}+\\eta_{t_{i-1}}\\mathbf{\\epsilon} \\tag{7}\\] \\[=\\textsc{StepExceptNoise}(\\mathbf{x}_{t_{i}},\\mathbf{y},i;\\mathbf{ \\epsilon}_{\\theta},\\alpha,\\mathbf{t})+\\eta_{t_{i-1}}\\mathbf{\\epsilon}\\,, \\tag{8}\\]\n' +
+      '\n' +
+      'where \\(\\eta_{t}\\) is an algorithm-dependent parameter. The averaging operation of equation (6) is then applied to the output of the denoising part \\(\\tilde{\\mathbf{x}}_{t_{i-1}}\\), instead of the output of the full step \\(\\mathbf{x}_{t_{i-1}}\\). The noise is added after the MultiDiffusion step.\n' +
+      '\n' +
+      '\\[\\mathbf{x}^{\\prime}_{t_{i-1}}=\\textsc{MultiDiffusionStep}(\\mathbf{x}^{\\prime}_{t_{i} },\\mathbf{y},i,\\mathcal{W};\\textsc{StepExceptNoise})+\\eta_{t_{i-1}}\\mathbf{ \\epsilon}\\,. \\tag{9}\\]\n' +
+      '\n' +
+      'As it can be seen in Figure 2, this small change in the algorithm solves the compatibility issue in generating irregular-sized image, such as panoramas.\n' +
+      '\n' +
+      'Figure 4: Bootstrapping strategy overview. We stabilize MultiDiffusion [4] to build a precise and fast sampling of region-based text-to-image generation. The effect of our bootstrapping and mask quantization strategies are shown in Figure 3. The bootstrapping, centering, and uncentering only apply for the first few (1-3) steps in the generation process, whereas MultiDiffusion aggregation is applied from the beginning to the end. The reader can also consult rigorous notations of Algorithm 2 in Appendix A.\n' +
+      '\n' +
+      '**Step 2: Rethinking Bootstrapping for Mask-Tight Synthesis.** The second cause of the incompatibility lies in the bootstrapping stage of MultiDiffusion [4], which was originally proposed for mask-tight region-based text-to-image synthesis. In the first \\(40\\%\\) of the inference steps of MultiDiffusion, each masked latent tile are mixed with a background with a random constant color. That is, the argument \\(\\texttt{crop}(\\mathbf{w}\\odot\\mathbf{x}_{t_{i}}^{\\prime})\\) in equation (6) is replaced with \\(\\texttt{crop}(\\mathbf{w}\\odot\\mathbf{x}_{t_{i}}^{\\prime}+(\\mathbf{1}-\\mathbf{w})\\odot\\mathbf{c})\\) for \\(i<0.4n\\,\\). Here, \\(\\mathbf{c}=\\texttt{enc}(c\\mathbf{1})\\) is a latent embedding of the random constant color background with \\(\\texttt{enc}(\\cdot)\\) being the latent encoder of the diffusion model, \\(c\\sim\\mathcal{U}(0,1)^{3}\\) being a constant RGB color, and \\(\\mathbf{1}\\in\\mathbb{R}^{H\\times W\\times 3}\\,\\). The bootstrapping background color \\(c\\) is randomly selected for each mask and for each step in order to negate the intrusion of \\(c\\) to the generation results. However, as we decrease the number of timesteps tenfold from \\(n=50\\) steps to \\(n=4\\) or \\(5\\) steps, the number of bootstrapping steps also decreases accordingly, limiting the canceling effect of unwanted information from \\(c\\,\\). As a result, random colors are imposed into the final image as shown in Figure 4. As an alternative to the random color \\(c\\,\\), we found that using white background \\(c=1\\) for this small number of sampling steps effectively preserves quality of the output image. We empirically find that gradually mixing the white background with the true background helps the model adapt to the outside region generated by other prompts as illustrated in Figure 4.\n' +
+      '\n' +
+      'Moreover, in this case with a small number of sampling steps, the first few steps are determinant of the overall structure of generated images. Even after a single step, the network decides the overall form of the object being created, as shown in image patches marked with _fg_ in Figure 4. This rapid convergence carries not only benefits, but also a new problem when combined with a masked aggregation of MultiDiffusion [4]. That is, off-centered objects are often masked out in the very early steps of MultiDiffusion when acceleration method is applied. Consequently, the final results often neglect small, off-centered regional prompts. We, therefore, suggest _centering_ stage in addition to white mask bootstrapping.\n' +
+      '\n' +
+      'For the first few (1-3) steps of generation, the intermediate generation from each prompt is shifted to the center of the frame before being handled by the U-Net. By exploiting the center preference of the diffusion U-Net, we finally obtain stable bootstrapping algorithm for fast sampling of images from multiple region-based prompts.\n' +
+      '\n' +
+      'Step 3: Quantized Mask for Seamless Generation.Another problem emerged from the reduced number of inference steps of MultiDiffusion [4] is that each separately labeled regions are not harmonized into a single image. As Figure 3 shows, abrupt boundaries are visible between generated regions. In the original MultiDiffusion, the problem does not exist, as long (50) reverse diffusion steps effectively smooth out the mask boundaries by consecutively adding noises and blurring them out. However, in our fast inference scheme, the algorithm does not provide sufficient number of steps to smudge the boundaries away. Therefore, we develop an alternative way to seamlessly amalgamate generated regions of different text prompts and masks: by introducing _quantized masks_. Given a binary mask, we obtain a smoothened version by applying a Gaussian blur. Then, we quantize the real-numbered mask by the noise levels of the diffusion sampler. As Figure 4 illustrates, each denoising step, we use a mask with corresponding noise level. Since the noise levels monotonically decrease as the algorithm iterates, the coverage of a mask gradually increases. This relaxation of semantic masks also provides intuitive interpretation of _brushes_, one of the most widely used tool in professional graphics editing software. We will revisit this interpretation in Section 5.\n' +
+      '\n' +
+      '### Streaming Pipeline\n' +
+      '\n' +
+      'As mentioned in Section 1, we believe that achieving real-time response is important for end-user application. Inspired by StreamDiffusion [15], we modify our region-based text-to-image synthesis framework into a pipelined architecture to\n' +
+      '\n' +
+      'Figure 7: StreamMultiDiffusion pipeline architecture. By aggregating latents at different timesteps a single batch, we can maximize throughput by hiding the latency.\n' +
+      '\n' +
+      'maximize the throughput of image generation. The code and the demo application are available at [https://github.com/ironjr/StreamMultiDiffusion](https://github.com/ironjr/StreamMultiDiffusion).\n' +
+      '\n' +
+      '**Architecture.** Figure 7 illustrates the architecture and the interfaces of our pipeline. _Stream batch_ is a new form of diffusion model architecture first suggested by Kodaira _et al._[15] to maximize the throughput of the model. Instead of the typical mini-batched use of diffusion model with synchronized timesteps, the noise estimating U-Net is fed with a new input image every timestep along with the last processed batch of images. Therefore, each image in a mini-batch has different timestep. This architectural modification hides the latency caused by multi-step algorithm of reverse diffusion in equation (3). In order to apply this feature into our region-based text-to-image synthesis framework, instead of a single image, we feed a mini-batch of images of different prompts and masks to the noise estimating U-Net at every timestep, as depicted in Figure 7.\n' +
+      '\n' +
+      '**Optimizing Throughput.** We find that preprocessing text prompts and optional background image takes significant delays compared to denoising process. Therefore, we suggest alienating these processing steps away from the generation pipeline. Additional increase of throughput can be achieved by using a compressed autoencoder such as Tiny AutoEncoder [5]. Detailed analysis on the effect of throughput optimization is in Table 2.\n' +
+      '\n' +
+      '## 4 Experiment\n' +
+      '\n' +
+      'This section provides additional quantitative and qualitative results from our StreamMultiDiffusion. We focus on demonstrating the feasibility of our approach to accelerate the speed of region-based text-to-image generation and arbitrary-shape generation _e.g._, panorama. Since our method relies on the use of LCM LoRA [24], which is implemented on Stable Diffusion v1.5 [30], our experiments are based on the public checkpoint of this specific version. However, we note that our method can be applied to any community-created checkpoints. More results can be found in Section B.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c} \\hline Method & \\multicolumn{2}{c}{Throughput (FPS) Relative Speedup} \\\\ \\hline MultiDiffusion & 0.0189 & \\(\\times 1.0\\) \\\\ \\hline Ours without Stream Batch & 0.183 & \\(\\times 9.7\\) \\\\ + Multi-Prompt Stream Batch & 1.38 & \\(\\times 73.0\\) \\\\ + Tiny AutoEncoder [5] & **1.57** & \\(\\times\\)**83.1** \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 2: Ablations on throughput optimization techniques, measured with a single RTX 2080 Ti.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c} \\hline Method & \\multicolumn{2}{c}{Throughput (FPS) Relative Speedup} \\\\ \\hline MultiDiffusion & 0.0189 & \\(\\times 1.0\\) \\\\ \\hline Ours without Stream Batch & 0.183 & \\(\\times 9.7\\) \\\\ + Multi-Prompt Stream Batch & 1.38 & \\(\\times 73.0\\) \\\\ + Tiny AutoEncoder [5] & **1.57** & \\(\\times\\)**83.1** \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 1: Fidelity and speed of region-based generation.\n' +
+      '\n' +
+      '### Evaluating Stabilization Performance\n' +
+      '\n' +
+      '#### 4.1.1 Panorama Generation\n' +
+      '\n' +
+      'Figures 2 and 8 shows qualitative results on our irregular-size image, _i.e._, panorama, generation. To produce the shown examples of text-to-panorama generation, we sample a set of \\(512\\times 4608\\) panoramas, having the aspect ratio of \\(9:1\\,\\). We compare our methods with MultiDiffusion (MD) [4] baseline with naive acceleration using LCM LoRA [24]. Note that LCM LoRA for Stable Diffusion version 1.5 is generated from community-created checkpoint, which contains style information that shifts the color variation of the output image. As Figures 2 and 8 show, our stabilization technique accelerates more than \\(\\times 10\\) of inference speed without degrading too much of a quality.\n' +
+      '\n' +
+      '#### 4.1.2 Region-Based Prompting\n' +
+      '\n' +
+      'Next, we evaluate our region-based text-to-image generation, starting from the baseline of MultiDiffusion (MD) [4], and adding each of the components of our stabilization technique. Figures 3 and 9 show qualitative ablation studies, and Table 1 shows the quantiative results. We use the COCO dataset [18] to compare the mask fidelity of region-based text-to-image synthesis, measured with an intersection over union (IoU) score with the GT mask, inferred by a pre-trained segmentation model [6]. This is the same procudures done in MultiDiffusion [4]. The results show that our three stabilization techniques help alleviate the incompatibility problem between LCM [24] and MultiDiffusion [4].\n' +
+      '\n' +
+      'Figure 8: Comparison of text-to-panorama generation. Our StreamMultiDiffusion can synthesize high-resolution images in seconds. More examples are provided in Supplementary Materials.\n' +
+      '\n' +
+      '### Speed Comparison\n' +
+      '\n' +
+      'Lastly, we measure the effect of throughput optimization in Table 2. The speed-up we have achieved from stabilizing MultiDiffusion in the fast inference region is further accelerated though our _multi-prompt stream batch_ architecture. By introducing low-memory autoencoder [5] to trade quality off for speed, we could finally achieve 1.57 FPS, a basis for real-time multiple text-to-image generation. Our speedup of large-scale image generation and multiple region-based text-to-image generation are complementary as we show example in Appendix 0.B. Especially, in Figure 11, we conduct a stress test to both the original MultiDiffusion [4] and our accelerated algorithm by generating \\(768\\times 1920\\) image from _nine_ regionally assigned text prompts. Our algorithm achieves remarkable \\(\\times 52.5\\) speedup compared to the baseline. Interestingly, our algorithm is not only faster than MultiDiffusion [4], but also achieves higher mask fidelity as clearly visible in Figures 11 and 12. The speed and control fidelity of our algorithm implies that our StreamMultiDiffusion can support versatile image creation tools from any image diffusion model. This leads to the next section, where we suggest one user application based on our streaming algorithm.\n' +
+      '\n' +
+      '## 5 Discussion\n' +
+      '\n' +
+      '### Semantic Palette\n' +
+      '\n' +
+      'Our real-time interface of StreamMultiDiffusion opens up a new paradigm of user-interactive application for image generation, which we call _semantic palette_. We discuss key features of this framework and its possible applications.\n' +
+      '\n' +
+      '#### 5.1.1 Concept.\n' +
+      '\n' +
+      'Responsive region-based text-to-image synthesis enabled by our streaming pipeline allows users to edit their prompt masks similarly to drawing. Since it is the prompt and not the mask that requires heavy pre-processing as discussed in Section 3.3, the mask modification feedback can be immediately given to users to iteratively change their commands according to the generated image. In other words, once the prompt is preprocessed by the application, the users can _paint_ with _text prompts_ just like they can paint a drawing with colored brushes, hence the name: _semantic palette_.\n' +
+      '\n' +
+      '#### 5.1.2 Sample Application Design.\n' +
+      '\n' +
+      'This is a brief description of our sample application that implements the _semantic palette_. Screenshots and design schematics are shown in Figure 10. The application consists of a front-end user interface and a back-end server that runs StreamMultiDiffusion. Each user input is either a modification of the background image, the text prompts, the masks, and the tweakable options for the text prompts and the masks such as mix ratios and blur strengths. When commanding major changes requiring preprocessing stages, such as a change of prompts or the background, the back-end pipeline is flushed and reinitialized with the newly given context. Otherwise, the pipeline isFigure 9: Region-based text-to-image synthesis results. Our stabilization methods accelerate MultiDiffusion [4] up to \\(\\times 10\\) while preserving quality.\n' +
+      '\n' +
+      'repeatedly called to obtain a stream of generated images. The user first selects the background image and creates a _semantic palette_ by entering a pair of positive and negative text prompts. The user can then draw masks corresponding to the created palette with a familiar brush tool, a shape tool, or a paint tool. The application automatically generates a stream of synthesized images according to user inputs. The user can also pause or resume the stream, or generate an image one-by-one, or in a batch. Our technical demo application that demonstrates the key concepts will be released with code.\n' +
+      '\n' +
+      '### Limitation\n' +
+      '\n' +
+      'Although our solution effectively integrates breakthroughs made by the latent consistency model [23, 24, 33], StreamDiffusion [15], and MultiDiffusion [4], there are some known limitations. First, our solution still requires few (4 to 6) steps of reverse diffusion. Second, although we have improved mask fidelity of region-based text-to-image generation by one-step bootstrapping with a white background image, perfect fitting is not available. Nevertheless, since our main goal was to demonstrate the first streaming application for region-based text-to-image synthesis over an irregular size canvas, we would like to leave these improvements for future work.\n' +
+      '\n' +
+      '## 6 Conclusion\n' +
+      '\n' +
+      'We proposed StreamMultiDiffusion, a fast and powerful interactive tool for image generation and editing. We resolved compatibility issues between latent consistency models and MultiDiffusion, and further merged architectural breakthroughs from the StreamDiffusion pipeline, proposing a real-time highly interactive image generation system for professional usage. Our StreamMultiDiffusion achieves \\(\\times 10\\) faster generation of panorama images as well as provides a novel type of user interface, called _semantic palette_, that best suits the current paradigm of sub-second real-time image synthesis of image diffusion models.\n' +
+      '\n' +
+      'Figure 10: Sample application demonstrating _semantic palette_ enabled by our StreamMultiDiffusion algorithm. After registering prompts and optional background image, the users can create images in real-time by drawing with text prompts.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* [1]Achiam, J., Adler, S., Agarwal, S., Ahmad, L., Akkaya, I., Aleman, F.L., Almeida, D., Altenschmidt, J., Altman, S., Anadkat, S., et al.: GPT-4 technical report. arXiv preprint arXiv:2303.08774 (2023)\n' +
+      '* [2] AUTOMATIC1111: Stable diffusion WebUI. [https://github.com/AUTOMATIC1111/stable-diffusion-webui](https://github.com/AUTOMATIC1111/stable-diffusion-webui) (2022)\n' +
+      '* [3] Avrahami, O., Lischinski, D., Fried, O.: Blended diffusion for text-driven editing of natural images. In: CVPR (2022)\n' +
+      '* [4] Bar-Tal, O., Yariv, L., Lipman, Y., Dekel, T.: MultiDiffusion: Fusing diffusion paths for controlled image generation. arXiv preprint arXiv:2302.08113 (2023)\n' +
+      '* [5] Bohan, O.B.: Tiny autoencoder for stable diffusion. [https://github.com/madebyollin/taesd](https://github.com/madebyollin/taesd) (2023)\n' +
+      '* [6] Cheng, B., Misra, I., Schwing, A.G., Kirillov, A., Girdhar, R.: Masked-attention mask transformer for universal image segmentation. In: CVPR (2022)\n' +
+      '* [7] Choi, J., Kim, S., Jeong, Y., Gwon, Y., Yoon, S.: ILVR: Conditioning method for denoising diffusion probabilistic models. In: ICCV (2021)\n' +
+      '* [8] comfyanonymous: ComfyUI. [https://github.com/comfyanonymous/ComfyUI](https://github.com/comfyanonymous/ComfyUI) (2023)\n' +
+      '* [9] Guo, Y., Yang, C., Rao, A., Liang, Z., Wang, Y., Qiao, Y., Agrawala, M., Lin, D., Dai, B.: AnimateDiff: Animate your personalized text-to-image diffusion models without specific tuning. In: ICLR (2023)\n' +
+      '* [10] Hertz, A., Mokady, R., Tenenbaum, J., Aherman, K., Pritch, Y., Cohen-or, D.: Prompt-to-prompt image editing with cross-attention control. In: ICLR (2022)\n' +
+      '* [11] Ho, J., Jain, A., Abbeel, P.: Denoising diffusion probabilistic models. In: NeurIPS (2020)\n' +
+      '* [12] Hu, E.J., Wallis, P., Allen-Zhu, Z., Li, Y., Wang, S., Wang, L., Chen, W., et al.: LoRA: Low-rank adaptation of large language models. In: ICLR (2021)\n' +
+      '* [13] Kawar, B., Zada, S., Lang, O., Tov, O., Chang, H., Dekel, T., Mosseri, I., Irani, M.: Imagic: Text-based real image editing with diffusion models. In: CVPR (2023)\n' +
+      '* [14] Kim, G., Kwon, T., Ye, J.C.: DiffusionCLIP: Text-guided diffusion models for robust image manipulation. In: CVPR (2022)\n' +
+      '* [15] Kodaira, A., Xu, C., Hazama, T., Yoshimoto, T., Ohno, K., Mitsuhori, S., Sugano, S., Cho, H., Liu, Z., Keutzer, K.: StreamDiffusion: A pipeline-level solution for real-time interactive generation. arXiv preprint arXiv:2312.12491 (2023)\n' +
+      '* [16] Li, J., Li, D., Savarese, S., Hoi, S.: BLIP-2: Bootstrapping language-image pre-training with frozen image encoders and large language models. In: ICML (2023)\n' +
+      '* [17] Lin, S., Wang, A., Yang, X.: SDXL-Lightning: Progressive adversarial diffusion distillation. arXiv preprint arXiv:2402.13929 (2024)\n' +
+      '* [18] Lin, T.Y., Maire, M., Belongie, S., Hays, J., Perona, P., Ramanan, D., Dollar, P., Zitnick, C.L.: Microsoft COCO: Common objects in context. In: ECCV (2014)\n' +
+      '* [19] Liu, X., Park, D.H., Azadi, S., Zhang, G., Chopikyan, A., Hu, Y., Shi, H., Rohrbach, A., Darrell, T.: More control for free! Image synthesis with semantic diffusion guidance. In: WACV (2023)\n' +
+      '* [20] Lu, C., Zhou, Y., Bao, F., Chen, J., Li, C., Zhu, J.: DPM-Solver: A fast ODE solver for diffusion probabilistic model sampling in around 10 steps. In: NeurIPS (2022)\n' +
+      '* [* [21] Lu, C., Zhou, Y., Bao, F., Chen, J., Li, C., Zhu, J.: DPM-Solver++: Fast solver for guided sampling of diffusion probabilistic models. arXiv preprint arXiv:2211.01095 (2022)\n' +
+      '* [22] Lugmayr, A., Danelljan, M., Romero, A., Yu, F., Timofte, R., Van Gool, L.: Re-Paint: Inpainting using denoising diffusion probabilistic models. In: CVPR (2022)\n' +
+      '* [23] Luo, S., Tan, Y., Huang, L., Li, J., Zhao, H.: Latent consistency models: Synthesizing high-resolution images with few-step inference. arXiv preprint arXiv:2310.04378 (2023)\n' +
+      '* [24] Luo, S., Tan, Y., Patil, S., Gu, D., von Platen, P., Passos, A., Huang, L., Li, J., Zhao, H.: LCM-LoRA: A universal stable-diffusion acceleration module. arXiv preprint arXiv:2311.05556 (2023)\n' +
+      '* [25] Meng, C., He, Y., Song, Y., Song, J., Wu, J., Zhu, J.Y., Ermon, S.: SDEdit: Guided image synthesis and editing with stochastic differential equations. In: ICLR (2022)\n' +
+      '* [26] Mokady, R., Hertz, A., Aherman, K., Pritch, Y., Cohen-Or, D.: Null-text inversion for editing real images using guided diffusion models. In: CVPR (2023)\n' +
+      '* [27] Nichol, A.Q., Dhariwal, P., Ramesh, A., Shyam, P., Mishkin, P., Mcgrew, B., Sutskever, I., Chen, M.: GLIDE: Towards photorealistic image generation and editing with text-guided diffusion models. In: ICML (2022)\n' +
+      '* [28] Ramesh, A., Dhariwal, P., Nichol, A., Chu, C., Chen, M.: Hierarchical text-conditional image generation with clip latents. arXiv preprint arXiv:2204.06125 (2022)\n' +
+      '* [29] Ramesh, A., Pavlov, M., Goh, G., Gray, S., Voss, C., Radford, A., Chen, M., Sutskever, I.: Zero-shot text-to-image generation. In: ICML (2021)\n' +
+      '* [30] Rombach, R., Blattmann, A., Lorenz, D., Esser, P., Ommer, B.: High-resolution image synthesis with latent diffusion models. In: CVPR (2022)\n' +
+      '* [31] Saharia, C., Chan, W., Saxena, S., Li, L., Whang, J., Denton, E.L., Ghasemipour, K., Gontijo Lopes, R., Karagol Ayan, B., Salimans, T., et al.: Photorealistic text-to-image diffusion models with deep language understanding. In: NeurIPS (2022)\n' +
+      '* [32] Song, J., Meng, C., Ermon, S.: Denoising diffusion implicit models. In: ICLR (2020)\n' +
+      '* [33] Song, Y., Dhariwal, P., Chen, M., Sutskever, I.: Consistency models. In: ICML (2023)\n' +
+      '* [34] Su, X., Song, J., Meng, C., Ermon, S.: Dual diffusion implicit bridges for image-to-image translation. In: ICLR (2022)\n' +
+      '* [35] Xie, S., Zhang, Z., Lin, Z., Hinz, T., Zhang, K.: SmartBrush: Text and shape guided object inpainting with diffusion model. In: CVPR (2023)\n' +
+      '* [36] Yang, B., Gu, S., Zhang, B., Zhang, T., Chen, X., Sun, X., Chen, D., Wen, F.: Paint by example: Exemplar-based image editing with diffusion models. In: CVPR (2023)\n' +
+      '* [37] Ye, H., Zhang, J., Liu, S., Han, X., Yang, W.: IP-Adapter: Text compatible image prompt adapter for text-to-image diffusion models. arXiv preprint arXiv:2308.06721 (2023)\n' +
+      '* [38] Zhang, K., Zuo, W., Chen, Y., Meng, D., Zhang, L.: Beyond a Gaussian denoiser: Residual learning of deep CNN for image denoising. IEEE TIP (2017)\n' +
+      '* [39] Zhang, L., Rao, A., Agrawala, M.: Adding conditional control to text-to-image diffusion models. In: ICCV (2023)\n' +
+      '\n' +
+      '[MISSING_PAGE_EMPTY:18]\n' +
+      '\n' +
+      'For the completeness of our discourse, we provide an algorithmic comparison between the original MultiDiffusion [4] and our stabilized version in Section 3.2. Algorithm 1 illustrates the detailed algorithm of the original MultiDiffusion, our baseline model. Note that the main contribution of MultiDiffusion is the averaging aggregation step in line 17. As we have discussed in Section 3, improper placing of the aggregation step and strong interference of its bootstrapping strategy limit the compatibility of MultiDiffusion algorithm with more recent, fast inference algorithms such as consistency models [23, 24, 33]. Therefore, we instead focus on changing the bootstrapping stage of line 9-12 and the diffusion update stage of line 13 in order to obtain compatibility between these two lines of works.\n' +
+      '\n' +
+      'Algorithm 2 is our alternative, the more stable version of MultiDiffusion developed in Section 3.2. The differences between our approach from original MultiDiffusion are marked with blue. First, in line 10, we change the bootstrap ```\n' +
+      'Input: a diffusion model \\(\\mathbf{\\epsilon}_{\\theta}\\), a latent autoencoder \\(\\left(\\texttt{enc},\\texttt{dec}\\right),\\) prompt embeddings \\(\\mathbf{y}_{1:p}\\), quantized masks \\(\\mathbf{w}_{1:p}^{\\left(t_{1:n}\\right)}\\), timesteps \\(\\mathbf{t}=t_{1:n}\\), the output size \\(\\left(H^{\\prime},W^{\\prime}\\right),\\) a noise schedule \\(\\alpha\\) and \\(\\eta\\), the tile size \\(\\left(H,W\\right),\\) an inference algorithm StepExceptNoise, the number of bootstrapping steps \\(n_{\\mathrm{bstrap}}\\). Output: An image \\(\\mathbf{I}\\) of designated size \\(\\left(8H^{\\prime},8W^{\\prime}\\right)\\) generated from multiple text-mask pairs.\n' +
+      '1\\(\\mathbf{x}_{t_{n}}^{\\prime}\\sim\\mathcal{N}(0,1)^{H^{\\prime}\\times W^{\\prime}\\times D}\\)\n' +
+      '2\\(\\{\\mathcal{T}_{1},\\ldots,\\mathcal{T}_{m}\\}\\subset\\{\\left(h_{\\mathrm{t}},h_{ \\mathrm{b}},w_{\\mathrm{l}},w_{\\mathrm{r}}\\right):0\\leq h_{\\mathrm{t}}<h_{ \\mathrm{b}}\\leq H^{\\prime},0\\leq w_{\\mathrm{l}}<w_{\\mathrm{r}}\\leq W^{\\prime}\\}\\)\n' +
+      '3for\\(i\\gets n\\)to\\(1\\)do\n' +
+      '4\\(\\bar{\\mathbf{x}}\\leftarrow\\mathbf{0}\\in\\mathbb{R}^{H^{\\prime}\\times W^{\\prime}\\times D}\\)\n' +
+      '5\\(\\bar{\\mathbf{w}}\\leftarrow\\mathbf{0}\\in\\mathbb{R}^{H^{\\prime}\\times W^{\\prime}}\\)\n' +
+      '6for\\(j\\gets 1\\)to\\(m\\)do\n' +
+      '7\\(\\bar{\\mathbf{x}}_{1:p}\\leftarrow\\texttt{repeat}(\\texttt{crop}(\\mathbf{x}_{t_{i}}, \\mathcal{T}_{j}),p)\\)\n' +
+      '8\\(\\bar{\\mathbf{w}}_{1:p}^{\\left(t_{i}\\right)}\\leftarrow\\texttt{crop}(\\mathbf{w}_{1:p}^{ \\left(t_{i}\\right)},\\mathcal{T}_{j})\\) // use different quantized masks for each timestep\n' +
+      '9if\\(i\\leq n_{bstrap}\\)then\n' +
+      '10\\(\\mathbf{x}_{\\mathrm{bg}}\\leftarrow\\texttt{enc}(1)\\) // get a white color background\n' +
+      '11\\(\\mathbf{x}_{\\mathrm{bg}}\\leftarrow\\sqrt{\\alpha(t_{i})}\\mathbf{x}_{\\mathrm{bg}}\\sqrt{1- \\alpha(t_{i})}\\mathbf{\\epsilon}\\), where \\(\\mathbf{\\epsilon}\\sim\\mathcal{N}(0,1)^{H\\times W\\times D}\\)\n' +
+      '12\\(\\bar{\\mathbf{x}}_{1:p}\\leftarrow\\bar{\\mathbf{w}}_{1:p}\\odot\\bar{\\mathbf{x}}_{1:p}+\\left( \\mathbf{1}-\\bar{\\mathbf{w}}_{1:p}\\right)\\odot\\mathbf{x}_{\\mathrm{bg}}\\)\n' +
+      '13\\(\\mathbf{u}_{1:p}\\leftarrow\\texttt{get\\_bounding\\_box\\_centers}(\\bar{\\mathbf{w}}_{1:p}) \\in\\mathbb{R}^{p\\times 2}\\) // mask centers are the bounding box center of each mask of the current view tile\n' +
+      '14\\(\\bar{\\mathbf{x}}_{1:p}\\leftarrow\\texttt{roll\\_by\\_coordinates}(\\bar{\\mathbf{x}}_{1:p}, \\mathbf{u}_{1:p})\\) // center foregrounds to the mask centers to exploit the center preference of the diffusion model\n' +
+      '15\n' +
+      '16 end if\n' +
+      '17\\(\\bar{\\mathbf{x}}_{1:p}\\leftarrow\\texttt{StepExceptNoise}(\\bar{\\mathbf{x}}_{1:p}, \\mathbf{y}_{1:p},i;\\mathbf{\\epsilon}_{\\theta},\\alpha,\\mathbf{t})\\) // pre-averaging\n' +
+      '18if\\(i\\leq n_{bstrap}\\)then\n' +
+      '19\\(\\bar{\\mathbf{x}}_{1:p}\\leftarrow\\texttt{roll\\_by\\_coordinates}(\\bar{\\mathbf{x}}_{1:p},- \\mathbf{u}_{1:p})\\) // restore from centering\n' +
+      '20\n' +
+      '21 end if\n' +
+      '22\\(\\bar{\\mathbf{x}}[\\mathcal{T}_{j}]\\leftarrow\\bar{\\mathbf{x}}[\\mathcal{T}_{j}]+\\sum_{k=1}^ {p}\\bar{\\mathbf{w}}_{k}\\odot\\bar{\\mathbf{x}}_{k}\\)\n' +
+      '23\\(\\bar{\\mathbf{w}}[\\mathcal{T}_{j}]\\leftarrow\\bar{\\mathbf{w}}[\\mathcal{T}_{j}]+\\sum_{k=1}^ {p}\\bar{\\mathbf{w}}_{k}\\)\n' +
+      '24\n' +
+      '25 end if\n' +
+      '26\\(\\mathbf{x}_{t_{i-1}}\\leftarrow\\bar{\\mathbf{x}}\\odot\\bar{\\mathbf{w}}^{-1}\\)\n' +
+      '27\\(\\mathbf{x}_{t_{i-1}}\\leftarrow\\mathbf{x}_{t_{i-1}}+\\eta_{t_{i-1}}\\mathbf{\\epsilon}\\), where \\(\\mathbf{\\epsilon}\\sim\\mathcal{N}(0,1)^{H\\times W\\times D}\\) // post-addition of noise\n' +
+      '28\n' +
+      '29 end if\n' +
+      '30\\(\\mathbf{I}\\leftarrow\\texttt{dec}(\\mathbf{x}_{t_{1}})\\)\n' +
+      '```\n' +
+      '\n' +
+      '**Algorithm 2**Our stabilized version of MultiDiffusion from Section 3.2.\n' +
+      '\n' +
+      'ping background color to white. With extremely low number of sampling steps (4-5), this bootstrapping background is easily leaked through the final image as seen in Figure 3. However, since white backgrounds are common in image datasets, on which the diffusion models are trained, using white backgrounds alleviate this problem. Lines 13-14 are our _mask-centering_ stage for bootstrapping. Diffusion models tend to position generated objects in the center of the frame. By shifting frames to the center of the object bounding box for each given mask in the first few steps of generation prevents the following masking stages from abandoning the core parts of the generated objects. Lines 17-19 undo the centering operation done in lines 13-14. Finally, a single reverse diffusion step in line 14 of Algorithm 1 is split into the denoising part in line 16 of Algorithm 2 and the noise addition part in line 24 of Algorithm 2. As we have discussed with visual examples in Figure 2, this simple augmentation of the original MultiDiffusion [4] stabilizes the algorithm to work with fast inference techniques such as LCM-LoRA [23, 24]. Our strategy for stabilizing MultiDiffusion is illustrated in Figure 4. The readers may consult our submitted code for clarification.\n' +
+      '\n' +
+      '## Appendix 0.B More Results\n' +
+      '\n' +
+      'In this section, we provide additional visual comparison results among MultiDiffusion [4], a variant of MultiDiffusion directly applied to latent consistency model [23, 24], and our stabilized Algorithm 2. We show that our algorithm is\n' +
+      '\n' +
+      'Figure 12: Mask overlay images of the generation result in Figure 11. Generation by our StreamMultiDiffusion not only achieves high speed of convergence, but also high mask fidelity in the large-size region-based text-to-image synthesis, compared to the baseline MultiDiffusion [4]. Each cell shows how each mask (including the background one) maps to each generated region of the image, as described in the label below. Note that we have _not_ provided any additional color or structural control other than our _semantic palette_, which is simply pairs of text prompts and binary masks.\n' +
+      '\n' +
+      'capable of generating large-scale images from multiple regional prompts with a single commercial off-the-shelf graphics card, _i.e._, an RTX 2080 Ti GPU.\n' +
+      '\n' +
+      '### Panorama Generation\n' +
+      '\n' +
+      'Figure 14 shows additional results of large-scale panorama image generation using our method. We generate \\(512\\times 4608\\) images from a single text prompt, as in Section 4.1. As the results show, our method allows tile aggregation algorithm of MultiDiffusion to fully utilize the power of latent consistency model (LCM) [23]. This enables \\(\\times 13\\) faster generation of images with sizes much larger than the resolutions of \\(512\\times 512\\) or \\(768\\times 768\\), for which the Stable Diffusion models [30] are trained on.\n' +
+      '\n' +
+      '### Region-Based Text-to-Image Generation\n' +
+      '\n' +
+      'We show additional region-based text-to-image generation results in Figure 13. In addition to Figure 9, the generated samples show that our method is able to accelerate region-based text-to-image generation up to \\(\\times 10\\) while preserving the generation quality. Additionally, Figure 11 shows that the benefits from our acceleration method for large-size generation in Section B.1 and region-based controlled generation in Section B.2 are indeed simultaneously enjoyable. Here, inspired from the famous artwork of Korean royal folding screen, _Irworobongdo_ ("Painting of the Sun, Moon, and the Five Peaks")1, we generate an image of size \\(768\\times 1920\\) from nine regionally assigned text prompts, including the background, which are written under Figure 11. We draw a hand-drawn sketch of eight binary masks that roughly follow the semantic structure of the original artwork. The only preprocessing we applied is to reduce the alpha channel value to 0.3 in the regions of each mask hidden by ones in front of it. Our acceleration method enables Stable Diffusion model [30] to generate the scene in 59 seconds. This is \\(\\times 52.5\\) faster than the baseline MultiDiffusion [4], which takes more than 51 minutes to converge. Regarding that professional image creation process using diffusion models typically involves a multitude of resampling trials with different seeds, MultiDiffusion\'s convergence speed of one image per hour severely limits the applicability of the algorithm. In contrast, our acceleration method enables the same large-size region-based text-to-image synthesis to be done under a minute. This implies that our method significantly broadens the usability of diffusion models for professional creators.\n' +
+      '\n' +
+      'Footnote 1: [https://en.wikipedia.org/wiki/Irworobongdo](https://en.wikipedia.org/wiki/Irworobongdo)\n' +
+      '\n' +
+      'Figure 11 reveals one additional benefit of our method. In large-scale region-based controlled generation, we clearly achieve better mask fidelity. Figure 12 more thoroughly elaborates on the mask-fidelity for the example. Locations and sizes of the Sun and the Moon match to the provided masks in near perfection; whereas mountains and waterfalls are harmonized within the overall image, without violating region boundaries. This shows that the flexibility and the speed of\n' +
+      '\n' +
+      'Figure 13: Additional region-based text-to-image synthesis results. Our method accelerates MultiDiffusion [4] up to \\(\\times 10\\) while preserving or even boosting mask fidelity.\n' +
+      '\n' +
+      'Figure 14: Additional panorama generation results. The images of size \\(512\\times 4608\\)  are sampled with 50 steps for MD and 4 steps for MD+LCM and Ours. We achieve \\(\\times 13\\) improvement in inference latency.\n' +
+      '\n' +
+      'our generation paradigm, drawing with _semantic palette_, is also capable of professional usage. This leads to the last section of this Supplementary Material, the description of our submitted demo application.\n' +
+      '\n' +
+      '## Appendix 0.C Instruction for the Demo Application\n' +
+      '\n' +
+      'This last section elaborates on the structure and the usage of demo application for our StreamMultiDiffusion, introduced in Section 5. Starting from the basic description of user interface in Section 0.C.1, we discuss the expected procedure of using the app in Section 0.C.2. Our discussion also includes how the proposed concept of _semantic palette_ can be implemented based on StreamMultiDiffusion, the first real-time interactive region-based text-to-image generation algorithm.\n' +
+      '\n' +
+      '### User Interface\n' +
+      '\n' +
+      'As illustrated in Figure 9(b), user interactions are classified into two groups, _i.e._, the slow processes and the fast processes, based on the latency of response from the model. Due to the high overhead of text encoder and image encoder, the processes involving these modules are classified as slow processes. However, operations such as preprocessing or saving of mask tensors and sampling of the\n' +
+      '\n' +
+      'Figure 15: Screenshot of our supplementary demo application. Details of the numbered components are elaborated in Table 3.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:26]\n' +
+      '\n' +
+      'tic brush. Before the mask is quantized into predefined noise levels of scheduler, as elaborated in Section 3.2, mask is first multiplied by mask alpha and goes through an isotropic Gaussian blur with a specified standard deviation. That is, given a mask \\(\\boldsymbol{w}\\), a mask alpha \\(a\\), and the noise level scheduling function \\(\\beta(t)=\\sqrt{1-\\alpha(t)}\\), the resulting quantized mask \\(\\boldsymbol{w}_{1:p}^{(t_{i})}\\) is:\n' +
+      '\n' +
+      '\\[\\boldsymbol{w}_{1:p}^{(t_{i})}=\\mathbb{1}[a\\boldsymbol{w}>\\beta(t_{i})]\\,, \\tag{10}\\]\n' +
+      '\n' +
+      'where \\(\\mathbb{1}[\\cdot]\\) is an indicator function taking the inequality as a binary operator to make a boolean mask tensor \\(\\boldsymbol{w}_{1:p}^{(t_{i})}\\) at time \\(t_{i}\\). The default noise levels \\(\\beta(t)\\) of the latent consistency models [23] are close to one, as shown in Figure 5. This makes mask alpha extremely sensitive. By changing its value only slightly, _e.g._, down to 0.98, the corresponding prompt already skips first two sampling steps. This quickly degenerates the content of the prompt, and therefore, the mask alpha (no. 9) should be used in care. The effect of mask blur std (no. 10) is shown in Figure 6, and will not be further elaborated in this section. The seed of the system can be tuned by seed control (no. 11). Nonetheless, controlling pseudo-random generator will rarely be needed since the application generates images in an infinite stream. The prompt edit (no. 12) is the main control of semantic brush. The users can change text prompt even when generation is on stream. It takes exactly the total number of inference steps, _i.e._, 5 steps, for a change in prompts to take effect. Finally, we provide prompt strength (no. 13) as an alternative to highly sensitive mask alpha (no. 9) to control the saliency of the target prompt. Although modifying the alpha channel provides good intuition for graphics designer being already familiar to alpha blending, the noise levels of consistency model [23, 33] make the mask alpha value not aligned well with our intuition in alpha blending. Prompt strength is a mix ratio between the embeddings of the foreground text prompt of given semantic brush and background text prompt. We empirically find that changing the prompt strengths gives smoother control to the foreground-background blending strength than mask alpha. However, whereas the mask alpha can be applied locally, the prompt strength only globally takes effect. Therefore, we believe that the two controls are complementary to one another.\n' +
+      '\n' +
+      '### Basic Usage\n' +
+      '\n' +
+      'We provide the simplest procedure of creating images with _semantic palette_, enabled by our StreamMultiDiffusion pipeline. Screenshots in Figure 16 illustrate the four-step process.\n' +
+      '\n' +
+      '#### 0.c.2.1 Start the Application.\n' +
+      '\n' +
+      'After installing the required packages, the user can open the application with the following command prompt:\n' +
+      '\n' +
+      '``` pythonapp.py-model"KBlueLeaf/kohaku-v2.1"-height512-width512The application front-end is web-based and can be opened with any web browser through localhost:8000. We currently support only the Stable Diffusion version 1.5 checkpoints [30] for --model option, due to the availability of latent consistency model [23, 24]. The height and the width of canvas are predefined at the startup of the application.\n' +
+      '\n' +
+      '#### 2.2.1 Upload Background Image.\n' +
+      '\n' +
+      'See Figure 15(a). The first interaction with the application is to upload any image as background by clicking the background image upload (no. 5) panel. The uploaded background image will be resized to match the canvas. After uploading the image, the background prompt of the uploaded image is automatically generated for the user by pre-trained BLIP-2 model [16]. The background prompt is used to blend between foreground and background in prompt-level globally, as elaborated in Section C.1. The interpolation takes place when a foreground text prompt embedding is assigned with a prompt strength less than one. User is always able to change the background prompt like other prompts in the _semantic palette_.\n' +
+      '\n' +
+      '#### 3.2.2 Type in Text Prompts.\n' +
+      '\n' +
+      'See Figure 15(b). The next step is to create and manage semantic brushes by interacting with the _semantic palette_ (no. 1-2). A minimal required modification is text prompt assignment through the prompt\n' +
+      '\n' +
+      'Figure 16: Illustrated usage guide of our demo application of StreamMultiDiffusion.\n' +
+      '\n' +
+      'edit (no. 12) panel. The user can additionally modify other options in the control panel marked as yellow in Figure 15(b).\n' +
+      '\n' +
+      '## 4 Draw\n' +
+      '\n' +
+      'See Figure 15(c). A user may start drawing by selecting the layer in layer selection (no. 4) tab that matches the user-specified text prompt in the previous step. Grab a brush in the drawing tool (no. 6) buttons, draw, and submit the drawn masks. Pressing the play button (no. 7) marked with yellow in Figure 15(d) will initiate stream of generated images to be appeared on the display (no. 8).\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
