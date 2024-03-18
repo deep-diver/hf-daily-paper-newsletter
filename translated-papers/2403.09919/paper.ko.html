@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '빠른 사행적 디코딩을 위한 # Recurrent Drafter\n' +
+      '\n' +
+      '대언어 모델.\n' +
+      '\n' +
+      'Aonan Zhang\\({}^{*}\\) Chong Wang\\({}^{*}\\), Yi Wang\\({}^{*}\\), Xuanyu Zhang 및 Yunfei Cheng\n' +
+      '\n' +
+      'Apple\n' +
+      '\n' +
+      '{aonan_zhang,mr.chongwang,wyi,xuanyu_zhang,yunfei_cheng}@apple.com\n' +
+      '\n' +
+      'Equal contributions.\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      '본 논문에서는 대용량 언어 모델을 서비스하는 효율성을 높이기 위한 추론 디코딩의 개선된 접근 방식을 소개한다. 우리의 방법은 고전적인 두 모델 추측 디코딩 접근법과 보다 최근의 단일 모델 접근법인 메두사의 두 가지 확립된 기술의 장점을 활용한다. 메두사에서 영감을 얻어, 우리의 접근법은 투기적 해독을 위한 단일 모델 전략을 채택한다. 그러나, 본 논문에서 제안하는 방법은 순환 종속성 설계를 갖는 단일 경량 드래프트 헤드를 사용함으로써, 고전적인 추측 디코딩에서 사용되는 작은 드래프트 모델과 본질적으로 유사하지만 전체 트랜스포머 아키텍처의 복잡성 없이 구별된다. 그리고 반복 의존성으로 인해 빔 탐색을 사용하여 드래프트 헤드로 원하지 않는 후보들을 신속하게 필터링할 수 있다. 결과는 단일 모델 설계의 단순성을 결합한 방법으로 메두사에서 추론만을 위한 데이터 의존 트리 주의 구조를 만들 필요가 없다. 우리는 이 접근법을 채택하는 데 수반되는 절충점에 대한 포괄적인 분석과 함께 몇 가지 인기 있는 오픈 소스 언어 모델에 대해 제안된 방법의 효과를 경험적으로 입증한다.\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      '대규모 언어 모델(LLM)(Anil et al., 2023; Brown et al., 2020)은 기계 학습 내에서 빠르게 진화하는 분야를 나타내며, 다양한 도메인에서 발전에 대한 엄청난 가능성과 잠재력을 제공한다. 이러한 모델은 일반적으로 수십억 개의 매개변수로 크며 모델의 크기는 이러한 언어 모델의 기능을 담당하는 가장 중요한 요소 중 하나라고 믿어진다. 주로 LLM은 자동 회귀 방법을 사용하여 프롬프트가 주어지면 토큰별 응답을 생성하는데, 이는 각 순방향 실행이 하나의 토큰만 생성할 수 있음을 의미한다. 단일 토큰 생성 단계의 레이턴시는 모델 크기가 클 때 크게 증가한다. 이 문제는 메모리 대역폭 제약이 종종 제한을 제기하는 반면 계산 리소스는 풍부하게 남아 있는 현대 하드웨어 환경에서 매우 중요하다.\n' +
+      '\n' +
+      '최근, 추측 디코딩(Leviathan et al., 2023; Chen et al., 2023; Spector and Re, 2023; Cai et al., 2024; Bhendawade et al., 2024)은 앞서 언급된 도전들을 완화하는 것을 목표로 하여 LLM 추론을 가속화하기 위한 유망한 전략으로 부상하고 있다. 추측 디코딩은 예비 후보 토큰들을 더 효율적으로 생성하기 위해 더 작은 드래프트 모델을 사용한다. 이어서, 이들 후보 토큰은 단일 순방향 패스에서 더 큰 타겟 모델에 의한 검증(일반적으로 거절 샘플링 절차를 통해)을 거치게 되어, 메모리 대역폭 사용 및 전체 계산 비용을 최적화한다. 이는 종종 LLM 추론의 레이턴시를 상당히 감소시킬 수 있다. 이러한 방법들 중, Leviathan et al. (2023); Chen et al. (2023a); Spector and Re (2023)은 별도의 소형 모델(들)을 초안 모델들로서 사용하는 것을 선택한다. 반대로, 가장 최근의 접근법인 Medusa(Cai et al., 2024)는 타겟 모델로부터의 출력을 입력으로 사용하여 다수의 드래프트 헤드를 트레이닝함으로써 단일, 통일된 모델 전략을 채택한다. 메두사로 예시된 단일 모델 접근법은 기존 LLM 서빙 시스템에 더 쉽게 통합될 수 있는 가능성을 가지고 있다. 보다 최근에, 투기적 스트리밍(Bhendawade et al.,2024)은 또한 추가적인 헤드를 사용하지 않고 단일 모델 접근법을 취했고, 그들은 단지 다음 토큰들 대신에 n-그램들을 예측함으로써 (단순히 그 중량을 동결 상태로 유지하는 대신에) 타겟 모델을 튜닝한다. 이와 관련하여, 투기적 스트리밍은 Cai et al.(2024)의 업데이트된 Medusa 2 접근법과 유사하며, 이는 타겟 모델과 드래프트 헤드를 공동으로 트레이닝하여 보다 양호한 개선으로 투기-디코딩 친화적인 타겟 모델을 획득한다.\n' +
+      '\n' +
+      '본 논문에서는 메두사(Cai et al., 2024)에서 확립된 원리를 확장하고, 투기적 디코딩을 향상시키기 위한 단일 모델 전략을 채택한다. _recurrent drafter_(ReDrafter)라고 하는 우리의 접근법은 메두사 프레임워크에서 제시된 한계를 다룬다. 예측 위치를 나타내기 위해 뚜렷한 매개변수를 가진 여러 초안 헤드를 필요로 하는 메두사와 달리, 우리의 반복 초안기는 예측 헤드 간의 의존성을 도입하여 순환 신경망(RNN) 언어 모델(미콜로프 및 Zweig, 2012)에서 영감을 얻는다. 우리는 드래프트 헤드에 대한 한 세트의 매개변수만 가지고 있으며 이러한 매개변수는 서로 다른 예측 위치에 걸쳐 공유된다. 또한 메두사의 독립적인 예측 메커니즘은 실현 가능한 후보 토큰 시퀀스의 기하급수적으로 큰 세트를 생성한다. 이 문제를 완화하기 위해 메두사의 저자들은 교묘한 나무 주의 접근법을 소개한다. 이것은 검증 데이터를 사용하여 미리 정의된 트리 경로를 식별하기 위해 별도의 탐욕 절차를 통해 최적화된다. 이와는 대조적으로, 초안 헤드들 사이에 도입된 종속성들과 함께, 본 접근법은 낮은 품질의 후보들을 필터링하기 위해 빔 탐색을 직접 사용할 수 있게 하여, 타겟 모델에 의한 검증을 위한 후보 토큰 시퀀스들의 수를 상당히 감소시킨다. 또한, 빔 탐색 결과를 기반으로 하는 효율적인 트리 어텐션 알고리즘을 제안하며, 미리 결정된 트리 어텐션 알고리즘이 아닌 런타임 동안 동적으로 구성된다. 검증 데이터 세트에 의존하는 메두사의 트리 주의 구성과는 달리, 우리의 절차는 추가 데이터에 의존하지 않는다. 이렇게 하면 훈련이 완료된 후 배치가 더 쉬워집니다. 마지막으로, 제안된 방법론의 효율성을 실증적으로 입증한다.\n' +
+      '\n' +
+      '##2 사행적 디코딩을 위한 반복 드래프터\n' +
+      '\n' +
+      '모델 정의.이제 우리는 추측 디코딩을 위해 제안된 반복 연삭기의 공식화를 개요화한다. 메두사 접근법과 유사하게, 우리는 목표 모델로부터의 변압기의 마지막 층의 출력을 순환 드래프트 헤드에 대한 입력으로 사용한다. 또한 그림 1에 표시된 대로 과거 토큰의 임베딩을 초안 헤드에 대한 반복 입력으로 통합한다.\n' +
+      '\n' +
+      '우리는 표준 RNN 설계를 사용하여 다음 토큰을 예측한다. 예를 들어, 토큰 시퀀스를 고려하면, 이것은 매우 좋은 소식이며, 그림 1에 예시된 바와 같이, 일단 타겟 모델이 토큰이 마지막 레이어의 출력 \\(x\\)과 함께 생성되면, 드래프트 헤드는 토큰의 임베딩을 사용하여 RNN 은닉 상태를 업데이트하고 출력 \\(x\\)과 결합하여 다음 토큰을 매우 예측한다. 이 전략은 후속 토큰에 대해 반복적으로 적용된다. 이 논문에서 우리는 공유된 초안 헤드 간의 연결을 모델링하기 위해 간단한 반복 설계를 선택하여 보다 복잡한 모델 선택을 향후 조사에 지연시킨다. 특히, 드래프트 헤드의 은닉 상태를 \\(s_{0}=e_{0}\\)으로 초기화하고, 여기서 \\(e_{0}\\)은 타겟 모델이 이미 생성한 마지막 토큰의 임베딩이다. 드래프트 헤드를 사용하여 \\(i\\)번째 토큰을 예측하기 위해 먼저 드래프트 헤드의 숨겨진 상태를 업데이트한다.\n' +
+      '\n' +
+      '\\[s_{i} =f(Us_{i-1}+We_{i}+b)\\] \\[h_{i} =[s_{i},x],\\]\n' +
+      '\n' +
+      '여기서 \\(f\\)은 활성화 함수이고 \\(U\\), \\(W\\) 및 \\(b\\)은 RNN에 대한 파라미터이다(Mikolov and Zweig, 2012). 우리는 모델을 단순화하기 위해 하나의 계층 RNN만을 사용한다. 그런 다음 끝에 표준 소프트맥스 레이어가 있는 ResNet(He et al., 2016)의 몇 개의 레이어를 적용한다.\n' +
+      '\n' +
+      '드래프트 헤드들의 파라미터들이 공유되기 때문에, 모델이 하나 이상의 토큰을 예측하도록 트레이닝되더라도 파라미터들의 수는 일정하게 유지된다. 추론 프로세스 동안, 초기 토큰은 타겟 모델에 의해 공급된다. 이후의 토큰은 드래프트 헤드를 이용한 빔 탐색을 통해 선정되며, 이에 대해서는 다음에 논의하기로 한다.\n' +
+      '\n' +
+      '빔 탐색.검증을 위한 후보 토큰을 생성하기 위해 반복 연삭기의 종속성으로 인해 빔 탐색을 사용할 수 있다. 이를 통해 먼저 저품질 후보 토큰 시퀀스를 필터링하여 대상 모델 검증을 위한 훨씬 더 작은 세트를 생성할 수 있다. Denote \\(K\\) beams as \\(B=[b_{1},...,b_{K}]\\) and each candidate with length \\(L\\) as \\(b_{k}=[i_{k}^{1},...,i_{k}^{L}]\\) 우리는 \\(K\\)와 \\(L\\)에 대해 선형적으로 \\(LK\\) 토큰을 검증해야 한다. 메두사와 비교할 때, 우리의 접근법의 추가 오버헤드는 순차적인 과정인 순환 연결을 통한 빔 탐색에서 비롯된 반면, 메두사는 각 헤드를 독립적으로 병렬로 예측할 수 있다. 실험을 통해 목표 모델의 복잡한 구조와 비교할 때, 드래프트 헤드의 단순한 구조로 인해 오버헤드가 최소화된다는 것을 발견했다. 또한, 아래에서 설명하는 바와 같이 계산을 더 줄이기 위해 알고리즘 최적화를 도입한다.\n' +
+      '\n' +
+      '빔 탐색 후 동적 트리 주의력.빔 탐색은 일반적으로 공통 프리픽스를 공유함으로써 트리 구조를 나타내므로 빔 탐색 결과를 기반으로 계산 효율을 높일 수 있다. 우리는 이 메커니즘을 그림 2에 묘사된 바와 같이 "동적 트리 주의"라고 지칭한다. 이 예에서, 첫 번째 후보: _1 일몰_를 주시하고 세 번째 후보: _1 시계를 leaves_로 주시하면, 그들은 prefix _1 watch_를 공유하며, 우리는 이 공유 prefix의 계산을 반복할 필요가 없다. 계산 절약은 공유 토큰 프리픽스를 역공급하고 적절한 위치에 주의 마스크를 배치함으로써 달성된다. 계산을 절약하기 위한 트리 구조의 사용은 Cai 등(2024); Miao 등(2023); Spector & Re(2023)에서 보여지는 접근법들과 유사하며, 여기서 유사한 방법들이 공유 접두사에 대한 중복 계산을 피하기 위해 채용되었다.\n' +
+      '\n' +
+      '그러나 위에서 언급한 트리 구조의 사용과 달리 런타임에서 개별 빔 검색 결과에 의존하기 때문에 우리는 우리의 _dynamically_를 결정해야 한다. 표준 트리 기반 알고리즘은 병렬화가 어려워 속도가 느리다. 우리는 우리 문제의 고유한 특성이 모든 후보 시퀀스의 길이가 같다는 것을 알아차린다. 이러한 통찰을 통해, 우리는 오버헤드가 거의 없는 현대 가속기를 활용하는 데 중요한 측면인 표준 텐서 연산자를 사용하여 동적 트리 주의를 효율적으로 구성할 수 있음을 발견했다.\n' +
+      '\n' +
+      '주요 관찰은 프리픽스 트라이를 구축하지 않고도 표준 텐서 연산을 사용하여 빔 탐색 결과에서 모든 공유 프리픽스를 찾을 수 있다는 것이다. 우리는 get_prefix_match(그림 2(a\\(\\rightarrow\\)c)에 도시됨)라는 함수를 개발했다. 이 함수는 초기 텐서 빔들을 처리하여 프리픽스_매치 텐서를 그 출력으로 생성한다. 이 10년 동안\n' +
+      '\n' +
+      '그림 1: 한 번의 전진 패스 동안 3개의 후보 토큰을 예측하기 위한 반복 연결로 드래프트 헤드가 3회 반복되는 반복 드래프터 설계.\n' +
+      '\n' +
+      'sor, prefix_match[i][j]=k는 가장 작은 인덱스 \\(k\\)에서 후보자가 동일한 prefix beam[i][:j+1]을 공유함을 나타낸다. 예를 들어, prefix_match[2][1]=0은 빔[0]과 빔[2] 사이의 공유 prefix _"I watch"_를 의미한다. prefix_match[i][j]<i인 토큰들을 응축하는 것이 가능하다. Listing 1에서 get_prefix_match의 pseudo-code를 증명한다. 후속 연산들은 동적 트리 어텐션을 구성하기 위해 여기에서 발견된 prefix들을 사용하도록 유사하게 설계될 수 있다. 이것은 추측 디코딩에서 LLM 추론의 추가 가속으로 이어진다. 마지막으로 동적 트리 주의의 사용은 ReDrafter에 국한되지 않는다. 또한, 별도의 드래프트 모델이 빔 탐색을 수행한 후 동적 트리 어텐션을 적용하는 동안 표준 2-모델 추측 디코딩 접근법에서도 사용될 수 있다.\n' +
+      '\n' +
+      'ReDrafter를 사용한 투기적 디코딩.여기서는 투기적 디코딩을 위해 ReDrafter를 사용하는 단계를 간략하게 설명한다. 추론 중 각 생성 단계에서, 우리는 마지막 은닉 상태 \\(s_{0}\\)를 갖는 이전에 생성된 모든 토큰으로부터 시작한다. 빔 탐색을 이용하여 후보 시퀀스들의 집합을 생성한다. (B=[b_{1},...,b_{K}]\\). 이어서, 동적 트리 어텐션을 적용하여 적절한 어텐션 마스크인 \\(M_{c}\\)을 공식화하면서, \\(B_{c}\\)을 평탄화하고 시퀀스 \\(B_{c}\\)으로 압축한다. 그런 다음 기본 모델은 모든 제안된 토큰에 대한 로그 확률을 계산하기 위해 순방향 패스로 진행한다. 그런 다음 가장 오래 수락된 접두사를 가진 가장 좋은 후보를 선택합니다. 선택 방법은 그리디 접근법(일명, 토큰 매치들)으로부터 범위를 가질 수 있다. 거부 샘플링 또는 일반적인 샘플링과 같은 보다 정교한 기술에 대한 것이다. 이전에 생성된 토큰의 끝에 승인된 토큰을 추가하고 중지 기준이 충족될 때까지 다음 반복을 실행합니다.\n' +
+      '\n' +
+      '메두사에서 나무 주의력에 대한 논의.여기서는 우리의 접근법과 차이점을 강조하기 위해 메두사에서 제안된 나무 주의력에 대해 간략하게 설명한다. 저자들은 초안 헤드의 독립적인 예측으로 인해 기하급수적으로 많은 후보 토큰 시퀀스 세트를 관리하는 데 어려움을 겪고 있다. 그들은 검증을 위해 합리적인 적은 수의 토큰을 유지하는 데 중요한 미리 결정된 희소 트리 주의 구조를 구성하여 이 문제를 해결한다. 전체적인 \\(L\\) 독립적인 메두사 머리들이 있고, 각각의 머리들이 \\(K\\)의 예측들을 가지고 있다고 가정하면, \\((i^{\\ell}_{1},...,i^{\\ell}_{k},...,i^{\\ell}_{K})\\), 여기서 \\(\\ell=1,...L\\)으로 표시된다. 그리고 각 헤드에서 하나의 토큰을 \\(p=[i^{1}_{k_{1}},...,i^{\\ell}_{k_{\\ell},...,i^{L}_{k_{L}}]\\)으로 선택하여 실행 가능한 후보 토큰 시퀀스를 구성하며, 여기서 \\(k_{\\ell}\\)은 \\(\\ell\\)번째 헤드에서 맨 위의 \\(k\\\\)번째 엘리먼트를 나타낸다. 전체적으로, 이것은 빔 탐색 후에 우리의 \\(KL\\)에 비해 검증되어야 할 \\(O(K^{L})\\)의 잠재적인 토큰들을 초래한다. 메두사에서 탐욕 알고리즘은 검증 데이터 세트를 사용하여 전반적으로 높은 합격률을 제공하는 경로를 선택하도록 설계되었다. 실제로는\n' +
+      '\n' +
+      '도 2: 배치 크기에 대한 동적 트리 주의를 구축하기 위한 상이한 컴포넌트들의 예시는 1과 동일하다. (1보다 큰 배치 크기로 확장하는 것은 간단하다.) 이 예에서, 빔 크기는 3이며, 각각의 후보 시퀀스는 4개의 토큰을 포함한다. (a) 빔 탐색 결과. (b) 빔 탐색 결과에서 공유 접두사를 압축하여 총 토큰 수를 \\(3\\times 4=12\\)에서 9로 줄인다. (c) 텐서 기반, GPU 친화적인 알고리즘이 사용되어 각 빔(회색 박스로 도시됨) 내의 반복 프리픽스를 검출한다. (d) 텐서 기반 접근법은 또한 트리 주의에서 자식-부모 관계의 인코딩으로 확장된다. 어텐션 마스크는 유사한 방식으로 적용될 수 있다.\n' +
+      '\n' +
+      '메두사에서는 \\(L\\)보다 짧은 경로도 가지치기 접근법을 통해 고려된다. 결과는 Cai et al.(2024)에서 64로 고정된 특정 수까지 검증을 효과적으로 제한하는 희소 트리 구조이다. 트리가 검증을 위한 텐서로서 평탄화될 때, 동일한 경로 상에 있지 않은 토큰들은 효과적으로 마스킹될 것이고, 이것은 "트리 주의"로 명명된다. 검증된 데이터 세트를 사용하여 전체 정확도를 우선시하는 것은 합리적인 접근법이지만, 전체적으로 최상의 경로가 반드시 개별 데이터 포인트에 최적이지는 않을 수 있기 때문에 부주의하게 개별 데이터 성능에 영향을 미칠 수 있다. 또한, 별도의 유효성 검사 데이터에 응답함에 따라, 이는 사용할 최적의 유효성 검사 세트를 선택하는 방법에 대한 또 다른 문제를 제기할 수 있다.\n' +
+      '\n' +
+      '```\n' +
+      'defget_prefix_match(beams): "" computinganadditionaldimension. Addanadditionalinformationforefirmatching. Addanadditionaldimensionatthebeam_width,cl=candidate_seq_length Args: -beams:[bw,cl] Batchedinputcandidates. Returns: -prefix_match:[bw,cl] prefix_match[i][j]=kmeansbeamsiandksharethesame firstj+1tokens. 예: beam=tensor([[91,92,93,95], [91,92,94,96], [91,92,93,97] prefix_match=tensor([0,0,0,0], [0,0,1,1], [0,0,2]) prefix_match=tensor([0,0,0,0], [0,0,2] prefix_match:[bw,cl] prefix_match[i][j]=kmeansbeamsiandksharethes\n' +
+      '#Indexeachcandidate. beam_index=torch.arange(1,cl+1) #Matchtokensacrossbeams. 매치=빔[:,:,None]=빔[:,None,:]\n' +
+      '#Matchallprefixes. seq_matches=(torch.cumsum(matches,dim=2) ==beam_index[None,None,:])\n' +
+      '#Previouscandidatewith smallestindexthatasharesthesame prefix. match=torch.argmax(seq_matches,dim=2) returnprefix_match\n' +
+      '```\n' +
+      '\n' +
+      '목록 1: get_prefix_match에 대한 예시적인 구현이다.\n' +
+      '\n' +
+      '관련된 작업.추측 디코딩(Chen et al., 2023; Leviathan et al., 2023)이 소개된 이후, 다양한 개선 및 확장들이 제안되고 연구되고 있다. 예를 들어, 드래프트 모델들은 트레이닝을 통해(Cai et al., 2024; Liu et al., 2023; Chen et al., 2023; Li et al., 2024; Bhendawade et al., 2024) 또는 트레이닝-프리 접근법들(He et al., 2023; Yang et al., 2023; Fu et al., 2024) 중 하나일 수 있다. Spector & Re(2023)는 투기적 디코딩 후보 토큰들을 트리로서 재구성한다. 아이디어는 또한 Cai et al. (2024); Miao et al. (2023); Li et al. (2024)에서 상이한 컨텍스트들에서 탐색되었으며, 트리 구조들은 전형적으로 효율적인 토큰 드래프팅을 허용하기 위해 추론 전에 미리 결정된다.\n' +
+      '\n' +
+      '## 3 Experiments\n' +
+      '\n' +
+      '실험에서는 대상 모델이 동결되고 드래프트 헤드만 학습되는 시나리오에 초점을 맞춘다. Cai et al. (2024); Bhendawade et al. (2024)에 도시된 바와 같이, 공동 트레이닝은 추측 디코딩 성능을 향상시킬 수 있고, 타겟 모델의 파라미터들을 동결 상태로 유지하는 것이 실제 전개에서 더 유익할 수 있다. 고정 목표 모델을 사용하면 투기적 디코딩을 사용할 때 출력 분포의 보존을 통해 실무자는 특정 요구 사항에 맞게 다양한 옵션에서 초안 모델을 자유롭게 선택할 수 있다. 이는 추가 평가가 필요할 수 있는 대상 모델의 잠재적 변화에 대한 우려를 제거한다. 우리는 목표 모델과 초안 수장의 합동 훈련에 대한 탐구를 향후 작업으로 남겨둔다. 마지막으로, 실험 설정은 96개의 CPU와 8개의 Nvidia H100 80GB HBM3 GPU가 장착된 단일 호스트로 구성된다. 학습에는 8개의 GPU를 사용하고 추론에는 단일 GPU를 사용한다.\n' +
+      '\n' +
+      '### Training\n' +
+      '\n' +
+      '우리는 훈련 효과를 평가하기 위해 Vicuna 7B 기본 모델(Touvron et al., 2023; Chiang et al., 2023)을 사용하는 저자의 저장소에서 기존 메두사 체크포인트를 사용했다. ReDrafter는 ShareGPT(2023) 기반의 드래프팅 헤드의 2-epoch 트레이닝을 사용하여 동일한 트레이닝 스킴을 채택하였다. 이후 Alpaca Eval(Dubois et al., 2023)을 이용하여 평가를 수행하였다.\n' +
+      '\n' +
+      '메두사는 총 0.74B 매개변수에 해당하는 두 개의 ResNet 블록을 사용했지만 ReDrafter에 대한 두 가지 옵션을 평가했는데, 이는 0.33B 매개변수로 구성된 두 개의 ResNet 블록을 사용한 린 설정과 0.56B 매개변수를 포함하는 4개의 ResNet 블록을 사용한 더 무거운 설정으로 예측 성능을 향상시키는 것을 목표로 했다. 두 ReDrafter 변종 모두 메두사보다 낮은 기억 발자국을 유지한다. 그 결과는 그림 3과 같다. ReDrafter의 덜 복잡한 버전조차도 설계상의 장점 때문에 Medusa보다 성능이 우수하다는 것을 발견했다: a) ReDrafter는 더 많은 정보에 입각한 예측을 위해 숨겨진 상태와 함께 이전 토큰 데이터를 활용하고, b) ReDrafter의 통일된 머리는 공유된 정보를 통해 각 위치에서 정밀한 학습을 촉진한다. ReDrafter는 특히 더 긴 범위의 예측을 잘한다.\n' +
+      '\n' +
+      '그림 4: 절반은 RNN이 없는 단순화된 설정(\\(U=I,W=I,b=0,f(x)=x\\))을 사용하고 나머지 절반은 RNN을 통합한 30개의 연자 분석. 비교는 청색(non-RNN)과 황색(RNN) 도트 사이의 갭에 의해 예시된 모델 단순성과 복잡성 사이의 트레이드-오프를 드러낸다. 추가된 복잡성과 추론 속도 영향에도 불구하고 RNN 모델은 더 나은 정확도를 달성하여 순환 구조를 통합하는 이점을 보여준다.\n' +
+      '\n' +
+      '그림 3: 바이쿠나 7B를 기반으로 하는 메두사와 재발성 초인자의 훈련 정확도를 비교하여 다음 5개의 토큰을 예측하는 데 중점을 둔다. 메두사는 5개의 헤드를 사용하여 토큰이 \\(t+1\\)에서 \\(t+5\\)으로 예측되는 반면, 반복된 드라우터는 하나의 헤드에 의존하여 메모리 사용 감소의 혜택을 받는다. 그럼에도 불구하고, 반복 연삭자는 훈련 및 검증 세트 모두에서 더 높은 예측 정확도를 달성한다.\n' +
+      '\n' +
+      '30개의 서까래에 걸친 훈련 정확도와 추론 속도 사이의 관계를 순환 신경망이 없는 서까래와 RNN 통합의 두 가지 범주로 나누어 분석했다. 각 범주에 대해 ResNet 레이어의 수와 학습률을 조정하여 범주당 15개의 별개의 구성을 생성한다. 비-RNN 초인자에 대해, 우리는 \\(U=I\\), \\(W=I\\), \\(b=0\\) 및 동일성 함수 \\(f(x)=x\\)를 적용하는 단순화된 모델 설정을 채택했다. 추론 과정에서 탐욕 디코딩을 사용하고 공정한 비교를 위해 빔 폭을 15로 설정한다. 결과들은 그림 4와 같다. RNN이 없는 초보자들에 대해, 우리는 이 그룹 내에서 \\(t+5\\)에서의 검증 정확도와 추론 속도 사이에서 높은 피어슨 상관계수 0.907을 관찰했다. RNN이 장착된 초보자에서는 피어슨 상관계수가 0.798로 나타났다.\n' +
+      '\n' +
+      '두 그룹 간의 차이는 우리의 산점도에서 파란색과 노란색 점 사이의 간격으로 시각적으로 표시된다. 이 격차는 (RNN과 함께) 보다 복잡한 모델링 접근 방식을 사용하는 것과 관련된 트레이드 오프를 강조한다. RNN의 사용은 추가적인 계산 복잡성을 도입하지만, 추론 동안 정확도와 효율성 측면에서 모델이 잠재적으로 더 높은 천장을 달성할 수 있게 한다.\n' +
+      '\n' +
+      '### Inference\n' +
+      '\n' +
+      '본 연구에서는 7B 및 13B 크기의 Vicuna 모델에 대해 MT-벤치(Zheng et al., 2024)를 사용하여 자동 회귀(AR) 세대, 메두사 및 재발성 연자(ReDrafters)를 평가했다. 메모리 사용을 최적화하기 위해 메두사 접근법에서 사용된 KV 캐시 전략을 통합했다. 메두사의 경우 저자가 제공하는 검문소를 사용합니다. ReDrafter의 경우, ResNet 블록의 수에 대한 그리드 검색을 통해 검증 세트에서 가장 높은 정확도 체크포인트를 선택하고 메두사의 드래프터보다 크기를 작게 유지한다. 공정한 비교를 위해 배치 크기를 1로 설정하고 표 1에서 실험 결과를 보여준다. ReDrafter는 Vicuna 7B에서 Medusa의 2.28x에 비해 탐욕 디코딩에서 AR을 2.67x 앞지르는 우수한 속도를 보여주었다. 전형적인 수락 알고리즘(Hewitt et al., 2022; Cai et al., 2024)을 통합하는 것은 튜닝 온도 및 하이퍼파라미터 \\((\\epsilon,\\delta)\\을 필요로 한다. 품질 점수가 AR의 품질 점수와 비교하여 표준 편차 내에 있는 경우 품질 점수를 벤치마킹 표준으로 사용하고 가장 빠른 속도로 구성을 선택했다. 전형적인 수용으로 ReDrafter는 최대 3.28배까지 훨씬 더 큰 효율성을 달성했습니다. 이러한 경향은 Vicuna 13B 모델로 확장되며, 여기서 ReDrafter의 고급 예측 능력은 특히 더 큰 빔 크기에서 계산 부하를 최소화하기 위해 전방 통과 및 레버리지 GPU 최적화당 더 높은 수용률을 산출했다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c c c c} \\hline \\hline  & Base & Drafter Size & Tokens/Sec. & Tokens/Step & Speed-up & Quality \\\\ \\hline AR Greedy & Vicuna 7B & 0 & 35.63 & 1.00 & 1.00\\(\\times\\) & 5.84 \\\\ Medusa Greedy & Vicuna 7B & 0.74B & 81.32 & 2.52 & 2.28\\(\\times\\) & 5.88 \\\\ Medusa Typical & Vicuna 7B & 0.74B & 90.12 & 2.77 & 2.53\\(\\times\\) & 5.82 \\\\ ReDrafter Greedy & Vicuna 7B & 0.56B & **95.16** & **3.41** & **2.67\\(\\times\\)** & 5.92 \\\\ ReDrafter Typical & Vicuna 7B & 0.56B & **117.12** & **4.39** & **3.28\\(\\times\\)** & 5.87 \\\\ \\hline AR Greedy & Vicuna 13B & 0 & 28.41 & 1.00 & 1.00\\(\\times\\) & 6.37 \\\\ Medusa Greedy & Vicuna 13B & 0.95B & 67.45 & 2.61 & 2.37\\(\\times\\) & 6.36 \\\\ Medusa Typical & Vicuna 13B & 0.95B & 73.92 & 2.83 & 2.60\\(\\times\\) & 6.34 \\\\ ReDrafter Greedy & Vicuna 13B & 0.90B & **83.08** & **3.71** & **2.92\\(\\times\\)** & 6.35 \\\\ ReDrafter Typical & Vicuna 13B & 0.90B & **92.22** & **4.33** & **3.24\\(\\times\\)** & 6.35 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 1: AR, 메두사 및 MT-벤치에 대한 우리의 ReDrafter 접근법의 평가. 우리의 연구 결과는 AR에 대한 메두사의 가속 이점을 복제했다. 특히, ReDrafter는 크기가 작을수록 탐욕스러운 디코딩 동안 메두사(Vicuna 7B의 경우 2.67배, 13B의 경우 2.92배)에 비해 더 큰 속도 증가(Vicuna 7B의 경우 2.28배, 13B의 경우 2.37배)를 달성했다. 전형적인 수용을 사용하여 ReDrafter는 또한 품질을 손상시키지 않으면서 훨씬 더 큰 속도 개선(비쿠나 7B의 경우 3.28x 및 13B의 경우 3.24x)의 가능성을 보여주었는데, 이는 주로 단계당 더 많은 토큰을 허용하는 더 확장된 시퀀스를 예측하는 능력 때문이다.\n' +
+      '\n' +
+      '### Analysis\n' +
+      '\n' +
+      '단계당 허용되는 토큰 수.그림 5(a)에서는 다양한 빔 크기와 생성된 출력 길이의 영향을 조사한다. 빔 크기가 증가함에 따라, 더 많은 수의 수락된 토큰들을 갖는 후보를 찾을 확률도 상승하여, 순방향 단계마다 생성되는 토큰들의 증가로 이어진다. 그리고 단계당 생성된 토큰의 수는 다양한 출력 길이에 대해 상당히 안정적이다. 이는 각 빔 크기에 대해 서로 다른 출력 길이에 걸쳐 전진 단계당 토큰의 일관된 생성을 나타내며, 긴 세대를 처리하는 ReDrafter의 강력한 성능을 보여준다.\n' +
+      '\n' +
+      '동적 트리 주의.동적 트리 주의의 구현은 더 큰 빔 크기에 대해 중요해지고, 후보를 효율적으로 압축함으로써 계산 및 메모리 요구의 상당한 감소를 가능하게 한다. 그림 5(b)는 빔 크기의 변화에도 불구하고 일관된 압축 비율을 강조하며, 압축 비율은 이상치 시나리오(99번째 및 1번째 백분위수)에서도 예측 가능하다.\n' +
+      '\n' +
+      '속도 및 처리량.우리는 GPU 활용을 최대화하기 위해 배치 크기를 최적화하는 다양한 빔 크기에 걸쳐 ReDrafter 접근법에 대한 분석을 수행한다. ReDrafter에는 Vicuna 7B를 기본 모델로 사용하여 4개의 ResNet 레이어가 장착되어 있습니다. 분석은 무작위로 선택된 128개의 프롬프트에 대해 수행되었다. 결과는 그림 6(a)에 나와 있다. 토큰/초(파란색 선으로 표시됨) 측면에서 ReDrafter가 AR보다 훨씬 우수합니다. 빔 크기가 확장됨에 따라 ReDrafter는 충분한 계산 자원을 감안할 때 훨씬 더 큰 토큰/초를 달성할 수 있는 잠재력을 가지고 있다. 그러나 배치 크기가 4를 초과하면 계산 병목 현상이 발생하여 토큰/초가 감소한다. 그럼에도 불구하고 전체 처리량(빨간색 선으로 표시됨, 배치 크기에 토큰/초를 곱한 것으로 계산됨)은 계속 증가합니다. 16의 배치 크기를 넘어서, 계산 제약은 제한 요인이 되고, 배치 크기의 추가 증가는 더 이상 전체 처리량을 향상시키지 않는다. 이 점 이상으로 배치 크기를 밀면 전체 추론이 느려질 위험이 있습니다. 그림 6(b)에서 트리 주의를 구현하는 것이 ReDrafter에 대한 계산 및 메모리 병목 현상을 완화하여 더 높은 처리량과 더 높은 토큰/초를 가능하게 할 수 있음을 보여준다. 실제 배포에서는 균형 잡힌 의사 결정을 위해 속도와 처리량을 모두 고려할 수 있습니다.\n' +
+      '\n' +
+      '도 5: (a) 순방향 단계당 수락된 토큰들의 카운트는 생성된 출력 길이가 변할 때 안정적이다. 다음 5개의 토큰을 예측할 수 있도록 연삭자를 훈련합니다. (b) 동적 트리 어텐션은 검증 프로세스 동안 시퀀스 압축을 용이하게 하며, 여기서 x축 및 y축은 타겟 모델에 의해 검증될 토큰의 수를 나타낸다.\n' +
+      '\n' +
+      '거부 샘플링 대 전형적인 수용.표 2에 나타난 상이한 샘플링 온도에서 그들의 속도와 품질에 대한 거절 샘플링 대 전형적인 수용의 분석을 수행한다. 거절 샘플링과 달리(Leviathan et al., 2023; Chen et al., 2023a), 전형적인 수용(Cai et al., 2024)은 타겟 모델과의 분포 일치를 보장하지 않는다. 대신 조건부 확률 \\(p(\\hat{x}_{t+1}|x_{\\leq t})\\)이 특정 임계값을 초과하면 제안된 토큰 \\(\\hat{x}_{t+1}\\)을 승인한다. \\(\\epsilon,\\delta\\exp(-H(p(\\cdot|x_{\\leq t}))\\), \\(\\epsilon,\\delta\\)은 조정 가능한 하이퍼파라미터이고 \\(H(\\cdot)\\)는 엔트로피 함수이다. 이러한 하이퍼파라미터에 대한 조정은 샘플링 분포에 상당한 영향을 미칠 수 있으며 결과적으로 생성 품질에 현저한 영향을 관찰한다. Cai et al.(2024)의 권고에 따라 우리는 \\(\\epsilon=0.3\\) 및 \\(\\delta=0.09\\)을 설정하여 이러한 설정을 동등한 온도에서 거부 샘플링과 정렬했다. 우리의 경험적 조사는 온도가 0.7보다 낮을 때 우리의 방법에 대한 두 샘플링 접근법 간에 유사한 성능을 보여주며, 0.9와 같은 더 높은 온도 설정에서 일반적인 샘플링은 저성능으로 인해 거부 샘플링에 비해 품질 점수가 크게 떨어질 수 있다. 이러한 불일치는 하이퍼파라미터의 이상적인 선택보다 적기 때문일 수 있다.\n' +
+      '\n' +
+      '## 4 Conclusions\n' +
+      '\n' +
+      '본 논문에서는 대용량 언어 모델의 생성 효율을 향상시키기 위한 새로운 접근 방법을 소개한다. 우리의 방법, 재발성 연삭기는 단일 드래프트 헤드를 사용한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c} \\hline \\hline  & Temp. & Speed-up & Quality \\\\ \\hline Greedy Decode & 0.0 & 1.00\\(\\times\\) & 1.00\\(\\times\\) \\\\ \\hline Rejection Sampling & 0.1 & 2.58 \\(\\pm\\) 0.06\\(\\times\\) & 1.00 \\(\\pm\\) 0.02\\(\\times\\) \\\\  & 0.3 & 2.93 \\(\\pm\\) 0.06\\(\\times\\) & 1.01 \\(\\pm\\) 0.02\\(\\times\\) \\\\  & 0.5 & 3.02 \\(\\pm\\) 0.05\\(\\times\\) & 0.99 \\(\\pm\\) 0.02\\(\\times\\) \\\\  & 0.7 & 3.13 \\(\\pm\\) 0.06\\(\\times\\) & 0.97 \\(\\pm\\) 0.03\\(\\times\\) \\\\  & 0.9 & 3.43 \\(\\pm\\) 0.05\\(\\times\\) & 0.93 \\(\\pm\\) 0.03\\(\\times\\) \\\\ \\hline Typical Acceptance & 0.1 & 2.62 \\(\\pm\\) 0.05\\(\\times\\) & 1.00 \\(\\pm\\) 0.02\\(\\times\\) \\\\  & 0.3 & 2.88 \\(\\pm\\) 0.06\\(\\times\\) & 0.99 \\(\\pm\\) 0.03\\(\\times\\) \\\\  & 0.5 & 3.02 \\(\\pm\\) 0.04\\(\\times\\) & 0.98 \\(\\pm\\) 0.01\\(\\times\\) \\\\  & 0.7 & 3.17 \\(\\pm\\) 0.04\\(\\times\\) & 0.97 \\(\\pm\\) 0.02\\(\\times\\) \\\\  & 0.9 & 3.49 \\(\\pm\\) 0.05\\(\\times\\) & 0.86 \\(\\pm\\) 0.03\\(\\times\\) \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 2: 속도 비교, 토큰/초, 거부 샘플링의 품질 및 다양한 온도에서 일반적인 허용. 우리는 자동 회귀 생성의 탐욕스러운 디코딩의 속도와 품질 점수를 베이스라인으로 사용한다.\n' +
+      '\n' +
+      '도 6: (a) 다양한 빔을 갖는 AR 및 ReDrafter에 대한 속도(토큰/초) 및 처리량(배치 크기*토큰/초) (b) ReDrafter w, w/o tree attentaion에 대한 속도 및 처리량. RD는 ReDrafter의 약자입니다.\n' +
+      '\n' +
+      '반복적인 종속성 설계 이것은 여러 인기 있는 언어 모델에서 경험적으로 입증된 바와 같이 효과를 유지하면서 추론 프로세스를 단순화한다. 본 논문에서 제안하는 방법은 추론적 디코딩 프레임워크 하에서 대용량 언어 모델을 제공하기 위한 실용적이고 효율적인 솔루션을 제공한다.\n' +
+      '\n' +
+      '인정합니다. 원고에 대한 논평과 제안에 대해 배리 테오발드, 프랭크 추, 량량 조, 루밍 팡, 샘 와이즈먼, 리 시우준, 루 지윤에게 감사드린다.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* Anil et al. (2023) Rohan Anil, Andrew M Dai, Orhan Firat, Melvin Johnson, Dmitry Lepikhin, Alexandre Passos, Siamak Shakeri, Emanuel Taropa, Paige Bailey, Zhifeng Chen, et al. Palm 2 기술 보고서. _ arXiv preprint arXiv:2305.10403_, 2023.\n' +
+      '* Bhendawade et al. (2024) Nikhil Bhendawade, Irina Belousova, Qichen Fu, Henry Mason, Mohammad Rastegari, and Mahyar Najibi. 추측 스트리밍: 보조 모델 없이 빠른 llm 추론_ arXiv preprint arXiv:2402.11131_, 2024.\n' +
+      '* Brown et al. (2020) Tom Brown, Benjamin Mann, Nick Ryder, Melanie Subbiah, Jared D Kaplan, Prafulla Dhariwal, Arvind Neelakantan, Pranav Shyam, Girish Sastry, Amanda Askell, et al. 언어 모델은 소수의 학습자를 의미한다. _ 신경 정보 처리 시스템_, 33:1877-1901, 2020의 발전.\n' +
+      '* Cai et al. (2024) Tianle Cai, Yuhong Li, Zhengyang Geng, Hongwu Peng, Jason D Lee, Deming Chen, and Tri Dao. Medusa: 다중 디코딩 헤드를 갖는 간단한 llm 추론 가속 프레임워크 _ arXiv preprint arXiv:2401.10774_, 2024.\n' +
+      '* Chen et al. (2023a) Charlie Chen, Sebastian Borgeaud, Geoffrey Irving, Jean-Baptiste Lespiau, Laurent Sifre, and John Jumper. 추측 샘플링으로 대용량 언어 모델 디코딩을 가속화합니다. _ arXiv preprint arXiv:2302.01318_, 2023a.\n' +
+      '* Chen et al. (2023b) Ziyi Chen, Xiaocong Yang, Jiacheng Lin, Chenkai Sun, Jie Huang, and Kevin Chen-Chuan Chang. 더 빠른 llm 추론을 위한 연쇄추론 제도 arXiv preprint arXiv:2312.11462_, 2023b.\n' +
+      '* Chiang et al. (2023) Wei-Lin Chiang, Zhuohan Li, Zi Lin, Ying Sheng, Zhanghao Wu, Hao Zhang, Lianmin Zhang, Siyuan Zhuang, Yonghao Zhuang, Joseph E. Gonzalez, Ion Stoica, and Eric P. Xing. Vicuna: 90% 채팅 품질을 가진 gpt-4를 인상하는 오픈 소스 챗봇, 3월 2023. URL[https://lmsys.org/blog/2023-03-30-vicuna/](https://lmsys.org/blog/2023-03-30-vicuna/]).\n' +
+      '* Dubois et al. (2023) Yann Dubois, Chen Xuechen Li, Rohan Taori, Tianyi Zhang, Ishaan Gulrajani, Jimmy Ba, Carlos Guestrin, Percy S Liang, and Tatsunori B Hashimoto. Alpacaafarm: 인간의 피드백으로부터 학습하는 방법들에 대한 시뮬레이션 프레임워크. _ 신경 정보 처리 시스템_, 36, 2023의 발전.\n' +
+      '* Fu et al. (2024) Yichao Fu, Peter Bailis, Ion Stoica, and Hao Zhang. Lookahead decoding을 사용하여 llm 추론의 순차적 종속성을 끊는다. _ arXiv preprint arXiv:2402.02057_, 2024.\n' +
+      '* He et al. (2016) Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun. 이미지 인식을 위한 딥 잔차 학습. In _Proceedings of the IEEE conference on computer vision and pattern recognition_, pp. 770-778, 2016.\n' +
+      '* He et al. (2023) Zhenyu He, Zexuan Zhong, Tianle Cai, Jason D Lee, and Di He. 휴식: 검색 기반 추측 디코딩. _ arXiv preprint arXiv:2311.08252_, 2023.\n' +
+      '* Hewitt et al. (2022) John Hewitt, Christopher D Manning, and Percy Liang. 언어 모델 디스무딩으로서 절단 샘플링. _ ARXiv 프리프린트 arXiv:2210.15191_, 2022.\n' +
+      '* Leviathan et al. (2023) Yaniv Leviathan, Matan Kalman, and Yossi Matias. 추측 디코딩을 통한 변압기로부터의 빠른 추론. In _International Conference on Machine Learning_, pp. 19274-19286. PMLR, 2023.\n' +
+      '*Li 등(2020)*Li 등(2024) Yuhui Li, Fangyun Wei, Chao Zhang, and Hongyang Zhang. 이글: 추측 샘플링은 특징 불확실성을 재고해야 합니다. _ arXiv preprint arXiv:2401.15077_, 2024.\n' +
+      '* Liu et al. (2023) Xiaoxuan Liu, Lanxiang Hu, Peter Bailis, Ion Stoica, Zhijie Deng, Alvin Cheung, and Hao Zhang. 온라인 추측 디코딩. _ arXiv preprint arXiv:2310.07177_, 2023.\n' +
+      '* Miao et al. (2023) Xupeng Miao, Gabriele Oliaro, Zhihao Zhang, Zinhao Cheng, Zeyu Wang, Rae Ying Yee Wong, Zhuoming Chen, Daiyau Anfeen, Reyna Abhyankar, 및 Zhihao Jia. Specinfer: 추론 및 토큰 트리 검증 기능을 제공하는 생성 llm 가속화. _ arXiv preprint arXiv:2305.09781_, 2023.\n' +
+      '* Mikolov and Zweig (2012) Tomas Mikolov and Geoffrey Zweig. 맥락 종속 순환 신경망 언어 모델. _2012 IEEE Spoken Language Technology Workshop(SLT)_, pp. 234-239, 2012. doi: 10.1109/SLT.2012.6424228.\n' +
+      '* Sharegpt(2023) Sharegpt. Sharegpt, 2023. URL[https://huggingface.co/datasets/anon8231489123/Sharegpt_Vicuna_unfiltered](https://huggingface.co/datasets/anon8231489123/Sharegpt_Vicuna_unfiltered)\n' +
+      '* Spector and Re(2023) Benjamin Spector and Chris Re. 단계적 추측 디코딩으로 llm 추론을 가속화한다. _ arXiv preprint arXiv:2308.04623_, 2023.\n' +
+      '* Touvron et al. (2023) Hugo Touvron, Thibaut Lavril, Gautier Izacard, Xavier Martinet, Marie-Anne Lachaux, Timothee Lacroix, Baptiste Roziere, Naman Goyal, Eric Hambro, Faisal Azhar, et al. Llama: Open and efficient foundation language models. _ arXiv preprint arXiv:2302.13971_, 2023.\n' +
+      '* Yang et al. (2023) Nan Yang, Tao Ge, Liang Wang, Binxing Jiao, Daxin Jiang, Linjun Yang, Rangan Majumder, and Furu Wei. 참고적으로 추론: 대규모 언어 모델의 무손실 가속. _ arXiv preprint arXiv:2304.04487_, 2023.\n' +
+      '* Zheng et al. (2024) Lianmin Zheng, Wei-Lin Chiang, Ying Sheng, Siyuan Zhuang, Zhanghao Wu, Yonghao Zhuang, Zi Lin, Zhuohan Li, Dacheng Li, Eric Xing, et al. 신경 정보 처리 시스템_, 36, 2024의 발전.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>

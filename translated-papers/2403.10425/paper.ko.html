@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# NeuFlow: 에지 장치를 이용한 로봇의 실시간, 고정밀 광학 흐름 추정\n' +
+      '\n' +
+      'Zhiyong Zhang\\({}^{1}\\), Huaizu Jiang\\({}^{2}\\), Hanumant Singh\\({}^{1}\\)\n' +
+      '\n' +
+      '보스턴 북동부 대학, MA 02115. zhang.zhiy@northeastern.edu ha.singh@northeastern.edu\\({}^{2}\\)Khoury Computer Sciences, Northeastern University, Boston, MA 02115. h.jiang@northeastern.edu ha.singh@northeastern.edu\\({}^{1}\\)\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      '실시간 고정밀 광학 흐름 추정은 로봇 공학에서의 위치 결정 및 매핑, 물체 추적 및 컴퓨터 비전에서의 활동 인식 등 다양한 응용 분야에서 중요한 요소이다. 최근의 학습 기반 광학 흐름 방법은 높은 정확도를 달성했지만 종종 많은 계산 비용을 수반한다. 본 논문에서는 높은 정확도와 계산 비용 문제를 모두 해결하는 고효율 광학 흐름 구조인 NeuFlow를 제안한다. 이 아키텍처는 글로벌 대 로컬 방식을 따릅니다. 서로 다른 공간 해상도에서 추출된 입력 영상의 특징을 고려할 때, 전역 정합을 사용하여 1/16 해상도에서 초기 광학 흐름을 추정하여 큰 변위를 캡처한 다음 더 나은 정확도를 위해 경량 CNN 레이어로 1/8 해상도에서 정제한다. 다양한 컴퓨팅 플랫폼에서 효율성 향상을 입증하기 위해 제슨 오린 나노 및 RTX 2080에 대한 접근 방식을 평가한다. 우리는 비슷한 정확도를 유지하면서 여러 최첨단 방법에 비해 주목할 만한 10-80배 속도 향상을 달성한다. 우리의 접근법은 에지 컴퓨팅 플랫폼에서 약 30 FPS를 달성하며, 이는 드론과 같은 소형 로봇에 SLAM과 같은 복잡한 컴퓨터 비전 작업을 배치하는 데 중요한 돌파구를 나타낸다. 전체 교육 및 평가 코드는 [https://github.com/neufieldrobotics/NeuFlow](https://github.com/neufieldrobotics/NeuFlow)에서 사용할 수 있다.\n' +
+      '\n' +
+      '## I Introduction\n' +
+      '\n' +
+      '컴퓨터 비전(1)의 기본 작업인 광학 흐름 추정은 물체 추적(2, 3), 움직임 분석(4), 장면 이해(5), 시각 오도메트리(6, 7)와 같은 다양한 응용 분야에서 중추적인 역할을 한다. 광학 흐름은 이미지 [8]에서 밝기 패턴들의 움직임의 겉보기 속도들의 분포를 지칭하며, 이는 객체들과 뷰어 [9, 10]의 상대적인 움직임으로부터 기인할 수 있다. 특히, 실시간 광학 흐름 추정은 로봇 공학[12]에서 자율 주행 시스템[13], 증강 현실[14], 및 [15]를 넘어서까지, 동적 장면[11]의 신속하고 정확한 분석이 요구되는 시나리오에서 큰 의미를 갖는다.\n' +
+      '\n' +
+      '최근, 높은 정확도의 광학 흐름 추정(16, 17, 18, 19, 20)을 달성하는 것을 목표로 하는 알고리즘 및 기술의 개발에 상당한 발전이 이루어졌다. FlowNet[16]에서 시작하여 Lucas-Kanade[21] 또는 SIFT[22, 23]와 같이 손으로 조작한 특징에 의존하지 않고 매칭을 위한 특징을 학습하는 학습 기반 광학 흐름 방법이 등장하였다. 그러나, 초기 광학 흐름 방법들은 여전히 큰 변위 및 모호성(19)이라는 두 가지 주요한 문제들을 겪는다. 최근의 딥 러닝 방법[18, 24, 19, 25, 20, 26]은 계산 시간을 희생시키면서 이러한 문제를 어느 정도 해결하는 데 진전을 이루었다.\n' +
+      '\n' +
+      '초기 광학 흐름 방법은 CNN(Convolutional Neural Networks) 및 이미지 특징의 국부 상관 관계에 의존하며, 이는 이러한 기술의 제한된 작동 범위로 인해 작은 변위 픽셀 움직임만을 포착할 수 있다[19]. RAFT [18] 및 GMA [24]와 같은 최근 솔루션은 이러한 문제를 완화하기 위해 반복적인 방법을 사용한다. GmFlow[19] 또는 CRAFT[25]와 같은 트랜스포머 기반 접근 방식은 글로벌 주의[27] 계층을 활용하여 문제를 해결합니다. 그러나 반복 방법은 큰 변위 광학 흐름을 추정하기 위해 수많은 반복이 필요하다[18].\n' +
+      '\n' +
+      '도. 1: 공통 컴퓨팅 플랫폼(Nvidia RTX 2080) 상의 초당 엔드 포인트 에러(EPE) v.s. 프레임(FPS) 처리량. 개별 포인트는 광범위한 종류의 광학 흐름 방법을 나타낸다. 우리의 알고리즘은 정확도는 비슷하지만 계산 복잡도 측면에서 훨씬 더 우수하다(규모에 가깝다). 모든 모델은 비행물과 비행 의자에 대해서만 훈련했습니다.\n' +
+      '\n' +
+      '도. 2: NeuFlow의 광학 흐름 결과: 왼쪽에 있는 것은 표준 KITTI 데이터 세트의 결과이다. 오른쪽에는 북극의 UAS 비행 초저대비 빙하 이미지의 결과가 있다. 우리의 접근법은 그림 1과 같이 계산 효율과 속도 및 정확성 모두에서 주목할 만하다.\n' +
+      '\n' +
+      '그리고 글로벌 어텐션은 두 이미지에 걸쳐 각 쌍 픽셀 간의 상관 관계를 계산하며, 둘 다 상당한 계산 비용을 초래한다[25].\n' +
+      '\n' +
+      '또 다른 과제는 모호성이며, 이는 폐색 및 질감이 없는 영역[28]을 포함하고, 전형적으로 동일한 객체에 속할 가능성이 있는 픽셀들을 집계함으로써 해결된다[24]. CNN의 제한된 수용 분야와 국소 상관 범위에 의해 제한되는 초기 광학 흐름 방법은 이러한 문제를 글로벌 방식으로 해결하기 위해 노력한다[19]. 자기 주의를 갖는 트랜스포머 기반 모델은 전역 특징 집계를 활용하여 모호성 문제를 실제로 어느 정도 해결할 수 있다. 그러나, 그것들은 또한 전체 해상도가 아닌 이미지의 1/8 해상도를 작업할 때에도 높은 계산 비용을 수반한다[25].\n' +
+      '\n' +
+      '본 논문에서는 에지 장치에서 _real-time_ 광류 추정을 위한 새로운 광류 모델인 NeuFlow를 제안한다. 도 1에 도시된 바와 같다. 2, NeuFlow는 Jetson Orin Nano에서 30fps로 실행되어 512\\(\\times\\)384의 해상도로 영상을 처리한다. 구체적으로, 먼저 서로 다른 크기의 영상 피라미드에서 입력 영상을 인코딩하기 위해 서로 다른 경량 CNN(Convolutional Neural Networks)을 사용한다. 입력 이미지 간에 정보를 공유하기 위해 교차 주의에 의해 강화된다. 그런 다음, 전역 매칭은 낮은 이미지 스케일(1/16)에서 채택되어 계산 부담이 작은 큰 변위를 캡처하고, 모호한 영역에서 추정을 개선하기 위해 자기 주목 모듈에 의해 정제된다. 초기 광학 흐름은 로컬 정제를 위해 CNN 층들을 갖는 1/8 스케일에서 추가로 프로세싱된다. 글로벌 매칭보다 훨씬 빠르게 실행되므로 더 높은 공간 해상도에서 작동하도록 설계되었습니다. 마지막으로, 볼록 업샘플링 모듈을 통해 풀-해상도 광학 흐름을 획득한다.\n' +
+      '\n' +
+      '표준 벤치마크에 대한 실험, FlyingChairs 및 FlyingThings 데이터셋에 대한 훈련, Full-resolution flow를 위한 FlyingThings 및 Sintel 데이터셋에 대한 평가를 수행한다. 도. 도 1은 RTX 2080에서 초당 프레임 대비 종점 오차를 보여준다. RAFT, GMFlow 및 GMA를 포함한 최신 광학 흐름 방법과 비교할 수 있는 정확도를 달성하면서도 10배 빠르다. Flow former는 가장 높은 정확도를 달성하지만, 우리의 방법보다 70배 더 느리다.\n' +
+      '\n' +
+      '우리의 주요 기여는 광학 흐름 시스템입니다. 우리는 후처리(예:_e.g._, 압축, 가지치기) 없이 에지 장치에서 실시간 추론을 보장하고 동시에 높은 정확도를 보장하는 설계 선택을 한다. 저희 코드와 모델 가중치가 공개되었습니다. NeuFlow를 커뮤니티와 공유함으로써 UAS 및 기타 SWaP-C에 포함된 로봇 차량에서 차세대 로봇 SLAM, 시각적 SLAM 및 시각적 관성 오도메트리 애플리케이션에 힘을 실어줄 것이라고 믿는다.\n' +
+      '\n' +
+      '##2 관련 업무\n' +
+      '\n' +
+      'FlowNet[16]은 광학 흐름 추정을 위한 최초의 종단 간 컨볼루션 네트워크로서, 종단 간 훈련 및 벤치마킹을 위한 합성 플라잉체어 데이터세트와 함께 FlowNetS 및 FlowNetC의 두 가지 변형을 제안한다. 개선된 버전인 FlowNet 2.0 [17]은 작은 변위 모듈을 가진 융합 캐스케이드 FlowNet을 사용하여 추정 오차를 50% 이상 감소시켰다.\n' +
+      '\n' +
+      'FlowNet[16]에 이어 연구자들은 경량 광학 흐름 방법을 모색했다. SPyNet[29]은 고전적인 공간-피라미드 공식을 결합하여 광학 흐름을 계산했으며 모델 매개변수 측면에서 FlowNet보다 96% 작은 모델을 제공한다. PWC-Net[30]은 FlowNet2[17] 모델보다 크기가 17배 작았다. LiteFlowNet[31]은 모델 크기가 30배 작고 주행 속도가 1.36배 빠른 반면 FlowNet 2[17]와 비슷한 결과를 보이는 대체 네트워크를 제시하였다. LiteFlowNet 2[32]는 2.2배 빠른 반면 각 데이터 세트의 광학 흐름 정확도를 약 20% 향상시켰다. LiteFlowNet 3[33]은 국부적인 흐름 일관성을 탐색함으로써 흐름 정확도를 더욱 향상시켰다. VCN[34]은 볼륨 인코더-디코더 아키텍처를 활용하여 큰 수용 필드를 효율적으로 캡처하여 정확도를 유지하면서 계산 및 매개변수를 줄인다. DCFlow[35]는 직접 비용 볼륨 처리를 통해 정확한 광학 흐름을 추정한다. DCVNet[36]을 결합한 새로운 접근법\n' +
+      '\n' +
+      '도. 3: NeuFlow Architecture: 우리는 얕은 CNN 백본으로 시작한다. 백본은 두 이미지에 대해 1/8 및 1/16 스케일로 특징 벡터를 출력한다. 그런 다음 1/16 스케일의 특징 벡터는 전역 매칭을 위해 두 개의 교차 주의 계층에 공급된다. 결과적인 흐름은 특징 자기 유사성에 기초하여 흐름 전파를 위해 자기 주목 계층으로 전달된다. 이어서, 플로우를 업샘플링하여 1/8 해상도 플로우를 얻는다. 우리는 흐름으로 1/8 피쳐를 포장하고 7x7 창 내에서 국소 미세화를 수행한다. 그런 다음 정제된 1/8 흐름은 볼록 업샘플링 모듈을 사용하여 풀-해상도 흐름을 얻기 위해 업샘플링되며, 이는 추가로 이미지 1로부터 1/8 특징을 필요로 한다.\n' +
+      '\n' +
+      '확장된 비용 볼륨 및 3D 컨볼루션은 다른 광학 흐름 추정 접근법과 유사한 정확도를 달성하면서 1080ti GPU에 대한 실시간 추론을 입증했다.\n' +
+      '\n' +
+      '보다 최근에, RAFT [18]은 추론 시간, 트레이닝 속도 및 파라미터 카운트에서 높은 효율뿐만 아니라 강한 교차 데이터 세트 일반화를 달성하기 위해 순환 올 쌍 필드 변환을 사용했다. GMA[24]는 폐색에 의해 야기되는 모호성을 해결하기 위해 전역 모션 집성을 사용하였다. GmFlow[19]는 높은 정확도와 효율성을 모두 달성하기 위해 글로벌 매칭 문제로 광학 흐름을 재구성했다. CRAFT[25]는 상관 볼륨 계산을 활성화하기 위해 교차 주의 흐름 변압기를 사용했다. Flow former[20, 26]은 옵티컬 플로우 학습을 위한 트랜스포머 기반의 신경망 구조를 도입하여 새로운 최첨단 성능을 달성하였다. 많은 작업[37, 38, 39, 40, 41, 42, 43]도 계산 비용을 줄이거나 흐름 정확도를 개선하기 위해 제안된다.\n' +
+      '\n' +
+      '## III 제안된 접근법: NeuFlow\n' +
+      '\n' +
+      '우리는 높은 정확도와 효율성을 모두 달성하는 광학 흐름을 위한 글로벌 대 로컬 아키텍처인 NeuFlow를 소개한다. NeuFlow의 아키텍처의 예시가 그림 3에 나와 있다. 처음에 얕은 CNN 백본은 다중 스케일 이미지 피라미드에서 낮은 수준의 특징을 추출한다. 다음으로, 전 지구적 교차 주의와 자기 주의는 큰 변위의 문제를 해결하기 위해 1/16 척도로 적용된다. 이어서, 고정밀 광학 흐름을 산출하기 위해 1/8 스케일로 국소 미세화가 수행된다. 그런 다음 컨벡스 업샘플링을 사용하여 풀-해상도 흐름을 생성한다.\n' +
+      '\n' +
+      '### _Shallow CNN Backbone_\n' +
+      '\n' +
+      '대부분의 광학 흐름 방법은 특징 추출을 위해 비교적 깊은 CNN 백본을 사용하지만, 우리는 광학 흐름 작업에 입력 이미지의 높은 수준의 의미적 인코딩이 필요하지 않다고 믿는다. 대신에, 충분한 낮은 수준의 기능들이 더 중요하다. 따라서 접근법에서 그림 4와 같이 이미지의 여러 축척에서 피쳐를 직접 추출하기 위해 간단한 CNN 블록을 사용한다.\n' +
+      '\n' +
+      '간단한 CNN 블록들은 입력 이미지들의 다양한 스케일들로부터 특징들을 추출하기 위해 사용된다. 각각의 블록은 단지 2개의 CNN 계층들, 활성화 함수들 및 정규화를 포함한다. 이 설계는 이미지에서 직접 많은 수의 하위 레벨 피쳐를 추출하는 것을 우선시합니다. 고수준 CNN은 다른 스케일의 피쳐를 병합하기 위해만 사용된다.\n' +
+      '\n' +
+      '### _Global Cross-Attention_\n' +
+      '\n' +
+      'GMFlow[19]와 유사하게 우리는 트랜스포머[27]를 사용하여 전역 교차 주의를 구현한다. 이 메커니즘은 이미지 1의 피쳐를 쿼리로, 이미지 2의 피쳐를 키와 값으로 모두 가져옵니다. 이 메커니즘은 매칭 피처들의 구별성을 향상시키고 매칭되지 않은 피처들의 유사성을 감소시킨다.\n' +
+      '\n' +
+      '그런 다음 전역 매칭을 적용하여 해당 피쳐를 찾습니다. 로컬 회귀 기반 광학 흐름 방법과 달리 이 접근법은 이미지 쌍 간의 흐름 범위를 제한하지 않는다. 결과적으로, FlyingThings[44]와 같이 픽셀 변위가 큰 데이터 세트에서 잘 수행되며, 빠르게 움직이는 카메라 상황을 포함하여 실제 시나리오에서 더 큰 안정성을 나타낸다.\n' +
+      '\n' +
+      '도. 4: NeuFlow Shallow CNN Backbone: 초기, 우리는 이미지를 1/1 스케일에서 1/16 스케일에 이르는 상이한 스케일로 다운샘플링한다. 이후 CNN 블록을 이용하여 특징을 추출한다. 1/1, 1/2, 1/4 및 1/8 스케일의 특징 벡터는 단일 1/8 특징 벡터로 연결된다. 그런 다음, 1/8 특징 벡터를 1/16 특징 벡터와 병합하기 위해 다른 CNN 블록이 채용되어, 1/16 특징 벡터가 생성된다. 1/16 특징 벡터는 전역적 관심을 위해 사용되고, 1/8 특징 벡터는 국부적 정제를 위해 사용된다. CNN 블록은 활성화 함수 및 정규화 계층과 함께 2개의 CNN 계층으로만 구성된다. CNN 계층들의 커널 크기 및 보폭은 네트워크의 업스트림 및 다운스트림의 입력 및 출력 치수들에 의존한다. 풀-해상도 이미지로부터 추가적인 1/8 특징을 추출하여 볼록 업샘플링을 수행한다.\n' +
+      '\n' +
+      '그러나, 전역적 관심은 이미지 내의 모든 픽셀들 간의 상관 관계를 계산함에 따라 상당히 느린 경향이 있다. 이러한 많은 계산 부하로 인해, 많은 트랜스포머 기반 광학 흐름 방법들은 더 낮은 해상도(1/8)에서 동작하지만, 너무 느리게 유지된다. 제안된 방법에서는 1/16 해상도 특징에서 전역 교차 주의를 구현하고 2개의 레이어를 쌓는다. 또한 약간의 속도 향상을 위해 플래시 주의[45]를 적용합니다.\n' +
+      '\n' +
+      '### _Flow Self-Attention_\n' +
+      '\n' +
+      '픽셀 매칭을 위한 교차-어텐션 메커니즘은 모든 매칭 픽셀이 이미지 쌍에서 볼 수 있다는 가정 하에 동작한다. 그러나 이러한 가정이 항상 정확한 것은 아니다. 경계외 픽셀 및 폐색된 픽셀은 이러한 가정을 위반할 수 있으며, 이는 광학 흐름 추정에 상당한 모호성 문제를 제기한다. 이 문제를 해결하기 위해, 우리는 픽셀의 유사성을 전역적으로 평가하기 위해 특징에 대한 전역적 자기 주의를 통합한다. 이를 통해 우리는 이러한 유사성을 기반으로 보이지 않는 흐름을 전파할 수 있다. 또한, 이 프로세스의 구현은 향상된 속도를 위해 플래시-어텐션을 사용하여 최적화될 수 있다.\n' +
+      '\n' +
+      '### _Local Refinement_\n' +
+      '\n' +
+      '이미지의 1/16 스케일에서의 교차-어텐션이 픽셀의 전역적 대응 관계를 이미 확립했기 때문에, 우리는 더 큰 스케일, 특히 우리의 경우 1/8에서의 국부적 미세화에 초점을 맞춘다. 초기에는 1/16 스케일로 계산된 흐름을 사용하여 이미지 2의 특징을 왜곡하여 이미지 쌍에서 일치하는 픽셀이 작은 범위 내에 가깝게 위치하도록 한다. 이 범위 내에서 가장 잘 일치하는 픽셀을 결정하기 위해, 우리는 이미지 1의 각 픽셀과 워핑된 이미지 2의 근처 7x7 픽셀의 로컬 상관 관계를 계산한다. 특징 벡터 및 추정된 거친 흐름은 또한 1/8 스케일에서 델타 흐름을 추정하기 위해 딥 CNN 레이어에 통합되고 공급된다.\n' +
+      '\n' +
+      '### _Upsampling Module_\n' +
+      '\n' +
+      'GmFlow 및 RAFT와 같은 최신 광학 흐름 방법과 유사하게 1/8 해상도에서 광학 흐름을 추정한 다음 흐름을 전체 해상도로 업샘플링하는 방식을 채택한다. 업샘플링 모듈은 RAFT의 접근법과 유사하며, 여기서 고해상도 흐름 필드의 각 픽셀은 다음과 같이 결정된다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{|c|c|c|c|c|c|} \\hline\n' +
+      '1/8 Res (120x66) & Things (val, clean) & Things (val, final) & RTX 2080 (s) & Jetson Orin Nano (s) & Batch Size (8G) \\\\ \\hline FlowFormer & 0.463 & **0.394** & 0.819 & N/A & 2 \\\\ FlowFormer (small) & 1.244 & 1.111 & 0.647 & N/A & 2 \\\\ GMFlow (1 iter) & **0.434** & 0.411 & 0.114 & 0.994 & 8 \\\\ RAFT (12 iiers) & 0.574 & 0.527 & 0.136 & 0.830 & 10 \\\\ GMA (6 iters) & 0.608 & 0.528 & 0.142 & 0.914 & 6 \\\\ \\hline NeuFlow & 0.525 & 0.518 & **0.010** & **0.078** & **56** \\\\ \\hline\n' +
+      '1/8 Res (128x54) & Sintel (train, clean) & Sintel (train, final) & RTX 2080 (s) & Jetson Orin Nano (s) & Batch Size (8G) \\\\ \\hline FlowFormer & **0.145** & **0.313** & 0.700 & N/A & 2 \\\\ FlowFormer (small) & 0.195 & 0.355 & 0.548 & N/A & 2 \\\\ GMFlow (1 iter) & 0.188 & 0.367 & 0.096 & 0.816 & 10 \\\\ RATT (12 iiers) & 0.217 & 0.365 & 0.118 & 0.747 & 14 \\\\ GMA (6 iters) & 0.198 & 0.370 & 0.139 & 0.733 & 8 \\\\ \\hline NeuFlow & 0.220 & 0.394 & **0.008** & **0.068** & **72** \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table} TABLE II: This table compares latest optical flow methods when outputting 1/8 resolution flow, all models are trained with FlyingThings and FlyingChairs: NeuFlow is optimized for higher accuracy and efficiency at 1/8 resolution flow. We achieve significantly higher accuracy than RAFT (12 iters) and GMA (6 iters) on the FlyingThings dataset. Additionally, NeuFlow is 80 times faster than FlowFormer and 12 times faster than GmFlow, RAFT, and GMA on both GPU platforms.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{|c|c|c|c|c|c|c|} \\hline Full Res (960x540) & Things (val, clean) & Things (val, final) & RTX 2080 (s) & Jetson Orin Nano (s) & Batch Size (8G) & Params \\\\ \\hline FlowFormer & 3.488 & **2.774** & 0.834 & N/A & 2 & 16.17M \\\\ FlowFormer (small) & 9.773 & 8.745 & 0.661 & N/A & 2 & 6.18M \\\\ GMFlow (1 iter) & **3.271** & 3.123 & 0.115 & 1.000 & 8 & 4.68M \\\\ RAFT (12 iters) & 4.122 & 3.775 & 0.142 & 0.878 & 8 & 5.26M \\\\ GMA (6 iters) & 4.396 & 3.785 & 0.145 & 0.936 & 4 & 5.88M \\\\ \\hline NeuFlow & 3.846 & 3.828 & **0.013** & **0.097** & **42** & **3.85M** \\\\ \\hline Full Res (1024x436) & Sintel (train, clean) & Sintel (train, final) & RTX 2080 (s) & Jetson Orin Nano (s) & Batch Size (8G) & Params \\\\ \\hline FlowFormer & **1.004** & **2.401** & 0.715 & N/A & 2 & 16.17M \\\\ FlowFormer (small) & 1.324 & 2.679 & 0.534 & N/A & 2 & 6.18M \\\\ GMFlow (1 iter) & 1.495 & 2.955 & 0.097 & 0.820 & 10 & 4.68M \\\\ RAFT (12 iters) & 1.548 & 2.791 & 0.124 & 0.760 & 8 & 5.26M \\\\ GMA (6 iters) & 1.423 & 2.866 & 0.141 & 0.747 & 8 & 5.88M \\\\ \\hline NeuFlow & 1.660 & 3.126 & **0.011** & **0.084** & **64** & **3.85M** \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table} TABLE I: This table compares latest optical flow methods when outputting full-resolution flow, all models are trained with FlyingThings and FlyingChairs: FlowFormer achieves the highest accuracy but is 70 times slower than NeuFlow. GmFlow achieves 20% higher accuracy than NeuFlow on the FlyingThings dataset and demonstrates similar accuracy on Sintel; however, NeuFlow is 10 times faster. Compared to RAFT (12 items) and GMA (6 iters), NeuFlow achieves comparable accuracy on both the FlyingThings and Sintel datasets, while being 12 times faster. Additionally, the batch size indicates that NeuFlow consumes less memory.\n' +
+      '\n' +
+      '네트워크에 의해 예측된 가중치를 사용하여 9개의 거친 해상도 이웃의 볼록 조합. 그러나 1/16 축척과 1/8 축척에서 정합을 위해 사용되는 특징을 활용하는 대신 그림 4와 같이 간단한 CNN 블록을 사용하여 원본 이미지에서 특징을 직접 추출한다. 이 방법을 통해 더 미세한 세부 정보를 가진 특징 맵을 얻을 수 있으며, 이로 인해 추가적인 계산 시간을 희생하더라도 전체 해상도 흐름의 정확도를 시각적으로 향상시킬 수 있다.\n' +
+      '\n' +
+      '## IV Experiments\n' +
+      '\n' +
+      '###_훈련 및 평가 데이터세트_\n' +
+      '\n' +
+      '일반적인 옵티컬 플로우 트레이닝 과정은 일반적으로 3단계로 나뉘는데, 1단계는 FlyingChairs 데이터세트에 대한 트레이닝을 포함하고, 2단계는 FlyingThings 데이터세트에 대한 트레이닝을 수반한다. 3단계는 신텔[46], 키티[47] 및 HD1K를 포함하는 혼합 데이터 세트에 대한 훈련을 포함한다. 우리는 FlowNet 2에서 도출된 훈련 및 평가 코드를 활용하여 동일한 절차를 따른다.\n' +
+      '\n' +
+      '서로 다른 광학 흐름 모델의 공정한 비교를 위해 3단계(Sintel+Kitti+HD1K)가 아닌 2단계(FlyingThings)의 훈련 결과를 비교한다. 이 결정은 여러 가지 요인에 의해 동기가 부여된다. 첫째, 서로 다른 연구자들은 서로 다른 데이터 세트에 대해 다양한 훈련 비율을 사용할 수 있으며, 잠재적으로 특정 데이터 세트에 대해 더 많이 훈련된 모델에 대해 결과를 편향시킬 수 있다. 또한, 이러한 데이터 세트의 제한된 제출은 검증 프로세스를 복잡하게 만든다.\n' +
+      '\n' +
+      '2단계는 FlyingChairs 훈련과 FlyingThings 훈련 세트만을 포함하기 때문에 FlyingThings 테스트 세트와 신텔 훈련 세트 모두에서 모델의 유효성을 검증한다. FlyingThings 데이터 세트는 빠른 이동 광학 흐름을 추정하는 모델의 능력을 테스트하는 큰 변위 때문에 문제를 제시한다. 한편, 신텔 데이터 세트에 대한 검증은 동일한 도메인의 데이터에 대해 훈련되지 않았기 때문에 모델의 교차 데이터 세트 일반화를 입증하는 데 도움이 된다.\n' +
+      '\n' +
+      '###_최신 광학 흐름 방법_비교\n' +
+      '\n' +
+      '본 논문에서 제안한 방법을 RAFT, GMA, GmFlow, Flow former(표 I)와 같은 우수한 정확도로 알려진 여러 최신 광학 흐름 방법과 비교하는 것으로 시작한다. 그러나 CRAFT는 RTX 2080의 계산 요구로 인해 평가할 수 없었으며, RTX 2080과 에지 컴퓨팅 플랫폼 Jetson Orin Nano의 계산 시간뿐만 아니라, Sintel의 경우 1024x436, FlyingThings의 경우 960x540의 이미지 크기를 고려하여 Sintel과 FlyingThings 데이터 세트의 정확도 차이에 초점을 맞추었다. 추론 배치 크기는 또한 다른 모델의 메모리 사용을 평가하기 위해 8GB GPU 메모리에서 측정된다.\n' +
+      '\n' +
+      '이러한 방법 중 FlowFormer가 가장 높은 정확도를 달성한다. 그러나 본 논문에서 제안한 방법은 RTX 2080에서 약 70배 느린 성능을 보이며, FlowFormer는 더 작은 모델 버전을 제공하지만, 큰 변위 데이터 세트인 FlyingThings에서는 성능이 제대로 발휘되지 못하고, 본 논문에서 제안한 방법보다 약 60배 느린 성능을 보인다. 불행히도, Flow former는 평가를 위해 Jetson Orin Nano에서 구현될 수 없었다.\n' +
+      '\n' +
+      'GmFlow는 1/8 이미지 스케일에서 동작하는 글로벌 어텐션 메커니즘으로 인해 큰 변위(FlyingThings)를 갖는 데이터 세트에서 우리의 방법보다 약간 더 나은 정확도를 나타내는 반면, 우리의 방법은 1/16 스케일에서 동작한다. 특히, GmFlow는 FlyingThings 데이터셋에서 제안한 방법에 비해 20%의 정확도 향상을 보였으며, 신텔 데이터셋에서도 유사한 성능을 보였다. 그러나 우리의 방법은 다양한 해상도에 걸쳐 두 GPU 플랫폼에서 GmFlow보다 약 10배 더 빠른 효율성을 자랑한다.\n' +
+      '\n' +
+      'RAFT와 GMA는 모두 광학 흐름 추정치를 정제하기 위해 다중 반복을 활용한다. 우리는 RAFT에 대해 12번의 반복과 GMA에 대해 6번의 반복을 고려하는데, 이는 그러한 반복에서 우리의 방법과 비교하여 유사한 정확도를 달성하기 때문이다. 특히, 큰 변위를 특징으로 하는 FlyingThings 데이터 세트에서, 본 방법은 깨끗한 세트에서 RAFT 및 GMA 모두를 능가하고 최종 세트에서 비교 가능하게 수행한다. 픽셀 이동이 상대적으로 작은 신텔 데이터 세트에서, 우리의 방법은 유사한 정확도를 달성한다. 이러한 결과는 대규모 변위 시나리오를 처리하는 데 있어 글로벌 주의 메커니즘의 효율성을 강조하는 동시에 다양한 해상도에서 두 GPU에서 RAFT 및 GMA보다 12배 더 빠른 속도를 나타낸다. 계산 시간의 공정한 비교를 보장하기 위해 혼합 정밀 계산을 비활성화한다.\n' +
+      '\n' +
+      '1/8-해상도 Flow__###_비교\n' +
+      '\n' +
+      'SLAM과 같은 특정 응용에서는 다운스트림 연산에 대한 계산 부담을 줄이기 위해 전체 해상도 대신 1/8 이미지 해상도를 사용하는 것이 일반적이다. 최근의 광학 흐름 방법들은 1/8 해상도 흐름을 얻기 위해 동일한 접근법을 채택하고, 풀 해상도 흐름을 제공하기 위해 업샘플링 모듈을 채용한다. 우리의 접근법은 이 방식을 따르며 특히 에지 컴퓨팅 플랫폼에서 실시간 요구 사항을 충족하기 위해 1/8 이미지 해상도에 최적화된다.\n' +
+      '\n' +
+      '테이블 II는 비교 결과를 예시한다. 전체 해상도에 비해 계산 시간이 적으면서 비교적 높은 정확도를 얻을 수 있다. 예를 들어, FlyingThings 데이터셋에서는 1/8 해상도 흐름에서 RAFT(12iters)와 GMA(6iters)를 크게 능가하는 반면, 전체 해상도 흐름에서는 성능 이점이 두드러지지 않는다.\n' +
+      '\n' +
+      '###_Local Regression-based Optical Flow Methods와의 비교__\n' +
+      '\n' +
+      '그런 다음 FlowNet 2, PWC-Net 및 LiteFlownet 시리즈(LiteFlownet 1, LiteFlownet 2, LiteFlownet 3)와 같은 인기 있는 방법을 포함하는 로컬 회귀 기반 CNN 광학 흐름 방법과 접근법을 비교했다(표 III). CNN의 제한된 수용 분야와 제한된 지역 상관 범위 때문에 이러한 방법 중 어느 것도 대규모 변위 데이터세트 FlyingThings에 대해 훈련되었음에도 불구하고 적절하게 수행되지 않았다. 우리의 접근법은 또한 신텔 데이터 세트에서 이러한 국소 회귀 광학 흐름 방법을 일관되게 능가하여 대략 40%의 정확도 향상을 보여준다.\n' +
+      '\n' +
+      '로컬 회귀 기반 광학 흐름 방법은 일반적으로 최신 고정밀 광학 흐름 방법에 비해 더 빠른 속도를 제공한다. 계산 시간을 접근법과 공정하게 비교하기 위해 카페 대신 PyTorch 구현을 사용하기로 결정했습니다. 결과는 PWC-Net이 이러한 국소 회귀 접근법 중 가장 빠른 방법으로 등장한다는 것을 보여준다. 그러나 가장 낮은 정확도를 보이며 RTX 2080에 대한 접근 방식보다 약 3배 느리게 동작하며, FlowNet 2는 더 나은 정확도에도 불구하고 접근 방식보다 약 8배 느리게 동작한다.\n' +
+      '\n' +
+      '라이트플로우넷 시리즈는 또한 속도에서 뒤처지며 우리 시리즈보다 4~6배 느리다. LiteFlowNet 1만이 FlyingThings 데이터셋으로 구체적으로 학습된 모델을 제공하는 반면(Stage 2), LiteFlowNet 2와 3은 혼합 데이터셋으로 학습된 모델을 제공한다(Stage 3). 추가로, 표. IV는 LiteFlowNet 2와 3이 대규모 변위 데이터세트(FlyingThings)에 대해 훈련되었음에도 불구하고 적절하게 수행하지 못하는 것을 보여준다. 정당한 비교를 위해 혼합 데이터셋(Stage 3)에 대한 모델을 학습하였고, RTX 2080에서 정확도와 계산 시간 모두에서 상당한 이점을 얻었으며, LiteFlowNet 2에 대한 PyTorch 구현은 찾을 수 없었지만, 공개된 데이터는 그 속도가 PWC-Net과 유사함을 시사한다. 불행히도 우리는 최신 PyTorch 버전에만 대한 지원으로 인해 Jetson Orin Nano에서 이러한 방법을 구축하지 못했습니다.\n' +
+      '\n' +
+      '### _Overall Comparison_\n' +
+      '\n' +
+      'Nvidia RTX 2080(그림 1 참조)에서 엔드포인트 오류(EPE) 대 초당 프레임(FPS) 처리량을 표시한다. 각 점은 광학 흐름 방법을 나타낸다. 모든 모델은 FlyingChairs 및 FlyingThings 데이터 세트로 훈련됩니다. EPE는 사물 클린, 사물 파이널, 신텔 클린, 신텔 파이널의 EPE 값을 동일하게 평균하여 측정한다. 추론 시간은 사물 이미지(960x540)와 신텔 이미지(1024x436)에서 실행 시간을 평균하여 측정한다. 우리는 NeuFlow가 10x-70x 더 빠르면서도 최신 광학 흐름 방법과 유사한 정확도를 달성한다는 것을 관찰한다. 국소 회귀 기반 방법과 비교하여 정확도와 효율성 모두에서 상당한 이점이 있다. 1/8 해상도 흐름에 최적화하기 때문에 풀 해상도에 비해 더 많은 속도 이점과 정확도를 얻는다(도 5 참조). 국소 회귀 기반 광학 흐름 방법은 고정밀 1/8 흐름 다음에 이어지는 동일한 방식을 준수하지 않기 때문에\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{|c|c|c|c|} \\hline Full Res (960x540) & Things (val, clean) & Things (val, final) & RTX 2080 (s) \\\\ \\hline LiteFlowNet 2 & 10.395 & 10.205 & N/A \\\\ LiteFlowNet 3 (pytorch) & 9.856 & 9.692 & 0.050 \\\\ \\hline NeuFlow & **4.044** & **4.025** & **0.013** \\\\ \\hline Full Res (1024x436) & Sintel (train, clean) & Sintel (val, final) & RTX 2080 (s) \\\\ \\hline LiteFlowNet 2 & 1.559 & 1.944 & N/A \\\\ LiteFlowNet 3 (pytorch) & 1.451 & 1.920 & 0.042 \\\\ \\hline NeuFlow & **0.987** & **1.294** & **0.011** \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table} TABLE IV: This table compares NeuFlow with LiteFlowNet 2 and 3. As these models do not provide models trained solely on the C+T dataset, we compare them with models trained with mixed datasets. NeuFlow consistently demonstrates a significant advantage in both accuracy and efficiency on both the FlyingThings and Sintel datasets.\n' +
+      '\n' +
+      '도. 5: 1/8 해상도 흐름을 출력하면서 Nvidia RTX 2080 상의 엔드 포인트 에러(EPE) v.s. 프레임 per second(FPS) 모든 모델은 비행물과 비행 의자에 대해서만 훈련했습니다. NeuFlow는 1/8 해상도에서 정확도와 효율에 최적화되어 전체 해상도 흐름보다 더 많은 이점을 얻을 수 있다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{|c|c|c|c|} \\hline Full Res (960x540) & Things (val, clean) & Things (val, final) & RTX 2080 (s) \\\\ \\hline FlowNet 2 (pytorch) & 6.782 & 6.774 & 0.091 \\\\ PWC-Net (pytorch) & 8.098 & 8.168 & 0.033 \\\\ LiteFlowNet (pytorch) & 9.033 & 9.018 & 0.072 \\\\ \\hline NeuFlow & **3.846** & **3.828** & **0.013** \\\\ \\hline Full Res (1024x436) & Sintel (train, clean) & Sintel (train, final) & RTX 2080 (s) \\\\ \\hline FlowNet 2 (pytorch) & 2.222 & 3.639 & 0.085 \\\\ PWC-Net (pytorch) & 2.643 & 4.060 & 0.029 \\\\ LiteFlowNet (pytorch) & 2.588 & 4.058 & 0.059 \\\\ \\hline NeuFlow & **1.660** & **3.126** & **0.011** \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table} TABLE III: This table compares NeuFlow with local regression-based optical flow methods, all models are trained with FlyingThings and FlyingChairs: NeuFlow consistently demonstrates a significant advantage in both accuracy and efficiency on both the FlyingThings and Sintel datasets. Inference time is measured using PyTorch implementations of each model.\n' +
+      '\n' +
+      '8x 업샘플링 모듈은 1/8 해상도 흐름에 대한 정확도가 낮아지므로 이 도표에서 제외했다.\n' +
+      '\n' +
+      '제슨 오린 나노의 추론 시간\n' +
+      '\n' +
+      '에지 컴퓨팅 플랫폼에서 실시간 성능을 낼 수 있는 광학 흐름 방법을 개발하는 것이 우리의 궁극적인 목표이므로, 다양한 이미지 해상도에서 Jetson Orin Nano에서 초당 추론 프레임(FPS)을 측정했다(표 V). SLAM과 같은 1/8 해상도의 광류를 활용하는 응용에 대해서도 FPS를 측정하였다. 대부분의 비전 응용 프로그램은 이미지 스트림을 처리하고 연속 프레임에서 광학 흐름을 추정하기 때문에 이전 프레임의 백본이 이미 계산되었으며, 이는 다음 연속 두 프레임의 광학 흐름 추정에 활용될 수 있다. 따라서 백본 신경망에 한 프레임만 공급할 때 FPS를 측정했다. 그 결과, 전체 해상도의 광류를 출력할 때 더 작은 영상에서는 약 30 FPS, 1/8 해상도의 광류를 출력할 때 더 큰 영상에서는 36 FPS를 얻을 수 있음을 알 수 있었다.\n' +
+      '\n' +
+      '## V 결론 및 향후 작업\n' +
+      '\n' +
+      '본 논문에서는 Jetson Orin Nano와 같은 엣지 컴퓨팅 플랫폼에서 실시간 옵티컬 플로우 추정을 가능하게 하는 새로운 옵티컬 플로우 아키텍처 NeuFlow를 제안하였다. NeuFlow는 FlyingThings 및 Sintel 데이터 세트 모두에서 유사한 정확도로 최신 광학 흐름 방법보다 10x-80x 더 빠르다. 따라서 NeuFlow는 다양한 사용 사례에 걸쳐 더 나은 성능을 보장합니다. 우리는 커뮤니티가 적합하다고 생각하는 대로 사용, 수정 및 실험할 수 있도록 NeuFlow([https://github.com/neufieldrobotics/NeuFlow](https://github.com/neufieldrobotics/NeuFlow])의 코드 및 모델 가중치를 발표했다.\n' +
+      '\n' +
+      '그러나, 우리는 또한 특정 사용자에게 더 높은 정확도를 위해 약간의 계산 시간을 희생하는 것이 필요할 수 있다는 것을 인식한다. 반대로, 효율성의 추가적인 향상도 가능하다. 따라서 모델을 확장하고 더 높은 정확성 또는 더 높은 효율성을 달성하기 위한 많은 옵션이 있으며 이는 향후 작업으로 남긴다.\n' +
+      '\n' +
+      '**Higher Accuracy.** 모델을 다양한 방식으로 확장하는 것은 특징 차원을 확장(우리들은 90)하거나, 더 많은 교차 주의 계층을 적층하거나, CNN 백본의 깊이를 증가시키거나, 로컬 정제 단계에서 CNN 계층을 추가하는 것과 같이 효과적일 수 있다. 추가적으로, 반복적 개선은 또한 정확도를 향상시키기 위한 옵션이다.\n' +
+      '\n' +
+      '국부적 미세화는 또한 1/16 해상도로 적용되어 이 낮은 해상도에서 흐름을 미세화할 수 있으며, 이는 개선된 흐름을 더 높은 해상도로 전파할 수 있다. 또한, 더 높은 해상도에서 글로벌 주의 및 로컬 개선을 활용할 수 있다. 예를 들어, GmFlow와 유사하게 1/8 해상도에서 전역 교차 주의를 수행하고 1/4 해상도에서 정제할 수 있어 모든 해상도 흐름에서 향상된 정확도를 약속한다.\n' +
+      '\n' +
+      '**Higher Efficiency.** 우리의 접근법은 네이티브 CNN 아키텍처를 일관되게 채용하지만, 효율성을 더욱 향상시킬 수 있는 몇 가지 더 효율적인 CNN 아키텍처가 이용 가능하다. 예를 들어, 모바일넷[48, 49, 50]은 경량 심층 신경망을 구성하기 위해 깊이별 분리 가능한 컨벌루션을 활용하는 반면, 셔플넷[51]은 정확도를 유지하면서 계산 비용을 줄이기 위해 포인트별 그룹 컨벌루션 및 채널 셔플 기법을 활용한다.\n' +
+      '\n' +
+      'NVIDIA TensorRT와 같은 다른 기술은 최적화된 런타임 성능을 위해 낮은 지연 시간과 높은 처리량을 제공한다. 훈련 및 추론 동안 16비트 이하의 정밀도를 사용하는 혼합 정밀 기술은 추론을 상당히 빠르게 하고 현대 GPU에서 메모리 사용을 줄일 수 있다. 네트워크 프루닝은 또한 비교 가능한 정확도를 유지하면서 중복 파라미터를 제거함으로써 무거운 네트워크의 크기를 줄이는 데 효과적이다.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* [1] D. Fortun, P. Bouthemy, and C. Kervrann, "Optical flow modeling and computation: A survey," _Computer Vision and Image Understanding_, vol. 134, pp. 1-21, 2015.\n' +
+      '* [2] J. Shin, S. Kim, S. Kang, S.-W. Lee, J. Paik, B. Abidi, and M. Abidi, "Optical flow-based real-time object tracking using non-prior training active feature model," _Real-time imaging_, vol. 11, no. 3, pp. 204-218, 2005.\n' +
+      '* [3] K. Kale, S. Pawar, and P. Dhulekar, "Moving object tracking using optical flow and motion vector estimation," in _2015 4th international conference on reliability, infocom technologies and optimization (ICRITO)(trends and future directions)_. IEEE, 2015, pp. 1-6.\n' +
+      '* [4] J. K. Aggarwal and Q. Cai, "Human motion analysis: A review," _Computer vision and image understanding_, vol. 73, no. 3, pp. 428-440, 1999.\n' +
+      '* [5] I. Saleemi, L. Hartung, and M. Shah, "Scene understanding by statistical modeling of motion patterns," in _2010 IEEE Computer Society Conference on Computer Vision and Pattern Recognition_. IEEE, 2010, pp. 2069-2076.\n' +
+      '* [6] Z. Teed and J. Deng, "Droid-slam: Deep visual slam for monocular, stereo, and rgb-d cameras," _Advances in neural information processing systems_, vol. 34, pp. 16 558-16 569, 2021.\n' +
+      '* [7] P. Muller and A. Savakis, "Flowodometry: An optical flow and deep learning based approach to visual odometry," in _2017 IEEE Winter Conference on Applications of Computer Vision (WACV)_. IEEE, 2017, pp. 624-631.\n' +
+      '* [8] B. K. Horn and B. G. Schunck, "Determining optical flow," _Artificial intelligence_, vol. 17, no. 1-3, pp. 185-203, 1981.\n' +
+      '* [9] J. J. Gibson, "The perception of the visual world." 1950.\n' +
+      '* [10] ----, "The senses considered as perceptual systems." 1966.\n' +
+      '* [11] Y. Liu and J. Miura, "Rdmo-slam: Real-time visual slam for dynamic environments using semantic label prediction with optical flow," _Ieee Access_, vol. 9, pp. 106 981-106 997, 2021.\n' +
+      '* [12] T. Whelan, R. F. Salas-Moreno, B. Glocker, A. J. Davison, and S. Leutenegger, "Elasticfusion: Real-time dense slam and light source estimation," _The International Journal of Robotics Research_, vol. 35, no. 14, pp. 1697-1716, 2016.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{|l|c|c|c|} \\hline  & Things 1x & Sintel 1x & Chairs 1x \\\\  & (960x540) & (1024x436) & (512x384) \\\\ \\hline Inference on 2 frames & 10.3 & 11.9 & 25.0 \\\\ Inference on 1 frame & 11.9 & 13.9 & 29.9 \\\\ \\hline  & Things 1/8x & Sintel 1/8x & Chairs 1/8x \\\\  & (120x06) & (128x54) & (64x48) \\\\ \\hline Inference on 2 frames & 12.8 & 14.7 & 29.4 \\\\ Inference on 1 frame & 15.4 & 17.9 & 36.4 \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table} TABLE V: NeuFlow achieves real-time performance on Jetson Orin Nano for specific image resolutions, with 1/8 resolution flow offering faster inference times. In image stream processing, only one frame needs backbone computation, as the other frame is already computed in the preceding one.\n' +
+      '\n' +
+      '* [13] A. Behl, O. Hossein Jafari, S. Karthik Mustikovela, H. Abu Alhaija, C. Rother, and A. Geiger, "Bounding boxes, segmentations and object coordinates: How important is recognition for 3d scene flow estimation in autonomous driving scenarios?" in _Proceedings of the IEEE International Conference on Computer Vision_, 2017, pp. 2574-2583.\n' +
+      '* [14] P. Jain, J. Manweiler, and R. Roy Choudhury, "Overlay: Practical mobile augmented reality," in _Proceedings of the 13th Annual International Conference on Mobile Systems, Applications, and Services_, 2015, pp. 331-344.\n' +
+      '* [15] H. Chao, Y. Gu, and M. Napolitano, "A survey of optical flow techniques for robotics navigation applications," _Journal of Intelligent & Robotic Systems_, vol. 73, pp. 361-372, 2014.\n' +
+      '* [16] A. Dosovitsky, P. Fischer, E. Ilg, P. Hausser, C. Hazirbas, V. Golkov, P. Van Der Smagt, D. Cremers, and T. Brox, "Flownet: Learning optical flow with convolutional networks," in _Proceedings of the IEEE international conference on computer vision_, 2015, pp. 2758-2766.\n' +
+      '* [17] E. Ilg, N. Mayer, T. Saikia, M. Keuper, A. Dosovitskiy, and T. Brox, "Flownet 2.0: Evolution of optical flow estimation with deep networks," in _Proceedings of the IEEE conference on computer vision and pattern recognition_, 2017, pp. 2462-2470.\n' +
+      '* [18] Z. Teed and J. Deng, "Ratt: Recurrent all-pairs field transforms for optical flow," in _Computer Vision-ECCV 2020: 16th European Conference, Glasgow, UK, August 23-28, 2020, Proceedings, Part II 16_. Springer, 2020, pp. 402-419.\n' +
+      '* [19] H. Xu, J. Zhang, J. Cai, H. Rezatofighi, and D. Tao, "Gmflow: Learning optical flow via global matching," in _Proceedings of the IEEE/CVF conference on computer vision and pattern recognition_, 2022, pp. 8121-8130.\n' +
+      '* [20] Z. Huang, X. Shi, C. Zhang, Q. Wang, K. C. Cheung, H. Qin, J. Dai, and H. Li, "Flowformer: A transformer architecture for optical flow," in _European conference on computer vision_. Springer, 2022, pp. 668-685.\n' +
+      '* [21] B. D. Lucas and T. Kanade, "An iterative image registration technique with an application to stereo vision," in _IJCAI\'81: 7th international joint conference on Artificial intelligence_, vol. 2, 1981, pp. 674-679.\n' +
+      '* [22] D. G. Lowe, "Distinctive image features from scale-invariant keypoints," _International journal of computer vision_, vol. 60, pp. 91-110, 2004.\n' +
+      '* [23] C. Liu, J. Yuen, A. Torralba, J. Sivic, and W. T. Freeman, "Sift flow: Dense correspondence across different scenes," in _Computer Vision-ECCV 2008: 10th European Conference on Computer Vision, Marseille, France, October 12-18, 2008, Proceedings, Part III 10_. Springer, 2008, pp. 28-42.\n' +
+      '* [24] S. Jiang, D. Campbell, Y. Lu, H. Li, and R. Hartley, "Learning to estimate hidden motions with global motion aggregation," in _Proceedings of the IEEE/CVF international conference on computer vision_, 2021, pp. 9772-9781.\n' +
+      '* [25] X. Sui, S. Li, X. Geng, Y. Wu, X. Xu, Y. Liu, R. Goh, and H. Zhu, "Craft: Cross-attentional flow transformer for robust optical flow," in _Proceedings of the IEEE/CVF conference on Computer Vision and Pattern Recognition_, 2022, pp. 17 602-17 611.\n' +
+      '* [26] X. Shi, Z. Huang, D. Li, M. Zhang, K. C. Cheung, S. See, H. Qin, J. Dai, and H. Li, "Flowformer++: Masked cost volume autoencoding for pretraining optical flow estimation," in _Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition_, 2023, pp. 1599-1610.\n' +
+      '* [27] A. Vaswani, N. Shazeer, N. Parmar, J. Uszkoreit, L. Jones, A. N. Gomez, L. Kaiser, and I. Polosukhin, "Attention is all you need," _Advances in neural information processing systems_, vol. 30, 2017.\n' +
+      '* [28] Z. Tu, W. Xie, D. Zhang, R. Poppe, R. C. Veltkamp, B. Li, and J. Yuan, "A survey of variational and cnn-based optical flow techniques," _Signal Processing: Image Communication_, vol. 72, pp. 9-24, 2019.\n' +
+      '* [29] A. Ranjan and M. J. Black, "Optical flow estimation using a spatial pyramid network," in _Proceedings of the IEEE conference on computer vision and pattern recognition_, 2017, pp. 4161-4170.\n' +
+      '* [30] D. Sun, X. Yang, M.-Y. Liu, and J. Kautz, "Pvc-net: Cnns for optical flow using pyramid, warping, and cost volume," in _Proceedings of the IEEE conference on computer vision and pattern recognition_, 2018, pp. 8934-8943.\n' +
+      '* [31] T.-W. Hui, X. Tang, and C. C. Loy, "Liteflownet: A lightweight convolutional neural network for optical flow estimation," in _Proceedings of the IEEE conference on computer vision and pattern recognition_, 2018, pp. 8981-8989.\n' +
+      '* [32] ----, "A lightweight optical flow cnn--revisiting data fidelity and regularization," _IEEE transactions on pattern analysis and machine intelligence_, vol. 43, no. 8, pp. 2555-2569, 2020.\n' +
+      '* [33] T.-W. Hui and C. C. Loy, "Liteflownet3: Resolving correspondence ambiguity for more accurate optical flow estimation," in _Computer Vision-ECCV 2020: 16th European Conference, Glasgow, UK, August 23-28, 2020, Proceedings, Part XX 16_. Springer, 2020, pp. 169-184.\n' +
+      '* [34] G. Yang and D. Ramanan, "Volumetric correspondence networks for optical flow," _Advances in neural information processing systems_, vol. 32, 2019.\n' +
+      '* [35] J. Xu, R. Ranftl, and V. Koltun, "Accurate optical flow via direct cost volume processing," in _Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition_, 2017, pp. 1289-1297.\n' +
+      '* [36] H. Jiang and E. Learned-Miller, "Dcvnet: Dilated cost volume networks for fast optical flow," in _Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision_, 2023, pp. 5150-5157.\n' +
+      '* [37] H. Xu, J. Yang, J. Cai, J. Zhang, and X. Tong, "High-resolution optical flow from 1d attention and correlation," in _Proceedings of the IEEE/CVF International Conference on Computer Vision_, 2021, pp. 10 498-10 507.\n' +
+      '* [38] S. Jiang, Y. Lu, H. Li, and R. Hartley, "Learning optical flow from a few matches," in _Proceedings of the IEEE/CVF conference on computer vision and pattern recognition_, 2021, pp. 16 592-16 600.\n' +
+      '* [39] F. Zhang, O. J. Woodford, V. A. Prisacariu, and P. H. Torr, "Separable flow: Learning motion cost volumes for optical flow estimation," in _Proceedings of the IEEE/CVF international conference on computer vision_, 2021, pp. 10 807-10 817.\n' +
+      '* [40] M. Hofinger, S. R. Bulo, L. Porzi, A. Knapitsch, T. Pock, and P. Kontschieder, "Improving optical flow on a pyramid level," in _European Conference on Computer Vision_. Springer, 2020, pp. 770-786.\n' +
+      '* [41] J. Hur and S. Roth, "Iterative residual refinement for joint optical flow and occlusion estimation," in _Proceedings of the IEEE/CVF conference on computer vision and pattern recognition_, 2019, pp. 5754-5763.\n' +
+      '* [42] J. Wang, Y. Zhong, Y. Dai, K. Zhang, P. Ji, and H. Li, "Displacement-invariant matching cost learning for accurate optical flow estimation," _Advances in Neural Information Processing Systems_, vol. 33, pp. 15 220-15 231, 2020.\n' +
+      '* [43] P. Truong, M. Danelljan, and R. Timofte, "Glu-net: Global-local universal network for dense flow and correspondences," in _Proceedings of the IEEE/CVF conference on computer vision and pattern recognition_, 2020, pp. 6258-6268.\n' +
+      '* [44] N. Mayer, E. Ilg, P. Hausser, P. Fischer, D. Cremers, A. Dosovitskiy, and T. Brox, "A large dataset to train convolutional networks for disparity, optical flow, and scene flow estimation," in _Proceedings of the IEEE conference on computer vision and pattern recognition_, 2016, pp. 4040-4048.\n' +
+      '* [45] T. Dao, D. Fu, S. Ermon, A. Rudra, and C. Re, "Flashattention: Fast and memory-efficient exact attention with io-awareness," _Advances in Neural Information Processing Systems_, vol. 35, pp. 16 344-16 359, 2022.\n' +
+      '* [46] D. J. Butler, J. Wulff, G. B. Stanley, and M. J. Black, "A naturalistic open source movie for optical flow evaluation," in _Computer Vision-ECCV 2012: 12th European Conference on Computer Vision, Florence, Italy, October 7-13, 2012, Proceedings, Part VI 12_. Springer, 2012, pp. 611-625.\n' +
+      '* [47] M. Menze and A. Geiger, "Object scene flow for autonomous vehicles," in _Proceedings of the IEEE conference on computer vision and pattern recognition_, 2015, pp. 3061-3070.\n' +
+      '* [48] A. G. Howard, M. Zhu, B. Chen, D. Kalenichenko, W. Wang, T. Weyand, M. Andreetto, and H. Adam, "Mobilenets: Efficient convolutional neural networks for mobile vision applications," _arXiv preprint arXiv:1704.04861_, 2017.\n' +
+      '* [49] M. Sandler, A. Howard, M. Zhu, A. Zhmoginov, and L.-C. Chen, "Mobilenetv2: Inverted residuals and linear bottlenecks," in _Proceedings of the IEEE conference on computer vision and pattern recognition_, 2018, pp. 4510-4520.\n' +
+      '* [50] A. Howard, M. Sandler, G. Chu, L.-C. Chen, B. Chen, M. Tan, W. Wang, Y. Zhu, R. Pang, V. Vasudevan _et al._, "Searching for mobilenetv3," in _Proceedings of the IEEE/CVF international conference on computer vision_, 2019, pp. 1314-1324.\n' +
+      '* [51] X. Zhang, X. Zhou, M. Lin, and J. Sun, "Shufflenet: An extremely efficient convolutional neural network for mobile devices," in _Proceedings of the IEEE conference on computer vision and pattern recognition_, 2018, pp. 6848-6856.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
