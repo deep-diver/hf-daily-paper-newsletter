@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# EfficientVAMaba: Atrous Selective Scan for\n' +
+      '\n' +
+      '가벼운 무게 비주얼 맘바\n' +
+      '\n' +
+      'Xiaohuan Pei\n' +
+      '\n' +
+      '동등기부.시드니대학교 컴퓨터학부\n' +
+      '\n' +
+      '{xpei8318,thua7590}@uni.sydney.edu.au, c.xu@sydney.edu.au\n' +
+      '\n' +
+      'Tao Huang\n' +
+      '\n' +
+      '동등기부.시드니대학교 컴퓨터학부\n' +
+      '\n' +
+      '{xpei8318,thua7590}@uni.sydney.edu.au, c.xu@sydney.edu.au\n' +
+      '\n' +
+      'Chang Xu\n' +
+      '\n' +
+      '시드니대학교 컴퓨터학부\n' +
+      '\n' +
+      '{xpei8318,thua7590}@uni.sydney.edu.au, c.xu@sydney.edu.au\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      '경량 모델 개발에 대한 이전의 노력은 주로 CNN 및 트랜스포머 기반 디자인을 중심으로 했지만 지속적인 도전에 직면했다. CNN은 지역적 특징 추출에 능숙하고 트랜스포머는 전역적 도달을 제공하지만 계산 요구는 증가시킵니다\\(\\mathcal{O}(N^{2})) 정확성과 효율성 사이의 이러한 지속적인 절충은 여전히 중요한 장애물로 남아 있다. 최근 Mamba와 같은 상태공간 모델(State Space Model, SSM)은 언어 모델링, 컴퓨터 비전 등 다양한 작업에서 뛰어난 성능과 경쟁력을 보여주면서, 글로벌 정보 추출의 시간 복잡도를 \\(\\mathcal{O}(N)\\)으로 줄였다. 이에 착안하여 본 연구에서는 경량 모델 설계에서 비주얼 상태 공간 모델의 가능성을 탐색하고 EfficientVAMaba라고 불리는 새로운 효율적인 모델 변형을 소개할 것을 제안한다. 구체적으로, EfficientVAMaba는 전역 및 지역 표현 기능을 모두 활용하도록 설계된 빌딩 블록을 구성하는 효율적인 스킵 샘플링에 의한 아토늄 기반 선택적 스캔 접근법을 통합한다. 또한, SSM 블록들과 컨볼루션들 사이의 통합을 조사하고, 추가적인 컨볼루션 브랜치와 결합된 효율적인 시각적 상태 공간 블록을 도입함으로써 모델 성능을 더욱 향상시킨다. 실험 결과는 EfficientVAMaba가 다양한 비전 태스크에 걸쳐 경쟁적인 결과를 산출하면서 계산 복잡도를 줄인다는 것을 보여준다. 예를 들어, 1.3G FLOP를 가진 EfficientVAMaba-S는 ImageNet에서 5.6% 정확도의 큰 마진으로 1.5G FLOP로 VimTi를 개선한다. 코드는 [https://github.com/TerryPei/EfficientVAMaba](https://github.com/TerryPei/EfficientVAMaba)에서 사용할 수 있다.\n' +
+      '\n' +
+      '키워드: 경량 아키텍처 효율적인 네트워크 상태 공간 모델\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      'ResNet[14], Inception[38, 39], EfficientNet[41]과 같은 모델로 예시된 컨볼루션 네트워크와 Swin-Transformer[25], Beit[1], Resformer[59]와 같은 Transformer 기반 네트워크는 영상 분류, 검출, 분할을 포함한 시각적 작업에 광범위하게 적용되어 괄목할 만한 성과를 거두고 있다. 최근 SSM(State-space Model) 기반의 네트워크인 Mamba[7]은 언어 모델링과 같은 시퀀스 모델링 작업에서 Transformers[47]에게 경쟁적인 성능을 보여주고 있다. 이에 영감을 받아 일부 작품[22, 24, 33, 55, 61]은 SSM을 비전 과제에 도입하는 데 선구적이다. 이러한 방법 중 Vmamba[24]는 여러 방향에서 이미지를 스캔하여 2차원 공간 의존성을 보존하기 위해 SS2D 방법을 도입함으로써 두드러진다.\n' +
+      '\n' +
+      '그러나 이러한 다양한 아키텍처에 의해 달성되는 인상적인 성능은 일반적으로 모델 크기의 스케일업에서 비롯되어 자원 제약 장치에 적용하는 데 중요한 도전이 된다. 경량 모델을 추구함에 있어 경쟁적 성과를 유지하면서 비전 모델의 자원 소비를 줄이기 위한 많은 연구가 진행되어 왔다. 효율적인 CNN에 대한 초기 작업은 주로 효율적인 그룹 컨볼루션[4, 15, 34], 라이트 스킵 연결[12, 27], _e.t.c_로 원래의 컨볼루션 블록을 좁히는 데 중점을 둔다. 최근 트랜스포머의 전역 표현 능력을 비전 태스크에 포함시키는 놀라운 성공으로 인해 ViT[17, 46, 49, 25]의 계산 복잡도를 줄이고 경량 모델 [19, 28, 46]에서 ViT와 CNN을 융합하는 몇 가지 작업이 제안된다. 그러나 ViT의 경량화는 보통 자기 주의에서 글로벌 캡처 능력의 손실로 얻어진다. 전역 자기 주의의 \\(\\mathcal{O}(N)\\) 시간 복잡성으로 인해 큰 해상도에서 계산 및 메모리 비용이 급격히 증가한다. 결과적으로, 기존의 효율적인 ViT 방법들은 분할된 윈도우들[17, 25, 46] 내에서 로컬 자기 주의를 수행하거나, 낮은 해상도로 더 깊은 단계에서 글로벌 자기 주의를 수행해야만 한다[19, 28]. CNN에 대한 ViT의 당혹스러운 절충과 롤백은 경량 모델을 더욱 개선하는 능력을 방해한다.\n' +
+      '\n' +
+      '본 논문에서는 SSM에서 이전에 언급한 선형 스케일링 복잡성을 상기하여, SSM을 모델 설계에 포함시킴으로써 경량 비전 모델에서 효율적인 글로벌 캡처 능력을 획득하도록 영감을 받았다. 그림 1에서 우수한 성능을 보인다. 먼저 스킵 샘플링 메커니즘을 도입하여 공간 차원에서 스캔해야 하는 토큰의 수를 줄이고, 토큰 간의 전역 수용 필드를 유지하면서 SSM의 시퀀스 모델링에서 계산 비용을 여러 번 절약한다. 반면, 컨볼루션이 로컬 표현만 충분할 때 특징 추출에 더 효율적인 방법을 제공한다는 것을 인정하는 한편, 원래 전역 SSM 분기를 보충하는 컨볼루션 분기를 도입하고 채널 어텐션 모듈인 SE[16]을 통해 이들의 특징 융합을 수행한다. 마지막으로 다양한 블록 유형의 성능을 최적 할당하기 위해 글로벌 SSM 블록과 네트워크를 구축한다.\n' +
+      '\n' +
+      '그림 1: ImageNet에서의 경량 모델 성능 비교. 효율적인 V-Mamba는 정확도와 계산 복잡도 측면에서 다양한 모델 변형에서 이전 작업을 능가한다.\n' +
+      '\n' +
+      '얕은 레이어 및 고해상도 레이어를 채택하면서 더 깊은 레이어에 효율적인 컨볼루션 블록(MobileNetV2 블록[34])을 채택합니다. 최종 네트워크는 효율적인 SSM 계산과 컨볼루션의 효율적인 통합을 달성했으며, 이미지 분류, 객체 검출 및 의미론적 분할 작업에 대한 실험을 통해 이전 CNN 및 ViT 기반 경량 모델에 비해 상당한 개선을 보여주었다.\n' +
+      '\n' +
+      '요약하면, 본 논문의 기여도는 다음과 같다.\n' +
+      '\n' +
+      '1. 공간 각 분야에서 패치된 새로운 스킵 샘플링과 재그룹핑을 통해 실현되는 아토늄 기반 선택적 스캐닝 전략을 제안한다. 전략은 계산 복잡도(\\(\\mathcal{O}(N)\\rightarrow\\mathcal{O}(N/p^{2})\\))를 줄이면서 전역 의존성을 효율적으로 추출하기 위해 빌딩 블록을 단계 \\(p\\))로 정제한다.\n' +
+      '2. 전역적 특징과 국부적 특징의 통합의 균형을 맞추기 위해 채널 어텐션 모듈과 함께 전역적 특징 캡처를 위한 효율적인 스캐닝 전략과 효율적인 국부적 특징 추출을 위한 컨볼루션 브랜치를 결합한 이중 경로 모듈을 소개한다. 또한, 보다 나은 글로벌 캡처를 위해 높은 해상도로 초기 단계에서 SSM을 촉진하고 보다 나은 효율성을 위해 낮은 해상도로 CNN을 채택함으로써 SSM 및 CNN 블록의 더 나은 할당을 제안한다.\n' +
+      '3. 영상 분류, 객체 검출 및 의미론적 분할 작업에 대한 광범위한 실험을 수행한다. 그림 1에 표시된 결과와 그림은 우리의 EfficientVAMaba가 기존 경량 모델에 비해 상당한 성능 개선을 달성하면서 모델의 FLOP를 효과적으로 감소시킨다는 것을 보여준다.\n' +
+      '\n' +
+      '도 2: 효율적인 2D 스캔 방법들(ES2D)의 일러스트레이션. (a.) Vmamba[24]는 비전 태스크에서 SS2D 방법을 채택하여 전체 행 또는 열 축을 가로지르며, 이는 많은 계산 자원을 발생시킨다. (b.) 우리는 효율적인 2D 스캐닝 방법인 ES2D를 제시한다. ES2D는 샘플링 단계를 생략하여 패치를 구성한 다음 그룹 내 순회(그림에서 2의 건너뛰기 단계)를 진행한다. 제안된 스캔 방법은 전역 특징 맵(_e.g._각 그룹은 눈 관련 패치를 포함)을 보존하면서 계산 요구량(\\(4N\\to N\\))을 줄인다.\n' +
+      '\n' +
+      '##2 관련 업무\n' +
+      '\n' +
+      '### 경량 비전 모델\n' +
+      '\n' +
+      '최근 비전 태스크의 영역은 CNN(Convolutional Neural Networks) 및 ViT(Visual Transformer) 아키텍처에 의해 지배되고 있다. 효율성을 높이기 위해 이러한 아키텍처를 경량화하는 데 중점을 둔 연구는 실용적이고 유망한 연구 방향으로 부상했다. CNN의 경우 ResNet[14], RegNet[35], DenseNet[18]과 같은 영향력 있는 아키텍처의 개발로 입증된 바와 같이 이미지 분류 정확도를 향상시키는 데 주목할 만한 발전이 이루어졌다. 이러한 발전은 정확성에서 새로운 벤치마크를 설정했지만 또한 경량 아키텍처의 필요성을 도입했다[51, 52]. 이러한 필요성은 다양한 인수분해 기반 방법을 통해 해결되어 CNN을 보다 모바일 친화적으로 만들었다. 예를 들어, Xception에 의해 도입된 분리 가능한 컨볼루션은 모바일넷[15], 셔플넷v2[27], ESP넷v2[29], 믹스콘프[42], MNAS넷[40], 및 고스트넷[13]과 같은 최첨단 경량 CNN의 개발로 이어지면서 이러한 점에서 중요한 역할을 했다. 이 모델은 다재다능할 뿐만 아니라 훈련도 비교적 간단합니다. CNN에 이어 트랜스포머는 이미지 분류, 객체 탐지, 자율 주행 등 다양한 비전 작업에서 상당한 견인력을 얻으며 빠르게 주류 접근법이 되었다. 트랜스포머의 경량화 버전은 다양한 방법을 통해 달성되었다. 교육 전면에서는 CaiT[45] 및 DeiT-III[44]와 같은 모델에서 볼 수 있듯이 Mixup[60], CutMix[58], RandAugment[6]과 같은 정교한 데이터 증강 전략과 기술이 사용되었으며, 이는 대규모 독점 데이터 세트가 필요 없이 탁월한 성능을 보여준다. 건축 설계 관점에서 자기 주의 입력 해상도를 최적화하고 계산 비용을 낮추는 주의 메커니즘을 고안하는 데 노력이 집중되었다. PVT-v1[49]의 CNN의 특징 맵 피라미드의 에뮬레이션, Swin-T[25] 및 LightViT[17]의 계층적 특징 맵 및 시프트-윈도우 메커니즘, 및 변형 DETR[62]에 (다중-스케일) 변형 가능한 주의 모듈의 도입과 같은 혁신은 이러한 발전을 예시한다. 또한 ViT에 대한 NAS가 있다[37].\n' +
+      '\n' +
+      'State Space Models\n' +
+      '\n' +
+      '상태 공간 모델(State Space Model, SSM)[9, 10, 11, 20, 31]은 시퀀스-투-시퀀스 변환을 캡슐화한 패밀리 아키텍처로, 긴 종속성을 갖는 토큰을 처리할 가능성이 있지만, 높은 계산 및 메모리 사용으로 인해 훈련하기가 어렵다. 그럼에도 불구하고 최근 연구[7, 8, 9, 11, 36]는 심층 상태 공간 모델이 CNN 및 트랜스포머와 점진적으로 더 경쟁력을 가질 수 있게 했다. 특히, S4[9]는 행렬 역산을 위해 Woodbury 아이덴티티를 활용하여 컨볼루션 커널을 효율적으로 계산하기 위해 Normal Plus Low-Rank(NPLR) 표현을 사용한다. 그런 다음 Momba[7]은 입력 특정 매개변수화와 확장 가능한 하드웨어 최적화 알고리즘을 사용하여 SSM을 향상시켜 언어 및 유전체학에 대한 긴 시퀀스를 처리하는 데 더 간단한 설계와 우수한 효율성을 달성한다. SSM의 성공에 따라 컴퓨터 비전 작업에 프레임워크를 적용하는 것이 급증했다. S4ND[30]는 먼저 SSM 블록들을 비전 태스크들에 도입함으로써, 연속적인 신호들로서 1D, 2D, 및 3D에 걸친 시각적 데이터의 모델링을 용이하게 한다. Vmamba[24]는 1D 시퀀스와 다중 채널 이미지 간의 차이로 인해 발생하는 방향 민감성 문제를 해결하기 위해 교차 스캔 모듈인 Mamba 기반 비전 백본을 개척한다. 유사하게, Vim[61]은 이미지-특정 편향 없이 데이터-의존적 글로벌 시각 컨텍스트에 대한 양방향 상태 공간 모델링을 활용하여 비전 태스크에 대한 효율적인 상태 공간 모델을 도입한다. 다양한 비전 작업에서 맘바 백본의 인상적인 성능은 전문 비전 애플리케이션을 위한 맘바 기반 모델 적응에 초점을 맞춘 연구[22, 33, 33, 34, 2]의 물결을 불러일으켰다. 최근 Vm-unet[33], U-Mamba[22], SegMamba[55]와 같은 연구들은 Mamba 기반 백본을 의료 영상 분할에 적용하고, Vm-unet의 U자형 구조, U-Mamba의 인코더-디코더 프레임워크, SegMamba의 전체 볼륨 특징 모델링과 같은 고유한 특징을 통합한다. 그래프 표현 영역에서 GraphMamba[48]은 그래프 GPS 아키텍처 내에서 GMB(Graph Guided Message Passing)와 MPNN(Message Passing Neural Networks)을 통합하여 그래프 임베딩에 대한 훈련 및 문맥 여과를 향상시킨다. 나아가, GMN [2]는 토큰화, 선택적인 위치 또는 구조적 인코딩, 국부적 인코딩, 토큰의 시퀀싱을 포괄하는 포괄적인 프레임워크를 제시하고, 그래프를 처리하기 위해 일련의 양방향 맘바 계층을 활용한다.\n' +
+      '\n' +
+      '## 3 Preliminaries\n' +
+      '\n' +
+      '### 상태공간 모델(S4)\n' +
+      '\n' +
+      '상태 공간 모델(State Space Models, SSMs)은 1차원 시퀀스를 연속적인 방식으로 매핑할 수 있는 시스템의 영향을 받는 딥 러닝에 사용되는 일반적인 시퀀스 모델이다. 이 모델들은 직접 관측할 수 없는 학습 가능한 잠재 상태\\(h(t)\\in\\mathbb{R}^{N\\times D}\\)을 활용하여 입력\\(d)\\(t)\\in\\mathbb{R}^{L\\times D}\\)을 출력 시퀀스\\(y(t)\\in\\mathbb{R}^{L\\times D}\\)으로 변환한다. 매핑 프로세스는 다음과 같이 표시될 수 있다:\n' +
+      '\n' +
+      '\\[\\begin{split}h^{\\prime}(t)&=\\mathbf{A}h(t)+\\mathbf{B}x(t),\\\\y(t)&=\\mathbf{C}h(t),\\end{split}\\tag{1}\\t]\n' +
+      '\n' +
+      '여기서 \\(\\mathbf{A}\\in\\mathbb{R}^{N\\times N}\\), \\(\\mathbf{B}\\in\\mathbb{R}^{D\\times N}\\) 및 \\(\\mathbf{C}\\in\\mathbb{R}^{D\\times N}\\).\n' +
+      '\n' +
+      '** 이산화.** 이산화는 연속 미분 방정식을 이산 함수로 변환하는 것을 목표로 하며, 보다 효율적인 계산을 위해 모델을 입력 신호의 샘플링 주파수에 정렬한다[10]. [11]에 이어서, 연속 파라미터(\\(\\mathbf{A}\\mathbf{B}=\\Delta\\mathbf{B},\\]\\[h(t)=\\bar{\\mathbf{A}}h(t),\\]\\[y(t)=\\bar{\\mathbf{A}}\\mathbf{B}=(e^{\\Delta\\mathbf{A}-\\mathbf{I})\\mathbf{B}=(e^{\\Delta\\mathbf{A}}-\\mathbf{B},\\]\n' +
+      '\n' +
+      '여기서 \\(\\bar{\\mathbf{A}\\in\\mathbb{R}^{N\\times N}\\), \\(\\bar{\\mathbf{B}\\in\\mathbb{R}^{D\\times N}\\) 및 \\(\\bar{\\mathbf{C}\\in\\mathbb{R}^{D\\times N}\\).\n' +
+      '\n' +
+      '계산을 단순화하기 위해, 수학식 2의 반복 적용은 전역 컨볼루션 접근법을 사용하여 동시에 효율적으로 수행될 수 있다.\n' +
+      '\n' +
+      '\\mathbf{y} =\\mathbf{x}\\,\\,\\raisebox{-1.72pt}{\\includegraphics[width=14.226378pt]{\\reflectbox{SBM_1}}\\tag{3}\\text{with}\\quad\\overline{\\mathbf{K}}=(\\mathbf{C}\\overline{\\mathbf{B}},\\mathbf{C}\\overline{\\mathbf{A}\\mathbf{B},...,\\mathbf{C}\\overline{\\mathbf{A}}^{L-1}\\overline{\\mathbf{B}}},\\mathbf{C}\\overline{\\mathbf{A}}^{L-1}\\overline{\\mathbf{B}}},\\mathbf{C}\\overline{\\mathbf{B}}}\\text{with}\\quad\\overline{\\mathbf{K}}=(\\mathbf{C}\\overline\n' +
+      '\n' +
+      '여기서 \\(\\,\\,\\raisebox{-1.72pt}{\\includegraphics[width=14.226378pt]{\\reflectbox{SBM_1}}\\)는 컨볼루션 연산을 나타내고, \\(\\overline{\\mathbf{K}}\\in\\mathbb{R}^{L}\\)은 SSM 커널이다.\n' +
+      '\n' +
+      '### 선택적 상태공간 모델(S6)\n' +
+      '\n' +
+      'Mamba[7]은 선택적 상태 공간 모델들을 도입함으로써 SSM의 성능을 향상시키고(S6), 입력에 따라 연속적인 파라미터들이 변할 수 있게 하는 것은 시퀀스에 걸친 선택적 정보 프로세싱을 향상시키고, 이는 선택 메커니즘에 의해 이산화 프로세스를 확장시킨다:\n' +
+      '\n' +
+      '\\[\\bar{\\mathbf{B}} = s_{\\mathbf{B}}(x), \\tag{4}\\] \\[\\bar{\\mathbf{C} = s_{\\mathbf{C}}(x),\\[\\Delta =\\tau_{\\mathbf{A}}(\\text{Parameter}+s_{\\mathbf{A}}(x)),\\\n' +
+      '\n' +
+      '여기서 \\(s_{\\mathbf{B}}(x)\\)와 \\(s_{\\mathbf{C}}(x)\\)은 입력\\(x\\)을 N차원 공간으로 투영하는 선형 함수이며, \\(s_{\\mathbf{A}}(x)\\)은 \\(D\\)차원 선형 투영을 필요한 차원으로 확장한다. 시각적 작업 측면에서 VMamba는 4개의 방향성 특징 시퀀스를 스캔하여 2차원 영상 구조의 무결성을 유지하는 2차원 선택적 스캔(SS2D) [24]를 제안하였다. 각 시퀀스는 S6 블록 내에서 독립적으로 처리된 다음 결합되어 포괄적인 2D 피처 맵을 형성한다.\n' +
+      '\n' +
+      '## 4 Method\n' +
+      '\n' +
+      '본 논문에서는 자원 제한 장치에 친화적인 경량 모델을 설계하기 위해, 효율적인 V Mamaba를 제안한다. 본 논문에서는 효율적인 선택적 스캔 기법을 도입하여 4.1절에서 계산 복잡도를 줄이고, 4.2절에서 SSM과 CNN을 통합하여 전역적 특징 추출과 지역적 특징 추출을 동시에 고려한 블록을 구축한다. 그리고, 아키텍처 설계와 관련하여, 4.4절에서는 다양한 모델 크기에 맞춘 다양한 아키텍처 변화를 심층적으로 살펴본다.\n' +
+      '\n' +
+      '### 효율적인 2D 스캐닝(ES2D)\n' +
+      '\n' +
+      '심층 신경망에서는 더 낮은 계산 비용으로 수용 영역을 넓히기 위해 풀링 또는 스트라이드 콘볼루션(strided convolution)을 통한 다운샘플링이 사용되지만, 이는 공간 해상도를 희생시킨다. 이전 작업[46, 57]은 해결을 희생하지 않고 수용 분야를 넓히는 무모한 기반 전략 이점을 적용함을 보여준다. 이러한 관찰과 선택적 스캐닝의 계산 복잡성을 완화하고 가볍게 하기 위해, 우리는 특징 맵 상의 각 패치에 대한 샘플링을 생략함으로써 시각적 선택적 스캔 블록(SS2D)을 축소하는 효율적인 2D 스캐닝(ES2D) 방법을 제안한다. 입력 특징 맵\\(\\mathbf{X}\\in\\mathbb{R}^{C\\times H\\times W}\\)이 주어지면 교차 스캔 전체 패치 대신 스텝 크기\\(p\\)의 스캔 패치를 건너뛰고 선택된 공간 차원 특징\\(\\{\\mathbf{O}_{i}\\}_{i=1}^{4}\\)으로 분할한다:\n' +
+      '\n' +
+      'bf{O}_{i}\\stackrel{{text{scan}}\\mathbf{O}_{i}\\leftarrow\\text{SS2D}(\\{\\mathbf{O}_{i}\\{i}_{i}=1}\\cos\\left(\\frac\\pi}{2}(i-2)\\frac{1}\\sin\\left(\\frac\\frac{1}{2}+\\frac{1}\\text{merge}}{\\leftarrow},\\end{split}\\frac{1}{loor\\frac{1}{2}+\\frac{1}{loor\\frac{1}{loor\\frac{1}{loor\\frac{1}{loor\\frac{1}{loor\\frac{1}{loor\\frac{1}{loor\\frac{1}{loor\\frac{1}{loor\\frac{1}{loor\\frac{1}{loor\\\n' +
+      '\n' +
+      '여기서 \\(\\mathbf{O}_{i},\\mathbf{\\tilde{O}}_{i}\\in\\mathbbb{R}^{C\\times\\frac{H}\\times\\frac{W}{p}\\) 및 연산 \\([:,m::p,n::p]\\)은 각 채널에 대한 행렬을 슬라이싱하는 것으로, 높이 \\(H\\)) 및 너비 \\(W\\)에서 시작하여 모든 \\(p\\) 단계를 스킵한다. 이 프로세스는 완전 스캔 방법을 로컬 및 글로벌 희소 형태로 분해합니다. 로컬 수용 필드에 대한 샘플링을 건너뛰면 피쳐 맵의 더 작은 패치를 선택적으로 스캔하여 계산 복잡도가 줄어듭니다. 스텝 크기\\(p\\)를 사용하여 SS2D에서 \\(C,H,W)\\)에 비해 \\(p\\) 간격으로 \\((C,H/p,W/p)\\) 패치를 샘플링하여 각 스캔 및 병합 연산에 대한 토큰 수를 \\(N\\)에서 \\(\\frac{N}{p^{2}}\\)으로 줄임으로써 특징 추출 효율을 향상시켰다. ES2D에서 전역 공간 특징 맵들에 대한 재그룹화는 특징 맵의 전역 구조를 재구성하기 위해 처리된 패치들을 결합하는 것을 포함한다. 이러한 통합은 특징 추출에서 로컬 세부 사항과 글로벌 컨텍스트의 균형을 유지하면서 보다 광범위한 컨텍스트 정보를 캡처합니다. 따라서, 본 논문의 설계는 상태 공간 아키텍처에서 전역 통합의 필수적인 이점을 유지하면서 스캐닝 및 병합 모듈을 간소화하고 특징 추출이 공간 축 상에서 포괄적으로 유지되도록 하는 것을 목표로 한다.\n' +
+      '\n' +
+      '### 효율적인 EVSS(Visual State Space Block)\n' +
+      '\n' +
+      '효율적인 선택 스캔 방법을 기반으로, 우리는 계산 효율을 유지하면서 전역적 특징 표현과 국부적 특징 표현을 상승적으로 병합하도록 설계된 효율적인 시각 상태 공간(EVSS) 블록을 소개한다. 글로벌 정보 캡처를 위해 SqueezeEdit 수정 ES2D와 중요한 로컬 특징을 추출하도록 맞춤화된 컨볼루션 분기를 활용하며, 두 분기는 후속 Squeeze-Excitation(SE) 블록[16]을 거친다. ES2D 모듈은 4.1에 제시된 지능형 스킵 메커니즘을 구현하여 전역 상황 정보를 효율적으로 추상화하는 것을 목표로 하며, 단계 크기 \\(p\\)로 지도를 선택적으로 스캔하여 결과적인 공간 차원 특징에서 전역 상황의 표현 품질을 희생시키지 않으면서 중복성을 감소시킨다. 이와 병행하여, 경험적 증거는 컨볼루션 연산이 특히 로컬 표현이 적절한 시나리오에서 특징 추출에 대한 보다 능숙한 접근법을 제공한다는 것과 일치한다. 본 논문에서는 스트라이드 1의 \\(3\\times 3\\) 컨벌루션(convolutional branch concentrates)을 통해 세밀한 국부적인 세부사항들을 분별하는 방법을 추가한다. 이후 SE 블록은 적응적으로 특징들을 재조정하여, 네트워크가 특징 맵 상에서 국부 및 전역 각각의 필드를 자동으로 재조정할 수 있도록 한다.\n' +
+      '\n' +
+      '각 SE 블록의 출력은 요소별 합산을 통해 결합되어 EVSS의 출력을 구성하고 이중 경로는 다음과 같이 표시될 수 있다.\n' +
+      '\n' +
+      '\\[\\mathbf{X}^{l+1}=\\text{SE}(\\text{ES}2\\text{D}(\\mathbf{X}^{l}))+\\text{SE}(\\text{Conv}(\\mathbf{X}^{l})), \\tag{6}\\text{\n' +
+      '\n' +
+      '여기서 \\(\\mathbf{X}^{l}\\)는 _l_-layer의 특징 맵을 나타내고 \\(\\text{SE}(\\cdot)\\)는 Squeeze-Excitation 연산이다. SE 블록을 사용하는 각 경로를 통해 EVSS는 전역 및 지역 정보의 각 특징이 동적으로 균형을 유지하여 가장 두드러진 특징을 강조한다. 이 융합은 보존을 목표로 한다.\n' +
+      '\n' +
+      '도 3: EfficientVMamba의 아키텍처 개요. 그림에서 해당 색상으로 기여도를 강조 표시합니다. (1) ES2D 4.1: 스킵 샘플링 및 공간 공간에서 재그룹핑을 통한 아트로우스 기반 선택적 스캐닝 전략. (2) EVSS 4.2: EVSS 블록은 정제된 이중-경로 특징 표현을 위해 스퀴즈-여기 블록들에 의해 강화된 컨볼루션 접근법들 및 수정된 ES2D와 글로벌 및 로컬 특징 추출을 병합한다. 역 융합 4.3: 역 융합은 전역 표현을 위해 EVSS 블록을 조기에 활용하고 국부 특징 추출을 위해 역 잔차 블록을 나중에 활용하여 전통적인 설계에서 벗어나 로컬 표현 모듈을 심층 레이어에 배치한다.\n' +
+      '\n' +
+      '광범위한 글로벌 관점과 복잡한 로컬 특정 모두의 무결성으로 포괄적인 피쳐 표현을 촉진합니다.\n' +
+      '\n' +
+      '### EfficientNet Block의 역삽입\n' +
+      '\n' +
+      '잘 정립된 합의로서, 컨볼루션 연산의 계산 효율은 트랜스포머와 같은 전역 기반 블록에 비해 더 효율적이다. 이전의 경량 작업 노력은 계산 복잡도를 줄이기 위해 토큰 수를 축소하기 위해 전자의 단계에서 계산 효율이 높은 컨볼루션을 주로 사용했으며, 이후 글로벌 기반 블록(예: 전역 기반 블록(\\(\\mathcal{O}(N^{2}))을 통합하여 후자의 단계에서 글로벌 컨텍스트를 캡처했다. 예를 들어, MobileViT[28]은 처음 두 개의 다운샘플링 단계에서 순수한 MobileNetV2 블록을 채택하는 반면, 낮은 해상도로 후단의 자기 주의 동작만을 통합한다. EfficientFormer[19]는 두 가지 유형의 기본 블록을 도입하며, 로컬 풀링이 있는 컨볼루션 기반 블록은 처음 세 단계에서 사용되며, 트랜스포머와 같은 자기 주의 블록은 마지막 단계에서만 활용된다.\n' +
+      '\n' +
+      '그러나, 관찰은 맘바 기반 블록에서 대조적이다. SSM 프레임워크에서 전역 표현을 위한 계산 복잡도는 \\(\\mathcal{O}(N)\\)이며, 이는 국부 표현 모듈을 스테이지의 전면 또는 후면에 배치하는 것이 합리적일 수 있음을 나타낸다. 표 6의 경험적 관찰을 통해 이러한 로컬 표현 모듈을 스테이지의 후층 쪽으로 위치시키면 더 나은 결과를 얻을 수 있음을 발견했다. 이 발견은 이전 CNN 기반 및 트랜스포머 기반 경량 모델의 설계 원칙에서 크게 벗어났으며, 이를 역삽입이라고 한다. 결과적으로, 본 논문에서 설계한 \\(L\\) 단계의 아키텍처는 EfficientNet Block (MobileNetV2 Block with SE module)을 역삽입한 것으로, EVSS Block 4.2를 활용하여 전역-표현을 포착하고, 역잔차 Block \\(\\text{InRes}(\\cdot)\\)[34]을 다음 단계에서 활용하여 국부 특징 맵을 추출한다:\n' +
+      '\n' +
+      '\\begin{cases}&\\text{EVSS}(\\mathbf{X}^{l+1}=\\begin{cases}&\\text{EVSS}(\\mathbf{X}^{l})\\qquad\\text{if}\\quad X^{l}\\in\\text{stage1},\\text{stage2}\\text{stage2};\\\\\\text{InRes}(\\mathbf{X}^{l})\\qquad\\text{otherwise},\\end{cases}\\tag{7}\\text{if}\\qquad\\text{l}\\text{stage1},\\text{stage2}\\text{InRes}(\\mathbf{X}^{l}}\\qquad\\text{otherwise},\\end{cases}\\tag{7}\\text{if}\\qq\\text{l}\\text{stage1},\\text{stage2}\\text{InRes}(\\mathbf{X}^{l}}\\text{\n' +
+      '\n' +
+      '여기서 \\(\\mathbf{X}^{l}\\)는 \\(l\\)-레이어의 특징 맵이다. 병목 사이에 바로 가기를 직접 사용하는 반전 삽입 설계는 메모리 효율이 상당히 높다[34].\n' +
+      '\n' +
+      '### Model Variants\n' +
+      '\n' +
+      '제안된 모델의 유효성을 충분히 입증하기 위해 [61]에서 참조한 대로 일반 구조에 기반을 둔 아키텍처 변형을 자세히 설명한다. 이러한 변형은 모델의 다른 스케일에 해당하는 표 1과 같이 표시된 EfficientV Mamba-T, EfficientV Mamba-S 및 EfficientV Mamba-B로 지정된다. EfficientV Mamba-T는 6M 파라미터로 가장 가볍고, EfficientV Mamba-S는 11M, EfficientV Mamba-B는 33M으로 가장 복잡하다. FLOP에서 측정된 용어 계산 부하에서 모델은 EfficientVMamba-T의 경우 0.8G, EfficientVMamba-S의 경우 1.3G, EfficientVMamba-B의 경우 4.0G로 병렬 증가를 나타내며 복잡도 및 특징 크기와 직접적인 상관 관계가 있다.\n' +
+      '\n' +
+      '## 5 Experiments\n' +
+      '\n' +
+      '다양한 모델 변형의 성능을 엄격하게 평가하기 위해 섹션 5.1에서 이미지 분류 작업의 결과를 입증하고 섹션 5.2에서 객체 검출 성능을 조사하고 섹션 5.3에서 이미지 의미 분할을 탐색한다. 섹션 5.4에서 아토늄 선택적 스캐닝의 효과, SSM-Conv 융합 블록의 영향 및 모델의 다른 단계에서 컨볼루션 블록을 통합하는 것의 의미를 종합적으로 조사하기 위해 절제 연구를 추가로 추구했다.\n' +
+      '\n' +
+      '### ImageNet Classification\n' +
+      '\n' +
+      '** 훈련 전략** 이전 작업 [24, 25, 43, 61]에 이어 기본 배치 크기가 1024인 300개의 에폭에 대해 모델을 훈련하고 AdamW 최적화기를 사용하여 코사인 어닐링 학습 속도 스케줄을 초기 값 \\(10^{-3}\\)과 20-에폭 워밍업으로 채택한다. 학습 데이터 증강을 위해 랜덤 크로핑, 정책 _rand-m9-mstd0.5_를 갖는 AutoAugment[5] 및 각 이미지에 0.25의 확률로 픽셀을 랜덤 소거한 후, 각 배치에서 비율 0.2의 MixUp[60] 전략을 채택한다. 모델의 지수 이동 평균은 붕괴율 0.9999로 채택되었다.\n' +
+      '\n' +
+      '**Tiny Models((FLOPs(G)\\in[0,1]\\))**. 효율성 추구에서 소형 모델의 결과는 표 2와 같다. EfficientVMamba-T는 Top-1 정확도 76.5%로 최첨단 성능을 달성하여 더 높은 계산 비용을 요구하는 대응물을 폭동시킨다. 0.8 GFLOP의 적당한 비용으로 본 모델은 PVTv2-B0를 정확도에서 6% 마진으로 능가하고 모바일ViT-XS를 1.7% 능가하며 모두 계산 수요가 적다.\n' +
+      '\n' +
+      '**Small Models (\\(FLOPs(G)\\in[1,2]\\))** 우리의 모델 EfficientVMamba-S는 78.7%의 Top-1 정확도를 달성하면서 상당한 정확도 향상을 보인다. 이는 DeiT-Ti 및 MobileViT-S에 비해 각각 72.2% 및 78.4%를 달성하는 상당한 증가를 나타낸다. 특히 Efficient VMamba-S\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c|c|c|c|c} \\hline \\hline Layer & Feature Size & EfficientVMamba-T & EfficientVMamba-S & EfficientVMamba-B \\\\ \\hline Stem & 112 \\(\\times\\) 112 & \\#Dim=[48, 96, 192, 384] & \\#Dim=[96, 192, 384, 768] & \\#Dim=[96, 192, 384, 768] \\\\ \\hline Stage 1 & 56 \\(\\times\\) 56 & EVSS \\(\\times\\) 2 & EVSS \\(\\times\\) 2 & EVSS \\(\\times\\) 2 \\\\ Stage 3 & 14 \\(\\times\\) 14 & InRes \\(\\times\\) 4 & InRes \\(\\times\\) 4 & InRes \\(\\times\\) 9 \\\\ Stage 4 & 7 \\(\\times\\) 7 & InRes \\(\\times\\) 2 & InRes \\(\\times\\) 2 & InRes \\(\\times\\) 2 \\\\ \\hline  & 1 \\(\\times\\) 1 & \\multicolumn{3}{c|}{Average pool, Fc, Softmax} \\\\ \\hline \\multicolumn{3}{c|}{Params. (M)} & 6 & 11 & 33 \\\\ \\multicolumn{3}{c|}{FLOPs (G)} & 0.8 & 1.3 & 4.0 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 1: EfficientVMamba의 모델 변형.\n' +
+      '\n' +
+      '이 높은 정확도 수준을 계산 효율로 유지하므로 DeiT-Ti와 동등하고 MobileViT-S의 2.0 GFLOP보다 낮은 1.3 GFLOP만 필요하다.\n' +
+      '\n' +
+      '**Base Models (\\(FLOPs(G)\\in[4,5]\\)).** EfficientVMamba-B는 표 2의 세 번째 그룹에 표시된 대로 DeiT-S를 2%, Vim-S를 1.5% 능가하는 81.8%의 인상적인 Top-1 정확도를 달성한다. 이 기본 모델은 4.0 GFLOPs의 적당한 계산 요구량과 33M의 실질적인 매개변수 수를 결합하는 가능성을 보여준다. 이에 비해 유사한 매개변수 수가 22M인 VMamba-T는 더 높은 5.6 GFLOP를 필요로 한다.\n' +
+      '\n' +
+      '### Object Detection\n' +
+      '\n' +
+      '**훈련 전략** MSCOCO 2017 [21] 데이터셋에서 객체 탐지 작업에 대한 EfficientVMamba 모델의 유효성을 평가한다. 평가 프레임워크는 mmdetection library[3]에 의존한다. 경량 백본과의 비교를 위해 레티나넷을 검출기로 사용하고 1\\(\\times\\) 훈련 스케줄을 채택하기 위해 PvT[49]를 따른다. 더 큰 백본과의 비교를 위해 실험은 Swin[25]에 자세히 설명된 하이퍼파라미터 설정을 따릅니다. 우리는 AdamW 최적화 방법을 사용하여 12 및 36 에폭 기간 동안 이미지넷-1K에서 미리 훈련된 네트워크의 가중치를 정제합니다. 효율적인 VMamba-T/S/B 변형을 위해 전체적으로 0.2%의 드롭 경로 속도를 적용한다. 학습 속도는 \\(1e-5\\)에서 시작하여 에포크 9와 11에서 10배 감소하며, 배치 크기가 16인 훈련 중 다중 스케일 훈련과 무작위 뒤집기를 구현하여 객체 검출 시스템을 평가하기 위한 표준 절차를 준수한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c|c} \\hline Method & Image size & Params (M) & FLOPs (G) & Top-1 ACC (\\%) \\\\ \\hline RegNetY-800M [32] & \\(224^{2}\\) & 6 & 0.8 & 76.3 \\\\ PVTv2-B0 [50] & \\(224^{2}\\) & 3 & 0.6 & 70.5 \\\\ MobileViT-XS [28] & \\(224^{2}\\) & 2 & 1.0 & 74.8 \\\\ LVT [56] & \\(224^{2}\\) & 6 & 0.9 & 74.8 \\\\ EfficientVMamba-T & \\(224^{2}\\) & 6 & 0.8 & 76.5 \\\\ \\hline RegNetY-1.6G [32] & \\(224^{2}\\) & 11 & 1.6 & 78.0 \\\\ DeiT-Ti [43] & \\(224^{2}\\) & 6 & 1.3 & 72.2 \\\\ MobileViT-S [28] & \\(224^{2}\\) & 6 & 2.0 & 78.4 \\\\ Vim-Ti [61] & \\(224^{2}\\) & 7 & 1.5 & 73.1 \\\\ EfficientVMamba-S & \\(224^{2}\\) & 11 & 1.3 & 78.7 \\\\ \\hline RegNetY-4G [32] & \\(224^{2}\\) & 21 & 4.0 & 80.0 \\\\ DeiT-S [43] & \\(224^{2}\\) & 22 & 4.6 & 79.8 \\\\ Swin-T [25] & \\(224^{2}\\) & 29 & 4.5 & 81.3 \\\\ Vim-S [61] & \\(224^{2}\\) & 26 & 5.1 & 80.3 \\\\ VMamba-T [24] & \\(224^{2}\\) & 22 & 5.6 & 82.2 \\\\ EfficientVMamba-B & \\(224^{2}\\) & 33 & 4.0 & 81.8 \\\\ \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 2: ImageNet-1K 분류에 대한 상이한 백본의 비교.\n' +
+      '\n' +
+      '**결과.** 표 3의 레티나넷 검출기의 결과를 요약한다. 특히, 각 변이체는 경쟁적으로 크기를 감소시키면서 동시에 성능 향상을 나타낸다. EfficientVAMaba-T 모델은 13M 파라미터와 AP가 37.5%로 \\(21.3M\\)인 ResNet-18에 비해 5.7% 약간 높게 나타났다. EfficientVAMaba-T의 성능도 PVTV1-Tiny를 0.8% 능가하는 동시에 파라미터 카운트 측면에서 일치시킨다. 19M 매개 변수만 있는 EfficientVAMaba-S는 39.1%의 칭찬할 만한 AP를 달성하여 37.7M 매개 변수를 가지고 있음에도 불구하고 36.3%의 낮은 AP를 보여주는 더 큰 ResNet50 모델을 능가한다. 상위 계층에서 44M 매개변수를 자랑하는 EfficientVAMaba-B는 42.8%의 AP를 확보하여 ResNet101 및 ResNeXt101-32x4d 모두에 대해 상당한 우위를 나타내어 더 작은 매개변수 풋프린트로도 모델의 효율성을 강조한다. 특히, 13M 파라미터를 갖는 PVTV2-b0은 37.2%의 AP를 달성하며, 이는 EfficientVAMaba-T가 밀접하게 추종하여 유사한 파라미터 예산으로 경쟁적 성능을 나타낸다. 마스크 R-CNN의 다른 백본과의 비교는 부록을 참조하십시오.\n' +
+      '\n' +
+      '### Semantic Segmentation\n' +
+      '\n' +
+      '**훈련 전략** 바마바[24] 설정과 정렬하여 사전 훈련된 모델 구조에 UpperHead를 통합합니다. AdamW 최적화기를 사용하여, 우리는 \\(6\\times 10^{-5}\\)에서 학습 속도를 시작한다. 세선화 단계는 배치크기가 16인 \\(160k\\)의 반복으로 구성되며, 표준 입력 해상도는 \\(512\\times 512\\)에 있는 반면, 본 연구에서는 \\(640\\times 640\\) 입력 실험을 수행하고 다중 스케일(MS) 테스트를 적용하여 평가 폭을 넓혔다.\n' +
+      '\n' +
+      '**결과.** EfficientVAMaba-T 모델은 38.9%(SS) 및 39.3%(MS)의 mIoU를 산출하며, 훨씬 적은 파라미터로 ResNet-50의 42.1% mIoU를 능가한다. 효율적인 VAMaba-S는 41.5%(SS) 및 42.1(MS) mIoU를 달성하고, 더 우수하다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c|c c c c c} \\hline \\hline Model & Params (M) & AP & AP\\({}_{50}\\) & AP\\({}_{75}\\) & AP\\({}_{S}\\) & AP\\({}_{M}\\) & AP\\({}_{L}\\) \\\\ \\hline ResNet18 [14] & 21.3 & 31.8 & 49.6 & 33.6 & 16.3 & 34.3 & 43.2 \\\\ PVTV1-Tiny [49] & 23.0 & 36.7 & 56.9 & 38.9 & 22.6 & 38.8 & 50.0 \\\\ EfficientViT-M4 [23] & 8.8 & 32.7 & 52.2 & 34.1 & 17.6 & 35.3 & 46.0 \\\\ PVTV2-b0 [50] & 13.0 & 37.2 & 57.2 & 39.5 & 23.1 & 40.4 & 49.7 \\\\ \\hline EfficientVAMaba-T & 13.0 & 37.5 & 57.8 & 39.6 & 22.6 & 40.7 & 49.1 \\\\ \\hline ResNet50 [14] & 37.7 & 36.3 & 55.3 & 38.6 & 19.3 & 40.0 & 48.8 \\\\ PVTV1-Small [49] & 34.2 & 40.4 & 61.3 & 43.0 & 25.0 & 42.9 & 55.7 \\\\ PVTV2-b1 [50] & 23.8 & 41.2 & 61.9 & 43.9 & 25.4 & 44.5 & 54.3 \\\\ \\hline EfficientVAMaba-S & 19.0 & 39.1 & 60.3 & 41.2 & 23.9 & 43.0 & 51.3 \\\\ \\hline ResNet101 [14] & 56.7 & 38.5 & 57.8 & 41.2 & 21.4 & 42.6 & 51.1 \\\\ ResNeXt101-32x4d [54] & 56.4 & 39.9 & 59.6 & 42.7 & 22.3 & 44.2 & 52.5 \\\\ PVTV1-Medium [49] & 53.9 & 41.9 & 63.1 & 44.3 & 25.0 & 44.9 & 57.6 \\\\ \\hline EfficientVAMaba-B & 44.0 & 42.8 & 63.9 & 45.8 & 27.3 & 46.9 & 55.1 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 3: RetinaNet에서의 COCO 검출 결과.\n' +
+      '\n' +
+      '더 낮은 계산 풋프린트를 갖음에도 불구하고 DeiT-S + MLN을 수행하는 단계를 포함하는, 방법. 효율적인 VMamba-B는 46.5% (SS), 47.3% (MS)에 도달하여 더 무거운 VMamba-S를 능가한다. 이러한 결과는 의미론적 분할에서 EfficientVMamba 시리즈의 정확도와 계산 효율성의 균형을 입증한다.\n' +
+      '\n' +
+      '### Ablation Study\n' +
+      '\n' +
+      '**atrous selective scan의 효과.** 표 5에서 atrous selective scan의 유효성을 검증하기 위한 실험을 구현한다. SS2D에서 ES2D로의 업그레이드는 계산 복잡도를 0.8 GFLOP에서 크게 감소시키면서 작은 변형에서 73.6%, 1.5%의 경쟁 정확도를 유지한다. 유사하게, 기본 변형의 경우 ES2D를 사용하는 모델은 GFLOP를 VMamba-B의 4.2에서 4.0으로 감소시킬 뿐만 아니라 정확도가 80.2%에서 80.9%로 증가한다. 결과는 다음과 같다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c|c c} \\hline \\hline Backbone & Image size & Params (M) & FLOPs (G) & mIoU (SS) & mIoU (MS) \\\\ \\hline ResNet-50 [14] & \\(512^{2}\\) & 67 & 953 & 42.1 & 42.8 \\\\ ResNet-101 [14] & \\(512^{2}\\) & 85 & 1030 & 42.9 & 44.0 \\\\ Swin-T [25] & \\(512^{2}\\) & 60 & 945 & 44.4 & 45.8 \\\\ Swin-S [25] & \\(512^{2}\\) & 81 & 1039 & 47.6 & 49.5 \\\\ DeiT-S + MLN [44] & \\(512^{2}\\) & 58 & 1217 & 43.8 & 45.1 \\\\ DeiT-B + MLN [44] & \\(512^{2}\\) & 144 & 2007 & 45.5 & 47.2 \\\\ VMamba-T [24] & \\(512^{2}\\) & 55 & 964 & 47.3 & 48.3 \\\\ VMamba-S [24] & \\(512^{2}\\) & 76 & 1095 & 49.5 & 50.5 \\\\ \\hline EfficientVMamba-T & \\(512^{2}\\) & 14 & 230 & 38.9 & 39.3 \\\\ EfficientVMamba-S & \\(512^{2}\\) & 29 & 505 & 41.5 & 42.1 \\\\ EfficientVMamba-B & \\(512^{2}\\) & 65 & 930 & 46.5 & 47.3 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 4: UperNet을 이용한 ADE20K에 대한 의미론적 분할 결과[53]. 우리는 _val_ 집합에서 단일 스케일(SS) 및 다중 스케일(MS) 테스트로 mIoU를 측정한다. FLOP는 입력크기가 \\(512\\times 2048\\)일 때 측정되었다. MLN: 멀티 레벨 넥.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c|c c c} \\hline \\hline Model & ES2D & Fusion & InRes & Param (M) & FLOPs (G) & ACC (\\%) \\\\ \\hline VMamba-T & & & & 2.4 & 0.9 & 72.1 \\\\ \\hline  & ✓ & ✗ & ✗ & 5 & 0.8 & 73.6 \\\\ EfficientVMamba-T & ✓ & ✓ & ✗ & 5 & 0.8 & 75.1 \\\\  & ✓ & ✓ & ✓ & 6 & 0.8 & 76.5 \\\\ \\hline VMamba-B & & & & 16 & 4.2 & 80.2 \\\\ \\hline  & ✓ & ✗ & ✗ & 25 & 4.0 & 80.9 \\\\ EfficientVMamba-B & ✓ & ✓ & ✗ & 26 & 4.0 & 81.2 \\\\  & ✓ & ✓ & ✓ & 33 & 4.0 & 81.8 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 5: 절제 분석: 개선된 공간 선택적 확장(ES2D)의 유효성을 평가하고, 스퀴즈 앤 여기(SE) 기술로 강화된 컨볼루션 분기 융합의 시너지 효과를 평가하고, 모델 성능에서 역 잔차 블록의 역할을 조사한다. 기준 VMamba와 비교하기 위해 FLOP와 일치하도록 치수와 레이어 수를 조정한다.\n' +
+      '\n' +
+      '우리의 EfficientVMamba 모델은 경쟁적 성능을 유지하기 위해 전역 각 필드를 보존하면서 샘플링을 건너뛰어 계산 복잡도를 줄이는 데 중요한 요소 중 하나이다. GLOP의 감소는 또한 계산 오버헤드를 크게 줄이면서 모델 정확도를 유지 및 향상시키는 데 있어 ES2D의 효능을 보여주며, 자원 제약 시나리오에 대한 생존 가능성을 보여준다.\n' +
+      '\n' +
+      '**SM-Conv 융합 블록의 효과.** SE 블록과 뒤따르는 컨볼루션 분기의 통합은 본 모델의 성능을 향상시킨다. 작은 분산의 경우 국부 융합 특징 추출을 추가하면 정확도가 73.6%에서 75.1%로 향상된다. EfficientVMamba-B의 경우 융합 메커니즘을 도입하면 정확도가 80.9%에서 81.2%로 높아진다. 관측된 성능 이득은 추가적인 컨볼루션 분기가 국부 특징 추출을 향상시킨다는 것을 보여준다. 융합을 통합함으로써 모델은 더 넓은 범위의 공간 세부 정보를 캡처하는 보다 다양한 기능 세트로부터 이익을 얻을 가능성이 있으며, 이는 모델을 일반화하고 따라서 정확도를 높이는 능력을 향상시킨다. 이는 이러한 분기의 전략적 추가가 입력 특징 맵의 포괄적이고 미묘한 각각의 필드를 제공함으로써 모델의 성능을 효과적으로 향상시킬 수 있음을 시사한다.\n' +
+      '\n' +
+      '**다양한 단계에서 컨볼루션 블록을 주입하는 비교.** 본 논문에서 우리는 SSM 기반 블록인 EVSS가 네트워크의 초기 단계에서 더 유익하다는 흥미로운 관찰을 얻는다. 이와는 대조적으로, 경량화된 ViT에 대한 이전 연구는 일반적으로 초기 단계에서 컨볼루션 블록을 주입하고 심층 단계에서 트랜스포머 블록을 채택한다. Table 6과 같이 EfficientVMamba-T의 서로 다른 단계에서 컨볼루션 블록을 주입하는 성능을 비교하였으며, 그 결과 Deep 단계에서 Inverted Residual 블록을 채택하는 것이 초기 단계보다 성능이 우수함을 알 수 있었다. 경량 VSSM과 ViT 사이의 반대 현상에 대한 설명은 트랜스포머의 자기 주의는 계산 복잡도가 더 높기 때문에 고해상도에서의 계산은 비효율적이지만 긴 시퀀스의 효율적인 모델링에 맞춘 SSM은 고해상도에서의 정보 캡처에 더 효율적이고 유익하다는 것이다.\n' +
+      '\n' +
+      '## 6 Conclusion\n' +
+      '\n' +
+      '본 논문에서는 모델 정확도와 계산 효율 사이의 상충 관계를 해결하기 위해 전역 정보 추출과 지역 정보 추출의 장점을 능숙하게 결합한 경량 상태 공간 네트워크 구조인 EfficientVMamba를 제안하였다. 효율적인 스킵 샘플링과 함께 아놀러스 기반 선택적 스캔을 통합함으로써 EfficientVMamba는 포괄적인 글로벌 수용 필드 범위를 보장한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|l l l l|l l l} \\hline \\hline Layers & Stage 1 & Stage 2 & Stage 3 & Stage 4 & Params (M) & FLOPs (G) & ACC (\\%) \\\\ \\hline EVSS only & EVSS & EVSS & EVSS & EVSS & 5 & 0.8 & 75.1 \\\\ Previous & InRes & InRes & EVSS & EVSS & 5 & 0.8 & 75.6 \\\\ Ours & EVSS & EVSS & InRes & InRes & 6 & 0.8 & 76.5 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 6: ImageNet 데이터셋에서 서로 다른 단계에서 컨볼루션 블록을 주입하는 비교. 실험에서는 EfficientVMamba-T를 사용한다.\n' +
+      '\n' +
+      '계산 부하를 최소화하는 동안. 이 스캐닝 접근 방식을 컨볼루션 브랜치와 통합한 후 스퀴즈 앤 여기 모듈을 통한 최적화는 글로벌 및 로컬 특징의 강력한 재밸런싱을 허용한다. 또한, 역 잔차 삽입의 혁신적인 사용은 모델의 다층 단계를 더욱 세분화하여 깊이와 효율성을 향상시킨다. 실험 결과는 EfficientVAMaba가 계산 복잡도를 \\(\\mathcal{O}(N)\\)으로 줄일 뿐만 아니라 다양한 비전 태스크에 걸쳐 경쟁적 성능을 제공한다는 것을 확인한다. EfficientVAMaba의 성과는 가볍고 효율적이며 범용적인 시각적 모델의 진화에서 강력한 프레임워크로서의 잠재력을 강조한다.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* [1] Bao, H., Dong, L., Piao, S., Wei, F.: Beit: Bert pre-training of image transformers. arXiv preprint arXiv:2106.08254 (2021)\n' +
+      '* [2] Behrouz, A., Hashemi, F.: Graph mamba: Towards learning on graphs with state space models. arXiv preprint arXiv:2402.08678 (2024)\n' +
+      '* [3] Chen, K., Wang, J., Pang, J., Cao, Y., Xiong, Y., Li, X., Sun, S., Feng, W., Liu, Z., Xu, J., et al.: Mmdetection: Open mmlab detection toolbox and benchmark. arXiv preprint arXiv:1906.07155 (2019)\n' +
+      '* [4] Chollet, F.: Xception: Deep learning with depthwise separable convolutions. In: Proceedings of the IEEE conference on computer vision and pattern recognition. pp. 1251-1258 (2017)\n' +
+      '* [5] Cubuk, E.D., Zoph, B., Mane, D., Vasudevan, V., Le, Q.V.: Autoaugment: Learning augmentation strategies from data. In: Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. pp. 113-123 (2019)\n' +
+      '* [6] Cubuk, E.D., Zoph, B., Shlens, J., Le, Q.V.: Randaugment: Practical automated data augmentation with a reduced search space. In: Proceedings of the IEEE/CVF conference on computer vision and pattern recognition workshops. pp. 702-703 (2020)\n' +
+      '* [7] Gu, A., Dao, T.: Mamba: Linear-time sequence modeling with selective state spaces. arXiv preprint arXiv:2312.00752 (2023)\n' +
+      '* [8] Gu, A., Goel, K., Gupta, A., Re, C.: On the parameterization and initialization of diagonal state space models. Advances in Neural Information Processing Systems **35**, 35971-35983 (2022)\n' +
+      '* [9] Gu, A., Goel, K., Re, C.: Efficiently modeling long sequences with structured state spaces. arXiv preprint arXiv:2111.00396 (2021)\n' +
+      '* [10] Gu, A., Johnson, I., Goel, K., Saab, K., Dao, T., Rudra, A., Re, C.: Combining recurrent, convolutional, and continuous-time models with linear state space layers. Advances in neural information processing systems **34**, 572-585 (2021)\n' +
+      '* [11] Gupta, A., Gu, A., Berant, J.: Diagonal state spaces are as effective as structured state spaces. Advances in Neural Information Processing Systems **35**, 22982-22994 (2022)\n' +
+      '* [12] Han, K., Wang, Y., Tian, Q., Guo, J., Xu, C., Xu, C.: Ghostnet: More features from cheap operations. In: Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. pp. 1580-1589 (2020)\n' +
+      '* [13] Han, K., Wang, Y., Xu, C., Guo, J., Xu, C., Wu, E., Tian, Q.: Ghostnets on heterogeneous devices via cheap operations. International Journal of Computer Vision **130**(4), 1050-1069 (2022)* [14] He, K., Zhang, X., Ren, S., Sun, J.: Deep residual learning for image recognition. In: Proceedings of the IEEE conference on computer vision and pattern recognition. pp. 770-778 (2016)\n' +
+      '* [15] Howard, A.G., Zhu, M., Chen, B., Kalenichenko, D., Wang, W., Weyand, T., Andreetto, M., Adam, H.: Mobilenets: Efficient convolutional neural networks for mobile vision applications. arXiv preprint arXiv:1704.04861 (2017)\n' +
+      '* [16] Hu, J., Shen, L., Sun, G.: Squeeze-and-excitation networks. In: Proceedings of the IEEE conference on computer vision and pattern recognition. pp. 7132-7141 (2018)\n' +
+      '* [17] Huang, T., Huang, L., You, S., Wang, F., Qian, C., Xu, C.: Lightvit: Towards light-weight convolution-free vision transformers. arXiv preprint arXiv:2207.05557 (2022)\n' +
+      '* [18] Iandola, F., Moskewicz, M., Karayev, S., Girshick, R., Darrell, T., Keutzer, K.: Densenet: Implementing efficient convnet descriptor pyramids. arXiv preprint arXiv:1404.1869 (2014)\n' +
+      '* [19] Li, Y., Yuan, G., Wen, Y., Hu, J., Evangelidis, G., Tulyakov, S., Wang, Y., Ren, J.: Efficientformer: Vision transformers at mobilenet speed. Advances in Neural Information Processing Systems **35**, 12934-12949 (2022)\n' +
+      '* [20] Li, Y., Cai, T., Zhang, Y., Chen, D., Dey, D.: What makes convolutional models great on long sequence modeling? arXiv preprint arXiv:2210.09298 (2022)\n' +
+      '* [21] Lin, T.Y., Maire, M., Belongie, S., Hays, J., Perona, P., Ramanan, D., Dollar, P., Zitnick, C.L.: Microsoft coco: Common objects in context. In: European conference on computer vision. pp. 740-755. Springer (2014)\n' +
+      '* [22] Liu, J., Yang, H., Zhou, H.Y., Xi, Y., Yu, L., Yu, Y., Liang, Y., Shi, G., Zhang, S., Zheng, H., et al.: Swin-umamba: Mamba-based unet with imagenet-based pre-training. arXiv preprint arXiv:2402.03302 (2024)\n' +
+      '* [23] Liu, X., Peng, H., Zheng, N., Yang, Y., Hu, H., Yuan, Y.: Efficientvit: Memory efficient vision transformer with cascaded group attention. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp. 14420-14430 (2023)\n' +
+      '* [24] Liu, Y., Tian, Y., Zhao, Y., Yu, H., Xie, L., Wang, Y., Ye, Q., Liu, Y.: Vhamba: Visual state space model. arXiv preprint arXiv:2401.10166 (2024)\n' +
+      '* [25] Liu, Z., Lin, Y., Cao, Y., Hu, H., Wei, Y., Zhang, Z., Lin, S., Guo, B.: Swin transformer: Hierarchical vision transformer using shifted windows. In: Proceedings of the IEEE/CVF international conference on computer vision. pp. 10012-10022 (2021)\n' +
+      '* [26] Liu, Z., Mao, H., Wu, C.Y., Feichtenhofer, C., Darrell, T., Xie, S.: A convnet for the 2020s. In: Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. pp. 11976-11986 (2022)\n' +
+      '* [27] Ma, N., Zhang, X., Zheng, H.T., Sun, J.: Shufflenet v2: Practical guidelines for efficient cnn architecture design. In: Proceedings of the European conference on computer vision (ECCV). pp. 116-131 (2018)\n' +
+      '* [28] Mehta, S., Rastegari, M.: Mobilevit: light-weight, general-purpose, and mobile-friendly vision transformer. arXiv preprint arXiv:2110.02178 (2021)\n' +
+      '* [29] Mehta, S., Rastegari, M., Shapiro, L., Hajishirzi, H.: Espnetv2: A light-weight, power efficient, and general purpose convolutional neural network. In: Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. pp. 9190-9200 (2019)* [30] Nguyen, E., Goel, K., Gu, A., Downs, G., Shah, P., Dao, T., Baccus, S., Re, C.: S4nd: Modeling images and videos as multidimensional signals with state spaces. Advances in neural information processing systems **35**, 2846-2861 (2022)\n' +
+      '* [31] Orvieto, A., Smith, S.L., Gu, A., Fernando, A., Gulcehre, C., Pascanu, R., De, S.: Resurrecting recurrent neural networks for long sequences. arXiv preprint arXiv:2303.06349 (2023)\n' +
+      '* [32] Radosavovic, I., Kosaraju, R.P., Girshick, R., He, K., Dollar, P.: Designing network design spaces. In: Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. pp. 10428-10436 (2020)\n' +
+      '* [33] Ruan, J., Xiang, S.: Vm-unet: Vision mamba unet for medical image segmentation. arXiv preprint arXiv:2402.02491 (2024)\n' +
+      '* [34] Sandler, M., Howard, A., Zhu, M., Zhmoginov, A., Chen, L.C.: Mobilenetv2: Inverted residuals and linear bottlenecks. In: Proceedings of the IEEE conference on computer vision and pattern recognition. pp. 4510-4520 (2018)\n' +
+      '* [35] Schneider, N., Piewak, F., Stiller, C., Franke, U.: Regnet: Multimodal sensor registration using deep neural networks. In: 2017 IEEE intelligent vehicles symposium (IV). pp. 1803-1810. IEEE (2017)\n' +
+      '* [36] Smith, J.T., Warrington, A., Linderman, S.W.: Simplified state space layers for sequence modeling. arXiv preprint arXiv:2208.04933 (2022)\n' +
+      '* [37] Su, X., You, S., Xie, J., Zheng, M., Wang, F., Qian, C., Zhang, C., Wang, X., Xu, C.: Vitas: Vision transformer architecture search. In: European Conference on Computer Vision. pp. 139-157. Springer Nature Switzerland Cham (2022)\n' +
+      '* [38] Szegedy, C., Ioffe, S., Vanhoucke, V., Alemi, A.: Inception-v4, inception-resnet and the impact of residual connections on learning. In: Proceedings of the AAAI conference on artificial intelligence. vol. 31 (2017)\n' +
+      '* [39] Szegedy, C., Vanhoucke, V., Ioffe, S., Shlens, J., Wojna, Z.: Rethinking the inception architecture for computer vision. In: Proceedings of the IEEE conference on computer vision and pattern recognition. pp. 2818-2826 (2016)\n' +
+      '* [40] Tan, M., Chen, B., Pang, R., Vasudevan, V., Sandler, M., Howard, A., Le, Q.V.: Mnasnet: Platform-aware neural architecture search for mobile. In: Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. pp. 2820-2828 (2019)\n' +
+      '* [41] Tan, M., Le, Q.: Efficientnet: Rethinking model scaling for convolutional neural networks. In: International conference on machine learning. pp. 6105-6114. PMLR (2019)\n' +
+      '* [42] Tan, M., Le, Q.V.: Mixconv: Mixed depthwise convolutional kernels. arXiv preprint arXiv:1907.09595 (2019)\n' +
+      '* [43] Touvron, H., Cord, M., Douze, M., Massa, F., Sablayrolles, A., Jegou, H.: Training data-efficient image transformers & distillation through attention. In: International conference on machine learning. pp. 10347-10357. PMLR (2021)\n' +
+      '* [44] Touvron, H., Cord, M., Jegou, H.: Deit iii: Revenge of the vit. In: European Conference on Computer Vision. pp. 516-533. Springer (2022)\n' +
+      '* [45] Touvron, H., Cord, M., Sablayrolles, A., Synnaeve, G., Jegou, H.: Going deeper with image transformers. In: Proceedings of the IEEE/CVF international conference on computer vision. pp. 32-42 (2021)\n' +
+      '* [46] Tu, Z., Talebi, H., Zhang, H., Yang, F., Milanfar, P., Bovik, A., Li, Y.: Maxvit: Multi-axis vision transformer. In: European conference on computer vision. pp. 459-479. Springer (2022)\n' +
+      '* [47] Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A.N., Kaiser, L., Polosukhin, I.: Attention is all you need. Advances in neural information processing systems **30** (2017)* [48] Wang, C., Tsepa, O., Ma, J., Wang, B.: Graph-mamba: Towards long-range graph sequence modeling with selective state spaces. arXiv preprint arXiv:2402.00789 (2024)\n' +
+      '* [49] Wang, W., Xie, E., Li, X., Fan, D.P., Song, K., Liang, D., Lu, T., Luo, P., Shao, L.: Pyramid vision transformer: A versatile backbone for dense prediction without convolutions. In: Proceedings of the IEEE/CVF international conference on computer vision. pp. 568-578 (2021)\n' +
+      '* [50] Wang, W., Xie, E., Li, X., Fan, D.P., Song, K., Liang, D., Lu, T., Luo, P., Shao, L.: Pvt v2: Improved baselines with pyramid vision transformer. Computational Visual Media **8**(3), 415-424 (2022)\n' +
+      '* [51] Wang, Y., Xu, C., Qiu, J., Xu, C., Tao, D.: Towards evolutionary compression. In: Proceedings of the 24th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining. pp. 2476-2485 (2018)\n' +
+      '* [52] Wang, Y., Xu, C., Xu, C., Xu, C., Tao, D.: Learning versatile filters for efficient convolutional neural networks. Advances in Neural Information Processing Systems **31** (2018)\n' +
+      '* [53] Xiao, T., Liu, Y., Zhou, B., Jiang, Y., Sun, J.: Unified perceptual parsing for scene understanding. In: Proceedings of the European conference on computer vision (ECCV). pp. 418-434 (2018)\n' +
+      '* [54] Xie, S., Girshick, R., Dollar, P., Tu, Z., He, K.: Aggregated residual transformations for deep neural networks. In: Proceedings of the IEEE conference on computer vision and pattern recognition. pp. 1492-1500 (2017)\n' +
+      '* [55] Xing, Z., Ye, T., Yang, Y., Liu, G., Zhu, L.: Segmamba: Long-range sequential modeling mamba for 3d medical image segmentation. arXiv preprint arXiv:2401.13560 (2024)\n' +
+      '* [56] Yang, C., Wang, Y., Zhang, J., Zhang, H., Wei, Z., Lin, Z., Yuille, A.: Lite vision transformer with enhanced self-attention. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp. 11998-12008 (2022)\n' +
+      '* [57] Yu, F., Koltun, V.: Multi-scale context aggregation by dilated convolutions. arXiv preprint arXiv:1511.07122 (2015)\n' +
+      '* [58] Yun, S., Han, D., Oh, S.J., Chun, S., Choe, J., Yoo, Y.: Cutmix: Regularization strategy to train strong classifiers with localizable features. In: Proceedings of the IEEE/CVF international conference on computer vision. pp. 6023-6032 (2019)\n' +
+      '* [59] Zamir, S.W., Arora, A., Khan, S., Hayat, M., Khan, F.S., Yang, M.H.: Restormer: Efficient transformer for high-resolution image restoration. In: Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. pp. 5728-5739 (2022)\n' +
+      '* [60] Zhang, H., Cisse, M., Dauphin, Y.N., Lopez-Paz, D.: mixup: Beyond empirical risk minimization. arXiv preprint arXiv:1710.09412 (2017)\n' +
+      '* [61] Zhu, L., Liao, B., Zhang, Q., Wang, X., Liu, W., Wang, X.: Vision mamba: Efficient visual representation learning with bidirectional state space model. arXiv preprint arXiv:2401.09417 (2024)\n' +
+      '* [62] Zhu, X., Su, W., Lu, L., Li, B., Wang, X., Dai, J.: Deformable detr: Deformable transformers for end-to-end object detection. arXiv preprint arXiv:2010.04159 (2020)\n' +
+      '\n' +
+      '## Appendix\n' +
+      '\n' +
+      '### 마스크 R-CNN의 다른 백본과 비교.\n' +
+      '\n' +
+      '또한 Mask R-CNN 스케줄 내에서 경량 백본인 EfficientVMamba의 성능 동학을 표 7과 같이 조사하였으며, Mask R-CNN 스케줄에 대해 11M 파라미터와 \\(60G\\) FLOPs를 갖는 EfficientVMamba-T 모델이 평균 정밀도(AP) 35.6%를 달성하였다. 이는 31M 파라미터와 207G FLOP를 보유한 ResNet-18보다 1.6% 높은 수치다. 31M 및 197G FLOP에서 더 많은 수의 매개변수를 갖는 효율적인 VMamba-S는 44M 매개변수 및 260G FLOP를 갖는 ResNet-50 모델보다 0.5% 높은 39.3%의 AP에 도달한다. 가장 큰 모델인 EfficientVMamba-B는 53M 매개변수로 43.7%의 우수한 AP와 252G FLOP의 감소된 계산 요구량을 보여 VMamba-T를 2.8% 능가한다. Mask R-CNN \\(3\\times\\) MS 스케줄 측면에서 EfficientVMamba-T는 ResNet-18의 성능을 1.4% 능가하는 38.3%의 AP를 유지하고 있다. 작은 변형은 41.5%의 AP를 기록하며, 이는 유사한 매개변수 카운트로 PVT-T에 비해 0.5% 개선이다. 마지막으로 EfficientVMamba-B는 45.0%의 AP를 달성하여 VMamba-T보다 2.2%의 현저한 발전을 나타낸다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c|c c c|c c c} \\hline \\hline \\multicolumn{8}{c}{**Mask R-CNN 1\\(\\times\\) schedule**} \\\\ \\hline Backbone & Params & FLOPs & AP\\({}^{\\text{b}}\\) & AP\\({}^{\\text{b}}_{50}\\) & AP\\({}^{\\text{b}}_{75}\\) & AP\\({}^{\\text{m}}\\) & AP\\({}^{\\text{m}}_{50}\\) & AP\\({}^{\\text{m}}_{75}\\) \\\\ \\hline EfficientVMamba-T & 11M & 60G & 35.6 & 57.7 & 38.0 & 33.2 & 54.4 & 35.1 \\\\ LightViT-T [17] & 28M & 187G & 37.8 & 60.7 & 40.4 & 35.9 & 57.8 & 38.0 \\\\ ResNet-18 [14] & 31M & 207G & 34.0 & 54.0 & 36.7 & 31.2 & 51.0 & 32.7 \\\\ PVT-T [50] & 33M & 208G & 36.7 & 59.2 & 39.3 & 35.1 & 56.7 & 37.3 \\\\ \\hline EfficientVMamba-S & 31M & 197G & 39.3 & 61.8 & 42.6 & 36.7 & 58.9 & 39.2 \\\\ \\hline ResNet-50 [14] & 44M & 260G & 38.2 & 58.8 & 41.4 & 34.7 & 55.7 & 37.2 \\\\ Swin-T [25] & 48M & 267G & 42.7 & 65.2 & 46.8 & 39.3 & 62.2 & 42.2 \\\\ ConvNeXt-T [26] & 48M & 262G & 44.2 & 66.6 & 48.3 & 40.1 & 63.3 & 42.8 \\\\ VMamba-T [24] & 42M & 286G & 46.5 & 68.5 & 50.7 & 42.1 & 65.5 & 45.3 \\\\ EfficientVMamba-B & 53M & 252G & 43.7 & 66.2 & 47.9 & 40.2 & 63.3 & 42.9 \\\\ \\hline \\multicolumn{8}{c}{**Mask R-CNN 3\\(\\times\\) MS schedule**} \\\\ \\hline EfficientVMamba-T & 11M & 60G & 38.3 & 60.3 & 41.6 & 35.3 & 57.2 & 37.6 \\\\ ResNet-18 [14] & 31M & 207G & 36.9 & 57.1 & 40.0 & 33.6 & 53.9 & 35.7 \\\\ PVT-T [50] & 33M & 208G & 39.8 & 62.2 & 43.0 & 37.4 & 59.3 & 39.9 \\\\ LightViT-T [17] & 28M & 187G & 41.5 & 64.4 & 45.1 & 38.4 & 61.2 & 40.8 \\\\ EfficientVMamba-S & 31M & 197G & 41.6 & 63.9 & 45.6 & 38.2 & 60.8 & 40.7 \\\\ \\hline ResNet-50 [14] & 44M & 260G & 41.0 & 61.7 & 44.9 & 37.1 & 58.4 & 40.1 \\\\ Swin-T [25] & 48M & 267G & 46.0 & 68.1 & 50.3 & 41.6 & 65.1 & 44.9 \\\\ ConvNeXt-T [26] & 48M & 262G & 46.2 & 67.9 & 50.8 & 41.7 & 65.0 & 44.9 \\\\ VMamba-T [24] & 42M & 286G & 48.5 & 69.9 & 52.9 & 43.2 & 66.8 & 46.3 \\\\ EfficientVMamba-B & 53M & 252G & 45.0 & 66.9 & 49.2 & 40.8 & 64.1 & 43.7 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 7: COCO _val_set에 대한 객체 검출 및 인스턴스 분할 결과.\n' +
+      '\n' +
+      '### MobileNetV2 Backbone과의 비교\n' +
+      '\n' +
+      '우리는 변형 아키텍처를 비교하고 특정 단계에서 혁신적인 블록인 EVSS와 Inverted Residual(InRes) 블록의 통합을 기반으로 상당한 성능 차이를 보여준다. 표 8의 결과는 작은 변이체와 염기 변이체 모두에서 모든 단계에 걸쳐 일관되게 InRes를 사용하는 것이 우수한 성능을 달성하고 염기 변이체가 특히 81.4%의 정확도에 도달함을 보여준다. EVSS가 모든 단계(MobileNetV2[34]의 전략)에 걸쳐 적용될 때 두 변형 모두에 대해 정확도가 약간 감소하는 것을 관찰하여 아키텍처 일관성과 계산 효율성 사이의 미묘한 균형을 시사한다. 초기 단계의 EVSS와 후기 단계의 InRes를 결합하는 융합 접근법은 소형 및 염기 변형에 대해 각각 76.5% 및 81.8%로 정확도를 향상시킨다. 이 전략은 EVSS의 초기 단계 효율성과 InRes의 고급 단계 컨볼루션 능력으로 인해 이점이 있으며, 따라서 제한된 계산 자원으로 두 블록 유형의 강도를 활용하여 네트워크 성능을 최적화한다.\n' +
+      '\n' +
+      '#### Limitations\n' +
+      '\n' +
+      '시퀀스 길이에 비해 선형 시간 복잡도\\(\\mathcal{O}(N)\\)로 동작하는 시각 상태 공간 모델은 특히 고해상도 다운스트림 작업에서 현저한 향상을 보여주며, 이는 이전 CNN 기반 및 트랜스포머 기반 모델과 대조된다. 그러나, SSM의 계산 설계는 본질적으로 컨볼루션 및 자기 주의 메커니즘 둘 다보다 증가된 계산 정교함을 나타내며, 이는 효율적인 병렬 처리의 성능을 복잡하게 한다. 시각 상태 공간 모델(SSM)의 계산 효율과 확장성을 최적화하기 위한 향후 연구 가능성이 남아 있다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c c|c c c} \\hline \\hline Variants & Stage 1 & Stage 2 & Stage 3 & Stage 4 & Params (M) & FLOPs (G) & ACC (\\%) \\\\ \\hline \\multirow{3}{*}{Tiny} & InRes & InRes & InRes & InRes & 6 & 0.7 & 76.0 \\\\  & EVSS & EVSS & EVSS & EVSS & 5 & 0.8 & 75.1 \\\\  & EVSS & EVSS & InRes & InRes & 6 & 0.8 & 76.5 \\\\ \\hline \\multirow{3}{*}{Base} & InRes & InRes & InRes & InRes & 34 & 3.8 & 81.4 \\\\  & EVSS & EVSS & EVSS & EVSS & 26 & 4.0 & 81.2 \\\\ \\cline{1-1}  & EVSS & EVSS & InRes & InRes & 33 & 4.0 & 81.8 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 8: ImageNet 데이터셋에 대한 MobileNetV2(EVSS로 구성된 모든 단계)의 비교. 우리는 이미지넷에서 작은 모델과 기본 모델을 모두 평가한다.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
