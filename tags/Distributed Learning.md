@@ -1,0 +1,1 @@
+- [DiPaCo: Distributed Path Composition](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/47/2024-03-19+DiPaCo%3A+Distributed+Path+Composition.yaml) / 2024-03-19
