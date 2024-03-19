@@ -1,1 +1,2 @@
 - [Zero-Shot Unsupervised and Text-Based Audio Editing Using DDPM Inversion](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/26/2024-02-16+Zero-Shot+Unsupervised+and+Text-Based+Audio+Editing+Using+DDPM+Inversion.yaml) / 2024-02-16
+- [MusicHiFi: Fast High-Fidelity Stereo Vocoding](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/46/2024-03-18+MusicHiFi%3A+Fast+High-Fidelity+Stereo+Vocoding.yaml) / 2024-03-18
