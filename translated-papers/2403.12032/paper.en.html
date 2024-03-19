@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# Generic 3D Diffusion Adapter Using Controlled Multi-View Editing\n' +
+      '\n' +
+      'HANSHENG CHEN\n' +
+      '\n' +
+      ' Stanford University\n' +
+      '\n' +
+      ' USA\n' +
+      '\n' +
+      'RUOXI SHI\n' +
+      '\n' +
+      ' UC San Diego\n' +
+      '\n' +
+      ' USA\n' +
+      '\n' +
+      'YULIN LIU\n' +
+      '\n' +
+      ' UC San Diego\n' +
+      '\n' +
+      ' USA\n' +
+      '\n' +
+      'BOKUI SHEN\n' +
+      '\n' +
+      ' Apparate Labs\n' +
+      '\n' +
+      ' USA\n' +
+      '\n' +
+      'JIAYUAN GU\n' +
+      '\n' +
+      ' UC San Diego\n' +
+      '\n' +
+      ' USA\n' +
+      '\n' +
+      'GORDON WETZSTEIN\n' +
+      '\n' +
+      ' Stanford University\n' +
+      '\n' +
+      ' USA\n' +
+      '\n' +
+      'HAO SU\n' +
+      '\n' +
+      ' UC San Diego\n' +
+      '\n' +
+      ' USA\n' +
+      '\n' +
+      'LEONIDAS GUIBAS\n' +
+      '\n' +
+      ' Stanford University\n' +
+      '\n' +
+      ' USA\n' +
+      '\n' +
+      'Demo & code: [https://lakonik.github.io/mvedit/](https://lakonik.github.io/mvedit/)\n' +
+      '\n' +
+      'Open-domain 3D object synthesis has been lagging behind image synthesis due to limited data and higher computational complexity. To bridge this gap, recent works have investigated multi-view diffusion but often fall short in either 3D consistency, visual quality, or efficiency. This paper proposes _MVEdit_, which functions as a 3D counterpart of SDEdit, employing ancestral sampling to jointly denoise multi-view images and output high-quality textured meshes. Built on off-the-shelf 2D diffusion models, MVEdit achieves 3D consistency through a training-free _3D Adapter_, which lifts the 2D views of the last timestep into a coherent 3D representation, then conditions the 2D views of the next timestep using rendered views, without uncompromising visual quality. With an inference time of only 2-5 minutes, this framework achieves better trade-off between quality and speed than score distillation. MVEdit is highly versatile and extendable, with a wide range of applications including text/image-to-3D generation, 3D-to-3D editing, and high-quality texture synthesis. In particular, evaluations demonstrate state-of-the-art performance in both image-to-3D and text-guided texture generation tasks. Additionally, we introduce a method for fine-tuning 2D latent diffusion models on small 3D datasets with limited resources, enabling fast low-resolution text-to-3D initialization.\n' +
+      '\n' +
+      'Figure 1. **Examples showcasing MVEdit’s generality across various 3D tasks, with associated inference times (on an RTX A6000) and the number of timesteps. For image-to-3D, note that the initial views by Zero123++ are not strictly 3D consistent (causing the failures in Fig. 9), an issue remedied by MVEdit.**\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:2]\n' +
+      '\n' +
+      'which optimizes a NeRF using a pretrained image diffusion model as a loss function. Some of its issues, such as limited resolution, the Janus problem, over-saturated colors, and mode-seeking behavior, have been addressed in subsequent works (Chen et al., 2023; Lin et al., 2023; Qian et al., 2024; Sun et al., 2024; Wang et al., 2023a). Despite improvements, SDS and its variants remain time-consuming and often yield a degraded distribution compared to ancestral sampling. (Haque et al., 2023; Zhou and Tulsiani, 2023) alternate between ancestral sampling and optimization, which is also inefficient. A faster approach is seen in NerffDiff (Gu et al., 2023), which performs ancestral sampling only once and optimizes a NeRF within each timestep. However, if dealing with diverse open-domain objects, it would encounter the same blurriness issues due to NeRF disrupting the sampling process, a challenge to be addressed in this work.\n' +
+      '\n' +
+      '## 3. MVedit: Controlled Multi-View Editing\n' +
+      '\n' +
+      'As discussed in Section 2.2 and 2.3, although appending a 3D NeRF to the denoising network (Fig. 2 (b)) guarantees 3D consistency, it often leads to blurry results since NeRF typically averages the inconsistent multi-view inputs, resulting in inevitable loss. For latent diffusion models (Rombach et al., 2022), the additional VAE decoding and encoding process can further exacerbate this issue.\n' +
+      '\n' +
+      'To address the 3D consistency challenge without interrupting the information flow from the input noisy view to the denoised view, we propose a new architecture containing a skip connection around the 3D model (Fig. 2 (c)) and its simplified version (Fig. 2 (d)). Based on the simplified architecture, we introduce the MVEdit framework shown in Fig. 4, and provide a detailed elaboration below.\n' +
+      '\n' +
+      '### Framework Overview\n' +
+      '\n' +
+      '#### 3.1.1. Preliminaries: SDEdit Using Single-Image Diffusion\n' +
+      '\n' +
+      'Ignoring the red and orange flow in Fig. 4, the remaining blue flow depicts the original SDEdit sampling process using the base text-to-image 2D diffusion model. For latent diffusion models, we omit the VAE encoding/decoding process for brevity. Given an initial RGB image \\(x^{\\text{init}}\\in\\mathbb{R}^{C\\times H\\times W}\\), SDEdit first perturbs the image with random noise \\(\\epsilon\\sim\\mathcal{N}(0,I)\\) following the Gaussian diffusion process:\n' +
+      '\n' +
+      '\\[x^{(t)}=\\alpha^{(t)}x^{\\text{init}}+\\sigma^{(t)}\\epsilon, \\tag{1}\\]\n' +
+      '\n' +
+      'where \\(t\\gets t_{\\text{start}}\\in[0,T]\\) is a user-specified starting timestep, \\(\\alpha^{(t)},\\sigma^{(t)}\\) are scalars determined by the noise schedule, and \\(x^{(t)}\\) denotes the noisy image. For the denoising step, the UNet \\(\\hat{\\epsilon}\\Big{(}x^{(t)},c,t\\Big{)}\\) predicts the noise component \\(\\hat{\\epsilon}\\) from the noisy image \\(x^{(t)}\\), the condition \\(c\\) (i.e., text prompt), and the timestep \\(t\\). Afterwards, we can derive the denoised image \\(\\hat{x}\\) from the predicted noise \\(\\hat{\\epsilon}\\):\n' +
+      '\n' +
+      '\\[\\hat{x}=\\frac{\\Big{(}x^{(t)}-\\sigma^{(t)}\\hat{\\epsilon}\\Big{(}x^{(t)},c,t \\Big{)}\\Big{)}}{\\alpha^{(t)}}. \\tag{2}\\]\n' +
+      '\n' +
+      'To move forward onto the next step, a generic diffusion ODE or SDE solver (Song et al., 2021) can be applied to yield a less noisy image \\(x^{(t-M)}\\) at a previous timestep \\(t-\\Delta t\\). In this paper, we adopt the DPMSolver++ (Lu et al., 2022), and the solver step can be written as:\n' +
+      '\n' +
+      '\\[x^{(t-\\Delta t)}\\gets DPMSolver_{2}\\Big{(}\\hat{x},t,x^{(t)}\\Big{)}, \\tag{3}\\]\n' +
+      '\n' +
+      'where \\(z\\) denotes the internal states of the solver. Recursive denoising can be executed by repeating Eq. (2) and Eq. (3) until reaching the denoised state \\(x^{(0)}\\), thus completing the ancestral sampling process.\n' +
+      '\n' +
+      '#### 3.1.2. MVEdit Using Multi-View Diffusion\n' +
+      '\n' +
+      'In MVEdit, we adapt the single-image diffusion model into a 3D-consistent multi-view diffusion model via a novel 3D Adapter, depicted as the red flow in Fig. 4. For each timestep, we first obtain the denoised images \\(\\{\\hat{x}_{i}\\}\\) of all the predefined views with known camera parameters \\(\\{p_{i}\\}\\), where \\(i\\) denotes the view index. Then, a 3D representation parameterized by \\(\\hat{\\phi}\\) can be reconstructed from these denoised views. In this paper, we employ optimization-based reconstruction approaches, using InstantNGP (Muller et al., 2022) for NeRF or DMTet (Shen et al., 2021) for mesh. Thus, the 3D parameters \\(\\hat{\\phi}\\) can be estimated by\n' +
+      '\n' +
+      'Figure 3. **Comparison between the two architectures**, based on the text-guided 3D-to-3D pipeline with \\(t^{\\text{start}}=0.78T\\). Rendered RGB images \\(x^{\\text{rend}}_{\\text{RGB}}\\) across different timesteps are shown to visualize the sampling process.\n' +
+      '\n' +
+      'Figure 2. **Comparison among 3D-aware multi-view denoising architectures**. Adding skip connection around the 3D NeRF in (c) mitigates the potential blurriness issue in (b), but requires two 2D UNet passes within the same denoising timestep when extending the off-the-shelf 2D Stable Diffusion; our simplified architecture in (d) re-uses the denoised multi-view images from the last denoising timestep to reconstruct the 3D NeRF.\n' +
+      '\n' +
+      'minimizing the rendering loss against the denoised images \\(\\{\\hat{x}_{i}\\}\\):\n' +
+      '\n' +
+      '\\[\\hat{\\phi}=\\operatorname*{arg\\,min}_{\\phi}\\mathcal{L}_{\\text{rend}}(\\{\\hat{x}_{i },p_{i}\\},\\phi). \\tag{4}\\]\n' +
+      '\n' +
+      'Details on the loss and optimization will be described in Section 3.2. With the reconstructed 3D representation, a new set of images with RGBD channels \\(\\{x_{i}^{\\text{rend}}\\}\\) can be rendered from the views. These strictly 3D-consistent renderings are the results of multi-view aggregation, and tend to be blurry at early denoising steps. By feeding \\(x_{i}^{\\text{rend}}\\) to the ControlNets (Zhang et al., 2023) as a conditioning signal, a sharper image \\(\\hat{x}_{i}^{\\text{ctl}}\\) can be obtained via a second pass through the controlled UNet \\(\\hat{\\epsilon}^{\\text{ctl}}\\Big{(}x^{(t)},c_{t},t,x_{i}^{\\text{rend}}\\Big{)}\\):\n' +
+      '\n' +
+      '\\[\\hat{x}_{i}^{\\text{ctrl}}=\\frac{\\Big{(}x_{i}^{(t)}-\\sigma^{(t)}\\hat{\\epsilon} ^{\\text{ctl}}\\Big{(}x_{i}^{(t)},c_{t},t,x_{i}^{\\text{rend}}\\Big{)}\\Big{)}}{ \\alpha^{(t)}}. \\tag{5}\\]\n' +
+      '\n' +
+      'Therefore, 3D-consistent sampling can be achieved by replacing \\(\\hat{x}_{i}\\) with \\(\\hat{x}_{i}^{\\text{ctl}}\\) in the solver step in Eq. (3). Eq. (5) effectively formulates the two-pass architecture shown in Fig. 2 (c), where the skip connection is essentially re-feeding the noisy multi-view into the second UNet. In practice, running two passes within a single denoising step appears redundant. Therefore, we use the rendered views from the last denoising step to condition the UNet of the next denoising step, which corresponds to the simplified architecture in Fig. 2 (d).\n' +
+      '\n' +
+      'Empirically, with Stable Diffusion (Rombach et al., 2022) as the base model, we find that off-the-shelf _Tile_ (conditioned on blurry RGB images) and _Depth_ (conditioned on depth maps) ControlNets can already handle RGB and depth conditioning for consistent multi-view generation, eliminating the necessity of training a custom ControlNet. However, recursive self-conditioning may amplify some unfavorable bias within Stable Diffusion, such as color drifting or over-sharpening/smoothing. Therefore, we adopt time-dependant dynamic ControlNet weights. Notably, we reduce the \\(Tile\\) ControlNet weight when \\(t\\) is large, otherwise the small denominator \\(\\alpha^{(t)}\\) in Eq. (5) at this time would significantly amplify any bias in the numerator. Reducing the ControlNet weight, however, leads to worse 3D consistency. To mitigate the consistency issue, we introduce an additional weighted blending operation for \\(t>0.4T\\) only:\n' +
+      '\n' +
+      '\\[\\hat{x}_{i}^{\\text{blend}}=w^{(t)}x_{\\text{RGB}i}^{\\text{rend}}+(1-w^{(t)}) \\hat{x}_{i}^{\\text{ctrl}}, \\tag{6}\\]\n' +
+      '\n' +
+      'where \\(x_{\\text{RGB}i}^{\\text{rend}}\\) denotes the RGB channels of the rendered image, \\(\\hat{x}_{i}^{\\text{ctl}}\\) is the denoised image with reduced ControlNet weight, and \\(w^{(t)}\\) is a time-dependant blending weight. The blended image \\(\\hat{x}_{i}^{\\text{blend}}\\) is then treated as the denoised image to be fed into the DPMSolver.\n' +
+      '\n' +
+      '### Robust NeRF/Mesh Optimization\n' +
+      '\n' +
+      'The 3D Adapter faces the challenge of potentially inconsistent multi-view inputs, especially at the early denoising stage. Existing surface optimization approaches, such as Neus (Wang et al., 2021), are not designed to address the inconsistency. Therefore, we have developed various techniques for the robust optimization of InstANGP NeRF (Muller et al., 2022) and DMTet mesh (Shen et al., 2021), using enhanced regularization and progressive resolution.\n' +
+      '\n' +
+      '#### 3.2.1. Rendering\n' +
+      '\n' +
+      'For each NeRF optimization iteration, we randomly sample a 128\\(\\times\\)128 image patch from all camera views. Unlike (Poole et al., 2023) that computes the normal from NeRF density gradients, we compute patch-wise normal maps from the rendered depth maps, which we find to be faster and more robust. For mesh rendering, we obtain the surface color by querying the same Instant-NGP neural field used in NeRF. For both NeRF and mesh, Lambertian shading is applied in the linear color space prior to tonemapping, with random point lights assigned to their respective views.\n' +
+      '\n' +
+      '#### 3.2.2. RGBA Losses\n' +
+      '\n' +
+      'For both NeRF and mesh, we employ RGB and Alpha rendering losses to optimize the 3D parameters \\(\\phi\\) so that the rendered views \\(\\{x_{i}^{\\text{rend}}\\}\\) match the target denoised views \\(\\{\\hat{x}_{i}\\}\\). For RGB, we employ a combination of pixel-wise L\\({}_{1}\\) loss and patch-wise LPIPS loss (Zhang et al., 2018). For Alpha, we predict the target Alpha channel from \\(\\{\\hat{x}_{i}\\}\\) using an off-the-shelf background removal network (Lee et al., 2022) as in Magic123 (Qian et al., 2024). Additionally, we soften the predicted Alpha map using Gaussian blur to prevent NeRF from overfitting the initialization.\n' +
+      '\n' +
+      '#### 3.2.3. Normal Losses\n' +
+      '\n' +
+      'To avoid bumpy surfaces, we apply an L\\({}_{1.5}\\) total variation (TV) regularization loss on the rendered normal maps:\n' +
+      '\n' +
+      '\\[\\mathcal{L}_{\\text{N}}=\\sum_{chw}\\left\\|w_{h\\cdot w}\\cdot\\nabla_{hw}x_{chw}^{ \\text{rend}}\\right\\|^{1.5}, \\tag{7}\\]\n' +
+      '\n' +
+      'Figure 4. **The initialization and ancestral sampling process of MVEdit.** The original single-image SDEdit is shown in blue, the additional 3D Adapter in red, and extra conditioning in orange. For brevity, only the first view is depicted, and VAE encoding/decoding is omitted in cases involving latent diffusion.\n' +
+      '\n' +
+      'where \\(r\\) is the ray index, and \\(d\\) is a user-defined "thickness" of an imaginative background shell, which can be adjusted to balance foreground-to-background ratio.\n' +
+      '\n' +
+      '#### 3.2.5. Mesh Smoothing Losses\n' +
+      '\n' +
+      'As per common practice, we employ the Laplacian smoothing loss (Sorkine et al., 2004) and normal consistency loss to further regularize the mesh extracted from DMTet.\n' +
+      '\n' +
+      '#### 3.2.6. Implementation Details\n' +
+      '\n' +
+      'The weighted sum of the aforementioned loss functions is utilized to optimize the 3D representation. At each denoising step, we carry forward the 3D representation from the previous step and perform additional iterations of Adam (Kingma and Ba, 2015) optimization (96 for 3D or 48 for texture-only). During the ancestral sampling process, the rendering resolution progressively increases from 128 to 256, and finally to 512 when NeRF is converted into a mesh (for texture-only the resolution is consistently 512). When the rendering resolution is lower than the diffusion resolution 512, we employ RealESRGAN-small (Wang et al., 2021) for efficient super-resolution.\n' +
+      '\n' +
+      '## 4. Mvedit Applications and Pipelines\n' +
+      '\n' +
+      'In this section, we present details on various MVEdit pipelines. Their respective applications are showcased in Fig. 1, with details on inference times and the number of timesteps. Same as SDEdit, the initial timestep \\(t^{\\text{start}}\\) of these pipelines is adjustable, allowing control over the extent of editing, as shown in Fig. 5.\n' +
+      '\n' +
+      '### 3D Synthesis Pipelines\n' +
+      '\n' +
+      '3D synthesis pipelines, which fully utilize robust NeRF/mesh optimization techniques, begin with 32 views surrounding the object. These are progressively reduced to 9 views, helping to alleviate the computational cost of multi-view denoising at later stages. NeRF is always adopted as the initial 3D representation, with its density field converted into a DMTet mesh representation upon reaching 60% completion. Various pipeline variants can then be constructed with unique input modalities and conditioning mechanisms.\n' +
+      '\n' +
+      '#### 4.1.1. Text-Guided 3D-to-3D\n' +
+      '\n' +
+      'Given an input 3D object, we randomly sample 32 surrounding cameras and render the initial multi-view images to initialize the NeRF. No additional modules are required, as Stable Diffusion is inherently conditioned on text prompts.\n' +
+      '\n' +
+      '#### 4.1.2. Instruct 3D-to-3D\n' +
+      '\n' +
+      'Inspired by Instruct-NeRF2NeRF (Haque et al., 2023), we introduce the mesh-based Instruct 3D-to-3D pipeline. Extra image-conditioning is employed by feeding the initial multi-view images into an InstructPix2Pix ControlNet (Brooks et al., 2023; Zhang et al., 2023).\n' +
+      '\n' +
+      '#### 4.1.3. Image-to-3D\n' +
+      '\n' +
+      'Using Zero123++ (Shi et al., 2023) to generate initial multi-view images, MVEdit can lift these views into a high-quality mesh by resolving the initial 3D inconsistency. The original appearance can be preserved via image conditioning using IP-Adapter (Ye et al., 2023) and cross-image attention (Alauf et al., 2023; Shi et al., 2023). Since Zero123++ can only generate a fixed set of 6 views, we augment the initialization by mirroring the input and repeating the generation process three times, yielding a total of 36 images. The pose of the input view can also be estimated using correspondences to the generated views, so that we have \\(36+1\\) initial images in total. As the sampling process begins, this number is reduced to 32.\n' +
+      '\n' +
+      '### Re-Texturing Pipelines\n' +
+      '\n' +
+      'Given a frozen 3D mesh, MVEdit can generate high-quality textures from scratch (initialized with random Gaussian noise and\n' +
+      '\n' +
+      'Figure 5. **Text-guided 3D-to-3D using the same seed but different \\(t^{\\text{start}}\\).**\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:6]\n' +
+      '\n' +
+      'evaluated methods, providing an automated alternative to costly user studies.\n' +
+      '\n' +
+      'In Table 1, we present the results for One-2-3-45 (Liu et al., 2023), DreamGaussian (Tang et al., 2024), Wonder3D (Long et al., 2024), One-2-3-45+-(Liu et al., 2024), and our own MVEdit (incorporating both image-to-3D and texture super-resolution) on the GSO test set. This comparison shows that MVEdit significantly outperforms the other methods on all metrics, while still offering a reasonable runtime. For the in-the-wild images, we extend our comparison to include SyncDreamer(Liu et al., 2024) and DreamCraft3D (Sun et al., 2024). Here, GPT-4V shows a distinct preference for our method, with MVEdit achieving Elo scores that exceed those of the SDS method DreamCraft3D, despite the latter\'s extensive object generation time of over two hours.\n' +
+      '\n' +
+      'Fig. 7 further presents qualitative comparison among the top competitors. Wonder3D (Long et al., 2024) generates multi-view images and normal maps for InstantNGP-based surface optimization, which can lead to broken structures due to multi-view inconsistency. One-2-3-45++(Liu et al., 2024) utilizes the same multi-view generator as ours (i.e., Zero123++) but employs a multi-view-conditioned 3D-native diffusion model to generate signed distance functions (SDF) for surface extraction, yet this results in overly smooth surfaces with occasional missing parts. DreamCraft3D(Sun et al., 2024), while capable of producing impressive geometric details through its hours-long distillation, generally yields noisy geometry and textures, sometimes even strong artifacts and the Janus problem. In contrast, our approach, while less detailed in geometry compared to SDS, is generally more robust and exhibits fewer artifacts or failures. This results in renderings that are visually more pleasing.\n' +
+      '\n' +
+      '### Comparison on Text-Guided Texture Generation\n' +
+      '\n' +
+      'We randomly select 92 objects from a high-quality subset of Obi-javerse (Deitke et al., 2023) and employed BLIP (Li et al., 2022) to\n' +
+      '\n' +
+      'Figure 7. Comparison of mesh-based image-to-3D methods on in-the-wild images. Please zoom in for detailed viewing.\n' +
+      '\n' +
+      'generate text prompts from their rendered images. Using these textureless meshes and the generated prompts of these objects, we evaluate our MVEdit re-texturing pipeline against TEXTure [14] and Text2Tex [15]. TextFusion [16] is not directly compared due to the unavailability of official code, but it closely resembles a scenario in our ablation studies, which will be discussed in Section 6.3.1. We assess the quality of the generated textured meshes through rendered images, calculating aesthetic [14] and CLIP [13, 15] scores as the metrics. It is important to note, as shown in a user study by [21], that Aesthetic scores more closely align with human preferences for texture details, whereas CLIP scores are less sensitive. Table 2 shows that MVEdit outperforms TEXTure and Text2Tex in both metrics by a clear margin and does so with greater speed.\n' +
+      '\n' +
+      'Fig. 8 presents a quantitative comparison among the tested methods. Both TEXTure and Text2Tex generate slightly over-saturated colors and produce noisy artifacts. In contrast, MVEdit produces clean, detailed textures with a photorealistic appearance and strong text-image alignment.\n' +
+      '\n' +
+      '### Ablation Studies\n' +
+      '\n' +
+      '#### 6.3.1. Effectiveness of the 3D Adapter with a Skip Connection\n' +
+      '\n' +
+      'To validate the effectiveness of our ControlNet-based 3D Adapter, we conduct an ablation study by removing the ControlNet, and set the blending weight \\(w^{(t)}\\) in Eq. \\(\\delta\\) to \\(1\\) for all timesteps, effectively constructing an architecture without a skip connection, as shown in Fig. 2 (b). For text-guided texture generation, sampling without skip connections is fundamentally akin to TexFusion [16], which is known to yield textures with fewer details due to the information loss. This is confirmed by our quantitative results presented in Table 2, which show a notable decrease in the Aesthetic score and Total Variation. Qualitative comparisons in Fig. 8 further\n' +
+      '\n' +
+      'Figure 8. **Comparison on text-guided texture generation.** Please zoom in for detailed viewing. Note that the BLIP-generated text prompts may not accurately reflect the actual geometry, so it is impossible to generate texture maps that align perfectly with the prompts.\n' +
+      '\n' +
+      'Figure 9. **Ablation study on the effectiveness of MVEdit in resolving multi-view inconsistency.** Without MVEdit diffusion, the reconstruction-only approach leads to broken thin structures and ambiguous textures.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c} \\hline \\hline Methods & \\begin{tabular}{c} \\begin{tabular}{c} Img-3D\\(\\uparrow\\) \\\\ Align. \\\\ \\end{tabular} \\\\ \\end{tabular} & 3D Plaus\\(\\uparrow\\) & \n' +
+      '\\begin{tabular}{c} Texture\\(\\uparrow\\) \\\\ Details\\(\\uparrow\\) \\\\ \\end{tabular} \\\\ \\hline Ours (MVEdit) & 1340 & 1339 & 1268 \\\\ Ours (Reconstruction-only) & 1275 & 1252 & 1241 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 3. **Quantitative ablation study on the effectiveness of MVEdit in resolving multi-view inconsistency.**illustrate the visual gap between the two architectures. For 3D-to-3D editing, Fig. 3 shows that the skip connection plays a crucial role not only in producing crisp textures but also in enhancing geometric details (e.g., the ears and knees of the zebra).\n' +
+      '\n' +
+      '#### 6.3.2. Image-to-3D: MVEdit vs. Reconstruction-Only\n' +
+      '\n' +
+      'To validate that our image-to-3D pipeline effectively resolves the 3D inconsistency in the initial views generated by Zero123++, we conduct an ablation study by using only the initial views for robust NeRF/mesh optimization, thus bypassing the denoising UNet/DPMSolver and leaving only the reconstruction side. Quantitatively, the GPT-4V evaluation results in Table 3 reveal a clear gap between MVEdit and the reconstruction-only method, underscoring MVEdit\'s effectiveness. Qualitatively, as observed in Fig.9, the reconstruction-only method tends to result in broken thin structures and less defined textures, a common consequence of multi-view misalignment.\n' +
+      '\n' +
+      '#### 6.3.3. Effectiveness of the Regularization Loss Functions\n' +
+      '\n' +
+      'In Fig. 11, we showcase the results of instruct 3D-to-3D editing under three settings: the full MVEdit, the one without ray entropy loss, and the one without normal TV loss. It can be seen that: removing the ray entropy loss results in inflated geometry and less defined textures, a consequence of initializing DMTet with a fuzzy density field; removing the normal TV loss appears to have little impact on texture quality but leads to numerous holes in the geometry. Although the degradation in quality from these ablations is apparent to humans, especially when viewed interactively in 3D, we note that existing metrics, including Aesthetic score, CLIP score, and even the GPT-4V metrics, struggle to capture these differences. Therefore, we do not include quantitative evaluations for these ablation studies.\n' +
+      '\n' +
+      '### 3D-to-3D Editing Results and Discussions\n' +
+      '\n' +
+      'In Fig. 10, we showcase results from both the text-guided 3D-to-3D pipeline and the instruct 3D-to-3D pipeline (with texture super-resolution), edited from four types of inputs: a textureless low-poly mesh, a mesh generated by our image-to-3D pipeline, a voxel character mesh, and a stylized character mesh. As demonstrated in the figure, all inputs are adeptly handled, resulting in prompt-accurate appearances, intricate textures, and detailed geometry, thereby highlighting the versatility of our 3D-to-3D pipelines.\n' +
+      '\n' +
+      '### Text-to-3D Generation Results and Discussions\n' +
+      '\n' +
+      'In Fig. 12, we showcase results of text-to-3D generation using a combination of StableSSDNeRF and MVEdit pipelines. Thanks to the\n' +
+      '\n' +
+      'Figure 11. **Ablation study on the regularization loss functions**, based on the instruct 3D-to-3D pipeline with \\(r^{\\text{start}}=1.0T\\), using the same seed.\n' +
+      '\n' +
+      'Figure 10. **Results of our text-guided 3D-to-3D and instruct 3D-to-3D pipelines**.\n' +
+      '\n' +
+      'knowledge transfer from a large image diffusion model, StableSSD-NeRF is able to follow never-seen prompts despite being fine-tuned only on low-resolution renderings of 2458 ShapeNet 3D Cars, generating the correct combination of colors and style. Notably, it can even generalize to completely unseen concept (_NASCAR_), or to unusual combinations (_Formula 1_ and _truck_). When further processed using the text-guided 3D-to-3D and re-texturing pipelines, conditioned on the same input prompts, our method successfully produces diverse, high-quality, photorealistic cars within just 4 minutes.\n' +
+      '\n' +
+      '### Sample Diversity\n' +
+      '\n' +
+      'Unlike SDS approaches that exhibit a mode-seeking behavior, MVEdit can generate variations from the exact same input using different random seeds. An example is shown in Fig. 13.\n' +
+      '\n' +
+      '## 7. Conclusion and Limitations\n' +
+      '\n' +
+      'In this work, we have bridged the gap between 2D and 3D content creation with the introduction of MVEdit, a generic approach for adapting 2D diffusion models into 3D diffusion pipelines. Our novel training-free 3D Adapter, leveraging off-the-shelf ControlNets and a robust NeRF/mesh optimization scheme, effectively addresses the challenge of achieving 3D-consistent multi-view ancestral sampling while generating sharp details. Additionally, we have developed StableSSDNeRF for domain-specific 3D initialization. Extensive quantitative and qualitative evaluations across a range of tasks have validated the effectiveness of the 3D Adapter design and the versatility of the associated pipelines, showcasing state-of-the-art performance in both image-to-3D and texture generation tasks.\n' +
+      '\n' +
+      'Figure 12. **Results of text-to-3D generation using StableSSDNeRF and MVEdit pipelines.**\n' +
+      '\n' +
+      'Figure 13. **An example showcasing the diversity of the generated the samples, based on the instruct 3D-to-3D pipeline with \\(t^{\\text{start}}=1.0T\\).**\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:11]\n' +
+      '\n' +
+      '* Richardson et al. (2023) Elad Richardson, Cal Meteer, Yuval Alalarf, Raja Giryes, and Daniel Cohen-Or. 2023. Texture: Text-guided texturing of 3d shapes. In _SIGGRAPH_.\n' +
+      '* Bombach et al. (2022) Robin Bombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Bjorn Ominer. 2022. High-Resolution Image Synthesis with Latent Diffusion Models. In _CVPR_.\n' +
+      '* Schulmann et al. (2022) Christophu Schulmann, Romanu Beaumont, Richard Veness, Cade Gordon, Ross Weighman, Mehdi Cherti, Theo Coombes, Aarush Katta, Clayton Mullis, Mitchell Wortsman, Patrick Schramowski, Srivatsa Kut Kutindry, Kathtische Crowson, Ludwig Schmidt, Robert Kacarznyczyk, and Jennie Jisev. 2022. IAUCDN-5B: An open large-scale dataset for training and generation image-text models. In _NeurIPS Workshop_.\n' +
+      '* Shen et al. (2021) Tianchang Shen, Jun Gao, Angunge Yin, Ming-Yu Liu, and Sanja Fidler. 2021. Deep Marching Tetrahedra: A Hybrid Representations for High-Resolution and 3D Shape Synthesis. In _NeurIPS_.\n' +
+      '* Shi et al. (2023) Ruwei Shi, Hansheng Chen, Zhuoyang Zhang, Minghua Liu, Chao Xu, Xinwei Wei, Linghao Chen, Chong Zeng, and Hao Su. 2023. Zero12++: A Single Image to Consistent Multi-view Diffusion Base Model. arXiv:2310.15110\n' +
+      '* Shi et al. (2024) Yichun Shi, Peng Wang, Jiangbo Ye, Mai Long, Kejie Li, and Xiao Yang. 2024. MV-Dream: Multi-view Diffusion for 3D Generation. In _ICLR_.\n' +
+      '* Shue et al. (2023) J Ryan Shue, Eric Ryan Chan, Ryan Po, Zachary Ankner, Jiajun Wu, and Gordon Weitzstein. 2023. 3D Neural Field Generation using Triplane Diffusion. In _CVPR_.\n' +
+      '* Stierman et al. (2019) Vincent Stierman, Michael Zollhofer, and Gordon Weitzstein. 2019. Scene Representation Networks: Continuous 3D Structure-Aware Neural Scene Representations. In _NeurIPS_.\n' +
+      '* Song et al. (2021) Yang Song, Jascha Sohl-Dickstein, Diederik P Kingma, Abhishek Kumar, Stefano Ermon, and Ben Poole. 2021. Score-Based Generative Modeling through Stochastic Differential Equations. In _ICLR_.\n' +
+      '* Socrin et al. (2004) Sorin, D. Cohen-Or, Y. Lipman, M. Alexa, C. Ross, and H.-P. Seidel. 2004. Laplacian Surface Editing. In _Proceedings of the 2004 Eurographics/ACM SIGGRAPH Symposium on Geometry Processing_, volume _Faster (SOF \'04)_. Association for Computing Machinery, New York, NY, USA, 175-184. [https://doi.org/10.1145/105732.1057456](https://doi.org/10.1145/105732.1057456)\n' +
+      '* Sun et al. (2024) Jingxiang Sun, Bo Zhang, Ruhti Shaho, Lizhen Wang, Wen Liu, Zhenda Xie, and Yebin Liu. 2024. DreamcarM3d: Hierarchical 3d generation with bootstrapped diffusion prior. In _ICLR_.\n' +
+      '* Tang et al. (2024) Jiaxiang Tang, Jiawei Ren, Hang Zhou, Ziwei Liu, and Gang Zeng. 2024. Dream-Gaussian: Generative Gaussian Splitting for Efficient 3D Content Creation. In _ICLR_.\n' +
+      '* Teswar et al. (2023) Ayush Teswar, Tianwei Yin, George Cazenavette, Semen Rezchikov, Joshua B. Tenenbaum, Fredo Durand, William T. Freeman, and Vincent Sitzmann. 2023. Diffusion with Forward Models: Solving Stochastic Inverse Problems Without Direct Supervision. In _NeurIPS_.\n' +
+      '* Wang et al. (2021) Peng Wang, Lingjie Liu, Yuan Liu, Christian Theobalt, Taku Komura, and Wenping Wang. 2021a. Neus: Learning Neural Implicit Surfaces by Volume Rendering for Multi-view Reconstruction. In _NeurIPS_.\n' +
+      '* Wang et al. (2022) Tengfei Wang, Bo Zhang, Ting Zhang, Shuyang Gu, Jianmin Bao, Tadas Baltrusaitis, Jingting Shen, Dong Chen, Fang Wen, Qifeng Chen, and Baining Ging. 2023. Radio: A Generative Model for Solupping D3 Digital Avatar Using Diffusion. In _CVPR_.\n' +
+      '* Wang et al. (2021) Xintao Wang, Liangbin Xie, Chao Dong, and Ying Shan. 2021b. Real-ESRGAN: Training Real-World Blind Super-Resolution with Pure Synthetic Data. In _ICCV Workshop_.\n' +
+      '* Wang et al. (2022a) Zhenyi Wang, Cheng Liu, Yixian Wang, Fan Bao, Chongzuan Li, Hang Su, and Jun Zhu. 2022a. ProfileDreamer: High-Fidelity and Diverse Text-to-3D Generation with Variational Score Distillation. In _NeurIPS_.\n' +
+      '* Watson et al. (2023) Daniel Watson, William Chan, Ricardo Martin-Brualis, Jonathan Ho, Andrea Taglascachi, and Mohammad Norouzi. 2023. Novel View Synthesis with Diffusion Models. In _ICLR_.\n' +
+      '* Wu et al. (2024) Tong Wu, Guandao Yang, Zhibing Li, Kai Zhang, Ziwei Liu, Leonidas Guibas, Dahua Lin, and Gordon Weitzstein. 2024. GPT-IV(vision) is a Human-Aligned Evaluator for Text-to-3D Generation. In _CVPR_.\n' +
+      '* Xu et al. (2024) Yinghao Xu, Hao Tan, Fujun Luan, Si Bi, Peng Wang, Jiahao Li, Zifan Shi, Kalyan Sankarski, Gordon Wettstein, Zexiang Xu, and Kai Zhang. 2024. DMV3D: Denoising Multi-View Diffusion using 3D Large Reconstruction Model. In _ICLR_.\n' +
+      '* Yu et al. (2023) He, Ju2 Zhang, Sibo Liu, Xiao Han, and Wei Yang. 2023. IP-Adaptive: Text Compatible Image Prompt Adapter for Text-to-Image Diffusion Models. arXiv:2308.06721\n' +
+      '* Zhang et al. (2023) Lvmin Zhang, Anyi Rao, and Maeness Agrawala. 2023. Adding Conditional Control to Text-to-Image Diffusion Models. In _ICCV_.\n' +
+      '* Zhang et al. (2018) Richard Zhang, Phillio Isola, Alexei Efros, Eli Shechtman, and Oliver Wang. 2018. The Unreasonable Effectiveness of Deep Features as a Perceptual Metric. In _CVPR_.\n' +
+      '* Zheng et al. (2023) Xin-Yang Zheng, Hao Pan, Peng-Shui Wang, Xin Tong, Yang Liu, and Heung-Yeung Shum. 2023. Locally Attentional SDF Diffusion for Controllable 3D Shape Generation. _ACM Transactions on Graphics_ 42, 4 (2023).\n' +
+      '* Zhou and Tulsiani (2023) Zhirhou Zhou and Shububububub Tulsiani. 2023. SparsePusion: Distilling View-conditioned Diffusion for 3D Reconstruction. In _CVPR_.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>

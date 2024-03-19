@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# LLaVA-UHD: an LMM Perceiving Any Aspect Ratio and High-Resolution Images\n' +
+      '\n' +
+      ' Ruyi Xu \\({}^{1}\\) Yuan Yao \\({}^{2}\\) Zonghao Guo \\({}^{3}\\) Junbo Cui \\({}^{1}\\) Zanlin Ni \\({}^{1}\\) Chunjiang Ge \\({}^{1}\\)\n' +
+      '\n' +
+      '**Tat-Seng Chua \\({}^{2}\\) Zhiyuan Liu \\({}^{1}\\) Maosong Sun \\({}^{1}\\) Gao Huang \\({}^{1}\\)1**\n' +
+      '\n' +
+      '\\({}^{1}\\)Tsinghua University \\({}^{2}\\)National University of Singapore\n' +
+      '\n' +
+      '\\({}^{3}\\)University of Chinese Academy of Sciences\n' +
+      '\n' +
+      'xrorrim@gmail.com yaoyuanthu@gmail.com gaohuang@tsinghua.edu.cn\n' +
+      '\n' +
+      '[https://github.com/thunlp/LLaVA-UHD](https://github.com/thunlp/LLaVA-UHD)\n' +
+      '\n' +
+      'Corresponding Authors\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      'Visual encoding constitutes the basis of large multimodal models (LMMs) in understanding the visual world. Conventional LMMs process images in fixed sizes and limited resolutions, while recent explorations in this direction are limited in adaptivity, efficiency, and even correctness. In this work, we first take GPT-4V and LLaVA-1.5 as representative examples and expose systematic flaws rooted in their visual encoding strategy. To address the challenges, we present LLaVA-UHD, a large multimodal model that can efficiently perceive images in any aspect ratio and high resolution. LLaVA-UHD includes three key components: (1) An image modularization strategy that divides native-resolution images into smaller variable-sized slices for efficient and extensible encoding, (2) a compression module that further condenses image tokens from visual encoders, and (3) a spatial schema to organize slice tokens for LLMs. Comprehensive experiments show that LLaVA-UHD outperforms established LMMs trained with 2-3 orders of magnitude more data on 9 benchmarks. Notably, our model built on LLaVA-1.5\\({}_{336\\times 336}\\) supports 6 times larger (i.e., 672\\(\\times\\)1088) resolution images using only 94% inference computation, and achieves 6.4 accuracy improvement on TextVQA. Moreover, the model can be efficiently trained in academic settings, within 23 hours on 8 A100 GPUs (vs. 26 hours of LLaVA-1.5).\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      'Recent progress in Large Multimodal Models (LMMs) [26; 11; 23; 28; 5] has witnessed a significant surge in vision-language understanding, reasoning, and interaction capabilities. This is achieved by projecting visual signals into Large Language Models (LLMs) to enable their visual perception of the world, where visual encoding strategy plays a fundamental role [21; 3; 28]. Real-world images are known to reside in a wide range of aspect ratios and resolutions, presenting significant challenges for LMMs in various applications.\n' +
+      '\n' +
+      'However, most existing LMMs [8; 11; 28] perceive images in a fixed aspect ratio (i.e., 1:1) and a low resolution (i.e., 224\\(\\times\\)224). The compromise to this simplified setting typically leads to severe shape distortion and blur of image contents. The problem significantly hurts the capabilities of LMMs, especially for fine-grained capabilities, such as small object understanding [20] and optical character recognition [42; 5; 17]. Moreover, the issue also exacerbates hallucination problems (i.e., producing textual responses not factually grounded in images), since models can only learn to make best guesses to blurred images [37; 44].\n' +
+      '\n' +
+      'To achieve image perception in varied aspect ratios and high resolutions for LMMs, there are two main challenges: (1) Adaptivity. Since visual encoders (e.g., CLIP-ViT [34]) are pretrainedin fixed resolutions, it can be difficult to deal with images in a wide range of aspect ratios and resolutions. Simple image interpolation that deviates far from the pretraining scenarios can result in out-of-distribution issues. (2) Efficiency. Directly encoding high-resolution images using vision Transformers [13] requires quadratic computation cost with respect to image sizes. In addition, it can be even more costly for LLMs to process the large number of visual tokens from high-resolution images (e.g., 4096 tokens for 896\\(\\times\\)896 images in ViT-L/14).\n' +
+      '\n' +
+      'Moreover, careless visual encoding strategies can even result in systematic flaws in correctness. For example, despite its powerful capabilities in various aspects, it has been commonly reported that GPT-4V [2] can surprisingly struggle in some basic capabilities, such as identifying the number of objects [41]. The mechanistic cause for such embarrassment remains largely unknown. In this work, we perform the first mechanistic investigation of GPT-4V flaws from the perspective of visual encoding strategy. Our controlled experiments in probing GPT-4V show that the problem can be partially rooted in its visual encoding strategy in dealing with high-resolution images. Investigation on LLaVA-1.5 [27], a representative open-source LMM also shows systematic issues in correctness, indicating their potential vulnerability for adversarial attacks.\n' +
+      '\n' +
+      'To address the challenges, we present LLaVA-UHD, a large multimodal model that efficiently perceives any aspect ratio and high-resolution images. The model has three key components: (1) At the core of LLaVA-UHD is an image modularization strategy that divides native-resolution images into smaller variable-sized slices for efficient and extensible encoding. In comparison to recent works that fit images into several fixed aspect ratios and resolutions [24; 23], the variable-sized slices in LLaVA-UHD enable full adaptivity to native-resolution images without padding or shape-distorting resizing. This is in analogy to the better adaptivity of using water drops vs. ice cubes in full-filling variable-sized glasses. We also show that the strategy guarantees minor deviation from the pretraining setting of visual encoders to maximally retain their capabilities. (2) The visual tokens are condensed by a compression layer to modest lengths, largely reducing the computation for LLMs. (3) Finally, the compressed slice tokens are organized in a spatial schema to inform LLMs about the slice positions in the image.\n' +
+      '\n' +
+      'Comprehensive experiments on 9 benchmarks show that LLaVA-UHD significantly improves the capabilities of LMMs, outperforming established counterparts trained with 2-3 orders of magnitude more data. Notably, our model built on LLaVA-1.5\\({}_{336\\times 336}\\) supports 672\\(\\times\\)1088 resolution images using only 94% inference computation, and achieves 6.4 accuracy improvement on TextVQA and 3.2 accuracy improvement on POPE. The advantage enlarges with more extreme aspect ratios. We also show that instruction tuning on ViT parameters is sufficient for adaptation to a broad range of images. Moreover, the model can be efficiently trained in academic settings, within 23 hours (vs. 26 hours of LLaVA-1.5) on 8 A100 GPUs.\n' +
+      '\n' +
+      'The contribution of this work can be summarized as threefold: (1) We perform the first mechanistic investigation of GPT-4V from the perspective of visual encoding strategy and expose systematic flaws. (2) We present LLaVA-UHD, a large multimodal model that can efficiently perceive any aspect ratio and high-resolution images. (3) We conduct comprehensive experiments to demonstrate the effectiveness of LLaVA-UHD on 9 popular benchmarks, and also provide analysis for deeper understanding of the model.\n' +
+      '\n' +
+      '## 2 Pilot Experiments\n' +
+      '\n' +
+      'We start with a pilot experiment on the visual encoding strategies of existing LMMs, taking GPT-4V [2] and LLaVA-1.5 [27] as representative examples. GPT-4V is a powerful and most recognized proprietary LMM, while LLaVA-1.5 is one of the most influential open-source LMMs. Despite their strong performance in many aspects, it has been commonly reported that dilemmas can be encountered in some basic capabilities [41]. For example, GPT-4V is prone to miscounting the object numbers in images, whereas the causes remain largely unknown.\n' +
+      '\n' +
+      'In this work, we perform the first mechanistic investigation of GPT-4V flaws from the perspective of visual encoding strategy. The key idea is that by using synthetic images as continuous probes, we can evaluate the behaviors of GPT-4V in a highly controlled manner, thereby identifying the underlying causes. Our experimental results indicate that, some systematic flaws of GPT-4V are likely to be rooted in its visual encoding strategy, which can be potentially exploited for adversarial attacks.\n' +
+      '\n' +
+      '### GPT-4V Experiments\n' +
+      '\n' +
+      '**Preliminary.** According to the publicly available information from OpenAI,2 GPT-4V employs two image processing modes: low resolution and high resolution. (1) In low-resolution mode, for an original image with dimensions W and H, the model processes only a low-resolution overview image. (2) In high-resolution mode, besides the overview image, GPT-4V processes additional slices of the original high-resolution image, where each slice has \\(512\\times 512\\) resolution, resulting in \\(\\lceil\\frac{W}{512}\\rceil\\times\\lceil\\frac{H}{512}\\rceil\\) slices in total. In our experiments on GPT-4V\'s new high-resolution mode, interesting error patterns are observed, prompting an exploration into GPT-4V\'s underlying visual encoding logic.\n' +
+      '\n' +
+      'Footnote 2: [https://platform.openai.com/docs/guides/vision](https://platform.openai.com/docs/guides/vision)\n' +
+      '\n' +
+      '**How do positions in images influence GPT-4V\'s behavior?** Our experiments start with a simple instance: Given the image as shown in Fig. 1(a), we ask GPT-4V: "How many circles are there in the image?" We synthesize a series of image variants by changing the positions of circles in the image, and keep the text prompt unchanged. For better reliability, we also synthesize images using other colors and shapes as well, in {red, green, white} \\(\\times\\) {circle, triangle, square}. For each instance, we query 15 times to better approximate the true response distribution.\n' +
+      '\n' +
+      'We calculate the average number answered by GPT-4V for each position in the image, and report the heatmap in Fig. 1(b). We can observe that the result is highly correlated with object positions in images. Specifically, the patterns are split by \\(256\\times 256\\) squares, and three interesting patterns can be identified: (1) The central square exhibits the highest response number, (2) the middle edges show a lower number, and (3) the corners are the closest to ground truth.\n' +
+      '\n' +
+      'To investigate the cause, we further separate the model responses by number, and report the distribution across positions for each response in Fig. 1(c), (d), (f), (g) and (h). Interestingly, besides the correct answers (4: 66.1%) and close answers (5: 16.6%, 3: 10.2%), it turns out that the remaining two abnormal answers (8: 5.2%, 16: 1.9%), which doubles and quadruples the ground truth, account for the error pattern in Fig. 1(b). Combining the results with the public information from OpenAI, we hypothesize the most likely cause is that, there are overlaps in the slices of GPT-4V when the image resolution is not divisible by 512.3 As illustrated in Fig. 1(e), the overlapping areas between two slices will double the number, and the overlapping areas between four slices will quadruple the number.4\n' +
+      '\n' +
+      'Footnote 3: Note that the issue is different from the overlapping sliding windows in CNNs, since the overlaps in GPT-4V is inconsistent across different resolution images.\n' +
+      '\n' +
+      'Footnote 4: Note that besides visual encoding strategies, model behaviors are also influenced by the accumulated training dynamics and RLHF. Therefore the double/quadruple effect does not dominate the results. All results are from GPT-4V on 03-05-2024.\n' +
+      '\n' +
+      'Figure 1: Experimental results of GPT-4V in identifying numbers of objects. Note that the dashed lines in (a) are for illustration purposes only, and not presented to GPT-4V.\n' +
+      '\n' +
+      '**How do image resolutions influence GPT-4V\'s behavior?** To verify the hypothesis, we further probe GPT-4V through continuously changing image resolutions. Specifically, we proportionally resize the image in Fig. 2(a) into different resolutions, and query about the object number in the same way. For each resolution, we repeatedly query 30 times for better reliability.\n' +
+      '\n' +
+      'We report the experimental results in Fig. 2(b). We observe that the model responses show a significant phase change with image resolutions: (1) In phase 1, since there are no image slices, most answers are correct; (2) In phase 2, answer 12 dominates the responses possibly due to the incomplete circles in each slice. (3) Phase 3 shows mixed answers of 9, 12 and 16. Note that 16 can be well explained by the error pattern in Fig. 1(e). We refer readers to Section A for a more detailed illustration of each phase. Besides, we also notice that many abnormal phenomenons in Fig. 2(b) cannot be perfectly explained yet, which we leave for future work.\n' +
+      '\n' +
+      'In conclusion, these experimental findings shed light on GPT-4V\'s potential vulnerabilities in high-resolution image processing, warranting further investigation into the implications of these weaknesses and the development of strategies to counter potential adversarial attacks on LMMs.\n' +
+      '\n' +
+      '### LLaVA-1.5 Experiments\n' +
+      '\n' +
+      'To deal with images with varied aspect ratios, LLaVA-1.5 pads the input images into squares before feeding them into the visual encoder. This encoding method results in a waste of computation for non-square images. For example, a 1:4 image has only 25% effective computation after padding into squares. To quantify the influence, we train an unpadded version of LLaVA-1.5, by fitting the ViT position embedding into the aspect ratio of input images using 2D interpolation. The resultant image tokens remain no more than 576 as in LLaVA-1.5 (see Section 3.1). From the experimental results in Table 2, we observe that adaptive aspect ratio encoding without padding consistently improves the performance of LLaVA-1.5.\n' +
+      '\n' +
+      'Another issue of padding is that, the model essentially cannot know whether the padding-like pixels come from image pre-processing or an actual part of the original input image. To demonstrate this issue, we synthesize a series of input images as in Fig. 3(right), where blue/green/red rectangles in various aspect ratios are surrounded by grey (i.e., the color of LLaVA-1.5\'s padding RGB value). Given the input image, we prompt: "What is the color of the left/right/top/bottom most area?" From\n' +
+      '\n' +
+      'Figure 3: Experimental results of adversarially attacking LLaVA-1.5 using input images containing padding pixels. Left: Attack success rates where LLaVA-1.5 ignores the grey area and answers the color of the central rectangle (e.g., green). Right: Synthesized input images containing (1) a rectangle in varied aspect ratios, and (2) padding pixels.\n' +
+      '\n' +
+      'Figure 2: Results on probing GPT-4V via continuously changing image resolutions.\n' +
+      '\n' +
+      'the results in Fig. 3(left), we observe that LLaVA-1.5 neglects the grey input areas (considering them as padding), and faithfully responds with the color of the central rectangle.\n' +
+      '\n' +
+      '### Conclusions on Pilot Experiments\n' +
+      '\n' +
+      'In summary, both powerful proprietary LMMs such as GPT-4V and open-source LLaVA-1.5 have systematic issues in their underlying visual encoding strategies. The results show that visual strategies must be designed with caution. Common practices such as padding, shape-distorting resizing, and repetitive slicing can result in a waste of computation, a loss of model capability, and even vulnerability to adversarial attacks. Therefore, there is an urgent need for more adaptive and efficient visual encoding methods.\n' +
+      '\n' +
+      '## 3 Method\n' +
+      '\n' +
+      'Based on the principles learned from the pilot experiments, we propose LLaVA-UHD, a large multimodal model that can efficiently perceive any aspect ratio and high-resolution images. As shown in Fig. 4, the model includes three key components: (1) An image modularization strategy that divides native-resolution images into smaller variable-sized slices for efficient and extensible encoding, (2) a compression module that further condenses image tokens from visual encoders, and (3) a spatial decoration schema to organize slice tokens for LLMs.\n' +
+      '\n' +
+      '### Modularized Visual Encoding\n' +
+      '\n' +
+      'To deal with high-resolution images with varied aspect ratios, a naive approach is to interpolate the position embeddings of ViT to the target shape for direct encoding as a whole. However, this approach is sub-optimal due to the quadratic computation cost and the performance degradation from out-of-distribution issues. To address the challenge, we present a modularized visual encoding strategy. The basic idea is to divide native-resolution images into smaller variable-sized slice slices, where the shape of each slice does not deviate too far from the standard pretraining setting of ViT. With variable-sized slice slices, LLaVA-UHD can achieve full adaptivity to native-resolution images without padding or shape-distorting reshaping.\n' +
+      '\n' +
+      'Figure 4: The LLaVA-UHD framework. Left: Given a high-resolution image, LLaVA-UHD first calculates the ideal slice number, and then selects the best partition from possible factorization, splitting the high-resolution image into varied-sized slices. Right: Slices are encoded in native aspect ratios by 2D interpolation on position embeddings, and then compressed and arranged in a spatial schema for LLM processing.\n' +
+      '\n' +
+      '**High-Resolution Image Partition Strategy.** The goal of image slicing strategy is to determine a split of high-resolution images, with minimal changes to the resolutions of each slice. Given an image in resolution \\((W_{I},H_{I})\\) and a ViT pretrained in resolution \\((W_{v},H_{v})\\), we first determine the number of slices (i.e., the ideal computation) needed to process the image: \\(N=\\lceil\\frac{W_{I}\\times H_{I}}{W_{v}\\times H_{v}}\\rceil\\). Then we factorize the slice number \\(N\\) into \\(m\\) columns and \\(n\\) rows: \\(\\mathbb{C}_{N}=\\{(m,n)|m\\times n=N,m\\in\\mathbb{N},n\\in\\mathbb{N}\\}\\). To select the most appropriate partition, we define a score function to measure the deviation from the standard pretraining setting of ViT:\n' +
+      '\n' +
+      '\\[S(W_{I},H_{I},W_{v},H_{v},m,n)=-\\left|\\log\\frac{W_{I}\\times n}{H_{I}\\times m}- \\log\\frac{W_{v}}{H_{v}}\\right|, \\tag{1}\\]\n' +
+      '\n' +
+      'where higher score \\(S(\\cdot)\\) indicates a smaller deviation from the standard setting of ViT, and is thus preferred. Therefore the partition can be obtained as follows:\n' +
+      '\n' +
+      '\\[m^{*},n^{*}=\\operatorname*{arg\\,max}_{(m,n)\\in\\bar{\\mathbb{C}}}S(W_{I},H_{I}, W_{v},H_{v},m,n), \\tag{2}\\]\n' +
+      '\n' +
+      'where the candidate set \\(\\bar{\\mathbb{C}}=\\mathbb{C}_{\\mathbb{N}}\\). In practice, we notice that in some cases, there might be only a few possible factorization schemes for \\(N\\), especially for prime numbers, which can lead to limited choices and therefore extreme partitions of images. For example, \\(N=7\\) has only two extreme partition choices, 1:7 and 7:1. To address the issue, in addition to the ideal slice number \\(N\\), we also allow a modest change of slice numbers \\(N-1,N+1\\) to incorporate more plausible partition choices. Therefore, the final partition is given by Equation 2, where \\(\\bar{\\mathbb{C}}=\\mathbb{C}_{N-1}\\cup\\mathbb{C}_{N}\\cup\\mathbb{C}_{N+1}\\).\n' +
+      '\n' +
+      'Theoretically, we show that the partition strategy guarantees minor expected changes and modest worst-case changes with respect to standard pretraining resolution \\((W_{v},H_{v})\\) for each slice. Specifically, we show that for input images where \\(N\\leq 20\\) and aspect ratio in \\([1:6,6:1]\\), the aspect ratio of each slice resides within \\([1:2,2:1]\\), and the area of each slice resides within \\([0.33W_{I}H_{I},1.5W_{I}H_{I}]\\). We refer readers to Section B for full proof details.\n' +
+      '\n' +
+      '**Arbitrary Aspect Ratio Slice Encoding.** Most existing LMMs utilize a static resolution for image slice encoding [5; 27; 11]. This essentially prevents full adaptivity to native resolutions, since only several predefined fixed-shape slices are available. Moreover, the static slice resolution inevitably incurs padding or shape-distorting resizing, which hurts the performance, efficiency, and even correctness as discussed in Section 2.\n' +
+      '\n' +
+      'To address the problem, we propose to encode image slices in aspect ratios given by the partition strategy as is. Specifically, we proportionally resize the original image following the aspect ratio, such that the number of patches maximally fits within the pretraining budget \\(M\\) (i.e., the number of position embeddings in ViT). Then we reshape the pretrained 1D position embedding sequence of ViT into 2D format \\(P\\in\\mathbb{R}^{q\\times q\\times l}\\) following its pretraining setting, where \\(M=q\\times q\\), and \\(l\\) is the dimension of position embeddings. After that, we 2D-interpolate \\(P\\) to fit the slice resolution given by the partition strategy for visual encoding. In our experiments, we show that ViT and position embedding parameters can be kept frozen during pretraining, and updating these parameters during the instruction-tuning stage is sufficient for good performance. In addition to slices, we also provide a low-resolution overview image in native aspect ratio. The overview image can provide coarse-grained information and global semantic connections in images.\n' +
+      '\n' +
+      '### Compression Layer\n' +
+      '\n' +
+      'High-resolution images require LLMs to process significantly more visual tokens, which accounts for a major part of the computation. For example, a \\(672\\times 1008\\) resolution image will produce 3,456 visual tokens for LLaVA-1.5 [27]. To address the issue, we compress the visual tokens of each image slice using a shared perceiver resampler layer [3]. Specifically, image tokens output by the visual encoders are resampled to a lower number using a set of query vectors via cross-attention (from \\(576\\) to \\(64\\) in our experiments). Compared with the prevalent MLP-based visual projection approaches [27; 26; 39], perceiver resampler maintains a fixed and affordable number of visual tokens regardless of image resolutions, and is therefore more compatible with high-resolution image understanding. As a result, LLaVA-UHD can encode \\(672\\times 1008\\) resolution images using an even lower computation cost than LLaVA-1.5 in encoding \\(336\\times 336\\) resolution images.\n' +
+      '\n' +
+      '### Spatial Schema for Image Slices\n' +
+      '\n' +
+      'Since the image partition is dynamic across different images, it is necessary to inform LLM of the spatial organizations of image slices. Inspired by [6], we design a spatial schema to inform the relative positions of image slices using two special tokens. Specifically, we use "," to separate the slice representations in a row, and use "n" to separate different rows. In our experiments, we find that the simple schema can effectively inform the dynamic partition to yield good performance.\n' +
+      '\n' +
+      '## 4 Experiments\n' +
+      '\n' +
+      'In this section, we empirically investigate the effectiveness of LLaVA-UHD. We first provide the implementation details, and report the evaluation results on 9 common benchmarks compared with strong baselines. Then we provide analytic results for better understanding of the model.\n' +
+      '\n' +
+      '### Implementation Details\n' +
+      '\n' +
+      '**Model Configuration.** In this work, we built LLaVA-UHD following the implementation of LLaVA-1.5 [27]. Specially, we use the CLIP-ViT-L/14 as visual encoder (default resolution \\(336\\times 336\\)), Vicuna-13B [9] as LLM, and a shared visual resampler [5] as the projector to connect the visual encoder and LLM. During the encoding of image slices, a minor reshape within half patches (maximum 7-8 pixels) could be performed to fit the slice into patches. The number of learnable queries in resampler is set to 64. For the image partitioned as \\(N\\) sub-patches, the number of visual tokens fed into LLM is \\(64\\times(N+1)\\), with tokens of the low-resolution overview image. We set the maximum \\(N\\) to be 6 in experiments, which supports a maximum of \\(672\\times 1008\\) resolution images. Following LLaVA-1.5, we perform a two-stage training as follows.\n' +
+      '\n' +
+      '**Stage 1: Pretraining details.** During this stage, only the perceiver resampler is tuned, with the CC-595K dataset [28] for 1 epoch, using AdamW optimizer with a learning rate of \\(1e^{-3}\\) and the cosine learning rate schedule. The global batch size is set to 256. The training cost of this stage is \\(\\sim\\)5 hours using 8\\(\\times\\)A100 GPUs.\n' +
+      '\n' +
+      '**Stage 2: Instruction-tuning details.** During this stage, the visual encoder is frozen and we fine-tune the visual resampler and LLM, with a 656K mixture dataset [27] which contains LLaVA-Instruct [28], TextVQA [36], GQA [18], OCR-VQA [32], and Visual Genome [19]. The learning rate is \\(2e^{-5}\\) and batch size is 128. Other settings are the same as stage 1. The training cost of this stage is \\(\\sim\\)18 hours using 8\\(\\times\\)A100 GPUs.\n' +
+      '\n' +
+      '### Experimental Setting\n' +
+      '\n' +
+      'We introduce experimental settings, including the benchmarks, evaluation metrics, and baselines.\n' +
+      '\n' +
+      '**Benchmarks.** We adopt 9 popular benchmarks to evaluate our model, including: (1) General visual question answering benchmarks such as VQA-V2 [4], GQA [18], ScienceQA [30], and VizWiz [15]; (2) Optical character based visual question answering benchmark such as TextVQA [36]; (3) Hallucination benchmark such as POPE [22]; (4) Comprehensive benchmarks such as MME [14], MMBench [29], and MMBench-CN [29].\n' +
+      '\n' +
+      '**Evaluation Metrics.** In addition to the performance on popular benchmarks, we also report the computation cost (TFLOPs) in processing an image in the maximum supported resolution. The computation cost is aggregated from the visual encoder, projector, and LLM. We also report the accumulated multimodal training data volume for reference, which includes image-text pairs used during pertaining and instruction tuning. For models post-trained on existing multimodal models as backbones, this also includes the training data of the backbones.\n' +
+      '\n' +
+      '**Baselines.** We compare our model with strong baselines. (1) General baselines. We adopt Qwen-VL [5], LLaVA-1.5 [27], MiniGPT-v2 [7], Shikra [8], BLIP-2 [21] and InstructBLIP [11] as representative general baselines. Since the implementation of LLaVA-UHD is highly aligned with LLaVA-1.5, it serves as the most direct baseline. (2) High-resolution LMMs. SPHINX [24] and mPLUG-Owl2 [43] encode images in fixed resolutions; Ureader [42] and Monkey [23] support enumerated resolution types (several predefined fixed-shape slices); Fuyu-8B [6] and OtterHD-8B [20] can encode images in any resolutions.\n' +
+      '\n' +
+      '### Main Results\n' +
+      '\n' +
+      'We report the main experimental results in Table 1, from which we have the following observations: (1) LLaVA-UHD outperforms strong baselines on popular benchmarks. This includes strong general baselines trained on 2-3 orders of magnitude more data such as Qwen-VL and InstructBLIP, and also high-resolution LMMs that require significantly more computation such as Fuyu-8B, OtterHD-8B, Monkey and SPHINX-2k. The results show that LLaVA-UHD can properly deal with native-resolution images for strong performance, as well as good data and computation efficiency. (2) LLaVA-UHD achieves significant improvements over the LLaVA-1.5 backbone. Notably, by simply perceiving images in native high-resolution, LLaVA-UHD achieves 6.4 accuracy improvement on TextVQA and 3.2 accuracy improvement on POPE. The reason is that the blurred content in low-resolution images can prevent LMMs from accurately identifying the challenging fine-grained objects and optical characters. The results demonstrate the fundamental role of perceiving native high-resolution images in various multimodal tasks, and the effectiveness of LLaVA-UHD in addressing the problem. (3) In terms of resolution and efficiency, compared with LLaVA-1.5 associated fixed \\(336\\times 336\\) resolution, LLaVA-UHD supports 672\\(\\times\\)1088 resolution images in any aspect ratio using only 94% inference computation. The results indicate promising scalability of LLaVA-UHD to potentially larger resolutions in future.\n' +
+      '\n' +
+      '### Analytic Results\n' +
+      '\n' +
+      'We provide further analytic results, including ablation on alternative components, evaluation on images with more extreme aspect ratios, best practice for frozen/trainable parameters, and case study.\n' +
+      '\n' +
+      '**Ablation Study.** In Table 2, we conduct ablation studies on alternative components. (1) We replace the padding strategy of LLaVA-1.5 with the adaptive encoding strategy of LLaVA-UHD, supporting arbitrary aspect ratios while maintaining identical maximum resolutions. We can observe consistent improvement since wasted computation from padding is avoided. (2) We replace the perceiver resampler of LLaVA-UHD with the 2-layer MLP of LLaVA-1.5. We observe that perceiver resampler achieves comparable or better performance than MLP, using only 12.9% computation cost. (3) We further replace the LLaVA-UHD image partition strategy with the naive partition strategy [24] (i.e., fixed \\(2\\times 2\\) slices). Results show that LLaVA-UHD can more properly divide images into slices\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c c c c c c c c c} \\hline \\hline Model & \\#Data & MaxRes. & AR. & TFLOPs & VQA\\({}^{\\text{A}2}\\) & GQA & VQA\\({}^{\\text{T}}\\) & POPE & SQA & VizWiz & MME & MMB\\({}^{\\text{CN}}\\) \\\\ \\hline BLIP-2 [21] & 129M & 224\\(\\times\\)224 & Fix & 1.0 & 41.0 & 41.0 & 42.5 & 85.3 & 61.0 & 19.6 & 1293.8 & - & - \\\\ InstructBLIP [11] & 130M & 224\\(\\times\\)224 & Fix & 1.0 & - & 49.5 & 50.7 & 78.9 & 63.1 & 33.4 & 1212.8 & - & - \\\\ Shikz [8] & 6M & 224\\(\\times\\)224 & Fix & 8.0 & 77.4 & - & - & - & - & - & - & 58.8 & - \\\\ Qwen-VL [5] & 1.48 & 448\\(\\times\\)448 & Fix & 9.2 & 78.8 & 59.3 & 63.8 & - & 67.1 & 35.2 & - & 38.2 & 7.4 \\\\ SPHINX [24] & 1.08 & 448\\(\\times\\)448 & Fix & 39.7 & 78.1 & 62.5 & 51.6 & 80.7 & 69.3 & 39.9 & 1476.1 & 66.9 & 56.2 \\\\ SPHINX-2k [24] & 1.08 & 762\\(\\times\\)762 & Fix & 69.4 & 80.7 & 63.1 & 61.2 & 87.2 & 70.6 & 44.9 & 1470.7 & 65.9 & 57.9 \\\\ MiniGPY-2 [27] & 3264M & 448\\(\\times\\)448 & Fix & 4.3 & - & 60.1 & - & 74.1 & - & 53.6 & - & 53.6 & 10.7 & - \\\\ Fungi-8B [6] & - & 1024\\(\\times\\)1024 & Any & 21.3 & - & - & 86.0 & - & - & 128.6 & 10.7 & - \\\\ QuerHD-8B [20] & 1024\\(\\times\\)1024 & Any & 21.3 & - & - & 86.0 & - & - & 128.4 & 58.3 & - \\\\ In-PLG-QA [43] & 401M & 448\\(\\times\\)448 & Fix & 1.7 & 79.4 & 56.1 & 58.2 & 86.2 & 68.7 & 54.5 & 1450.2 & 64.5 & - \\\\ URteader [24] & 86M & 896\\(\\times\\)1120 & Enum & 26.0 & - & - & 57.6 & - & - & - & - & - & - \\\\ Monkey [23] & 1.08 & 896\\(\\times\\)1344 & Enum & 65.3 & 80.3 & 60.7 & 67.6 & 69.4 & **61.2** & - & - & - \\\\ LLaVA-1.5 [27] & 1.2M & 336\\(\\times\\)336 & Fix & 15.5 & 80.0 & 63.2 & 61.3 & 85.9 & 71.6 & 53.6 & 1531.3 & 67.7 & 63.6 \\\\ \\hline LLaVA-UHD (ours) & 1.2M & 672\\(\\times\\)1008 & Any & 14.6 & **81.7** & **65.2** & **67.7** & **89.1** & **72.0** & 56.1 & **1538.0** & **68.0** & **64.8** \\\\ \\(\\Delta\\) & - & \\(\\times\\)6 times & - & -0.9 & +1.7 & +1.9 & +6.4 & +3.2 & +0.4 & -2.5 & +3.7 & +0.3 & +1.2 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 1: Main results on 9 popular benchmarks. #Data: accumulated multimodal training data volume, MaxRes.: maximum resolution supported, TFLOPs: computation cost of processing maximum resolution images, AR.: aspect ratio supported, \\(\\Delta\\): improvements over LLaVA-1.5 backbone.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c c c} \\hline \\hline Model & \\#TFLOPs & VQA\\({}^{\\text{V}2}\\) & GQA & VQA\\({}^{\\text{T}}\\) & POPE & SQA & VizWiz \\\\ \\hline LLaVA-1.5 & 15.50 & 80.0 & 63.3 & 61.3 & 85.9 & 71.6 & 53.6 \\\\ w/ adaptive enc. & 15.50 & **80.1** & **64.1** & **61.8** & **86.7** & **72.0** & **54.2** \\\\ \\hline LLaVA-UHD & **14.63** & **81.7** & 65.2 & **67.7** & 89.1 & **72.0** & 56.1 \\\\ w/ MLP & 113.65 & 81.6 & **65.4** & 66.9 & **89.2** & 71.5 & **56.3** \\\\ w/ MLP \\& FP. [24] & 80.10 & 81.2 & 64.3 & 66.1 & 89.1 & 71.1 & 54.3 \\\\ w/o spatial schema & 80.07 & 79.3 & 63.9 & 65.4 & 88.3 & 70.3 & 53.1 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 2: Ablation Results. FP: Fixed image partition strategy.\n' +
+      '\n' +
+      'for better performance. (4) We remove the spatial schema from LLaVA-UHD. The performance degradation demonstrates the effectiveness and necessity of spatial schema in informing the dynamic slice positions for LMMs.\n' +
+      '\n' +
+      '**LLaVA-UHD generalizes to images with extreme aspect ratios.** We further investigate the generalization capability of LLaVA-UHD by constructing an extended version of existing benchmarks. Specifically, we expand the aspect ratio of an image by doubling the length of its longer side through padding. From the results in Table 3, we can see that the advantage of LLaVA-UHD increases as compared with LLaVA-1.5 and alternatives. The reason is that LLaVA-UHD perceives images in native aspect ratios. In comparison, LMMs that encode images in fixed aspect ratios will suffer from significant distortion in the content shapes. Moreover, this also causes the computation to be unevenly distributed along the width and height of the image content.\n' +
+      '\n' +
+      '**Instruction-tuning ViT parameters is sufficient for adaptation.** We investigate the effect of tuning ViT parameters at different training stages, including pretraining and instruction-tuning. From the results in Table 4, we observe that: (1) Updating ViT during instruction-tuning is sufficient to achieve good performance. In fact, we find that LLaVA-UHD can improve over LLaVA-1.5 even when ViT parameters are frozen in both pretraining and instruction tuning. (2) Further updating ViT during pretraining does not lead to better results. We hypothesize the reason is that jointly training ViT and resampler (from scratch) on limited pretraining data can lead to instability issues.\n' +
+      '\n' +
+      '**Case Study.** To provide a more intuitive understanding of the capabilities of LMMs in dealing with high-resolution images, we provide qualitative results for LLaVA-UHD and LLaVA-1.5 in Fig. 5. We can see that LLaVA-UHD can correctly identify the dense content in the timetable (Case 1), the text on the small poster (Case 2), and icons and text on the phone (Case 3) for fine-grained recognition and reasoning. In comparison, LLaVA-1.5 can only perceive coarse-grained information, and therefore tends to provide either uninformative (Cases 1 and 2) or incorrect/hallucinated answers (Case 3) in these challenging scenarios. The results demonstrate the effectiveness and advantage of LLaVA-UHD in perceiving native aspect ratio and high-resolution images for fine-grained multimodal capabilities.\n' +
+      '\n' +
+      '## 5 Related Work\n' +
+      '\n' +
+      '**Visual Encoding in LMMs.** The advent of ChatGPT [1] and GPT-4 [2] has spurred the development of numerous open-source large language models (LLMs) [9; 38; 10]. Utilizing an LLM as a language encoder and decoder, there springs up plenty of LMMs [21; 11; 3; 28; 5; 17], with aim at understanding visual image. Therefore, how to encode vision features into LLMs becomes the core problem in the community. Fortunately, CLIP [34] proposes to respectively extract language embeddings using language models like BERT [12] and visual features using vision models like ViT [13] and CNN [16],\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c|c c c c c} \\hline \\hline \\multicolumn{2}{c|}{Update ViT} & \\multicolumn{1}{c}{VQA\\({}^{\\text{v2}}\\)} & \\multicolumn{1}{c}{GQA} & \\multicolumn{1}{c}{VQA\\({}^{\\text{T}}\\)} & \\multicolumn{1}{c}{POPE} & \\multicolumn{1}{c}{SQA} & \\multicolumn{1}{c}{VizWiz} \\\\ \\hline pre-training & Fine-tuning & & & & & & \\\\ \\hline  & ✓ & **81.7** & **65.2** & **67.7** & **89.1** & **72.0** & **56.1** \\\\ ✓ & & 78.2 & 61.1 & 58.9 & 83.9 & 68.6 & 51.4 \\\\  & & 79.4 & 64.5 & 65.7 & 87.3 & 71.9 & 55.4 \\\\ ✓ & ✓ & 80.2 & 63.7 & 62.6 & 87.2 & 71.6 & 55.1 \\\\ \\hline \\multicolumn{2}{c|}{LLaVA-1.5 [27]} & 80.0 & 63.3 & 61.3 & 85.9 & 71.6 & 53.6 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 4: The effect of tuning visual encoder at different training stages.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c c c c} \\hline \\hline Model & \\#TFLOPs & VQA\\({}^{\\text{v2}}\\) & GQA & VQA\\({}^{\\text{T}}\\) & POPE & SQA & VizWiz \\\\ \\hline LLaVA-1.5 & 15.50 & 74.6 (-5.4) & 57.9 (-5.4) & 58.4 (-3.9) & 81.1 (-4.8) & 66.3 (-5.3) & 50.1 (-3.5) \\\\ w/ adaptive enc. & 15.50 & **74.9** (-5.2) & **62.5** (-1.6) & **60.7** (-1.1) & **82.3** (-4.4) & **66.9** (-5.1) & **50.9** (-3.3) \\\\ \\hline LLaVA-UHD & 14.63 & **81.4** (-0.3) & 61.8 (-3.4) & **64.5** (-3.2) & 85.1 (-4.0) & **71.5** (-0.5) & 54.0 (-2.1) \\\\ w/ MLP & 113.65 & 81.3 (-0.3) & **62.0** (-3.4) & 63.9 (-3.0) & **85.2** (-4.0) & 70.9 (-0.6) & **54.3** (-2.0) \\\\ w/ MLP \\& FP. [24] & 80.10 & 79.6 (-1.6) & 61.9 (-2.4) & 58.5 (-7.6) & 84.4 (-4.7) & 69.4 (-1.7) & 52.2 (-2.1) \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 3: Experimental results on extreme aspect ratio images. Absolute performance and the degradation compared with the standard benchmarks in Table 2 are reported.\n' +
+      '\n' +
+      'and align them in contrastive learning fashion using considerable image-text pairs [35], so that visual embeddings are well aligned towards the language.\n' +
+      '\n' +
+      'Existing visual projection approaches towards LLMs can be divided into three categories. (1) Flamingo [3] proposes perceiver resampler, which utilizes a fixed number of queries to capture visual features by cross-attention operation and feeds them into LLMs for image/video understanding. (2) BLIP-2 [21] pretrains Q-Former to bridge the image encoder and LLMs. (3) LLaVA [28] just leverages an MLP module to connect language and vision feature space. Beyond them, SPHINX [24] mixes many kinds of visual features, including DINO-V2 [33], CLIP-ViT [34] and CLIP-CNN [34], and Q-Former to augment visual representation. Vary [40] pretrains a visual model tailored for document/chart recognition and understanding, and integrates it with visual features of LLaVA [28] for further feature enhancement.\n' +
+      '\n' +
+      'However, since these LMMs rely on CLIP-ViT that requires fixed resolution image as input, it hinders LMMs from handling images with higher resolution or any aspect ratio, and undermines fine-grained downstream tasks like optical character recognition or small object understanding.\n' +
+      '\n' +
+      '**High-resolution LMMs.** To perceive images with higher resolutions, recent work can be divided into four categories. (1) Up-Resize. Qwen-VL [5] interpolates the positional embedding of ViT from 224\\(\\times\\)224 to 448\\(\\times\\)448 and additionally executes a training stage to fine-tune the ViT. CogAgent [17] and LLaVA-HR [31] marries a large low-resolution encoder with a small high-resolution image. MiniGPT-v2 [7] only resizes the positional embeddings without fine-tuning the visual encoder during\n' +
+      '\n' +
+      'Figure 5: Qualitative comparison of LLaVA-UHD and LLaVA-1.5 in fine-grained recognition and reasoning capabilities.\n' +
+      '\n' +
+      'instruction tuning. These methods dramatically change the original visual position encoding of CLIP-ViT [34], which can cause sub-optimal visual representation. (2) Fix+Crop. To address the above issue, SPHINX [24] utilizes a fixed window size (224\\(\\times\\)224) to crop a padded image (448\\(\\times\\)448) into four slices, and concatenates them with a down-sampled 224\\(\\times\\)224 image as visual inputs. Monkey [23] follows this idea yet increases the accessible image size to 896\\(\\times\\)1344, and converts each slice using a shared resampler. (3) Fix+Enumerated-Crop. UReader [42], LLaVA-1.6 [26] and infiMM-HD [25] enumerate a similar aspect ratio to resize, rather than using a fixed square ratio (e.g., 2\\(\\times\\)2 as in SPHINX [24]). The unavoidable image resizing and padding operation might cause image deformation and waste of computation, respectively. (4) Any. Fuyu-8B [6] and Otter-HD [20] directly utilize LLMs to encode visual features instead of vision transformers. They just split images into patches and project them using linear layers before feeding into the LLM. Regarding image patches as a sequence enables itself to process images with continuous resolution. However, the removal of an image encoder means insufficient visual representation, which makes these methods limited in unsatisfactory performance.\n' +
+      '\n' +
+      'In comparison, LLaVA-UHD supports images in any aspect ratios and high resolutions. By integrating the advantages of modularized and adaptive image encoding, as well as perceiver resampler, LLaVA-UHD can achieve strong performance with improved computation efficiency.\n' +
+      '\n' +
+      '## 6 Conclusion\n' +
+      '\n' +
+      'In this work, we present LLaVA-UHD, a large multimodal model that efficiently perceives any aspect ratio and high-resolution images. Comprehensive experimental results on 9 popular benchmarks demonstrate the effectiveness of LLaVA-UHD, especially in fine-grained multimodal capabilities. Analytical evaluation results are provided for deeper understanding of the model. In this work, we limit the resolution of LLaVA-UHD to maximum \\(672\\times 1008\\). In future, considering the promising efficiency and scalability, we will explore higher-resolution images and more challenging tasks such as small object detection and segmentation. Besides, image slices are currently independently encoded, with interactions only in LLMs. We plan to establish efficient connections between image slices via improved visual encoding strategies for fine-grained global information interaction.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* [1] Introducing ChatGPT. [https://openai.com/blog/chatgpt](https://openai.com/blog/chatgpt). 2022.\n' +
+      '* [2] Josh Achiam, Steven Adler, Sandhini Agarwal, Lama Ahmad, Ilge Akkaya, Florencia Leoni Aleman, Diogo Almeida, Janko Altenschmidt, Sam Altman, Shyamal Anadkat, et al. GPT-4 technical report. _arXiv preprint arXiv:2303.08774_, 2023.\n' +
+      '* [3] Jean-Baptiste Alayrac, Jeff Donahue, Pauline Luc, Antoine Miech, Iain Barr, Yana Hasson, Karel Lenc, Arthur Mensch, Katherine Millican, Malcolm Reynolds, Roman Ring, Eliza Rutherford, Serkan Cabi, Tengda Han, Zhitao Gong, Sina Samangooei, Marianne Monteiro, Jacob L. Menick, Sebastian Borgeaud, Andy Brock, Aida Nematzadeh, Sahand Sharifzadeh, Mikolaj Binkowski, Ricardo Barreira, Oriol Vinyals, Andrew Zisserman, and Karen Simonyan. Flamingo: a visual language model for few-shot learning. In _NeurIPS_, 2022.\n' +
+      '* [4] Stanislaw Antol, Aishwarya Agrawal, Jiasen Lu, Margaret Mitchell, Dhruv Batra, C Lawrence Zitnick, and Devi Parikh. VQA: Visual question answering. In _IEEE ICCV_, pages 2425-2433, 2015.\n' +
+      '* [5] Jinze Bai, Shuai Bai, Shusheng Yang, Shijie Wang, Sinan Tan, Peng Wang, Junyang Lin, Chang Zhou, and Jingren Zhou. Qwen-VL: A frontier large vision-language model with versatile abilities. _arXiv preprint arXiv:2308.12966_, 2023.\n' +
+      '* [6] Rohan Bavishi, Erich Elsen, Curtis Hawthorne, Maxwell Nye, Augustus Odena, Arushi Somani,, and Sagnak Tasrrlar. Introducing our multimodal models. adept.ai/blog/fyu-8b. 2023.\n' +
+      '* [7] Jun Chen, Deyao Zhu, Xiaoqian Shen, Xiang Li, Zechun Liu, Pengchuan Zhang, Raghuraman Krishnamoorthi, Vikas Chandra, Yunyang Xiong, and Mohamed Elhoseiny. MiniGPT-v2: large language model as a unified interface for vision-language multi-task learning. _arXiv preprint arXiv:2310.09478_, 2023.\n' +
+      '* [8] Keqin Chen, Zhao Zhang, Weili Zeng, Richong Zhang, Feng Zhu, and Rui Zhao. Shikra: Unleashing multimodal llm\'s referential dialogue magic. _arXiv preprint arXiv:2306.15195_, 2023.\n' +
+      '\n' +
+      '* [9] Wei-Lin Chiang, Zhuohan Li, Zi Lin, Ying Sheng, Zhanghao Wu, Hao Zhang, Lianmin Zheng, Siyuan Zhuang, Yonghao Zhuang, Joseph E Gonzalez, et al. Vicuna: An open-source chatbot impressing GPT-4 with 90%* ChatGPT quality. 2023.\n' +
+      '* [10] Hyung Won Chung, Le Hou, Shayne Longpre, Barret Zoph, Yi Tay, William Fedus, Eric Li, Xuezhi Wang, Mostafa Dehghani, Siddhartha Brahma, Albert Webson, Shixiang Shane Gu, Zhuyun Dai, Mirac Suzgun, Xinyun Chen, Aakanksha Chowdhery, Sharan Narang, Gaurav Mishra, Adams Yu, Vincent Y. Zhao, Yanping Huang, Andrew M. Dai, Hongkun Yu, Slav Petrov, Ed H. Chi, Jeff Dean, Jacob Devlin, Adam Roberts, Denny Zhou, Quoc V. Le, and Jason Wei. Scaling instruction-finetuned language models. _arXiv preprint arXiv:2210.11416_, 2022.\n' +
+      '* [11] Wenliang Dai, Junnan Li, Dongxu Li, Anthony Meng Huat Tiong, Junqi Zhao, Weisheng Wang, Boyang Li, Pascale Fung, and Steven Hoi. InstructBLIP: Towards general-purpose vision-language models with instruction tuning. _arXiv preprint arXiv:2305.06500_, 2023.\n' +
+      '* [12] Jacob Devlin, Ming-Wei Chang, Kenton Lee, and Kristina Toutanova. BERT: pre-training of deep bidirectional transformers for language understanding. In Jill Burstein, Christy Doran, and Thamar Solorio, editors, _NAACL_, pages 4171-4186, 2019.\n' +
+      '* [13] Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov, Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner, Mostafa Dehghani, Matthias Minderer, Georg Heigold, Sylvain Gelly, et al. An image is worth 16x16 words: Transformers for image recognition at scale. _ICLR_, 2021.\n' +
+      '* [14] Chaoyou Fu, Peixian Chen, Yunhang Shen, Yulei Qin, Mengdan Zhang, Xu Lin, Jinrui Yang, Xiawu Zheng, Ke Li, Xing Sun, et al. MME: A comprehensive evaluation benchmark for multimodal large language models. _arXiv preprint arXiv:2306.13394_, 2023.\n' +
+      '* [15] Danna Gurari, Qing Li, Abigale J Stangl, Anhong Guo, Chi Lin, Kristen Grauman, Jiebo Luo, and Jeffrey P Bigham. VizWiz grand challenge: Answering visual questions from blind people. In _IEEE CVPR_, pages 3608-3617, 2018.\n' +
+      '* [16] Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun. Deep residual learning for image recognition. In _IEEE CVPR_, pages 770-778, 2016.\n' +
+      '* [17] Wenyi Hong, Weihan Wang, Qingsong Lv, Jiazheng Xu, Wenmeng Yu, Junhui Ji, Yan Wang, Zihan Wang, Yuxiao Dong, Ming Ding, et al. CogAgent: A visual language model for gui agents. _arXiv preprint arXiv:2312.08914_, 2023.\n' +
+      '* [18] Drew A Hudson and Christopher D Manning. GQA: A new dataset for real-world visual reasoning and compositional question answering. In _IEEE CVPR_, pages 6700-6709, 2019.\n' +
+      '* [19] Ranjay Krishna, Yuke Zhu, Oliver Groth, Justin Johnson, Kenji Hata, Joshua Kravitz, Stephanie Chen, Yannis Kalantidis, Li-Jia Li, David A Shamma, et al. Visual Genome: Connecting language and vision using crowdsourced dense image annotations. _IJCV_, 123:32-73, 2017.\n' +
+      '* [20] Bo Li, Peiyuan Zhang, Jingkang Yang, Yuanhan Zhang, Fanyi Pu, and Ziwei Liu. OtterHD: A high-resolution multi-modality model. _arXiv preprint arXiv:2311.04219_, 2023.\n' +
+      '* [21] Junnan Li, Dongxu Li, Silvio Savarese, and Steven Hoi. BLIP-2: Bootstrapping language-image pre-training with frozen image encoders and large language models. _ICML_, 2023.\n' +
+      '* [22] Yifan Li, Yifan Du, Kun Zhou, Jinpeng Wang, Wayne Xin Zhao, and Ji-Rong Wen. Evaluating object hallucination in large vision-language models. _arXiv preprint arXiv:2305.10355_, 2023.\n' +
+      '* [23] Zhang Li, Biao Yang, Qiang Liu, Zhiyin Ma, Shuo Zhang, Jingxu Yang, Yabo Sun, Yuliang Liu, and Xiang Bai. Monkey: Image resolution and text label are important things for large multi-modal models. _arXiv preprint arXiv:2311.06607_, 2023.\n' +
+      '* [24] Ziyi Lin, Chris Liu, Renrui Zhang, Peng Gao, Longtian Qiu, Han Xiao, Han Qiu, Chen Lin, Wenqi Shao, Keqin Chen, Jiaming Han, Siyuan Huang, Yichi Zhang, Xuming He, Hongsheng Li, and Yu Qiao. SPHINX: the joint mixing of weights, tasks, and visual embeddings for multi-modal large language models. _arXiv preprint arXiv:2311.07575_, 2023.\n' +
+      '* [25] Haogeng Liu, Quanzeng You, Xiaotian Han, Yiqi Wang, Bohan Zhai, Yongfei Liu, Yunzhe Tao, Huaibo Huang, Ran He, and Hongxia Yang. InfMM-HD: A leap forward in high-resolution multimodal understanding. _arXiv preprint arXiv:2403.01487_, 2024.\n' +
+      '\n' +
+      '* [26] Haotian Liu, Chunyuan Li, Yuheng Li, Bo Li, Yuanhan Zhang, Sheng Shen, and Yong Jae Lee. LLaVA-NeXT: Improved reasoning, ocr, and world knowledge. [https://llava-vl.github.io/blog/2024-01-30-llava-next/](https://llava-vl.github.io/blog/2024-01-30-llava-next/). 2024.\n' +
+      '* [27] Haotian Liu, Chunyuan Li, Yuheng Li, and Yong Jae Lee. Improved baselines with visual instruction tuning. _arXiv preprint arXiv:2310.03744_, 2023.\n' +
+      '* [28] Haotian Liu, Chunyuan Li, Qingyang Wu, and Yong Jae Lee. Visual instruction tuning. _NeurIPS_, 36, 2024.\n' +
+      '* [29] Yuan Liu, Haodong Duan, Yuanhan Zhang, Bo Li, Songyang Zhang, Wangbo Zhao, Yike Yuan, Jiaqi Wang, Conghui He, Ziwei Liu, et al. MMBench: Is your multi-modal model an all-around player? _arXiv preprint arXiv:2307.06281_, 2023.\n' +
+      '* [30] Pan Lu, Swaroop Mishra, Tanglin Xia, Liang Qiu, Kai-Wei Chang, Song-Chun Zhu, Oyvind Tafjord, Peter Clark, and Ashwin Kalyan. Learn to explain: Multimodal reasoning via thought chains for science question answering. _Advances in Neural Information Processing Systems_, 35:2507-2521, 2022.\n' +
+      '* [31] Gen Luo, Yiyi Zhou, Yuxin Zhang, Xiauw Zheng, Xiaoshuai Sun, and Rongrong Ji. Feast your eyes: Mixture-of-resolution adaptation for multimodal large language models. _arXiv preprint arXiv:2403.03003_, 2024.\n' +
+      '* [32] Anand Mishra, Shashank Shekhar, Ajeet Kumar Singh, and Anirban Chakraborty. OCR-VQA: Visual question answering by reading text in images. In _IEEE ICDAR_, pages 947-952, 2019.\n' +
+      '* [33] Maxime Oquab, Timothee Darcet, Theo Moutakanni, Huy Vo, Marc Szafraniec, Vasil Khalidov, Pierre Fernandez, Daniel Haziza, Francisco Massa, Alaaeldin El-Nouby, et al. DINOV2: Learning robust visual features without supervision. _arXiv preprint arXiv:2304.07193_, 2023.\n' +
+      '* [34] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, et al. Learning transferable visual models from natural language supervision. In _ICML_, pages 8748-8763, 2021.\n' +
+      '* [35] Christoph Schuhmann, Romain Beaumont, Richard Vencu, Cade Gordon, Ross Wightman, Mehdi Cherti, Theo Coombes, Aarush Katta, Clayton Mullis, Mitchell Wortsman, et al. LAION-5B: An open large-scale dataset for training next generation image-text models. _NeurIPS_, pages 25278-25294, 2022.\n' +
+      '* [36] Amanpreet Singh, Vivek Natarajan, Meet Shah, Yu Jiang, Xinlei Chen, Dhruv Batra, Devi Parikh, and Marcus Rohrbach. Towards VQA models that can read. In _IEEE CVPR_, pages 8317-8326, 2019.\n' +
+      '* [37] Zhiqing Sun, Sheng Shen, Shengcao Cao, Haotian Liu, Chunyuan Li, Yikang Shen, Chuang Gan, Liang-Yan Gui, Yu-Xiong Wang, Yiming Yang, et al. Aligning large multimodal models with factually augmented RLHF. _arXiv preprint arXiv:2309.14525_, 2023.\n' +
+      '* [38] Hugo Touvron, Thibaut Lavril, Gautier Izacard, Xavier Martinet, Marie-Anne Lachaux, Timothee Lacroix, Baptiste Roziere, Naman Goyal, Eric Hambro, Faisal Azhar, et al. LLaMA: Open and efficient foundation language models. _arXiv preprint arXiv:2302.13971_, 2023.\n' +
+      '* [39] Weihan Wang, Qingsong Lv, Wenmeng Yu, Wenyi Hong, Ji Qi, Yan Wang, Junhui Ji, Zhuoyi Yang, Lei Zhao, Song XiXuan, et al. CogVLM: Visual expert for large language models. 2023.\n' +
+      '* [40] Haoran Wei, Lingyu Kong, Jinyue Chen, Liang Zhao, Zheng Ge, Jinrong Yang, Jianjian Sun, Chunrui Han, and Xiangyu Zhang. Vary: Scaling up the vision vocabulary for large vision-language models. _arXiv preprint arXiv:2312.06109_, 2023.\n' +
+      '* [41] Zhengyuan Yang, Linjie Li, Kevin Lin, Jianfeng Wang, Chung-Ching Lin, Zicheng Liu, and Lijuan Wang. The dawn of LMMs: Preliminary explorations with gpt-4v (ision). _arXiv preprint arXiv:2309.17421_, 9(1): 1, 2023.\n' +
+      '* [42] Jiabo Ye, Anwen Hu, Haiyang Xu, Qinghao Ye, Ming Yan, Guohai Xu, Chenliang Li, Junfeng Tian, Qi Qian, Ji Zhang, et al. UReader: Universal OCR-free visually-situated language understanding with multimodal large language model. _arXiv preprint arXiv:2310.05126_, 2023.\n' +
+      '* [43] Qinghao Ye, Haiyang Xu, Jiabo Ye, Ming Yan, Haowei Liu, Qi Qian, Ji Zhang, Fei Huang, and Jingren Zhou. mplug-owl2: Revolutionizing multi-modal large language model with modality collaboration. _arXiv preprint arXiv:2311.04257_, 2023.\n' +
+      '* [44] Tianyu Yu, Yuan Yao, Haoye Zhang, Taiwan He, Yifeng Han, Ganqu Cui, Jinyi Hu, Zhiyuan Liu, Hai-Tao Zheng, Maosong Sun, et al. RLHF-V: Towards trustworthy MLLMs via behavior alignment from fine-grained correctional human feedback. In _CVPR_, 2024.\n' +
+      '\n' +
+      '## Appendix A Detailed Illustration on GPT-4V Phases\n' +
+      '\n' +
+      'From the pilot experimental results in Fig. 6, we observe that the GPT-4V responses show a significant phase change with image resolutions. Here we provide detailed illustrations of the hypothesized cause from the perspective of visual encoding:\n' +
+      '\n' +
+      '(1) In phase 1, since there is only one image slice, most answers are correct. More specifically, when dealing with input images under 512 resolution, if the images are resized to 512, the behavior will be the same within phase 1. However, since the behavior changes significantly within phase 1, we suspect that the input images are most likely to be padded into 512 resolutions, as shown in Fig. 7(a).\n' +
+      '\n' +
+      '(2) In phase 2, answer 12 dominates the responses possibly due to the incomplete circles in each slice, as shown in Fig. 7(b).\n' +
+      '\n' +
+      '(3) Phase 3 shows mixed answers of 9, 12 and 16. Among these responses, answer 16 can be well explained by the slice strategy in Fig. 7(c). Besides, we also notice that many abnormal phenomenons in Fig. 2(b) cannot be perfectly explained yet, which we leave for future work.\n' +
+      '\n' +
+      '## Appendix B Proofs\n' +
+      '\n' +
+      'In this section, we provide proofs for the image partition strategy. We show that the slice resolution exhibits modest changes to the original resolution of ViT.\n' +
+      '\n' +
+      '**Range of Slice Aspect Ratios.** The aspect ratio of the slice can be represented by:\n' +
+      '\n' +
+      '\\[\\frac{W_{v}}{H_{v}}=\\frac{W_{I}}{m}:\\frac{H_{I}}{n},\\]\n' +
+      '\n' +
+      'where \\(W_{v}\\), \\(H_{v}\\) are the width and height of the slice, \\(W_{I}\\), \\(H_{I}\\) are the sizes of the original image, and (m, n) is the best partition. Restricting the aspect ratio \\(r=\\frac{W_{v}}{H_{v}}\\in[\\frac{1}{2},2]\\) is equivalent to \\(|\\log(\\mathsf{r})|\\leq|\\log 2|\\)\n' +
+      '\n' +
+      'Figure 6: Results on probing GPT-4V via continuously changing image resolutions.\n' +
+      '\n' +
+      'Figure 7: Illustration on GPT-4V phases (hypothesized). Red square indicates a slice.\n' +
+      '\n' +
+      'which is also equivalent to \\(\\left|\\log\\left(\\frac{W_{I}}{H_{I}}\\right)-\\log(\\frac{n}{m})\\right|\\leq|\\log(2)|\\). We need to prove:\n' +
+      '\n' +
+      '\\[\\forall\\frac{W_{I}}{H_{I}}\\in[\\frac{1}{6},6],N\\leq 20\\]\n' +
+      '\n' +
+      '\\[\\exists(\\mathsf{m},\\mathsf{n})\\in\\bar{\\mathbb{C}},\\left|\\log\\left(\\frac{W_{I}} {H_{I}}\\right)-\\log(\\frac{n}{m})\\right|\\leq|\\log(2)|,\\]\n' +
+      '\n' +
+      'which is equivalent to\n' +
+      '\n' +
+      '\\[\\forall N\\leq 20,(n_{i},m_{i})\\in\\bar{\\mathbb{C}}\\]\n' +
+      '\n' +
+      '\\[\\exists(n_{j},m_{j})\\in\\bar{\\mathbb{C}},\\left|\\left(\\log\\left(\\frac{n_{i}}{m_{i }}\\right)-\\log\\left(\\frac{n_{j}}{m_{j}}\\right)\\right)\\right|\\leq 2\\cdot|\\log(2)|\\,,\\]\n' +
+      '\n' +
+      'which can be verified by enumerating all possible factorizations of \\(\\bar{\\mathbb{C}}=\\mathbb{C}_{N-1}\\cup\\mathbb{C}_{N}\\cup\\mathbb{C}_{N+1}\\) for \\(N\\leq 20\\). The results show that the aspect ratio of each slice resides within \\([\\frac{1}{2},2]\\).\n' +
+      '\n' +
+      '**Expected Aspect Ratio.** We assume that the ratio of the original image is greater than 1 (i.e., \\(H_{I}>W_{I}\\)). The situation is the same for \\(H_{I}<W_{I}\\). Assuming that the sizes of the images are uniformly distributed for \\(N\\in[0,20]\\), while the aspect ratio of the original images \\(\\frac{W_{I}}{H_{I}}\\in[1,6]\\), we have \\(P(W_{I},W_{H},n,m)=\\frac{1}{20}\\cdot\\frac{1}{5}\\). The expected aspect ratio can be obtained by:\n' +
+      '\n' +
+      '\\[\\mathsf{E}(\\frac{m\\times W_{I}}{n\\times H_{I}})=\\iint\\begin{array}{c}\\frac{W _{I}}{H_{I}}\\in[1,6]\\\\ W_{I}\\cdot H_{I}\\in[0,20s]\\end{array}(\\frac{m\\times W_{I}}{n\\times H_{I}})\\cdot P (W_{I},H_{I},n,m)\\,dW_{I}dH_{I},\\]\n' +
+      '\n' +
+      'where \\(s\\) is the area of a standard resolution of ViT. After calculation, we obtain \\(\\mathsf{E}(r)=1.258\\), \\(\\text{Var}(r)=0.048\\). The results show that the expected aspect ratio of the slices is 1:1.258, which is close to the standard pertaining setting of ViT. More commonly assuming that images are uniformly distributed between \\([1,3]\\), and the aspect ratio is uniformly distributed between \\([1,2]\\), we have \\(\\mathsf{E}(r)=1.147\\), \\(\\text{Var}(r)=0.011\\), indicating even smaller changes.\n' +
+      '\n' +
+      '**Range of Slice Area.** Let \\(n=\\frac{W_{I}}{W_{\\text{s}}}\\times\\frac{H_{I}}{H_{\\text{s}}}\\), which leads to \\(N=\\lceil n\\rceil\\). We consider dividing the image into \\(\\{N-1,N,N+1\\}\\) slices. Therefore, the maximum value of each slice \\(\\text{S}_{\\text{max}}=\\frac{n}{N-1}\\) (when \\(N\\neq 2\\)), and \\(\\text{S}_{\\text{max}}=\\frac{n}{N}\\) (when \\(N=2\\)). The minimum value \\(\\text{S}_{\\text{min}}=\\frac{n}{N+1}\\). As \\(n\\) approaches \\(3^{-}\\), where \\(N=3\\), \\(\\text{S}_{\\text{max}}\\) achieves the maximum value of \\(1.5\\). Similarly, as \\(n\\) approaches \\(1^{+}\\), where \\(N=2\\), \\(\\text{S}_{\\text{min}}\\) achieves the minimum value of \\(0.33\\).\n' +
+      '\n' +
+      '**Expected Slice Area.** Still assuming that the sizes of the images are uniformly distributed within \\(N\\in[0,20]\\), while the aspect ratio of the images \\(\\frac{W_{I}}{H_{I}}\\in[\\frac{1}{6},6]\\). The expected area of slice can be obtained by:\n' +
+      '\n' +
+      '\\[\\begin{array}{ccc}\\mathsf{E}(\\frac{W_{I}\\times H_{I}}{n\\times m})=\\iint \\begin{array}{c}\\frac{W_{I}}{H_{I}}\\in[1,6]\\\\ W_{I}\\cdot H_{I}\\in[0,20s]\\end{array}(\\frac{W_{I}\\times H_{I}}{n\\times m}) \\cdot P(W_{I},H_{I},n,m)dW_{I}dH_{I}.\\\\ n,m=\\arg\\max S(\\cdot)\\end{array}\\]\n' +
+      '\n' +
+      'After calculation, we obtain \\(\\mathsf{E}(\\frac{W_{I}\\times H_{I}}{n\\times m})=1.057\\), \\(\\text{Var}(\\frac{W_{I}\\times H_{I}}{n\\times m})=0.016\\). This shows that our slice areas are relatively concentrated, similar to the original resolution of ViT.\n' +
+      '\n' +
+      '## Appendix C Discussions\n' +
+      '\n' +
+      'We provide discussions on limitations and potential negative impact of this work.\n' +
+      '\n' +
+      '**Limitations and Future Work.** (1) Higher resolutions. In this work, we limit the resolution of LLaVA-UHD to maximum \\(672\\times 1008\\). Although this resolution increases the standard LLaVA-1.5 resolution by 6 times, higher-resolution images such as 4K images and remote sensing images are still out of reach. In future, considering the promising efficiency and scalability, we will explore higher-resolution images and more challenging tasks such as small object detection and segmentation. (2) Joint slice encoding. Currently image slices are currently independently encoded, with interactionsonly in LLMs. We plan to establish efficient connections between image slices via improved visual encoding strategies for fine-grained global information interaction.\n' +
+      '\n' +
+      '**Potential Negative Impact.** In this work, we investigate the failure pattern and the underlying cause for GPT-4V and LLaVA-1.5. The mechanism can be potentially used for adversarial attacks on these models. It is worth noting that the goal of this work is to raise attention to the vulnerability of LMMs and provide a deeper understanding of the importance of visual encoding strategies. This work calls for further efforts to mitigate the revealed issues to ensure the robustness and safety of LMMs.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
