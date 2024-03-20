@@ -1,1 +1,2 @@
 - [Scaling Laws for Downstream Task Performance of Large Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/19/2024-02-07+Scaling+Laws+for+Downstream+Task+Performance+of+Large+Language+Models.yaml) / 2024-02-07
+- [Chart-based Reasoning: Transferring Capabilities from LLMs to VLMs](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/48/2024-03-20+Chart-based+Reasoning%3A+Transferring+Capabilities+from+LLMs+to+VLMs.yaml) / 2024-03-20

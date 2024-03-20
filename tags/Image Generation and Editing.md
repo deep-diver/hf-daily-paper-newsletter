@@ -1,0 +1,1 @@
+- [FouriScale: A Frequency Perspective on Training-Free High-Resolution Image Synthesis](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/48/2024-03-20+FouriScale%3A+A+Frequency+Perspective+on+Training-Free+High-Resolution+Image+Synthesis.yaml) / 2024-03-20
