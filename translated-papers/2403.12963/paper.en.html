@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '[MISSING_PAGE_FAIL:1]\n' +
+      '\n' +
+      'models are typically trained at one or a few specific image resolutions. For instance, SD models are often trained using images of \\(512\\times 512\\) resolution, while SDXL models are typically trained with images close to \\(1024\\times 1024\\) pixels.\n' +
+      '\n' +
+      'However, as shown in Fig. 1, directly employing pre-trained diffusion models to generate an image at a resolution higher than what the models were trained on will lead to significant issues, including repetitive patterns and unforeseen artifacts. Some studies [3, 24, 26] have attempted to create larger images by utilizing pre-trained diffusion models to stitch together overlapping patches into a panoramic image. Nonetheless, the absence of a global direction for the whole image restricts their ability to generate images focused on specific objects and fails to address the problem of repetitive patterns, where a unified global structure is essential. Recent work [25] has explored adapting pre-trained diffusion models for generating images of various sizes by examining attention entropy. Nevertheless, ScaleCrafter [15] found that the key point of generating high-resolution images lies in the convolution layers. They introduce a re-dilation operation and a convolution disperse operation to enlarge kernel sizes of convolution layers, largely mitigating the problem of pattern repetition. However, their conclusion stems from empirical findings, lacking a deeper exploration of this issue. Additionally, it needs an initial offline computation of a linear transformation between the original convolutional kernel and the enlarged kernel, falling short in terms of compatibility and scalability when there are variations in the kernel sizes of the UNet and the desired target resolution of images.\n' +
+      '\n' +
+      'In this work, we present FouriScale, an innovative and effective approach that handles the issue through the perspective of frequency domain analysis, successfully demonstrating its effectiveness through both theoretical analysis and experimental results. FouriScale substitutes the original convolutional layers in pre-trained diffusion models by simply introducing a dilation operation coupled with a low-pass operation, aimed at achieving structural and scale consistency across resolutions, respectively. Equipped with a padding-then-crop strategy, our method allows for flexible text-to-image generation of different sizes and aspect ratios. Furthermore, by utilizing FouriScale as guidance, our approach attains\n' +
+      '\n' +
+      'Figure 1: Visualization of pattern repetition issue of higher-resolution image synthesis using pre-trained SDXL [32] (Train: 1024\\(\\times\\)1024; Inference:2048\\(\\times\\)2048). Attn-Entro [25] fails to address this problem and ScaleCrafter [15] still struggles with this issue in image details. Our method successfully handles this problem and generates high-quality images without model retraining.\n' +
+      '\n' +
+      'remarkable capability in producing high-resolution images of any size, with integrated image structure alongside superior quality. The simplicity of FouriScale eliminates the need for any offline pre-computation, facilitating compatibility and scalability. We envision FouriScale providing significant contributions to the advancement of ultra-high-resolution image synthesis in future research.\n' +
+      '\n' +
+      '## 2 Related Work\n' +
+      '\n' +
+      '### Text-to-Image Synthesis\n' +
+      '\n' +
+      'Text-to-image synthesis [9, 20, 36, 37] has seen a significant surge in interest due to the development of diffusion probabilistic models [19, 40]. These innovative models operate by generating data from a Gaussian distribution and refining it through a denoising process. With their capacity for high-quality generation, they have made significant leaps over traditional models like GANs [9, 13], especially in producing more realistic images. The Latent Diffusion Model (LDM) [36] integrates the diffusion process within a latent space, achieving astonishing realism in the generation of images, which boosts significant interest in the domain of generating via latent space [5, 16, 27, 31, 46]. To ensure efficient processing on existing hardware and stable model training, these models are typically trained at one or a few specific image resolutions. For instance, Stabe Diffusion (SD) [36] is trained using \\(512\\times 512\\) pixel images, while SDXL [32] models are typically trained with images close to \\(1024\\times 1024\\) resolution, accommodating various aspect ratios simultaneously.\n' +
+      '\n' +
+      '### High-Resolution Synthesis via Diffusion Models\n' +
+      '\n' +
+      'High-resolution synthesis has always received widespread attention. Prior works mainly focus on refining the noise schedule [7, 22], developing cascaded architectures [20, 37, 42] or mixtures-of-denoising-experts [2] for generating high-resolution images. Despite their impressive capabilities, diffusion models were often limited by specific resolution constraints and did not generalize well across different aspect ratios and resolutions. Some methods have tried to address these issues by accommodating a broader range of resolutions. For example, Any-size Diffusion [50] fine-tunes a pre-trained SD on a set of images with a fixed range of aspect ratios, similar to SDXL [32]. FiT [28] views the image as a sequence of tokens and adaptively padding image tokens to a predefined maximum token limit, ensuring hardware-friendly training and flexible resolution handling. However, these models require model training, overlooking the inherent capability of the pre-trained models to handle image generation with varying resolutions. Most recently, some methods [3, 24, 26] have attempted to generate panoramic images by utilizing pre-trained diffusion models to stitch together overlapping patches. Recent work [25] has explored adapting pre-trained diffusion models for generating images of various sizes by examining attention entropy. ElasticDiff [14] uses the estimation of default resolution to guide the generation of arbitrary-sizeimages. However, ScaleCrafter [15] finds that the key point of generating high-resolution images by pre-trained diffusion models lies in convolution layers. They present a re-dilation and a convolution disperse operation to expand convolution kernel sizes, which requires an offline calculation of a linear transformation from the original convolutional kernel to the expanded one. In contrast, we deeply investigate the issue of repetitive patterns and handle it through the perspective of frequency domain analysis. The simplicity of our method eliminates the need for any offline pre-computation, facilitating its compatibility and scalability.\n' +
+      '\n' +
+      '## 3 Method\n' +
+      '\n' +
+      'Diffusion models, also known as score-based generative models [19, 40], belong to a category of generative models that follow a process of progressively introducing Gaussian noise into the data and subsequently generating samples from this noise through a reverse denoising procedure. The key denoising step is typically carried out by a U-shaped Network (UNet), which learns the underlying denoising function that maps from noisy data to its clean counterpart. The UNet architecture, widely adopted for this purpose, comprises stacked convolution layers, self-attention layers, and cross-attention layers. Some previous works have explored the degradation of performance when the generated resolution becomes larger, attributing to the change of the attention tokens\' number [25] and the reduced relative receptive field of convolution layers [15]. Based on empirical evidence in [15], convolutional layers are more sensitive to changes in resolution. Therefore, we primarily focus on studying the impact brought about by the convolutional layers. In this section, we will introduce FouriScale, as shown in Fig. 2. It includes a dilation convolution operation (Sec. 3.2) and a low-pass filtering operation (Sec. 3.3) to achieve structural consistency and scale consistency across resolutions, respectively. With the tailored padding-then-cropping strategy (Sec. 3.4), FouriScale can generate images of arbitrary aspect ratios. By utilizing FouriScale as guidance (Sec. 3.5), our approach attains remarkable capability in generating high-resolution and high-quality images.\n' +
+      '\n' +
+      'Figure 2: The overview of FouriScale (orange line), which includes a dilation convolution operation (Sec. 3.2) and a low-pass filtering operation (Sec. 3.3) to achieve structural consistency and scale consistency across resolutions, respectively.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:5]\n' +
+      '\n' +
+      'In this work, we propose to handle the structural consistency from a frequency perspective. Suppose the input \\(F(x,y)\\), which is a two-dimensional discrete spatial signal, belongs to the set \\(\\mathbb{R}^{H_{f}\\times W_{f}\\times C}\\). The sampling rates along the \\(x\\) and \\(y\\) axes are given by \\(\\Omega_{x}\\) and \\(\\Omega_{y}\\) correspondingly. The Fourier transform of \\(F(x,y)\\) is represented by \\(F(u,v)\\in\\mathbb{R}^{H_{f}\\times W_{f}\\times C}\\). In this context, the highest frequencies along the \\(u\\) and \\(v\\) axes are denoted as \\(u_{max}\\) and \\(v_{max}\\), respectively. Additionally, the Fourier transform of the downsampled feature map \\(\\text{Down}_{s}(F(x,y))\\), which is dimensionally reduced to \\(\\mathbb{R}^{\\frac{H_{f}}{s}\\times\\frac{W_{f}}{s}\\times C}\\), is denoted as \\(F^{\\prime}(u,v)\\).\n' +
+      '\n' +
+      'Theorem 2.1: _Spatial down-sampling leads to a reduction in the range of frequencies that the signal can accommodate, particularly at the higher end of the spectrum. This process causes high frequencies to be folded to low frequencies, and superpose onto the original low frequencies. For a one-dimensional signal, in the condition of \\(s\\) strides, this superposition of high and low frequencies resulting from down-sampling can be mathematically formulated as_\n' +
+      '\n' +
+      '\\[F^{\\prime}(u)=\\mathbb{S}(F(u),F\\left(u+\\frac{a\\Omega_{x}}{s}\\right))\\mid u \\in\\left(0,\\frac{\\Omega_{x}}{s}\\right), \\tag{4}\\]\n' +
+      '\n' +
+      '_where \\(\\mathbb{S}\\) dentes the superposing operator, \\(\\Omega_{x}\\) is the sampling rates in \\(x\\) axis, and \\(a=1,\\ldots,s-1\\)._\n' +
+      '\n' +
+      'Lemma 1: _For an image, the operation of spatial down-sampling using strides of \\(s\\) can be viewed as partitioning the Fourier spectrum into \\(s\\times s\\) equal patches and then uniformly superimposing these patches with an average scaling of \\(\\frac{1}{s^{2}}\\)._\n' +
+      '\n' +
+      '\\[\\operatorname{DFT}\\left(\\text{Down}_{s}(F(x,y))\\right)=\\frac{1}{s^{2}}\\sum_{ i=0}^{s-1}\\sum_{j=0}^{s-1}F_{(i,j)}(u,v), \\tag{5}\\]\n' +
+      '\n' +
+      '_where \\(F_{(i,j)}(u,v)\\) is a sub-matrix of \\(F(u,v)\\) by equally splitting \\(F(u,v)\\) into \\(s\\times s\\) non-overlapped patches and \\(i,j\\in\\{0,1,\\ldots,s-1\\}\\)._\n' +
+      '\n' +
+      'The proof of Theorem 2.1 and Lemma 1 are provided in the Appendix (Sec. A.1 and Sec. A.2). They describe the shuffling and superposing [47, 51, 34] in the frequency domain imposed by spatial down-sampling. If we transform Eq. (3) to the frequency domain and follow conclusion in Lemma 1, we can obtain:\n' +
+      '\n' +
+      '\\[\\left(\\frac{1}{s^{2}}\\sum_{i=0}^{s-1}\\sum_{j=0}^{s-1}F_{(i,j)}(u, v)\\right)\\odot k(u,v)\\leftarrow\\text{Left side of Eq. (3)}\\] (6) \\[=\\frac{1}{s^{2}}\\sum_{i=0}^{s-1}\\sum_{j=0}^{s-1}\\left(F_{(i,j)}( u,v)\\odot k^{\\prime}_{(i,j)}(u,v)\\right),\\leftarrow\\text{Right side of Eqwhere \\(k(u,v)\\), \\(k^{\\prime}(u,v)\\) denote the fourier transform of kernel \\(k\\) and \\(k^{\\prime}\\), respectively, \\(\\odot\\) is element-wise multiplication. Eq. (6) suggests that the Fourier spectrum of the ideal convolution kernel \\(k^{\\prime}\\) should be the one that is stitched by \\(s\\times s\\) Fourier spectrum of the convolution kernel \\(k\\). In other words, there should be a periodic repetition in the Fourier spectrum of \\(k^{\\prime}\\), the repetitive pattern is the Fourier spectrum of \\(k\\).\n' +
+      '\n' +
+      'Fortunately, the widely used dilated convolution perfectly meets this requirement. Suppose a kernel \\(k(m,n)\\) with the size of \\(M\\times N\\), it\'s dilated version is \\(k_{d_{h},d_{w}}(m,n)\\), with dilation factor of \\((d_{h},d_{w})\\). For any integer multiples of \\(d_{h}\\), namely \\(p^{\\prime}=pd_{h}\\) and integer multiples of \\(d_{w}\\), namely \\(q^{\\prime}=qd_{w}\\), the exponential term of the dilated kernel in the 2D DFT (Eq. (1)) becomes:\n' +
+      '\n' +
+      '\\[e^{-j2\\pi\\left(\\frac{p^{\\prime}m}{h^{M}}+\\frac{q^{\\prime}n}{d_{w}N}\\right)}=e^ {-j2\\pi\\left(\\frac{pm}{M}+\\frac{an}{N}\\right)}, \\tag{7}\\]\n' +
+      '\n' +
+      'which is periodic with a period of \\(M\\) along the \\(m\\)-dimension and a period of \\(N\\) along the \\(n\\)-dimension. It indicates that a dilated convolution kernel parameterized by the original kernel \\(k\\), with dilation factor of \\((H/h,W/w)\\), is the ideal convolution kernel \\(k^{\\prime}\\). In Fig. 3, we visually demonstrate the periodic repetition of dilated convolution. We noticed that [15] also uses dilated operation. In contrast to [15], which is from empirical observation, our work begins with a focus on frequency analysis and provides theoretical justification for its effectiveness.\n' +
+      '\n' +
+      '### Scale Consistency via Low-pass Filtering\n' +
+      '\n' +
+      'However, in practice, dilated convolution alone cannot well mitigate the issue of pattern repetition. As shown in Fig. 3(a) (top left), the issue of pattern repetition is significantly reduced, but certain fine details, like the horse\'s legs, still present\n' +
+      '\n' +
+      'Figure 3: We visualize a random \\(5\\times 5\\) kernel for better visualization. The Fourier spectrum of its dilated kernel, with a dilation factor of 4, clearly demonstrates a periodic character. It should be noted that we also pad zeros to the right and bottom sides of the dilated kernel, which differs from the conventional use. However, this does not impact the outcome in practical applications.\n' +
+      '\n' +
+      'issues. This phenomenon is because of the aliasing effect after the spatial down-sampling, which raises the distribution gap between the features of low resolution and the features down-sampled from high resolution, as presented in Fig. 3(b). Aliasing alters the fundamental frequency components of the original signal, breaking its consistency across scales.\n' +
+      '\n' +
+      'In this paper, we introduce a low-pass filtering operation, or spectral pooling [35] to remove high-frequency components that might cause aliasing, intending to construct scale consistency across different resolutions. Let \\(F(m,n)\\) be a two-dimensional discrete signal with resolution \\(M\\times N\\). Spatial down-sampling of \\(F(m,n)\\), by factors \\(s_{h}\\) and \\(s_{w}\\) along the height and width respectively, alters the Nyquist limits to \\(M/(2s_{h})\\) and \\(N/(2s_{w})\\) in the frequency domain, corresponding to half the new sampling rates along each dimension. The expected low-pass filter should remove frequencies above these new Nyquist limits to prevent aliasing. Therefore, the optimal mask size (assuming the frequency spectrum is centralized) for passing low frequencies in a low-pass filter is \\(M/s_{h}\\times N/s_{w}\\). This filter design ensures the preservation of all valuable frequencies within the downscaled resolution while preventing aliasing by filtering out higher frequencies.\n' +
+      '\n' +
+      'Figure 4: (a) Visual comparisons between the images created at a resolution of \\(2048\\times 2048\\): with only the dilated convolution, and with both the dilated convolution and the low-pass filtering. (b)(c) Fourier relative log amplitudes of input features from three distinct layers from the down blocks, mid blocks, and up blocks of UNet, respectively, are analyzed. We also include features at reverse steps 1, 25, and 50. (b) Without the application of the low-pass filter. There is an evident distribution gap of the frequency spectrum between the low resolution and high resolution. (c) With the application of the low-pass filter. The distribution gap is largely reduced.\n' +
+      '\n' +
+      'As illustrated in Fig. 3(c), the application of the low-pass filter results in a closer alignment of the frequency distribution between high and low resolutions. This ensures that the left side of Eq. (3) produces a plausible image structure. Additionally, since our target is to rectify the image structure, low-pass filtering would not be harmful because it generally preserves the structural information of a signal, which predominantly resides in the lower frequency components [30, 48].\n' +
+      '\n' +
+      'Subsequently, the final kernel \\(k^{*}\\) is obtained by applying low-pass filtering to the dilated kernel. Considering the periodic nature of the Fourier spectrum associated with the dilated kernel, the Fourier spectrum of the new kernel \\(k^{*}\\) involves expanding the spectrum of the original kernel \\(k\\) by inserting zero frequencies. Therefore, this expansion avoids the introduction of new frequency components into the new kernel \\(k^{*}\\). In practice, we do not directly calculate the kernel \\(k^{*}\\) but replace the original \\(\\operatorname{Conv}_{k}\\) with the following equivalent operation to ensure computational efficiency:\n' +
+      '\n' +
+      '\\[\\operatorname{Conv}_{k}(F)\\to\\operatorname{Conv}_{k^{\\prime}}(\\operatorname{ iDFT}(H\\odot\\operatorname{DFT}(F)), \\tag{8}\\]\n' +
+      '\n' +
+      'where \\(H\\) denotes the low-pass filter. Fig. 3(a) (bottom left) illustrates that the combination of dilated convolution and low-pass filtering resolves the issue of pattern repetition.\n' +
+      '\n' +
+      '### Adaption to Arbitrary-size Generation\n' +
+      '\n' +
+      'The derived conclusion is applicable only when the aspect ratios of the high-resolution image and the low-resolution image used in training are identical. From Eq. (5) and Eq. (6), it becomes apparent that when the aspect ratios vary, meaning the dilation rates along the height and width are different, the well-constructed structure in the low-resolution image would be distorted and compressed, as shown in Fig. 5 (a). Nonetheless, in real-world applications, the ideal scenario is for a pre-trained diffusion model to have the capability of generating arbitrary-size images.\n' +
+      '\n' +
+      'We introduce a straightforward yet efficient approach, termed _padding-then-cropping_, to solve this problem. Fig. 5 (b) demonstrates its effectiveness. In essence, when a layer receives an input feature at a standard resolution of \\(h_{f}\\times w_{f}\\)and this input feature increases to a size of \\(H_{f}\\times W_{f}\\) during inference, our first step is to zero-pad the input feature to a size of \\(rh_{f}\\times rw_{f}\\). Here, \\(r\\) is defined as the maximum of \\(\\lceil\\frac{H_{f}}{h_{f}}\\rceil\\) and \\(\\lceil\\frac{W_{f}}{w_{f}}\\rceil\\), with \\(\\lceil\\cdot\\rceil\\) representing the ceiling operation. The padding operation assumes that we aim to generate an image of size \\(rh\\times rw\\), where certain areas are filled with zeros. Subsequently, we apply Eq. (8) to rectify the issue of repetitive patterns in the higher-resolution output. Ultimately, the obtained feature is cropped to restore its intended spatial size. This step is necessary to not only negate the effects of zero-padding but also control the computational demands when the resolution increases, particularly those arising from the self-attention layers in the UNet architecture. Taking computational efficiency into account, our equivalent solution is outlined in Algorithm 1.\n' +
+      '\n' +
+      '### FouriScale Guidance\n' +
+      '\n' +
+      'FouriScale effectively mitigates structural distortion when generating high-res images. However, it would introduce certain artifacts and unforeseen patterns in the background, as depicted in Fig. 6 (b). Based on our empirical findings, we identify that the main issue stems from the application of low-pass filtering when generating the conditional estimation in classifier-free guidance [21]. This process often leads to a ringing effect and loss of detail. To improve image quality and reduce artifacts, as shown in Fig. 6 (a), we develop a guided version of FouriScale for reference, aiming to align the output, rich in details, with it. Specifically, beyond the unconditional and conditional estimations derived from the UNet modified by FouriScale, we further generate an extra conditional estimation. This one is subjected to identical dilated convolutions but utilizes milder low-pass filters to accommodate more frequencies. We substitute its attention maps of attention layers with those from the conditional estimation processed through FouriScale, in a similar spirit with image editing [17, 6, 12]. Given that UNet\'s attention maps hold a wealth of positional and structural information [44, 45, 49], this strategy allows for the incorporation of correct structural information derived from FouriScale to guide the generation, simultaneously mitigating the\n' +
+      '\n' +
+      'Figure 5: Visual comparisons between the images created at a resolution of \\(2048\\times 1024\\): (a) without the application of padding-then-cropping strategy, and (b) with the application of padding-then-cropping strategy. The Stable Diffusion 2.1 utilized is initially trained on images of \\(512\\times 512\\) resolution.\n' +
+      '\n' +
+      'decline in image quality and loss of details typically induced by low-pass filtering. The final noise estimation is determined using both the unconditional and the newly conditional estimations following classifier-free guidance. As we can see in Fig. 6 (c), the aforementioned issues are largely mitigated.\n' +
+      '\n' +
+      '### Detailed Designs\n' +
+      '\n' +
+      'Annealing dilation and filtering.Since the image structure is primarily outlined in the early reverse steps, the subsequent steps focus on enhancing the details, we implement an annealing approach for both dilation convolution and low-pass filtering. Initially, for the first \\(S_{init}\\) steps, we employ the ideal dilation convolution and low-pass filtering. During the span from \\(S_{init}\\) to \\(S_{stop}\\), we progressively decrease the dilation factor and \\(r\\) (as detailed in Algorithm 1) down to 1. After \\(S_{stop}\\) steps, the original UNet is utilized to refine image details further.\n' +
+      '\n' +
+      'Settings for SDXL.Stable Diffusion XL [32] (SDXL) is generally trained on images with a resolution close to \\(1024\\times 1024\\) pixels, accommodating various aspect ratios simultaneously. Our observations reveal that using an ideal low-pass filter leads to suboptimal outcomes for SDXL. Instead, a gentler low-pass filter, which modulates rather than completely eliminates high-frequency elements using a coefficient \\(\\sigma\\in[0,1]\\) (set to 0.6 in our method) delivers superior visual quality. This phenomenon can be attributed to SDXL\'s ability to handle changes in\n' +
+      '\n' +
+      'Figure 6: (a) Overview of FouriScale guidance. CFG denotes Classifier-Free Guidance. (b)(c) Visual comparisons between the images created at \\(2048\\times 2048\\) by SD 2.1: (b) without the application of FouriScale guidance, \\(\\copyright\\) has unexpected artifacts in the background, \\(\\copyright\\) are wrong details, (c) with the application of FouriScale guidance.\n' +
+      '\n' +
+      'scale effectively, negating the need for an ideal low-pass filter to maintain scale consistency, which confirms the rationale of incorporating low-pass filtering to address scale variability. Additionally, for SDXL, we calculate the scale factor \\(r\\) (refer to Algorithm 1) by determining the training resolution whose aspect ratio is closest to the one of target resolution.\n' +
+      '\n' +
+      '## 4 Experiments\n' +
+      '\n' +
+      'Experimental setup.We follow [15] to report results on three text-to-image models, including SD 1.5 [12], SD 2.1 [10], and SDXL 1.0 [32] on generating images at four higher resolutions. The resolutions tested are 4\\(\\times\\), 6.25\\(\\times\\), 8\\(\\times\\), and 16\\(\\times\\) the pixel count of their respective training resolutions. For both SD 1.5 and SD 2.1 models, the original training resolution is set at 512\\(\\times\\)512 pixels, while the inference resolutions are 1024\\(\\times\\)1024, 1280\\(\\times\\)1280, 2048\\(\\times\\)1024, and 2048\\(\\times\\)2048. In the case of the SDXL model, it is trained at resolutions close to 1024\\(\\times\\)1024 pixels, with the higher inference resolutions being 2048\\(\\times\\)2048, 2560\\(\\times\\)2560, 4096\\(\\times\\)2048, and 4096\\(\\times\\)4096. We default use FreeU [39] in all experimental settings.\n' +
+      '\n' +
+      'Testing dataset and evaluation metrics.Following [15], we assess performance using the Laino-5B dataset [38], which comprises 5 billion pairs of images and their corresponding captions. For tests conducted at an inference resolution of 1024\\(\\times\\)1024, we select a subset of 30,000 images, each paired with randomly chosen text prompts from the dataset. Given the substantial computational demands, our sample size is reduced to 10,000 images for tests at inference resolutions exceeding 1024\\(\\times\\)1024. We evaluate the quality and diversity of the generated images by measuring the Frechet Inception Distance (FID) [18] and Kernel Inception Distance (KID) [4] between generated images and real images, denoted as FID\\({}_{r}\\) and KID\\({}_{r}\\). To show the methods\' capacity to preserve the pre-trained model\'s original ability at a new resolution, we also follow [15] to evaluate the metrics between the generated images at the base training resolution and the inference resolution, denoted as FID\\({}_{b}\\) and KID\\({}_{b}\\).\n' +
+      '\n' +
+      '### Quantitative Results\n' +
+      '\n' +
+      'We compare our method with the vanilla text-to-image diffusion model (Vanilla), the training-free approach [25] (Attn-Entro) that accounts for variations in attention entropy between low and high resolutions, and ScaleCrafter [15], which modifies convolution kernels through re-dilation and adopts linear transformations for kernel enlargement. We show the experimental results in Tab. 1. Compared to the vanilla diffusion models, our method obtains much better results because of eliminating the issue of repetitive patterns. The Attn-Entro does not work at high upscaling levels because it fails to fundamentally consider the structural consistency across resolutions. Due to the absence of scale consistency consideration in ScaleCrafter, it performs worse than our method on the majority of metrics. Additionally, we observe that ScaleCrafter often struggles\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:13]\n' +
+      '\n' +
+      '### Ablation Study\n' +
+      '\n' +
+      'To validate the contributions of each component in our proposed method, we conduct ablation studies on the SD 2.1 model generating \\(2048\\times 2048\\) images.\n' +
+      '\n' +
+      'First, we analyze the effect of using FouriScale Guidance as described in Sec. 3.5. We compare the default FouriScale which utilizes guidance versus removing the guidance and solely relying on the conditional estimation from the FouriScale-modified UNet. As shown in Tab. 2, employing guidance improves the FID\\({}_{r}\\) by 4.26, demonstrating its benefits for enhancing image quality. The guidance allows incorporating structural information from the FouriScale-processed estimation to guide the generation using a separate conditional estimation with milder filtering. This balances between maintaining structural integrity and preventing loss of details.\n' +
+      '\n' +
+      'Furthermore, we analyze the effect of the low-pass filtering operation described in Sec. 3.3. Using the FouriScale without guidance as the baseline, we additionally remove the low-pass filtering from all modules. As shown in Tab. 2, this further deteriorates the FID\\({}_{r}\\) to 46.74. The low-pass filtering is crucial for\n' +
+      '\n' +
+      'Figure 7: Visual comparisons between \\(\\blacklozenge\\) ours, \\(\\blacklozenge\\) ScaleCrafter [15] and \\(\\blacklozenge\\) Attn-Entro [25], under settings of 4\\(\\times\\), 8\\(\\times\\), and 16\\(\\times\\), employing three distinct pre-trained diffusion models: SD 1.5, SD 2.1, and SDXL 1.0.\n' +
+      '\n' +
+      'maintaining scale consistency across resolutions and preventing aliasing effects that introduce distortions. Without it, the image quality degrades significantly.\n' +
+      '\n' +
+      'A visual result of comparing the mask sizes for passing low frequencies is depicted in Fig. 8. The experiment utilizes SD 2.1 (trained with 512\\(\\times\\)512 images) to generate images of 2048\\(\\times\\)2048 pixels, setting the default mask size to \\(M/4\\times N/4\\). We can find that the optimal visual result is achieved with our default settings. As the low-pass filter changes, there is an evident deterioration in the visual appearance of details, which underscores the validity of our method.\n' +
+      '\n' +
+      '## 5 Conclusion and Limitation\n' +
+      '\n' +
+      'We present FouriScale, a novel approach that enhances the generation of high-resolution images from pre-trained diffusion models. By addressing key challenges such as repetitive patterns and structural distortions, FouriScale introduces a training-free method based on frequency domain analysis, improving structural and scale consistency across different resolutions by a dilation operation and a low-pass filtering operation. The incorporation of a padding-then-cropping strategy and the application of FouriScale guidance enhance the flexibility and quality of text-to-image generation, accommodating different aspect ratios while maintaining structural integrity. FouriScale\'s simplicity and adaptability, avoiding any extensive pre-computation, set a new benchmark in the field. FouriScale still faces challenges in generating ultra-high-resolution samples, such as 4096\\(\\times\\)4096 pixels, which typically exhibit unintended artifacts. Additionally, its focus on operations within convolutions limits its applicability to purely transformer-based diffusion models.\n' +
+      '\n' +
+      '[MISSING_PAGE_EMPTY:16]\n' +
+      '\n' +
+      'Following down-sampling, as per the Nyquist sampling theorem, the entire sub-frequency range is confined to \\((0,\\frac{\\Omega_{x}}{s})\\). The resulting frequency band is a composite of \\(s\\) initial bands, expressed as:\n' +
+      '\n' +
+      '\\[F^{\\prime}(u)=\\mathbb{S}(F(u),F(\\tilde{u}_{1}),\\ldots,F(\\tilde{u}_{s-1})), \\tag{5}\\]\n' +
+      '\n' +
+      'where \\(\\tilde{u}_{i}\\) represents the frequencies higher than the sampling rate, while \\(u\\) denotes the frequencies that are lower than the sampling rate. The symbol \\(\\mathbb{S}\\) stands for the superposition operator. To simplify the discussion, \\(\\tilde{u}\\) will be used to denote \\(\\tilde{u}_{i}\\) in subsequent sections.\n' +
+      '\n' +
+      '(1) In the sub-band, where \\(u\\in(0,\\frac{\\Omega_{x}}{2s})\\), \\(\\tilde{u}\\) should satisfy\n' +
+      '\n' +
+      '\\[\\tilde{u}\\in\\left(\\frac{\\Omega_{x}}{2s},u_{max}\\right). \\tag{6}\\]\n' +
+      '\n' +
+      'According to the aliasing theorem, the high frequency \\(\\tilde{u}\\) is folded back to the low frequency:\n' +
+      '\n' +
+      '\\[\\hat{u}=\\left|\\tilde{u}-(k+1)\\frac{\\Omega_{x}^{\\prime}}{2}\\right|,\\quad k\\frac {\\Omega_{x}^{\\prime}}{2}\\leq\\tilde{u}\\leq(k+2)\\frac{\\Omega_{x}^{\\prime}}{2} \\tag{7}\\]\n' +
+      '\n' +
+      'where \\(k=1,3,5,\\ldots\\) and \\(\\hat{u}\\) is folded results by \\(\\tilde{u}\\).\n' +
+      '\n' +
+      'According to Eq. 6 and Eq. 7, we have\n' +
+      '\n' +
+      '\\[\\hat{u}=\\frac{a\\Omega_{x}}{s}-\\tilde{u}\\quad\\text{and}\\quad\\hat{u}\\in\\left( \\frac{\\Omega_{x}}{s}-u_{max},\\frac{\\Omega_{x}}{2s}\\right), \\tag{8}\\]\n' +
+      '\n' +
+      'where \\(a=(k+1)/2=1,2,\\ldots\\). According to Eq. (5) and Eq. (8), we can attain\n' +
+      '\n' +
+      '\\[F^{\\prime}(u)=\\begin{cases}F(u)&\\text{if }u\\in(0,\\frac{\\Omega_{x}}{s}-u_{max}), \\\\ \\mathbb{S}(F(u),F(\\frac{a\\Omega_{x}}{s}-u))&\\text{if }u\\in(\\frac{\\Omega_{x}}{s}-u_{ max},\\frac{\\Omega_{x}}{2s}).\\end{cases} \\tag{9}\\]\n' +
+      '\n' +
+      'According to Eq. (3), \\(F(u)\\) is symmetric with respect to \\(u=\\frac{\\Omega_{x}}{2}\\):\n' +
+      '\n' +
+      '\\[F(\\frac{\\Omega_{x}}{2}-u)=F(u+\\frac{\\Omega_{x}}{2}). \\tag{10}\\]\n' +
+      '\n' +
+      'Therefore, we can rewrite \\(F(\\frac{a\\Omega_{x}}{s}-u)\\) as:\n' +
+      '\n' +
+      '\\[F(\\frac{\\Omega_{x}}{2}-(\\frac{\\Omega_{x}}{2}+u-\\frac{a\\Omega_{ x}}{s})) \\tag{11}\\] \\[= F(\\frac{\\Omega_{x}}{2}+(\\frac{\\Omega_{x}}{2}+u-\\frac{a\\Omega_{ x}}{s}))\\] \\[= F(u+\\Omega_{x}-\\frac{a\\Omega_{x}}{s})\\] \\[= F(u+\\frac{a\\Omega_{x}}{s})\\]since \\(a=1,2,\\ldots,s-1\\). Additionally, for \\(s=2\\), the condition \\(u\\in(0,\\frac{\\Omega_{x}}{s}-u_{max})\\) results in \\(F(u+\\frac{\\Omega_{x}}{s})=0\\). When \\(s>2\\), the range \\(u\\in(0,\\frac{\\Omega_{x}}{s}-u_{max})\\) typically becomes non-existent. Thus, in light of Eq. (11) and the preceding analysis, Eq. (9) can be reformulated as\n' +
+      '\n' +
+      '\\[F^{\\prime}(u)=\\mathbb{S}(F(u),F(u+\\frac{a\\Omega_{x}}{s}))\\mid u\\in(0,\\frac{ \\Omega_{x}}{2s}). \\tag{12}\\]\n' +
+      '\n' +
+      '(2) In the sub-band, where \\(u\\in(\\frac{\\Omega_{x}}{2s},\\frac{\\Omega_{x}}{s})\\), different from (1), \\(\\tilde{u}\\) should satisfy\n' +
+      '\n' +
+      '\\[\\tilde{u}\\in(\\frac{\\Omega_{x}}{s}-u_{max},\\frac{\\Omega_{x}}{2s}). \\tag{13}\\]\n' +
+      '\n' +
+      'Similarly, we can obtain:\n' +
+      '\n' +
+      '\\[F^{\\prime}(u)=\\mathbb{S}(F(\\tilde{u}),F(u+\\frac{a\\Omega_{x}}{s}))\\mid u\\in( \\frac{\\Omega_{x}}{2s},\\frac{\\Omega_{x}}{s}). \\tag{14}\\]\n' +
+      '\n' +
+      'Combining Eq. (12) and Eq. (14), we obtain\n' +
+      '\n' +
+      '\\[F^{\\prime}(u)=\\mathbb{S}(F(u),F(u+\\frac{a\\Omega_{x}}{s}))\\mid u\\in(0,\\frac{ \\Omega_{x}}{s}), \\tag{15}\\]\n' +
+      '\n' +
+      'where \\(a=1,2,\\ldots,s-1\\).\n' +
+      '\n' +
+      '### Proof of Lemma 1\n' +
+      '\n' +
+      'Based on Eq. (3), it can be determined that the amplitude of \\(F^{\\prime}\\) is \\(\\frac{1}{s}\\) times that of \\(F\\). Hence, \\(F^{\\prime}(u)\\) can be expressed as:\n' +
+      '\n' +
+      '\\[F^{\\prime}(u)=\\frac{1}{s}F(u)+\\sum_{a}\\frac{1}{s}F\\left(u+\\frac{a\\Omega_{x}}{ s}\\right)\\mid u\\in\\left(0,\\frac{\\Omega_{x}}{s}\\right). \\tag{16}\\]\n' +
+      '\n' +
+      'Based on the dual principle, we can prove \\(F^{\\prime}(u,v)\\) in the whole sub-band\n' +
+      '\n' +
+      '\\[F^{\\prime}(u,v)=\\frac{1}{s^{2}}\\left(\\sum_{a,b=0}^{s-1}F\\left(u+\\frac{a\\Omega _{s}}{s},v+\\frac{b\\Omega_{y}}{s}\\right)\\right), \\tag{17}\\]\n' +
+      '\n' +
+      'where \\(u\\in\\left(0,\\frac{\\Omega_{x}}{s}\\right)\\), \\(v\\in\\left(0,\\frac{\\Omega_{y}}{s}\\right)\\).\n' +
+      '\n' +
+      '## Appendix 0.B Implementation Details\n' +
+      '\n' +
+      '### Low-pass Filter Definition\n' +
+      '\n' +
+      'In Fig. 1, we show the design of a low-pass filter used in FouriScale. Inspired by [34; 41], we define the low-pass filter as the outer product between two 1D filters (depicted in the left of Fig. 1), one along the height dimension and one along the width dimension. We define the function of the 1D filter for the height dimension as follows, filters for the width dimension can be obtained in the same way:\n' +
+      '\n' +
+      '\\[\\mathrm{mask}^{h}_{(s_{h},R_{h},\\sigma)}=\\min\\left(\\max\\left(\\frac{1-\\sigma}{R_{ h}}\\left(\\frac{H}{s_{h}}+1-i\\right)+1,\\sigma\\right),1\\right),i\\in[0,\\frac{H}{2}], \\tag{18}\\]\n' +
+      '\n' +
+      'where \\(s_{h}\\) denotes the down-sampling factor between the target and original resolutions along the height dimension. \\(R_{h}\\) controls the smoothness of the filter and \\(\\sigma\\) is the modulation coefficient for high frequencies. Exploiting the characteristic of conjugate symmetry of the spectrum, we only consider the positive axis, the whole 1D filter can be obtained by mirroring the 1D filter. We build the 2D low-pass filter as the outer product between the two 1D filters:\n' +
+      '\n' +
+      '\\[\\mathrm{mask}(s_{h},s_{w},R_{h},R_{w},\\sigma)=\\mathrm{mask}^{h}_{(s_{h},R_{ h},\\sigma)}\\otimes\\mathrm{mask}^{w}_{(s_{w},R_{w},\\sigma)}, \\tag{19}\\]\n' +
+      '\n' +
+      'where \\(\\otimes\\) denotes the outer product operation. Likewise, the whole 2D filter can be obtained by mirroring along the height and width axes. A toy example of a 2D low-pass filter is shown in the right of Fig. 1.\n' +
+      '\n' +
+      '### Hyper-parameter Settings\n' +
+      '\n' +
+      'In this section, we detail our choice of hyperparameters. The evaluative parameters are detailed in Tab. 1. Additionally, Fig. 2 provides a visual guide of the precise positioning of various blocks within the U-Net architecture employed in our model.\n' +
+      '\n' +
+      'The dilation factor used in each FouriScale layer is determined by the maximum value of the height and width scale relative to the original resolution. As stated in our main manuscript, we employ an annealing strategy. For the first\n' +
+      '\n' +
+      'Figure 1: Visualization of the design of a low-pass filter. (a) 1D filter for the positive axis. (2) 2D low-pass filter, which is constructed by mirroring the 1D filters and performing an outer product between two 1D filters, in accordance with the settings of the 1D filter.\n' +
+      '\n' +
+      '\\(S_{init}\\) steps, we employ the ideal dilation convolution and low-pass filtering. During the span from \\(S_{init}\\) to \\(S_{stop}\\), we progressively decrease the dilation factor and \\(r\\) (as detailed in Algorithm 1 of our main manuscript) down to 1. After \\(S_{stop}\\) steps, the original UNet is utilized to refine image details further. The settings for \\(S_{init}\\) and \\(S_{stop}\\) are shown in Tab. 1.\n' +
+      '\n' +
+      '## Appendix 0.C More Experiments\n' +
+      '\n' +
+      '### Comparison with Diffusion Super-Resolution Method\n' +
+      '\n' +
+      'In this section, we compare the performance of our proposed method with a cascaded pipeline, which uses SD 2.1 to generate images at the default resolution of 512\\(\\times\\)512, and upscale them to 2048\\(\\times\\)2048 by a pre-trained diffusion super-resolution model, specifically the Stable Diffusion Upscaler-4\\(\\times\\)[43]. We apply this super-resolution model to a set of 10,000 images generated by SD 2.1. We then evaluate the FID\\({}_{r}\\) and KID\\({}_{r}\\) scores of these upscaled images and compare them with images generated at 2048\\(\\times\\)2048 resolution using SD 2.1 equipped with our FouriScale. The results of this comparison are presented in Tab. 2. Our method obtains somewhat worse results than the cascaded method. However, our method is capable of generating high-resolution images in only one stage, without the need for a multi-stage process. Besides, our method does not need\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{c c c} \\hline \\hline Params & SD 1.5 \\& SD 2.1 & SDXL 1.0 \\\\ \\hline \\begin{tabular}{c} FouriScale blocks \\\\ inference timesteps \\\\ \\end{tabular} & \\begin{tabular}{c} [DB2,DB3,MB,UB0,UB1,UB2] [DB2,MB,UB0,UB1] \\\\ 50 \\\\ \\end{tabular} \\\\ \\begin{tabular}{c} [\\(S_{init}\\), \\(S_{stop}\\)] \\\\ \\end{tabular} & \n' +
+      '\\begin{tabular}{c} [10,30] (4\\(\\times\\)1:1 and 6.25\\(\\times\\)1:1) \\\\ [20,35] (8\\(\\times\\)1:2 and 16\\(\\times\\)1:1) \\\\ \\end{tabular} & [20,35] \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 1: Experiment settings for SD 1.5, SD 2.1, and SDXL 1.0.\n' +
+      '\n' +
+      'Figure 2: Reference block names of stable diffusion in the following experiment details.\n' +
+      '\n' +
+      'model re-training, while the SR model demands extensive data and computational resources for training. More importantly, as shown in Fig. 3, we find that our method can generate much better details than the cascaded pipeline. Due to a lack of prior knowledge in generation, super-resolution method can only utilize existing knowledge within the single image for upscaling the image, resulting in over-smooth appearance. However, our method can effectively upscale images and fill in details using generative priors with a pre-trained diffusion model, providing valuable insights for future explorations into the synthesis of high-quality and ultra-high-resolution images.\n' +
+      '\n' +
+      '### Comparison with ElasticDiffusion\n' +
+      '\n' +
+      'We observe that the recent approach, ElasticDiffusion [14], has established a technique to equip pre-trained diffusion models with the capability to generate images of arbitrary sizes, both smaller and larger than the resolution used during training. Here, we provide the comparison with ElasticDiffusion [14] on the SDXL 2048\\(\\times\\)2048 setting. The results are shown in Tab 3. First, it\'s important to note that the inference times for ElasticDiffusion are approximately 4 to 5 times longer than ours. Besides, as we can see, our method demonstrates superior performance across all evaluation metrics, achieving lower FID and KID scores compared to ElasticDiffusion, indicating better image quality and diversity.\n' +
+      '\n' +
+      '## Appendix 0.D More Visualizations\n' +
+      '\n' +
+      '### LoRAs\n' +
+      '\n' +
+      'In Fig. 4, we present the high-resolution images produced by SD 2.1, which has been integrated with customized LoRAs [23] from Civitai [8]. We can see that our method can be effectively applied to diffusion models equipped with LoRAs.\n' +
+      '\n' +
+      '### Other Resolutions\n' +
+      '\n' +
+      'In Fig. 5, we present more images generated at different resolutions by SD 2.1, aside from the \\(4\\times\\), \\(6.25\\times\\), \\(8\\times\\), and \\(16\\times\\) settings. Our approach is capable of generating high-quality images of arbitrary aspect ratios and sizes.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* [1] AnimeArtXL: (2024), [https://civitai.com/models/117259/anime-art-diffusion-rl](https://civitai.com/models/117259/anime-art-diffusion-rl), accessed: 17, 01, 2024 22\n' +
+      '* [2] Balaji, Y., Nah, S., Huang, X., Vahdat, A., Song, J., Kreis, K., Aittala, M., Aila, T., Laine, S., Catanzaro, B., et al.: ediffi: Text-to-image diffusion models with an ensemble of expert denoisers. arXiv preprint arXiv:2211.01324 (2022) 3\n' +
+      '* [3] Bar-Tal, O., Yariv, L., Lipman, Y., Dekel, T.: Multidiffusion: Fusing diffusion paths for controlled image generation. arXiv preprint arXiv:2302.08113 (2023) 2\n' +
+      '* [4] Binkowski, M., Sutherland, D.J., Arbel, M., Gretton, A.: Demystifying mmd gans. In: International Conference on Learning Representations (2018) 12\n' +
+      '\n' +
+      'Figure 4: Visualization of the high-resolution images generated by SD 2.1 integrated with customized LoRAs (images in red rectangle) and images generated by a personalized diffusion model, AnimeArtXL [1], which is based on SDXL.\n' +
+      '\n' +
+      'Figure 5: More generated images using FouriScale and SD 2.1 with arbitrary resolutions.\n' +
+      '\n' +
+      '* [5] Blattmann, A., Rombach, R., Ling, H., Dockhorn, T., Kim, S.W., Fidler, S., Kreis, K.: Align your latents: High-resolution video synthesis with latent diffusion models. In: CVPR. pp. 22563-22575 (2023)\n' +
+      '* [6] Cao, M., Wang, X., Qi, Z., Shan, Y., Qie, X., Zheng, Y.: Masactrl: Tuning-free mutual self-attention control for consistent image synthesis and editing. arXiv preprint arXiv:2304.08465 (2023)\n' +
+      '* [7] Chen, T.: On the importance of noise scheduling for diffusion models. arXiv preprint arXiv:2301.10972 (2023)\n' +
+      '* [8] Civitai: (2024), [https://civitai.com/](https://civitai.com/), accessed: 17, 01, 2024\n' +
+      '* [9] Dhariwal, P., Nichol, A.: Diffusion models beat gans on image synthesis. NeurIPS **34**, 8780-8794 (2021)\n' +
+      '* [10] Diffusion, S.: Stable diffusion 2-1 base. [https://huggingface.co/stabilityai/stable-diffusion-2-1-base/blob/main/v2-1_512-ema-pruned.ckpt](https://huggingface.co/stabilityai/stable-diffusion-2-1-base/blob/main/v2-1_512-ema-pruned.ckpt) (2022)\n' +
+      '* [11] Ding, M., Yang, Z., Hong, W., Zheng, W., Zhou, C., Yin, D., Lin, J., Zou, X., Shao, Z., Yang, H., et al.: Cogview: Mastering text-to-image generation via transformers. NeurIPS **34**, 19822-19835 (2021)\n' +
+      '* [12] Epstein, D., Jabri, A., Poole, B., Efros, A.A., Holynski, A.: Diffusion self-guidance for controllable image generation. arXiv preprint arXiv:2306.00986 (2023)\n' +
+      '* [13] Goodfellow, I., Pouget-Abadie, J., Mirza, M., Xu, B., Warde-Farley, D., Ozair, S., Courville, A., Bengio, Y.: Generative adversarial nets. NeurIPS **27** (2014)\n' +
+      '* [14] Haji-Ali, M., Balakrishnan, G., Ordonez, V.: Elasticdiffusion: Training-free arbitrary size image generation. arXiv preprint arXiv:2311.18822 (2023)\n' +
+      '* [15] He, Y., Yang, S., Chen, H., Cun, X., Xia, M., Zhang, Y., Wang, X., He, R., Chen, Q., Shan, Y.: Scalecrafter: Tuning-free higher-resolution visual generation with diffusion models. arXiv preprint arXiv:2310.07702 (2023)\n' +
+      '* [16] He, Y., Yang, T., Zhang, Y., Shan, Y., Chen, Q.: Latent video diffusion models for high-fidelity video generation with arbitrary lengths. arXiv preprint arXiv:2211.13221 (2022)\n' +
+      '* [17] Hertz, A., Mokady, R., Tenenbaum, J., Aherman, K., Pritch, Y., Cohen-or, D.: Prompt-to-prompt image editing with cross-attention control. In: ICLR (2022)\n' +
+      '* [18] Heusel, M., Ramsauer, H., Unterthiner, T., Nessler, B., Hochreiter, S.: Gans trained by a two time-scale update rule converge to a local nash equilibrium. NeurIPS **30** (2017)\n' +
+      '* [19] Ho, J., Jain, A., Abbeel, P.: Denoising diffusion probabilistic models. NeurIPS **33**, 6840-6851 (2020)\n' +
+      '* [20] Ho, J., Saharia, C., Chan, W., Fleet, D.J., Norouzi, M., Salimans, T.: Cascaded diffusion models for high fidelity image generation. The Journal of Machine Learning Research **23**(1), 2249-2281 (2022)\n' +
+      '* [21] Ho, J., Salimans, T.: Classifier-free diffusion guidance. arXiv preprint arXiv:2207.12598 (2022)\n' +
+      '* [22] Hoogeboom, E., Heek, J., Salimans, T.: simple diffusion: End-to-end diffusion for high resolution images. arXiv preprint arXiv:2301.11093 (2023)\n' +
+      '* [23] Hu, E.J., Wallis, P., Allen-Zhu, Z., Li, Y., Wang, S., Wang, L., Chen, W., et al.: Lora: Low-rank adaptation of large language models. In: International Conference on Learning Representations (2021)\n' +
+      '* [24] Jimenez, A.B.: Mixture of diffusers for scene composition and high resolution image generation. arXiv preprint arXiv:2302.02412 (2023)\n' +
+      '* [25] Jin, Z., Shen, X., Li, B., Xue, X.: Training-free diffusion model adaptation for variable-sized text-to-image synthesis. arXiv preprint arXiv:2306.08645 (2023)\n' +
+      '* [* [26] Lee, Y., Kim, K., Kim, H., Sung, M.: Syncdiffusion: Coherent montage via synchronized joint diffusions. NeurIPS **36** (2024) 2, 3\n' +
+      '* [27] Liu, H., Chen, Z., Yuan, Y., Mei, X., Liu, X., Mandic, D., Wang, W., Plumbley, M.D.: Audioldm: Text-to-audio generation with latent diffusion models. arXiv preprint arXiv:2301.12503 (2023)\n' +
+      '* [28] Lu, Z., Wang, Z., Huang, D., Wu, C., Liu, X., Ouyang, W., Bai, L.: Fit: Flexible vision transformer for diffusion model. arXiv preprint arXiv:2402.12376 (2024)\n' +
+      '* [29] Midjourney: (2024), [https://www.midjourney.com](https://www.midjourney.com), accessed: 17, 01, 2024\n' +
+      '* [30] Pattichis, M.S., Bovik, A.C.: Analyzing image structure by multidimensional frequency modulation. IEEE TPAMI **29**(5), 753-766 (2007)\n' +
+      '* [31] Peebles, W., Xie, S.: Scalable diffusion models with transformers. In: ICCV. pp. 4195-4205 (2023)\n' +
+      '* [32] Podell, D., English, Z., Lacey, K., Blattmann, A., Dockhorn, T., Muller, J., Penna, J., Rombach, R.: Sdxl: Improving latent diffusion models for high-resolution image synthesis. arXiv preprint arXiv:2307.01952 (2023)\n' +
+      '* [33] Ramesh, A., Pavlov, M., Goh, G., Gray, S., Voss, C., Radford, A., Chen, M., Sutskever, I.: Zero-shot text-to-image generation. In: ICML. pp. 8821-8831. PMLR (2021)\n' +
+      '* [34] Riad, R., Teboul, O., Grangier, D., Zeghidour, N.: Learning strides in convolutional neural networks. In: ICLR (2021)\n' +
+      '* [35] Rippel, O., Snoek, J., Adams, R.P.: Spectral representations for convolutional neural networks. NeurIPS **28** (2015)\n' +
+      '* [36] Rombach, R., Blattmann, A., Lorenz, D., Esser, P., Ommer, B.: High-resolution image synthesis with latent diffusion models. In: CVPR. pp. 10684-10695 (2022)\n' +
+      '* [37] Saharia, C., Chan, W., Saxena, S., Li, L., Whang, J., Denton, E.L., Ghasemipour, K., Gontijo Lopes, R., Karagol Ayan, B., Salimans, T., et al.: Photorealistic text-to-image diffusion models with deep language understanding. NeurIPS **35**, 36479-36494 (2022)\n' +
+      '* [38] Schuhmann, C., Beaumont, R., Vencu, R., Gordon, C., Wightman, R., Cherti, M., Coombes, T., Katta, A., Mullis, C., Wortsman, M., Schramowski, P., Kundurthy, S., Crowson, K., Schmidt, L., Kaczmarczyk, R., Jitsev, J.: Laion-5b: An open large-scale dataset for training next generation image-text models (2022)\n' +
+      '* [39] Si, C., Huang, Z., Jiang, Y., Liu, Z.: Freeu: Free lunch in diffusion u-net. arXiv preprint arXiv:2309.11497 (2023)\n' +
+      '* [40] Song, J., Meng, C., Ermon, S.: Denoising diffusion implicit models. In: International Conference on Learning Representations (2020)\n' +
+      '* [41] Sukhbaatar, S., Grave, E., Bojanowski, P., Joulin, A.: Adaptive attention span in transformers. In: Proceedings of the 57th Annual Meeting of the Association for Computational Linguistics. pp. 331-335 (2019)\n' +
+      '* [42] Teng, J., Zheng, W., Ding, M., Hong, W., Wangni, J., Yang, Z., Tang, J.: Relay diffusion: Unifying diffusion process across resolutions for image synthesis. arXiv preprint arXiv:2309.03350 (2023)\n' +
+      '* [43] Upscaler, S.D.: (2024), [https://huggingface.co/stabilityai/stable-diffusion-x4-upscaler](https://huggingface.co/stabilityai/stable-diffusion-x4-upscaler), accessed: 17, 01, 2024\n' +
+      '* [44] Wang, J., Li, X., Zhang, J., Xu, Q., Zhou, Q., Yu, Q., Sheng, L., Xu, D.: Diffusion model is secretly a training-free open vocabulary semantic segmenter. arXiv preprint arXiv:2309.02773 (2023)\n' +
+      '* [45] Xiao, C., Yang, Q., Zhou, F., Zhang, C.: From text to mask: Localizing entities using the attention of text-to-image diffusion models. arXiv preprint arXiv:2309.04109 (2023)* [46] Zeng, X., Vahdat, A., Williams, F., Gojcic, Z., Litany, O., Fidler, S., Kreis, K.: Lion: Latent point diffusion models for 3d shape generation. arXiv preprint arXiv:2210.06978 (2022)\n' +
+      '* [47] Zhang, R.: Making convolutional networks shift-invariant again. In: ICML. pp. 7324-7334. PMLR (2019)\n' +
+      '* [48] Zhang, Y., Li, K., Li, K., Wang, L., Zhong, B., Fu, Y.: Image super-resolution using very deep residual channel attention networks. In: ECCV. pp. 286-301 (2018)\n' +
+      '* [49] Zhao, W., Rao, Y., Liu, Z., Liu, B., Zhou, J., Lu, J.: Unleashing text-to-image diffusion models for visual perception. ICCV (2023)\n' +
+      '* [50] Zheng, Q., Guo, Y., Deng, J., Han, J., Li, Y., Xu, S., Xu, H.: Any-size-diffusion: Toward efficient text-driven synthesis for any-size hd images. arXiv preprint arXiv:2308.16582 (2023)\n' +
+      '* [51] Zhu, Q., Zhou, M., Huang, J., Zheng, N., Gao, H., Li, C., Xu, Y., Zhao, F.: Fouridown: Factoring down-sampling into shuffling and superposing. In: NeurIPS (2023)\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
