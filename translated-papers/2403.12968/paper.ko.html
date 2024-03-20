@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# LLMLingua-2 : 효율적이고 충실하기 위한 데이터 증류\n' +
+      '\n' +
+      '과제-불가지론적 프롬프트 압축\n' +
+      '\n' +
+      'Zhuoshi Pan\\({}^{1}\\), Qianhui Wu\\({}^{2}\\), Huiqiang Jiang\\({}^{2}\\), Menglin Xia\\({}^{2}\\), Xufang Luo\\({}^{2}\\), Jue Zhang\\({}^{2}\\)\n' +
+      '\n' +
+      '칭웨이 린\\({}^{2}\\), 빅터 루글\\({}^{2}\\), 유칭 양\\({}^{2}\\), 친유 린\\({}^{2}\\),\n' +
+      '\n' +
+      'H. Vicky Zhao\\({}^{1}\\), Lili Qiu\\({}^{2}\\), Dongmei Zhang\\({}^{2}\\)\n' +
+      '\n' +
+      '칭화대학교, \\({}^{1}\\) 마이크로소프트사\n' +
+      '\n' +
+      '{qianhuiwu, hjiang, xufang.luo}@microsoft.com\n' +
+      '\n' +
+      '마이크로소프트에서 인턴으로 일할 때.교신저자.교신저자.\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      '이 논문은 보다 나은 일반화 가능성과 효율성을 위해 작업 진단적 신속한 압축에 초점을 맞춘다. 자연어의 중복성을 고려하여 기존의 접근법은 LLaM-7B와 같은 인과 언어 모델에서 얻은 정보 엔트로피에 따라 토큰 또는 어휘 단위를 제거하여 프롬프트를 압축한다. 도전 과제는 정보 엔트로피가 차선의 압축 메트릭일 수 있다는 것이다: (i) 그것은 단지 단방향 컨텍스트를 이용하고 프롬프트 압축에 필요한 모든 필수 정보를 캡처하는 데 실패할 수 있다; (ii) 프롬프트 압축 목표와 정렬되지 않는다.\n' +
+      '\n' +
+      '이러한 문제를 해결하기 위해 중요한 정보를 잃지 않고 프롬프트를 압축하기 위해 LLM에서 지식을 도출하는 데이터 증류 절차를 제안하고 추출 텍스트 압축 데이터 세트를 소개한다. 압축된 프롬프트가 원래의 프롬프트에 충실함을 보장하기 위해 토큰 분류 문제로 프롬프트 압축을 공식화하고, 완전한 양방향 컨텍스트로부터 프롬프트 압축을 위한 모든 필수 정보를 캡처하기 위해 트랜스포머 인코더를 기본 아키텍처로 사용한다. 우리의 접근법은 XLM-RoBERTa-large 및 mBERT와 같은 더 작은 모델로 압축 목표를 명시적으로 학습함으로써 더 낮은 대기 시간으로 이어진다.\n' +
+      '\n' +
+      '우리는 MeetingBank, LongBench, ZeroScrolls, GSM8K 및 BBH를 포함한 도메인 내 및 도메인 외 데이터 세트 모두에서 방법을 평가한다. 작은 크기에도 불구하고, 우리의 모델은 강력한 기준선에 비해 상당한 성능 향상을 보여주고 다양한 LLM에 걸쳐 강력한 일반화 능력을 보여준다. 또한, 본 모델은 기존의 신속한 압축 방법보다 3x-6x 빠르며, 2x-5x.1의 압축 비율로 종단간 대기 시간을 1.6x-2.9x 가속한다.\n' +
+      '\n' +
+      '각주 1: 코드: [https://aka.ms/LLMLingua-2](https://aka.ms/LLMLingua-2)\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      '최근에는 COT(Chain-of-Thought) Wei et al. (2022), ICL(In-context Learning) Dong et al. (2023), 및 RAG( Retrieval Augmented Generation) Lewis et al. (2020)와 같은 대형 언어 모델(LLM)에 대한 다양한 프롬프트 기술이 출현하는 것을 목격하고 있다. 이러한 기술은 LLM이 수만 토큰을 초과할 수 있는 풍부하고 유익한 프롬프트를 통해 복잡하고 다양한 작업을 처리할 수 있도록 한다. 그러나 이러한 긴 프롬프트의 이점은 LLM의 정보 인식 능력 저하뿐만 아니라 계산 및 재무 오버헤드의 증가로 인해 발생한다. 신속한 압축은 이러한 문제를 해결하기 위한 간단한 솔루션으로 필수 정보를 잃지 않고 원래 프롬프트를 단축하려고 시도한다.\n' +
+      '\n' +
+      'prompts를 _task-aware_ manner Jiang et al. (2023); Xu et al. (2024); Jung and Kim (2023); Huang et al. (2023). 이러한 기술은 특정 작업 또는 쿼리에 맞춘 압축된 프롬프트를 생성하는 것을 목표로 하며, 일반적으로 다운스트림 작업, 특히 질문 응답에서 향상된 성능을 초래한다. 그러나 태스크별 기능에 대한 의존성은 이러한 메서드를 배포할 때 효율성과 일반화 가능성 측면에서 문제를 제기한다. 예를 들어, RAG-스타일 애플리케이션들에서, 태스크 인식 프롬프트 압축을 갖는 연관된 쿼리들에 따라 동일한 문서들을 여러 번 압축하는 것이 필요할 수 있다. 더 자세한 내용은 2항에서 논의된다.\n' +
+      '\n' +
+      '일부 연구는 더 나은 일반화 가능성 및 효율성을 위해 _task-agnostic_ prompt compression 방법을 탐색하였다. Jiang et al.(2023); Li et al.(2023). 근본적인 가정은 _자연어가 인간의 이해에 유용할 수 있지만 LLMs._에 필요하지 않을 수 있는 리던던시 섀넌(1951)을 포함한다는 것이다. 따라서, 그들은 다운스트림 태스크 또는 질문 정보에 관계없이 인과적 소형 언어 모델(SLM)로부터 획득된 정보 엔트로피에 따라 토큰 Jiang 등(2023a) 또는 어휘 단위(Li 등, 2023)를 제거하여 프롬프트를 압축할 것을 제안한다. 그러나, 이러한 태스크-진단 방법들은 두 가지 과제들에 직면한다: (i) 정보 엔트로피는 신속한 압축을 위한 경험적 메트릭이다. 프롬프트 압축 목표와 정렬되지 않기 때문에 프롬프트 트리밍을 위해 이에 의존하는 것은 차선책일 수 있다. (ii) 인과적 LMs는 단방향 컨텍스트만을 레버리지하고, 이는 컨텍스트 내에서 신속한 압축에 필요한 모든 필수 정보를 캡처하지 못할 수 있다.\n' +
+      '\n' +
+      '과제는 다음과 같은 연구 문제로 이어진다.\n' +
+      '\n' +
+      '**Q1.** SLM을 효과적인 프롬프트 압축을 향해 정렬하기 위해 적절한 데이터 세트를 어떻게 식별하거나 구축할 수 있는가?\n' +
+      '\n' +
+      '**Q2.** 더 나은 성능을 위해 전체 양방향 컨텍스트를 효과적으로 활용하는 압축 알고리즘을 어떻게 설계할 수 있는가?\n' +
+      '\n' +
+      'Q1의 경우, 대부분의 텍스트 압축 데이터 세트는 _abstractive_(Toutanova et al., 2016; Koupaee and Wang, 2018; Kim et al., 2019)이며, 이는 프롬프트 압축을 원래 프롬프트가 응축된 것으로 재표현되는 생성 작업으로 취급한다는 것을 의미한다. 그러나, 이러한 자기회귀 생성 과정은 느리고 환각 콘텐츠를 생성할 수 있다(Zhao et al., 2020). 한편, SentComp(Filippova and Altun, 2013) 및 DebateSum(Roush and Balaji, 2020)과 같은 _extractive_ 압축 데이터셋은 요약 작업을 위해 일반적으로 생성되며, 상세 정보가 부족한 경우가 많다. 신속한 압축의 경우, 이것은 QA와 같은 다운스트림 애플리케이션에서 LLM 추론의 성능에 타격을 줄 것이다(일부 예는 부록 G 참조). 따라서, 필수 정보를 보유하는 추출적 텍스트 압축 데이터셋을 구축할 필요가 있다.\n' +
+      '\n' +
+      '기여.본 논문은 태스크-진단 프롬프트 압축에 대한 상기 과제를 해결하기 위해 제시한다. 우리는 다음과 같은 공헌을 한다.\n' +
+      '\n' +
+      '* 중요한 정보를 잃지 않고 프롬프트를 압축하기 위해 LLM(GPT-4)에서 지식을 도출하는 데이터 증류 절차를 제안한다. 우리는 MeetingBank(Hu et al., 2023)의 원본 텍스트 쌍과 그들의 압축된 버전을 포함하는 추출 텍스트 압축 데이터 세트를 소개한다. 우리는 공개적으로 데이터 세트를 공개합니다.\n' +
+      '* 우리는 토큰 분류 태스크(_i.e._, 보존 또는 폐기)로서 프롬프트 압축에 접근하고, 각각의 토큰이 보존으로서 라벨링되는 예측 확률을 압축 메트릭으로서 취한다. (1) 특징 추출을 위해 트랜스포머 인코더를 사용하여 전체 양방향 컨텍스트에서 신속한 압축에 필요한 모든 필수 정보를 캡처할 수 있다. (2) 압축 목적을 명시적으로 학습하기 위해 더 작은 모델의 사용으로 인해 더 낮은 대기 시간을 초래할 수 있다. (3) 압축 프롬프트의 원본 내용에 대한 충실성을 보장한다.\n' +
+      '* 도메인 내(_i.e._, MeetingBank) 및 도메인 외 데이터 세트(_i.e._, LongBench, ZeroScrolls, GSM8K, Big Bench Hard) 모두에 대해 광범위한 실험 및 분석을 수행한다. 크기가 작음에도 불구하고, 우리의 모델은 강력한 기준선에 비해 상당한 성능 향상을 보여주고 GPT-3.5-터보에서 미스트랄-7B까지 강력한 일반화 능력을 보여준다. 또한, 본 모델은 기존의 신속한 압축 방법보다 3x-6x 빠르며, 2x-5x의 압축 비율로 종단간 대기 시간을 1.6x-2.9x 가속한다.\n' +
+      '\n' +
+      '##2 관련 작품\n' +
+      '\n' +
+      '작업 정보가 압축에 사용되는지에 따라, 신속한 압축 방법은 작업 인식 및 작업 진단 압축 접근법으로 분류될 수 있다.\n' +
+      '\n' +
+      '태스크 인식 압축은 다운스트림 태스크 또는 현재 쿼리에 기초하여 컨텍스트를 압축한다. 예를 들어, LongLLMLingua (Jiang et al., 2023)는 질문-인식 거친-대-미세 압축 접근법을 적용하여 토큰들의 정보 엔트로피를 추정하고 질문에 따라 추정을 적응시킨다. 강화 학습(RL) 기반 방법들(Jung and Kim, 2023; Huang et al., 2023)은 일반적으로 다운스트림 태스크들로부터의 보상 신호들을 갖는 신속한 압축을 위한 모델을 트레이닝한다. 소프트 프롬프트 튜닝 방법들(Wingate et al., 2022; Mu et al., 2023)은 통상적으로 특정 작업에 대해 미세-튜닝을 요구한다. Xu et al. (2024)는 질문에 따라 문맥을 압축하기 위해 요약 모델을 훈련한다. 작업 인식 압축 접근법은 일반적으로 특정 작업 및 압축 비율에 맞게 조정되며, 이는 실제 응용 프로그램에서 일반화 가능성을 제한할 수 있다.\n' +
+      '\n' +
+      '작업 진단 방법은 특정 작업을 고려하지 않고 프롬프트를 압축하여 다양한 응용 프로그램 및 블랙박스 LLM에 더 쉽게 적용할 수 있습니다. 그러나 서로 다른 작업에 잘 일반화할 수 있는 압축 텍스트를 제작하는 것은 사소한 일이 아니다. 전형적인 방법들은 프롬프트 Li 등(2023); Jiang 등(2023)에서 중복 정보를 제거하기 위해 정보 엔트로피 기반 메트릭을 사용하는 것을 포함한다. 그들은 정보 메트릭으로부터 토큰 중요도를 추정하기 위해 작은 언어 모델을 사용한다. 트레이닝이 없음에도 불구하고, 이러한 방법들은 특정 LLM들에 대해 최적화된 토큰 중요도 분포를 효과적으로 캡처하지 못할 수 있고 종종 높은 계산 오버헤드를 수반한다. 요약-기반 방법들은 또한 태스크-진단 압축 Chen et al.(2023); Packer et al.(2023)을 위해 레버리지된다. 그러나 그들은 종종 중요한 세부 사항을 생략하고 잘 일반화하지 않는다. 대안적인 접근법은 숨겨진 컨텍스트 또는 KV 캐시인 Chevalier et al. (2023); Ge et al. (2023); Zhang et al. (2023); Liu et al. (2023); Xiao et al. (2024). 그러나 이것은 우리의 작업과 직교하며 블랙박스 LLM에 쉽게 적용할 수 없다.\n' +
+      '\n' +
+      '##3 데이터세트 구축\n' +
+      '\n' +
+      '이 섹션에서는 신속한 압축을 위한 데이터 세트 구성 프로세스를 간략하게 설명한다. 우리는 먼저 LLM(GPT-4)에서 지식을 추출하여 중요한 정보를 잃지 않고 텍스트를 압축하거나 환각 콘텐츠를 도입하는 데이터 증류 절차를 소개한다. LLM에서 증류된 지식을 활용하여 압축 후 보존 여부를 나타내기 위해 원본 텍스트의 각 단어에 레이블을 할당하는 데이터 주석 알고리즘을 설명한다(Sec. 3.2). 데이터 세트의 품질을 보장하기 위해 저품질 샘플을 필터링하기 위한 두 가지 품질 관리 메트릭(Sec. 3.3)을 제안한다.\n' +
+      '\n' +
+      '### Data Distillation\n' +
+      '\n' +
+      '효율적인 프롬프트 압축을 위해 LLM으로부터 지식을 추출하기 위해, 우리의 목표는 GPT-4가 다음과 같은 기준을 충족하는 원본 텍스트로부터 압축 텍스트를 생성하도록 프롬프트하는 것이다: (i) _Token reduction_: 압축 프롬프트는 비용을 줄이고 추론을 가속화하기 위해 길이가 짧아야 한다. (ii) _Informativeness_: 필수 정보는 보유되어야 한다. (iii) _Faithfulness_: 압축 프롬프트들은 충실하게 유지되어야 하고 다운스트림 태스크들에서 LLMs들을 프롬프트할 때 정확성을 보장하기 위해 환각 콘텐츠를 도입하는 것을 피해야 한다.\n' +
+      '\n' +
+      '그러나 GPT-4에서 이러한 데이터를 증류하는 것은 지침을 일관되게 따르지 않기 때문에 어렵다. 예를 들어, Jiang et al.(2023)은 압축에 대한 다른 프롬프트를 실험했으며 GPT-4가 원본 텍스트로부터 필수 정보를 유지하기 위해 고군분투한다는 것을 발견했다. 예비 실험에서 GPT-4가 원문에 사용된 표현을 수정하는 경향이 있으며 때로는 환각 콘텐츠를 생성하는 경향이 있음을 관찰했다. 이 문제를 해결하기 위해 다음 데이터 세트 증류 절차를 제안한다.\n' +
+      '\n' +
+      'GPT-4의 압축 성능을 밝히기 위해서는 명령어 디자인(Instruction DesignA)이 잘 만들어진 명령어이다. 생성된 텍스트가 원본에 _faithful_로 남아있도록 하기 위해, GPT-4는 원본 텍스트에서 중요하지 않은 단어만 버리고 생성 중에 새로운 단어를 추가하지 않음으로써 텍스트를 압축하도록 명시적으로 지시한다.\n' +
+      '\n' +
+      '_token reduction_ 및 _informativeness_를 보장하기 위해, 선행 연구들인 Jiang et al.(2023); Huang et al.(2023)은 명령들에서 압축 비율 또는 목표 개수의 압축된 토큰들 중 하나를 명시하였다. 그러나 GPT-4는 이러한 제한을 준수하지 못하는 경우가 많다. 추가적으로, 상기 정보는\n' +
+      '\n' +
+      '도 1: LLMLingua-2의 개요.\n' +
+      '\n' +
+      '텍스트의 밀도는 장르, 스타일 등에 따라 크게 달라질 수 있다. 예를 들어, 뉴스 기사는 일반적으로 회의 녹취록에 비해 더 조밀한 정보를 포함한다. 또한, 회의 녹취록의 도메인 내에서도 서로 다른 화자의 정보 밀도가 다를 수 있다. 이러한 요인들은 고정된 압축비가 최적이 아닐 수 있음을 시사한다. 따라서 우리는 명령에서 압축 비율 제한을 제거하고 대신 GPT-4가 가능한 한 많은 정보를 유지하면서 원 텍스트를 최대한 짧게 압축하도록 프롬프트한다. 도 1에 도시된 바와 같다. 도 3에 도시된 바와 같이, GPT-4는 상이한 문장들에 다양한 압축 비율들을 할당하고 일부 문장들을 완전히 폐기한다. 우리의 지침과 장 등(2023)의 지침을 비교하려면 표 7을 참조하십시오.\n' +
+      '\n' +
+      '청크 와이즈 압축 경험적으로 원문의 길이가 압축 성능에 주목할 만한 영향을 미친다는 것을 발견했다. 도 1에 도시된 바와 같다. 도 4에서 GPT-4는 매우 긴 컨텍스트를 처리할 때 높은 압축률을 적용하는 경향이 있는데, 이는 GPT-4가 긴 컨텍스트를 처리하는 능력이 제한적이기 때문일 수 있다. 이러한 공격적인 압축은 상당한 정보 손실을 초래하여 다운스트림 작업의 성능에 상당한 영향을 미친다. 이 문제를 완화하기 위해 먼저 각 긴 컨텍스트를 512개 이하의 토큰을 포함하고 마침표로 끝나는 여러 청크로 분할한다. 그런 다음 GPT-4에 각 청크를 개별적으로 압축하도록 지시한다.\n' +
+      '\n' +
+      '### Data Annotation\n' +
+      '\n' +
+      '데이터 증류(Sec. 3.1)로부터 원본 텍스트 및 이들의 압축된 버전 쌍을 얻은 데이터 주석의 목표는 압축 후에 보존되어야 하는지 또는 폐기되어야 하는지 결정하기 위해 원본 텍스트 내의 각 토큰에 _binary_ 라벨을 할당하는 것이다. 도. 도 5는 GPT-4가 그림 9. Alg의 지침을 정확하게 준수할 수 없기 때문에 발생하는 여기에서 직면하는 세 가지 주요 장애물을 설명한다. 도 1은 이러한 장애물에 대처하기 위해 설계된 제안된 주석 알고리즘의 전반적인 절차를 개략적으로 설명한다. 자세한 내용은 부록 B를 참조하시기 바랍니다.\n' +
+      '\n' +
+      '### Quality Control\n' +
+      '\n' +
+      'GPT-4 증류에 의해 생성된 압축 텍스트의 품질과 자동으로 주석이 달린 라벨의 품질을 평가하기 위해 두 가지 품질 관리 메트릭을 소개한다. 그런 다음 예제를 점수로 필터링합니다.\n' +
+      '\n' +
+      '가변 속도 GPT-4는 지침을 따르지 않을 수 있으므로 데이터 증류에서 생성된 압축 텍스트의 품질을 평가하기 위해 메트릭 _가변 속도(VR)_를 도입한다. VR은 압축된 텍스트에서 단어의 비율을 측정합니다.\n' +
+      '\n' +
+      '도 4: MeetingBank 상의 압축 비율 _w.r.t._ 원본 컨텍스트 길이의 일러스트레이션. 우리는 출력 토큰 제한 설정을 4096으로 하는 GPT-4-32k를 사용한다.\n' +
+      '\n' +
+      '그림 3: MeetingBank에서 청크별 압축 후 압축률 분포.\n' +
+      '\n' +
+      '그림 2: 데이터 증류에 사용된 우리의 지침이다.\n' +
+      '\n' +
+      '원본에 없습니다. 구체적으로, 압축 텍스트에서 단어 집합은 \\(\\mathbb{S}_{comp}\\)이고, 원본 텍스트 집합은 \\(\\mathbb{S}_{ori}\\)이다. VR은 다음과 같이 정의된다:\n' +
+      '\n' +
+      '\\frac{1}{|\\textit{VR}=\\frac{S}_{comp}|}\\sum_{w\\in\\mathbb{S}_{comp}}\\mathbb{I}(w\\notin\\mathbb{S}_{ori}), \\tag{1}\\textit{VR}=\\frac{1}{|\\textit{S}_{comp}|}\\sum_{w\\in\\mathbb{I}(w\\notin\\mathbb{S}_{ori})\n' +
+      '\n' +
+      '여기서 \\(|\\cdot|\\)는 집합의 카디널리티이다. 변동률이 높다는 것은 환각 콘텐츠에 직면할 가능성이 높다는 것을 의미한다. 따라서 상위 5%의 변동률이 가장 높은 예는 제외한다.\n' +
+      '\n' +
+      'Alignment GapWe는 자동으로 주석이 달린 라벨의 품질을 평가하기 위해 _Alignment Gap(AG)_를 제안한다. (l(\\cdot)\\)은 주석함수를 나타내며, 여기서 \\(l(w)=\\textit{True}\\)은 \\(w\\in\\mathbb{S}_{ori}\\)이 \\(\\mathbb{S}_{comp}\\)의 단어에 해당함을 의미한다. 먼저 매칭률(MR)을 다음과 같이 정의한다.\n' +
+      '\n' +
+      '\\frac{1}{|\\textit{MR}=\\frac{S}_{ori}|}\\sum_{w\\in\\mathbb{S}_{ori}}\\mathbb{I}(l(w)=\\textit{True}). \\tag{2}\\\n' +
+      '\n' +
+      '본 논문에서는 \\(\\mathbb{S}_{ori}\\)에서 \\(\\mathbb{S}_{comp}\\)까지의 다대일 단어 매핑(_i.e._, Sec. 3.2에서 제시된 "모호성" 도전)이 존재하기 때문에, \\(\\mathbbb{S}_{ori}\\)에서 발견되는 \\(\\mathbbb{S}_{comp}\\)에서 단어의 비율을 측정하기 위한 정규화 항으로 HR(히트율)을 추가로 제시한다. HR은 다음과 같이 정의된다:\n' +
+      '\n' +
+      '\\frac{1}{|\\textit{HR}=\\frac{S}_{ori}|}\\sum_{w\\in\\mathbb{S}_{comp}}\\mathbb{I}(w\\in\\mathbb{S}_{ori}) \\tag{3}\\\n' +
+      '\n' +
+      '마지막으로, 정렬 갭(AG)은 다음과 같이 정의된다:\n' +
+      '\n' +
+      '\\[\\textit{AG}=\\textit{HR}-\\textit{MR}. \\tag{4}\\]\n' +
+      '\n' +
+      '완벽한 주석의 정렬 간격은 0이어야 한다. 큰 AG는 매칭률이 좋지 않은 높은 적중률을 나타내며, 이는 이 예에 대한 낮은 품질의 주석을 암시한다. 따라서 데이터 세트의 품질 관리를 보장하기 위해 가장 높은 10% 정렬 갭의 예를 폐기한다.\n' +
+      '\n' +
+      '## 4 Compressor\n' +
+      '\n' +
+      '압축된 프롬프트의 원본 콘텐츠에 대한 충실성을 보장하기 위해 이진 토큰 분류 문제(_i.e._, 보존 또는 폐기)로서 프롬프트 압축을 공식화하고, 그 동안 압축 모델 자체의 낮은 대기 시간을 보장한다. 토큰 분류 모델은 각 토큰의 양방향 컨텍스트 정보를 활용하기 위해 Transformer 인코더를 특징 추출기로 사용한다. 우리는 Sec에서 구축된 데이터셋에 대한 분류 모델을 학습한다. 3 from MeetingBank Hu et al. (2023). 추론하는 동안, 우리는 분류 모델에 의해 계산된 확률을 기반으로 원래 프롬프트의 각 토큰을 보존할지 또는 폐기할지 결정한다.\n' +
+      '\n' +
+      '### 토큰 분류 모델\n' +
+      '\n' +
+      'ArchitectureWe utilize a Transformer encoder Devlin et al.(2019) as a feature encoder \\(f_{\\theta}\\) and add a linear classification layer on the top. - 응 - 응\n' +
+      '\n' +
+      '그림 5: 데이터 주석의 과제.\n' +
+      '\n' +
+      '(i) 모호성: 압축된 텍스트들 내의 단어가 원래의 콘텐츠에서 여러 번 나타날 수 있다.\n' +
+      '\n' +
+      '(ii) 변동: GPT-4는 시제, 복수 형태, _etc._ 압박 중.\n' +
+      '\n' +
+      '(iii) 재정렬: 단어들의 순서는 압축 후에 변경될 수 있다.\n' +
+      '\n' +
+      '\\(N\\)개의 단어들 \\(\\mathbf{x}=\\{x_{i}\\}_{i=1}^{N}\\)로 구성된 원래의 프롬프트로서, 이는 다음과 같이 공식화될 수 있다:\n' +
+      '\n' +
+      '\\[\\mathbf{h} = f_{\\theta}(\\mathbf{x}), \\tag{5}\\] \\[p(x_{i},\\theta =\\text{softmax}(Wh_{i}+b), \\tag{6}\\]\n' +
+      '\n' +
+      '여기서 \\(\\mathbf{h}=\\{h_{i}\\}_{i=1}^{N}\\)은 모든 단어에 대한 특징 벡터를 나타내고, \\(p(x_{i},\\theta)\\in\\mathbb{R}^{2}\\)은 \\(i\\)번째 단어에 대한 레이블 {preserve, discard}의 확률 분포를 나타내며, \\(\\theta=\\{\\theta,W,b\\}\\)은 훈련 가능한 모든 매개변수를 나타낸다.\n' +
+      '\n' +
+      'TrainingLet \\(\\mathbf{y}=\\{y_{i}\\}_{i=1}^{N}\\)은 모든 단어들에 대한 대응 레이블을 나타내며, 이 모델을 학습하기 위해 교차 엔트로피 손실을 이용한다. 손실함수 \\(\\mathcal{L}\\)_w.r.t._\\(\\mathbf{x}\\)는:\n' +
+      '\n' +
+      '\\[\\mathcal{L}(\\Theta)=\\frac{1}{N}\\sum_{i=1}^{N}\\text{CrossEntropy}(y_{i},p(x_{i},\\Theta)) \\tag{7}\\text{\n' +
+      '\n' +
+      '### Compression Strategy\n' +
+      '\n' +
+      '목표 압축률 \\(1/\\tau\\)로 원래의 프롬프트 \\(\\mathbf{x}=\\{x_{i}\\{i=1}^{N}\\)을 압축하는 방법은 3단계 과정을 포함하며, 여기서 \\(\\tau\\)은 압축된 프롬프트의 단어 수와 원래의 프롬프트의 단어 수의 몫으로 정의된다. 먼저, 압축 프롬프트 \\(\\tilde{\\mathbf{x}}\\): \\(\\tilde{N}=\\tau N\\)에서 보존할 토큰의 목표 개수를 유도한다. 다음으로, 토큰 분류 모델을 이용하여 보존 2로 분류된 각 단어들의 확률\\(p_{i}\\)을 예측한다. 마지막으로, 가장 높은 프롬프트\\(p_{i}\\)을 갖는 원래의 프롬프트\\(\\mathbf{x}\\)에 상위 단어(\\tilde{N}\\)를 유지하고 원래의 순서를 유지하여 압축된 프롬프트\\(\\tilde{\\mathbf{x}\\)을 형성한다.\n' +
+      '\n' +
+      '각주 2: 다양한 LLM 및 SLM에 걸쳐 우리의 접근법을 적용할 때 발생하는 토큰화 관련 문제를 해결하기 위해, 우리는 다중 토큰 단어의 무결성을 보존하고 모든 하위 단어 토큰의 예측된 확률에 대해 평균을 내어 단어의 확률을 나타낸다.\n' +
+      '\n' +
+      '우리의 접근 방식은 LLMLingua Jiang 등(2023)에서 제안된 거친-대-미세 프레임워크에 쉽게 통합될 수 있으며, 다중 시연 또는 문서와 관련된 작업에 대해 \\(\\sim\\)15x의 더 높은 압축 비율을 허용한다는 점에 주목할 필요가 있다. 특히, LLMLingua의 복잡도 기반 반복형 토큰 압축 모듈을 토큰 분류 기반 압축기로 대체하면서 예산 제어기를 변경하지 않고 유지할 수 있다.\n' +
+      '\n' +
+      '## 5 Experiment\n' +
+      '\n' +
+      '구현 세부사항은 MeetingBank Hu et al. (2023)의 학습 예제를 사용하여 부록 A에서 구현 세부사항을 사용하여 추출 텍스트 압축 데이터 세트를 구성한다. 본 접근 방식은 CUDA-11.7과 함께 Huggingface의 Transformers와 PyTorch 2.0.1을 사용하여 구현되며, xlm-roberta-large Conneau et al. (2020) 및 다국어-BERT Devlin et al. (2019)를 사용하여 압축기에서 특징 인코더 \\(f_{\\theta}\\)을 각각 LLMLingua-2 및 LLMLingua-2-small라고 한다. 학습률이 1e-5이고 배치 크기가 10인 Adam optimizer Kingma와 Ba(2015)를 사용하여 10개의 에폭에 대한 두 모델을 미세 조정한다. 달리 명시되지 않는 한, 보고된 모든 메트릭은 GPT-3.5-Turbo-06133을 다운스트림 태스크의 목표 LLM으로 사용하고 실험 전반에 걸쳐 안정성을 높이기 위해 0의 온도에서 탐욕 디코딩을 사용한다.\n' +
+      '\n' +
+      '각주 3: [https://platform.openai.com/](https://platform.openai.com/)\n' +
+      '\n' +
+      '데이터셋 & 평가 메트릭스 우리는 두 그룹의 데이터셋에서 압축된 프롬프트를 평가하기 위해 5개의 실험 그룹을 수행한다.\n' +
+      '\n' +
+      '(i) In-Domain: MeetingBank Hu et al. (2023)로부터 트레이닝 예들로 구축된 데이터세트를 사용하여 컴프레서를 트레이닝함에 따라, 도메인 내 평가를 위해 **MeetingBank** 테스트 예제를 사용한다. _summarization_ 태스크 외에, GPT-4가 전체 컨텍스트에 걸쳐 분포된 각각의 예에 대해 3개의 질문-응답 쌍을 생성하도록 프롬프트함으로써 _QA_ 태스크를 추가로 도입한다(보다 상세한 내용은 부록 F 참조). 요약 작업을 위해 LLMLingua에서와 동일한 평가 메트릭을 사용합니다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c|c c c c c|c c} \\hline \\hline \\multirow{2}{*}{**Methods**} & \\multirow{2}{*}{**QA**} & \\multicolumn{5}{c|}{**Summary**} & \\multicolumn{2}{c}{**Length**} \\\\ \\cline{2-9}  & & & & & & & & \\multicolumn{1}{c|}{} \\\\ \\cline{2-9}  & F1 Score & BELU & Rouge1 & Rouge2 & RougeL & BERTScore & Tokens & \\(1/\\tau\\) \\\\ \\hline Selective-Context & 66.28 & 10.83 & 39.21 & 18.73 & 27.67 & 84.48 & 1,222 & 2.5x \\\\ LLMLingua & 67.52 & 8.94 & 37.98 & 14.08 & 26.58 & 86.42 & 1,176 & 2.5x \\\\\n' +
+      '**LLMLingua-2-small** & 85.82 & **17.41** & 48.33 & *23.07** & **34.36** & *88.77** & 984 & 3.0x\\\\\n' +
+      '**LLMLingua-2** & **86.92** & 17.37 & **48.64** & 22.96 & 34.24 & 88.27 & 970 & 3.1x \\\\ \\hline Original & 87.75 & 22.34 & 47.28 & 26.66 & 35.15 & 88.96 & 3,003 & 1.0x \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 1: MeetingBank에 대한 다양한 방법의 도메인 내 평가.\n' +
+      '\n' +
+      '(Jiang et al., 2023a). QA 태스크는 LongBench(Bai et al., 2023) Single Document QA에서 제공하는 메트릭과 스크립트를 사용하여 평가한다.\n' +
+      '\n' +
+      '(ii) Out-of-Domain: long-context 시나리오들에 대해, 우리는 **LongBench**(Bai et al., 2023) 및 **Zero-SCROLLS**(Shaham et al., 2023)를 사용하고, LongLLMLingua(Jiang et al., 2023b)에서와 동일한 평가 메트릭을 사용한다. 추론 및 문맥 내 학습을 위해, 우리는 LLMLingua(Jiang et al., 2023a)와 일치하는 평가 메트릭과 함께 **GSM8K**(Cobbe et al., 2021) 및 **Big Bench Hard(BBH)**(bench authors, 2023)를 사용한다.\n' +
+      '\n' +
+      '우리는 비교를 위한 기본 기준으로서 두 가지 최첨단 프롬프트 압축 방법을 취한다: 선택-컨텍스트(Li et al., 2023) 및 LLMLingua(Jiang et al., 2023a), 둘 다 LLaMA-2-7B에 기초한다. 추가적으로, 검색 기반 방법 및 LongLLMLingua(Jiang et al., 2023b)와 같은 태스크 인식 프롬프트 압축 방법과 우리의 접근법을 비교한다.\n' +
+      '\n' +
+      '표 1에서 도메인 내 벤치마크에 대한 결과는 먼저 MeetingBank의 강력한 기준선과 비교하여 제안된 방법의 결과를 제시한다. 우리 압축기가 많다는 사실에도 불구하고\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c c c c c c c c c c} \\hline \\hline \\multirow{2}{*}{**Methods**} & \\multicolumn{8}{c|}{**LongBench**} & \\multicolumn{8}{c}{**ZeroSCROLLS**} \\\\ \\cline{2-13}  & SingleDoc & MultiDoc & Summ. & FewShot & Synth. & Code & **AVG** & Tokens & \\(1/\\tau\\) & **AVG** & Tokens & \\(1/\\tau\\) \\\\ \\hline \\hline \\multicolumn{13}{c}{_2,000-token constraint_} \\\\ \\hline \\multicolumn{13}{l}{_Task(Question)-Aware Compression_} \\\\ SBERT\\({}^{\\dagger}\\) & 33.8 & 35.9 & 25.9 & 23.5 & 18.0 & 17.8 & 25.8 & 1,947 & 5x & 20.5 & 1,773 & 6x \\\\ OpenAI\\({}^{\\dagger}\\) & 34.3 & 36.3 & 24.7 & 32.4 & 26.3 & 24.8 & 29.8 & 1,991 & 5x & 20.6 & 1,784 & 5x \\\\ LongLLMLingua\\({}^{\\dagger}\\) & 39.0 & 42.2 & 27.4 & 69.3 & 53.8 & 56.6 & 48.0 & 1,809 & 6x & 32.5 & 1,753 & 6x \\\\ \\hline \\multicolumn{13}{c}{_Task(Question)-Agnostic Compression_} \\\\ Selective-Context\\({}^{\\dagger}\\) & 16.2 & **34.8** & 24.4 & 15.7 & 8.4 & 49.2 & 24.8 & 1,925 & 5x & 19.4 & 1,865 & 5x \\\\ LLMLingua\\({}^{\\dagger}\\) & 22.4 & 32.1 & 24.5 & 61.2 & 10.4 & 56.8 & 34.6 & 1,950 & 5x & 27.2 & 1,862 & 5x \\\\\n' +
+      'LLMLingua-2-small** & 29.5 & 32.0 & 24.5 & 64.8 & 64.8 & **22.3** & 56.2 & 38.2 & 1,891 & 5x & 33.3 & 1,862 & 5x\\\\\n' +
+      '**LLMLingua-2** & **29.8** & 33.1 & **25.3** & **66.4** & 21.3 & **58.9** & **39.1** & 1,954 & 5x & **33.4** & 1898 & 5x \\\\ \\hline \\hline \\multicolumn{13}{c}{_3,000-tokens constraint_} \\\\ \\hline \\multicolumn{13}{l}{_Task(Question)-Aware Compression_} \\\\ SBERT\\({}^{\\dagger}\\) & 35.3 & 37.4 & 26.7 & 63.4 & 51.0 & 34.5 & 41.4 & 3,399 & 3x & 24.0 & 3,340 & 3x \\\\ OpenAI\\({}^{\\dagger}\\) & 34.5 & 38.6 & 26.8 & 63.4 & 49.6 & 37.6 & 41.7 & 3,421 & 3x & 22.4 & 3,362 & 3x \\\\ LongLLMLingua\\({}^{\\dagger}\\) & 40.7 & 46.2 & 27.2 & 70.6 & 53.0 & 55.2 & 48.8 & 3,283 & 3x & 32.8 & 3,412 & 3x \\\\ \\hline \\multicolumn{13}{l}{_Task(Question)-Agnostic Compression_} \\\\ Selective-Context\\({}^{\\dagger}\\) & 23.3 & **39.2** & 25.0 & 23.8 & **27.5** & 53.1 & 32.0 & 3,328 & 3x & 20.7 & 3,460 & 3x \\\\ LLMLingua\\({}^{\\dagger}\\) & 31.8 & 37.5 & 26.2 & 67.2 & 8.3 & 53.2 & 37.4 & 3,421 & 3x & 30.7 & 3,366 & 3x \\\\\n' +
+      'LLMLingua-2-small** & **35.5** & 38.1 & 26.2 & 67.5 & 23.9 & 60.0 & 41.9 & 3,278 & 3x & 33.4 & 3,089 & 3x\\\\\n' +
+      '**LLMLingua-2** & **35.5** & 38.7 & **26.3** & **69.6** & 21.4 & **62.8** & **42.4** & 3,392 & 3x & **33.5** & 3206 & 3x \\\\ \\hline \\hline Original Prompt & 39.7 & 38.7 & 26.5 & 67.0 & 37.8 & 54.2 & 44.0 & 10,295 & - & 34.7 & 9,788 & - \\\\ \\hline Zero-Shot & 15.6 & 31.3 & 15.6 & 40.7 & 1.6 & 36.2 & 23.5 & 214 & 48x & 10.8 & 32 & 306x \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 2: 일반적인 롱컨텍스트 시나리오에 대한 Out-of-domain 평가. \\ ({}^{\\dagger}\\): Jiang et al. (2023b)에 보고된 번호.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c|c c c|c c c|c c c} \\hline \\hline \\multirow{2}{*}{**Methods**} & \\multicolumn{8}{c|}{**GSM8K**} & \\multicolumn{8}{c}{**BBH**} \\\\ \\cline{2-13}  & \\multicolumn{2}{c|}{1-shot constraint} & \\multicolumn{2}{c|}{half-shot constraint} & \\multicolumn{2}{c}{1-shot constraint} & \\multicolumn{2}{c}{half-shot constraint} \\\\ \\cline{2-13}  & EM & Tokens & \\(1/\\tau\\) & EM & Tokens & \\(1/\\tau\\) & EM & Tokens & \\(1/\\tau\\) & EM & Tokens & \\(1/\\tau\\) \\\\ \\hline Selective-Context\\({}^{\\dagger}\\) & 53.98 & 452 & 5x & 52.99 & 218 & 11x & 54.27 & 276 & 3x & 54.02 & 155 & 5x \\\\ LLMLingua\\({}^{\\dagger}\\) & **79.08** & 446 & 5x & 77.41 & 171 & 14x & **70.11** & 288 & 3x & 61.60 & 171 & 5x \\\\\n' +
+      '**LLMLingua-2-small** & 78.92 & 437 & 5x & 77.48 & 161 & 14x & 69.54 & 263 & 3x & 60.35 & 172 & 5x\\\\\n' +
+      '**LLMLingua-2** & **79.08** & 457 & 5x & **77.79** & 178 & 14x & 70.02 & 269 & 3x & **61.94** & 176 & 5x \\\\ \\hline Full-Shot & 78.85 & 2,366 & - & 78.85 & 2,366 & - & 70.07 & 774 & - & 70.07 & 774 & - \\\\ \\hline Zero-Shot & 48.75 & 11 & 215x & 48.75 & 11 & 215x & 32.32 & 16 & 48x & 32.32 & 16 & 48x \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 3: 추론 및 상황 내 학습에 대한 영역 외 평가. \\ ({}^{\\dagger}\\): Jiang et al. (2023b)에 보고된 번호.\n' +
+      '\n' +
+      '베이스라인에서 사용되는 LLMa-2-7B보다 작으며, 우리의 접근 방식은 QA와 요약 작업 모두에서 훨씬 더 나은 성능을 달성하며 원래 프롬프트의 성능과 거의 일치합니다. 이는 구축된 데이터 세트의 효율성을 입증하고 신속한 압축 지식을 사용하여 압축 모델을 최적화하는 것의 중요성과 이점을 강조한다.\n' +
+      '\n' +
+      'Out-of-Domain 벤치마크에 대한 결과, 본 모델은 MeetingBank의 회의 녹취록 데이터에 대해 훈련되므로, 여기에서 긴 컨텍스트 시나리오, 추론 및 컨텍스트 내 학습의 다양한 벤치마크에 걸쳐 일반화 능력을 탐구한다. 표 2와 3은 LongBench, ZeroSCROLLS, GSM8K, BBH에 대한 결과를 보여준다: 우리의 모델은 다른 작업 진단 기준선에 비해 우수한 성능을 입증했다. BERT 기반 크기의 작은 모델조차도 비교할 수 있었고 경우에 따라 원래 프롬프트보다 약간 더 높은 성능을 달성할 수 있었다. 우리의 접근 방식은 유망한 결과를 보여주었지만 LongLLMingua(Jiang et al., 2023a)와 같은 다른 작업 인식 압축 방법과 비교하여 롱벤치에 부족하다. 우리는 이 성과 격차를 질문에서 활용하는 추가 정보에 기인한다. 그러나 우리 모델의 작업 진단 특성은 다양한 시나리오에 걸쳐 배포될 때 일반화 가능성이 좋은 효율적인 옵션이다.\n' +
+      '\n' +
+      '표적 LLM으로 미스트랄-7B를 표 4는 표적 LLM으로 미스트랄-7B-v0.14를 사용하여 다양한 방법의 결과를 제시한다. 우리의 방법은 다른 기준선에 비해 상당한 성능 향상을 보여주며 목표 LLM 전반에 걸쳐 우수한 일반화 능력을 보여준다. 특히, LLMLingua-2는 원래 프롬프트보다 훨씬 더 나은 성능을 산출한다. 우리는 미스트랄-7B가 GPT-3.5-터보보다 긴 컨텍스트를 관리하는 데 덜 능숙할 수 있다고 추측한다. 제안된 방법은 정보 밀도가 높은 짧은 프롬프트를 제공함으로써 Mistral-7B의 최종 추론 성능을 효과적으로 향상시킨다.\n' +
+      '\n' +
+      '레이턴시 평가표 5는 압축 비율이 다른 V100-32G GPU에서 다른 시스템의 레이턴시를 보여준다. 이는 LLMLingua-2가 다른 압축 방법들보다 훨씬 적은 연산 오버헤드를 가지며, 1.6배에서 2.9배까지의 종단간 속도 향상을 달성할 수 있음을 보여준다. 또한, GPU 메모리 비용을 8배 줄여 하드웨어 자원에 대한 수요를 낮출 수 있다. 자세한 내용은 부록 I을 참조하십시오.\n' +
+      '\n' +
+      '각주 4: [https://mistral.ai/](https://mistral.ai/)\n' +
+      '\n' +
+      '맥락 인식에 대한 관찰은 LLMLingua-2가 압축률이 증가함에 따라 전체 문맥에 대해 가장 유익한 단어를 효과적으로 유지할 수 있음을 관찰했다. 우리는 양방향 상황 인식 특징 추출기의 채택과 신속한 압축 목표를 향해 명시적으로 최적화하는 전략에 기인한다. 자세한 내용은 그림 6을 참조하십시오.\n' +
+      '\n' +
+      '신속한 재구성 LLMLingua-2 압축 프롬프트에서 원래 프롬프트를 재구성하기 위해 GPT-4를 프롬프트하는 실험을 수행했다. 결과는 GPT-4가 원래의 프롬프트를 효과적으로 재구성할 수 있음을 보여주며, 이는 LLMLingua-2의 압축 과정에서 필수적인 정보 손실이 없음을 시사한다. 부록 E의 그림 7과 8은 몇 가지 예를 제시한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c c|c c c|c c c} \\hline \\hline \\multirow{2}{*}{**Methods**} & \\multicolumn{4}{c|}{**MeetingBank**} & \\multicolumn{4}{c}{**LongBench-SingleDoc**} \\\\ \\cline{2-11}  & QA & Summ. & Tokens & \\(1/\\tau\\) & 2,000-token cons. & Tokens & \\(1/\\tau\\) & 3,000-token cons. & Tokens & \\(1/\\tau\\) \\\\ \\hline Selective-Context & 58.13 & 26.84 & 1,222 & 2.5x & 22.0 & 2,038 & 7.1x & 26.0 & 3,075 & 4.7x \\\\ LLMLingua & 50.45 & 23.63 & 1,176 & 2.5x & 19.5 & 2,054 & 7.1x & 20.8 & 3,076 & 4.7x \\\\\n' +
+      'LLMLingua-2-small** & 75.97 & 29.93 & 984 & 3.0x & 25.3 & 1,949 & 7.4x & **27.9** & 2,888 & 5.0x \\\\\\\n' +
+      '**LLMLingua-2** & **76.22** & **30.18** & 970 & 3.0x & **26.8** & 1,967 & 7.4x & 27.3 & 2,853 & 5.1x \\\\ \\hline Original Prompt & 66.95 & 26.26 & 3,003 & - & 24.5 & 14,511 & - & 24.5 & 14,511 & - \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 4: Mistral-7B를 MeetingBank 및 LongBench 단일 doc QA 태스크 상의 Target LLM으로 사용한 평가. 우리는 요약하기 위해 Rouge1(Lin, 2004)을 보고한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c} \\hline \\hline \\(1/\\tau\\) & 1x & 2x & 3x & 5x \\\\ \\hline End2End w/o Compression & \\multicolumn{4}{c}{14.9} \\\\ End2End w/ LLMLingua-2 & - & 9.4 (1.6x) & 7.5 (2.1x) & 5.2 (2.9x) \\\\ \\hline Selective-Context & - & 15.9 & 15.6 & 15.5 \\\\ LLMLingua & - & 2.9 & 2.1 & 1.5 \\\\ LLMLingua-2 & - & **0.5** & **0.4** & **0.4** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 5: MeetingBank에 대한 Latency(들) 비교.\n' +
+      '\n' +
+      '청크 와이즈 압축 및 명령어 설계표 7에 대한 절제 연구는 본 논문에서 제안한 설계된 명령어와 청크 와이즈 압축 전략 모두 LLMLingua-2의 성공에 크게 기여함을 보여준다.\n' +
+      '\n' +
+      '## 6 Conclusion\n' +
+      '\n' +
+      '이 논문은 더 나은 일반화 가능성과 효율성을 위해 작업 진단 프롬프트 압축을 목표로 한다. 본 논문에서는 기존의 방법들에서 직면하는 난제들을 파악하고 그에 따라 해결한다. 다양한 작업 및 도메인에 걸쳐 5가지 벤치마크에 대한 광범위한 실험 및 분석을 수행합니다. 우리의 모델은 성능 및 압축 대기 시간 측면에서 강력한 기준선보다 우월함을 보여준다. 우리는 본 논문에서 본질적인 정보 손실이 없는 텍스트 압축 데이터 세트를 공개적으로 공개한다.\n' +
+      '\n' +
+      '## Limitations\n' +
+      '\n' +
+      '우리의 텍스트 압축 데이터 세트는 회의 녹취록에 대한 요약 데이터 세트인 MeetingBank의 훈련 예제만을 사용하여 구성되었다. 이는 당사의 압축기의 일반화 능력에 대한 우려를 불러일으킵니다. 여기에서 우리는 두 가지 관점에서 이 질문에 대해 논의한다.\n' +
+      '\n' +
+      '먼저, 문서 QA부터 수학 문제 및 문맥 내 학습에 이르기까지 여러 가지 과제를 다루는 LongBench Bai et al.(2023), Zero-SCROLLS Shaham et al.(2023), GSM8K Cobbe et al.(2021), Big Bench Hard (BBH) (bench authors, 2023) 등 4가지 벤치마크에 대한 광범위한 영역 외 평가를 수행하였다. 실험 결과 BERT-base 크기의 LLMLingua-2-small 모델에서도 두 개의 LLaMA-2-7B 기반 기준선 선택-Context Li 등(2023)과 LLMLingua Jiang 등(2023)보다 우수한 성능을 보였다. 이것은 우리의 학습된 프롬프트 압축 모델이 다른 도메인의 데이터에 대한 좋은 일반화 능력을 가지고 있음을 보여준다.\n' +
+      '\n' +
+      '둘째, TriviaQA-wiki의 50k 예제를 사용하여 구축된 텍스트 압축 데이터 세트를 확장한다. 그런 다음 확장된 데이터 세트로 LLMLingua-2 압축기를 훈련하여 추가 성능 이득이 있는지 확인합니다. 표 6은 2,000-토큰 제약 조건 하에서 결과를 나타낸다. 우리는 더 많은 데이터로 압축기를 훈련시키면 더 많은 성능 향상을 가져올 수 있음을 알 수 있다(LLMLingua-2\\({}^{\\ddagger}\\). 하지만, 그 개선은 그리 크지 않은 것 같다. 우리는 이것이 다른 도메인의 텍스트의 의미가 많이 다를 수 있지만 중복 패턴이 유사할 수 있기 때문이라고 추측한다. 이러한 패턴 또는 지식은 도메인 내 트레이닝 동안 학습될 수 있고, 그 후 상이한 도메인들을 가로질러 전이할 수 있는 앵커로서 작용할 수 있다. 우리는 이것을 미래의 일을 위해 남겨둔다.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '*Bai et al. (2023) Yushi Bai, Xin Lv, Jiajie Zhang, Hongchang Lyu, Jiankai Tang, Zhidian Huang, Zhengxiao Du, Xiao Liu, Aohan Zeng, Lei Hou, et al. 2023. Longbench: A bilingual, multitask benchmark for long context understanding. _ ArXiv preprint_, abs/2308.14508.\n' +
+      '* Bai et al.(2023)\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c c c c c c|c|c c c} \\hline \\hline \\multirow{2}{*}{**Methods**} & \\multicolumn{8}{c|}{**LongBench**} & \\multicolumn{8}{c}{**ZeroSCROLLS**} \\\\ \\cline{2-13}  & SingleDoc & MultiDoc & Summ. & FewShot & Synth. & Code & **AVG** & Tokens & \\(1/\\tau\\) & **AVG** & Tokens & \\(1/\\tau\\) \\\\ \\hline LLMLingua-2-small & 29.5 & 32.0 & 24.5 & 64.8 & 22.3 & 56.2 & 38.2 & 1,891 & 5x & 33.3 & 1,862 & 5x \\\\ LLMLingua-2 & 29.8 & 33.1 & 25.3 & 66.4 & 21.3 & **58.9** & 39.1 & 1,954 & 5x & **33.4** & 1,898 & 5x \\\\ LLMLingua-2\\({}^{\\ddagger}\\) & **30.7** & **33.9** & **25.4** & **66.6** & **22.6** & 58.1 & **39.5** & 1,853 & 5x & **33.4** & 1,897 & 5x \\\\ \\hline Original Prompt & 39.7 & 38.7 & 26.5 & 67.0 & 37.8 & 54.2 & 44.0 & 10,295 & - & 34.7 & 9,788 & - \\\\ \\hline Zero-Shot & 15.6 & 31.3 & 15.6 & 40.7 & 1.6 & 36.2 & 23.5 & 214 & 48x & 10.8 & 32 & 306x \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 6: 2,000-토큰 제약조건을 갖는 일반적인 롱컨텍스트 벤치마크에 대한 도메인 외 평가. LLMLingua-2\\({}^{\\ddagger}\\): TriviaQA-wiki로부터 50k개의 예를 사용하여 구축된 텍스트 압축 데이터 세트를 확장한다. 그런 다음 확장된 데이터 세트로 LLMLingua-2 압축기를 훈련한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c|c|c} \\hline \\hline\n' +
+      '**Instruction** & \\(1/\\tau\\) & **VR \\(\\downarrow\\)** & **QA F1 \\(\\uparrow\\)** \\\\ \\hline Instruction1 & 123x & 13.7 & 19.1 \\\\ Instruction2 & 27x & 7.8 & 26.1 \\\\ Instruction3 & 78x & 9.6 & 23.7 \\\\ Instruction4 & 49x & 9.4 & 24.9 \\\\ \\hline LLMLingua-2 w/o Chunk & 21x & 6.0 & 27.9 \\\\ LLMLingua-2 & 2.6x & **2.2** & **36.7** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 7: 청크 와이즈 압축 및 수업 설계에 대한 절제 연구 LongBench 단일 문서 QA에 대한 압축률, 변동률 및 QA 성능을 보고한다. Fig.를 참조한다. Instruction1 - Instruction4에 대한 자세한 내용은 부록 10에 나와 있다.\n' +
+      '\n' +
+      '대단한 벤치 작가들이죠 2023. 모방 게임을 넘어: 언어 모델의 능력을 정량화하고 외삽한다. _ 기계학습 연구에 관한 연구\n' +
+      '* Chen et al. (2023) Howard Chen, Ramakanth Pasunuru, Jason Weston, and Asli Celikyilmaz. 2023. 메모리 미로 아래로 걸어가기: 대화형 판독을 통한 문맥 제한을 넘어서. _ ArXiv preprint_, abs/2310.05029.\n' +
+      '* Chevalier et al. (2023) Alexis Chevalier, Alexander Wettig, Anirudh Ajith, and Danqi Chen. 2023. 문맥을 압축하기 위한 언어 모델 적응 ArXiv preprint_, abs/2305.14788.\n' +
+      '* Cobbe et al. (2021) Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian, Mark Chen, Heewoo Jun, Lukasz Kaiser, Matthias Plappert, Jerry Tworek, Jacob Hilton, Reiichiro Nakano, et al. 2021. 수학 단어 문제를 해결하기 위한 훈련 검증자 __ ArXiv preprint_, abs/2110.14168.\n' +
+      '* Conneau et al. (2020) Alexis Conneau, Kartikay Khandelwal, Naman Goyal, Vishrav Chaudhary, Guillaume Wenzek, Francisco Guzman, Edouard Grave, Myle Ott, Luke Zettlemoyer, and Veselin Stoyanov. 2020. 비지도 교차 언어 표현 학습 규모. _Proceedings of the 58th Annual Meeting for Computational Linguistics_, pages 8440-8451, Online. 컴퓨터 언어학과의 연관성\n' +
+      '* Devlin et al. (2019) Jacob Devlin, Ming-Wei Chang, Kenton Lee, and Kristina Toutanova. 2019. BERT: 언어 이해를 위한 심층 양방향 변압기의 사전 훈련. [Proceedings of the 2019 Conference of the North American chapter of the Computational Linguistics Association for Human Language Technologies, Volume 1(Long and Short Papers)_, pages 4171-4186, Minneapolis, Minnesota. 컴퓨터 언어학과의 연관성\n' +
+      '* Dong et al. (2023) Qingxiu Dong, Lei Li, Damai Dai, Ce Zheng, Zhiyong Wu, Baobao Chang, Xu Sun, Jingjing Xu, Zhifang Sui. 2023. in-context learning을 위한 설문조사. _ ArXiv preprint_, abs/2301.00234.\n' +
+      '*Filippova and Altun(2013) Katja Filippova and Yasememin Altun. 2013. The lack of parallel data in sentence compression. _Proceedings of the 2013 Conference on Empirical Methods in Natural Language Processing_, pages 1481-1491, 시애틀, USA. 컴퓨터 언어학과의 연관성\n' +
+      '* Ge et al. (2023) Tao Ge, Jing Hu, Xun Wang, Si-Qing Chen, and Furu Wei. 2023. 대용량 언어 모델에서 문맥 압축을 위한 In-context 오토인코더. _ ArXiv preprint_, abs/2307.06945.\n' +
+      '* Hu et al. (2023) Yebowen Hu, Tim Ganter, Hanieh Deilamsalehy, Franck Dernoncourt, Hassan Foroosh, and Fei Liu. 2023. Meetingbank: Meeting 요약용 벤치마크 데이터셋. _ ArXiv preprint_, abs/2305.17529.\n' +
+      '* Huang et al. (2023) Xijie Huang, Li Lyna Zhang, Kwang-Ting Cheng, and Mao Yang. 2023. Boosting llm 추론: 강화된 인-컨텍스트 프루닝으로 소수-샷 학습의 한계를 푸시한다. _ ArXiv preprint_, abs/2312.08901.\n' +
+      '* Jiang et al. (2023a) Huiqiang Jiang, Qianhui Wu, Chin-Yew Lin, Yuqing Yang, and Lili Qiu. 2023a. LLMLingua: 대형 언어 모델의 가속 추론을 위한 압축 프롬프트. _Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing_, pages 13358-13376, Singapore. 컴퓨터 언어학과의 연관성\n' +
+      '* Jiang et al. (2023b) Huiqiang Jiang, Qianhui Wu, Xufang Luo, Dongsheng Li, Chin-Yew Lin, Yuqing Yang, and Lili Qiu. 2023b. Longllmlingua: 신속한 압축을 통해 긴 컨텍스트 시나리오에서 llms를 가속화하고 향상시킨다. _ ArXiv preprint_, abs/2310.06839.\n' +
+      '* 정과 김(2023) 호윤정과 김경중. 2023. 강화학습을 동반한 이산 프롬프트 압축 ArXiv preprint_, abs/2308.08758.\n' +
+      '* 김 등(2019) 김병창, 김현우, 김건희. 2019. Abstractive summarization of Reddit post with multi-level memory network. [Proceedings of the 2019 Conference of the North American chapter of the Computational Linguistics for Association: Human Language Technologies, Volume 1(Long and Short Papers)_, pages 2519-2531, Minneapolis, Minnesota. 컴퓨터 언어학과의 연관성\n' +
+      '* Kingma and Ba (2015) Diederik P. Kingma and Jimmy Ba. 2015. Adam: A method for stochastic optimization. _3rd International Conference on Learning Representations, ICLR 2015, San Diego, CA, USA, May 7-9, 2015, Conference Track Proceedings_.\n' +
+      '* 쿠페에와 왕(2018) 마나즈 쿠페에와 윌리엄 양왕. 2018. Wikihow: 대규모 텍스트 요약 데이터세트. _ ArXiv preprint_, abs/1810.09305.\n' +
+      '* Lewis et al. (2020) Patrick S. H. Lewis, Ethan Perez, Aleksandra Pittus, Fabio Petroni, Vladimir Karpukhin, Naman Goyal, Heinrich Kuttler, Mike Lewis, Wen-tau Yih, Tim Rocktaschel, Sebastian Riedel, and Douwe Kiela. 2020. 지식 집약적 NLP 태스크를 위한 검색 증강 생성. In _Advances in Neural Information Processing Systems 33: Annual Conference on Neural Information Processing Systems 2020, NeurIPS 2020, December 6-12, 2020, virtual_.\n' +
+      '* Li et al.(2023) Yucheng Li, Bo Dong, Frank Guerin, and Chenghua Lin. 2023. 컨텍스트를 압축하여 대형 언어 모델의 추론 효율을 향상시킨다. _Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing_, pages 6342-6353, Singapore. 컴퓨터 언어학과의 연관성\n' +
+      '* Lin(2004) Chin-Yew Lin. 2004. ROUGE: 요약의 자동 평가를 위한 패키지. _텍스트 요약 분기 아웃_에서 스페인 바르셀로나의 74-81페이지입니다. 컴퓨터 언어학과의 연관성\n' +
+      '* Liu et al. (2023a) Nelson F Liu, Kevin Lin, John Hewitt, Ashwin Paranjape, Michele Bevilacqua, Fabio Petroni, and Percy Liang. 2023a. 중간에서 잃음: 언어 모델이 긴 문맥을 사용하는 방법. _ ArXiv preprint_, abs/2307.03172.\n' +
+      '\n' +
+      '지창 류, 아디티야 데사이, 방슈오 랴오, 웨이타오 왕, 빅토르 시에, 자오주오 슈, 아나스타시오 키릴리디스, 안슈말리 슈바스타바. 2023b. Scissorbands: 테스트 시간에서 LLM KV 캐시 압축에 대한 중요도 가설의 지속성을 이용한다. IMT-2000 3GPP-신경정보처리시스템에 관한 제37차 회의\n' +
+      '* Mu et al. (2023) Jesse Mu, Xiang Lisa Li, and Noah Goodman. 2023. 요지 토큰으로 프롬프트를 압축하는 학습. IMT-2000 3GPP-신경정보처리시스템에 관한 제37차 회의\n' +
+      '* Packer et al. (2023) Charles Packer, Vivian Fang, Shishir G Patil, Kevin Lin, Sarah Wooders, and Joseph E Gonzalez. 2023. Memgpt: 운영 체제로서의 llms를 향하여 _ ArXiv preprint_, abs/2310.08560.\n' +
+      '*Roush and Balaji(2020) Allen Roush and Arvind Balaji. 2020. DebateSum: 대규모 인수 마이닝 및 요약 데이터세트. The _Proceedings of the 7th Workshop on Argument Mining_, pages 1-7, Online. 컴퓨터 언어학과의 연관성\n' +
+      '* Shaham et al. (2023) Uri Shaham, Maor Ivgi, Avia Efrat, Jonathan Berant, and Omer Levy. 2023. Zeroscrolls: Zero-shot benchmark for long text understanding. _ ArXiv preprint_, abs/2305.14196.\n' +
+      '* Shannon (1951) Claude E Shannon. 1951. 인쇄영문의 예측 및 엔트로피_ 벨 시스템 기술 저널_, 30(1):50-64.\n' +
+      '* Toutanova et al. (2016) Kristina Toutanova, Chris Brockett, Ke M. 트란과 살레마 아머시 2016. 문장 및 짧은 단락의 추상적 압축을 위한 데이터 세트 및 평가 메트릭. _Proceedings of the 2016 Conference on Empirical Methods in Natural Language Processing_, pages 340-350, Austin, Texas. 컴퓨터 언어학과의 연관성\n' +
+      '* Wei et al. (2022) Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, brian ichter, Fei Xia, Ed H. Chi, Quoc V Le, and Denny Zhou. 2022. 사고 유발의 사슬은 큰 언어 모델에서 추론을 이끌어낸다. In _Advances in Neural Information Processing Systems_.\n' +
+      '* Wingate et al. (2022) David Wingate, Mohammad Shoeybi, and Taylor Sorensen. 2022. 언어 모델들에서 제어가능성 및 독성 감소를 위한 프롬프트 압축 및 대조적 컨디셔닝. _Findings of the Association for Computational Linguistics: EMNLP 2022_, pages 5621-5634, 아랍에미리트 아부다비. 컴퓨터 언어학과의 연관성\n' +
+      '* Xiao et al. (2024) Guangxuan Xiao, Yuandong Tian, Beidi Chen, Song Han, and Mike Lewis. 2024. 어텐션 싱크가 있는 효율적인 스트리밍 언어 모델. _The Twth International Conference on Learning Representations_.\n' +
+      '* Xu et al.(2024) Fangyuan Xu, Weijia Shi, and Eunsol Choi. 2024. RECOMP: 컨텍스트 압축 및 선택적 증강으로 검색-증강 LMs를 개선한다. _The Twth International Conference on Learning Representations_.\n' +
+      '* Zhang et al. (2023) Zhenyu Zhang, Ying Sheng, Tianyi Zhou, Tianlong Chen, Liamin Zheng, Ruisi Cai, Zhao Song, Yuandong Tian, Christopher Re, Clark Barrett, Zhangyang Wang, and Beidi Chen. 2023. H2o: 대형 언어 모델의 효율적인 생성 추론을 위한 헤비히터 오라클. IMT-2000 3GPP-신경정보처리시스템에 관한 제37차 회의\n' +
+      '* Zhao et al. (2020) Zheng Zhao, Shay B. Cohen, and Bonnie Webber. 2020. 추상적 요약에서 수량 환각을 줄입니다. _Findings of the Association for Computational Linguistics: EMNLP 2020_, pages 2237-2249, Online. 컴퓨터 언어학과의 연관성\n' +
+      '\n' +
+      '## 부록 데이터 증류 상세\n' +
+      '\n' +
+      '추출 압축 데이터 세트를 구성하기 위해 GPT-4-32k를 사용하여 원래 회의 전사본을 압축한다. 각 전사체는 먼저 청크로 분할되며, 각 청크는 완전한 문장의 끝에서 종료되고 512개의 토큰을 초과하지 않는다. 온도 0.3, top_p 1.0의 기본 파라미터 설정을 사용하며, 생성된 토큰의 최대 수는 4096으로 설정되며, 28K 토큰을 초과하는 스크립트는 잘려 4K 토큰 버짓이 생성된다. 도. 도 9는 GPT-4 압축에 사용되는 전체 명령어를 제시한다. 탭 도 8은 우리의 MeetingBank 압축 데이터세트의 통계를 보여준다.\n' +
+      '\n' +
+      '## 부록 B 데이터 주석 상세\n' +
+      '\n' +
+      '압축된 프롬프트를 기반으로 각 단어에 원래 프롬프트의 단어가 유지되어야 하는지 여부를 나타내는 레이블을 자동으로 할당하기 위해 단어 주석 알고리즘을 설계한다. 초기에, 원래 단어들의 모든 라벨들은 _False_로 설정된다. 그런 다음 압축된 프롬프트의 모든 단어에 대해 원래 프롬프트에서 해당 단어를 검색한 다음 _True_ 레이블이 할당된다.\n' +
+      '\n' +
+      '미끄럼 창: 원래 프롬프트에서 적절한 단어에 레이블을 할당하기 위해 슬라이딩 창 접근법을 사용하여 원래 프롬프트에서 이전에 일치하는 단어를 중심으로 로컬 창 내에서 검색 범위를 제한한다. 검색은 마지막 일치 위치에서 시작합니다. 그런 다음 _True_ 레이블이 첫 번째에 할당된다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c c} \\hline \\hline Data Part & Data Size & Chunk Sentence (Avg) & Token (Avg) & \\(1/\\tau\\) \\\\ \\hline Original & 5,169 & 41,746 & 232 & 3,635 & - \\\\ Compressed & 5,169 & 41,746 & 132 & 1,415 & 2.57x \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 8: MeetingBank 압축 데이터세트의 통계량.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:12]\n' +
+      '\n' +
+      'GPT-4에 의해 요약 성능을 평가하기 위한 지상 진리로 사용된다.\n' +
+      '\n' +
+      '## 기존 텍스트 압축 데이터세트 부록 G Drawback\n' +
+      '\n' +
+      'SentComp(Filippova and Altun, 2013)와 DebateSum(Roush and Balaji, 2020)과 같은 기존의 추출 압축 데이터셋은 요약 작업을 위해 주로 생성된다. 그들의 데이터 세트에 제공된 압축된 텍스트는 보통 너무 간결하여 원본 텍스트의 주요 아이디어만 유지하고 자세한 정보는 부족하다. 이러한 정보 손실은 그림 1과 같이 문서 기반 QA와 같은 다운스트림 작업을 필연적으로 방해한다. 도 13 및 도 13을 참조하여 설명한다. 14\n' +
+      '\n' +
+      '## 부록 H 모델 크기 및 훈련 세부사항\n' +
+      '\n' +
+      '본 논문에서는 LLMLingua-2에서 355M 파라미터를 갖는 xlm-roberta-large를 특징부호화기(f_{\\theta}\\)로 사용하며, MeetingBank 압축데이터에서 약 23시간이 소요된다. LLMLingua-2-small의 경우,\n' +
+      '\n' +
+      '도 8: MeetingBank 예시에서 우리의 _LLMLingua-2_의 프롬프트 재구성 결과.\n' +
+      '\n' +
+      '도 7: MeetingBank 예시에서 우리의 _LLMLingua-2_의 프롬프트 재구성 결과.\n' +
+      '\n' +
+      '특징 인코더는 110M 파라미터를 갖는 다국어-BERT이다. 다국어-BERT 모델을 훈련하는 데 약 16시간이 소요된다.\n' +
+      '\n' +
+      '## 부록 I GPU 메모리 사용\n' +
+      '\n' +
+      'LLMLingua-2는 경량이기 때문에 GPU 메모리 오버헤드가 더 작습니다. 미팅뱅크에서 LLMLingua-2의 최대 GPU 메모리 사용량은 2.1GB에 불과한 반면 LLAMA-2-7B를 SLM으로 사용하는 LLMLingua와 Selective-Context는 각각 16.6GB와 26.5GB의 GPU 메모리를 소비한다.\n' +
+      '\n' +
+      '## 부록 J 다국어 일반화 능력\n' +
+      '\n' +
+      '표 9에서 우리는 LongBench의 중국 벤치마크에서 _LLMLingua-2_의 성능을 평가하며, 총 1000개의 샘플을 가진 5개의 태스크로 구성된다. 영어 코퍼스만으로 구성된 MeetingBank 데이터에 대해서만 교육을 받았음에도 불구하고, _LLMLingua-2_는 중국 벤치마크에서 _LLMLingua_보다 우수하다. 이 성능 이득은 사전 훈련 단계에서 획득한 xlm-로버타-대형 또는 다국어-BERT 압축기의 다국어 능력에 기인한다.\n' +
+      '\n' +
+      '## 부록 K Integration with LongLLMLingua\n' +
+      '\n' +
+      '검색-증강 생성(RAG) 및 다중 문서 질문-응답(MDQA) 시나리오에서, 주요 과제는 질문과 관련된 주요 정보를 포함하는 문서를 식별하는 것이다. 이러한 시나리오에서 _LongLLMLingua_는 질문에 제공된 정보를 활용하여 핵심 정보 보존을 향상시킨다.\n' +
+      '\n' +
+      '_LLMLingua-2_는 질문-진단 압축을 위해 설계되지만, 또한 _LongLLMLingua_와 통합되어 이러한 시나리오에서 질문과 관련된 더 많은 키 정보를 보존할 수 있다. 구체적으로, 우리는 각 문서에 조건화된 질문의 복잡성에 기초하여 서로 다른 문서에 다양한 압축 비율을 할당하기 위해 _LongLLMLingua의_ coarse-grained 압축을 활용한다. 결과적으로, 질문과 더 관련이 있는 문서에 더 많은 토큰 예산을 할당한다.\n' +
+      '\n' +
+      '표 11에 예시된 바와 같이, _LongLLMLingua_ coarse-grained compression을 갖는 _LLMLingua-2_\n' +
+      '\n' +
+      '도 10: 우리가 평가한 다른 지침들, 이는 LLMLingua[11]에서 제안된다.\n' +
+      '\n' +
+      '그림 9: GPT-4 압축에서 사용한 명령어입니다.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:15]\n' +
+      '\n' +
+      '**Original Promptt(249 토큰)**:\n' +
+      '\n' +
+      '질문: 샘은 한 상자당 10달러에 각각 30개의 형광펜이 들어 있는 12개의 상자를 샀다. 그는 이 상자 중 5개를 각각 6개의 형광펜 패키지로 재배열하여 패키지당 3달러에 판매했다. 그는 나머지 형광펜을 각각 3펜의 비율로 2달러에 팔았다. 그는 총 얼마의 수익을 달러로 냈는가?\n' +
+      '\n' +
+      '♪ 차근차근 생각하자 ♪\n' +
+      '\n' +
+      '샘은 12박스 x 10달러 = 120달러 가치의 하이라이트를 샀다.\n' +
+      '\n' +
+      '그는 총 12*30 = 360 형광펜을 샀다.\n' +
+      '\n' +
+      '그런 다음 샘은 5박스 x 6형광펜/상자 = 30형광펜을 가져갔다.\n' +
+      '\n' +
+      '그는 이 상자들을 5달러에 팔았습니다. $3 = $15\n' +
+      '\n' +
+      '이 5개의 상자를 판매한 후 360 - 30 = 330개의 형광펜이 남아 있었다.\n' +
+      '\n' +
+      '이러한 형태는 330/3 = 110 그룹의 3개의 펜이다.\n' +
+      '\n' +
+      '그는 이 그룹들을 각각 2달러에 팔았으므로, 그것들로부터 110*2 = 220달러를 벌었다.\n' +
+      '\n' +
+      '그리고 나서, 그는 총 220달러 + 15달러 = 235달러를 벌었다.\n' +
+      '\n' +
+      '그의 원래 비용이 120달러였기 때문에, 그는 235달러 - 120달러 = 115달러의 이익을 얻었다.\n' +
+      '\n' +
+      '답은 115\n' +
+      '\n' +
+      '**LMLingua**에 의한 압축 프롬프트(144 토큰):\n' +
+      '\n' +
+      '샘은 안에 있는 높이 펜 30개당 10달러씩 12박스씩을 샀다. 그는 상자 다섯 개를 바꿔치기했다.\n' +
+      '\n' +
+      '한 개에 3달러씩 6개. 테일러를 3달러 2센트에 따로 팔았어요\n' +
+      '\n' +
+      '생각해보자\n' +
+      '\n' +
+      ' 구입한 박스 x0 제안\n' +
+      '\n' +
+      '그는 2세이다.\n' +
+      '\n' +
+      'Sam then boxes 6lters/box 0.\n' +
+      '\n' +
+      '이 상자 5개를 팔았어요\n' +
+      '\n' +
+      '이 상자 뒤에 36030lters\n' +
+      '\n' +
+      '세 살\n' +
+      '\n' +
+      ' 분양된 그룹 2개씩 그래서 *2에서 20달러를 벌었다.\n' +
+      '\n' +
+      '총계, he015\n' +
+      '\n' +
+      '그가 - 120달러 = 115달러의 이익을 냈기 때문에.\n' +
+      '\n' +
+      '답은 115\n' +
+      '\n' +
+      '**LMLingua-2**의 압축 프롬프트(138 토큰):\n' +
+      '\n' +
+      '샘은 30개의 형광펜을 12개 샀고 10달러짜리 5박스를 6개의 형광펜으로 재배열해서 판매된 나머지 3개의 펜 수익에 3달러씩 팔았다.\n' +
+      '\n' +
+      'Sam은 12박스 x $10를 샀다. $120\n' +
+      '\n' +
+      '12*30 = 360 형광등\n' +
+      '\n' +
+      '5박스 x 6형광등/상자 = 30\n' +
+      '\n' +
+      ' 5*$3 = $15\n' +
+      '\n' +
+      '5 360 - 30 = 330 형광등\n' +
+      '\n' +
+      '330/3 = 110 그룹 3\n' +
+      '\n' +
+      ' $2 110 * 2 = $220\n' +
+      '\n' +
+      '$220 + $15 = $235를 벌어들인 원가는 $235 - $120 = $115\n' +
+      '\n' +
+      '답은 115\n' +
+      '\n' +
+      '**Document:**\n' +
+      '\n' +
+      '중국 정부는 문화서비스 고도화 노력 속에 박물관, 기념관, 애국심 교육기지를 일반에 무료로 더 개방할 방침이며, 모든 국립박물관과 성 종합박물관은 올해 입장료 부과를 중단할 것이라고 정부 순환이 전했다. 국가애국교육기지로 등재된 박물관과 기념관은 중국공산당 중앙위원회 홍보부, 재정문화부처, 국가문화재청이 공동 발행한 회람을 잔야리23에 추가, 저장성, 복건성, 후베이성, 장시성, 안후이성, 간쑤성, 신장우구르자치구 등 현급 이상의 박물관도 무료로 입장할 수 있다. 다른 지방, 자치구, 지방자치단체는 상황에 따라 입장료를 인하하거나 폐지하도록 권장된다고 순환이 말한다. 미성년자, 노약자, 군인, 장애인, 저소득층 등에 대한 요금이 저렴한 문화유적과 유적지를 제외한 2009년까지 모든 박물관과 기념관, 애국심 교육기지를 무료로 방문할 예정이라고 순환이 전했다. 특별전이나 게스트 전시의 경우 박물관과 기념관은 수수료를 부과할 수 있으며, 박물관은 정기 무료입장 등 저렴한 티켓과 유연한 요금제, 단체·가족을 위한 저렴한 티켓이 권장된다.\n' +
+      '\n' +
+      '**Question:**\n' +
+      '\n' +
+      '국가급 이상의 박물관은 어느 지방에서 무료로 개방됩니까?\n' +
+      '\n' +
+      '도 12: 기준선과의 비교; _ 여기서LLMLingua-2_는 MeetingBank에서만 훈련되지만, GSM8K에서 _LLMLingua_보다 더 합리적인 압축 프롬프트를 산출한다.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:17]\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c c c|c c c} \\hline \\hline Methods & \\multicolumn{6}{c}{**LongBench-SingleDoc**} \\\\ \\cline{2-9}  & QA Score & Tokens & \\(1/\\tau\\) & QA Score & Tokens & \\(1/\\tau\\) \\\\ \\hline \\hline _Target Token Constraint_ & \\multicolumn{3}{c|}{_2000 Tokens_} & \\multicolumn{3}{c}{_3000 Tokens_} \\\\ \\hline LLMLingua2 & 29.8 & 1954 & 7.4x & 35.5 & 3392 & 4.3x \\\\ \\hline \\hline _Compression Ratio Constraint_ & \\multicolumn{3}{c|}{_7x_} & \\multicolumn{3}{c}{_5x_} \\\\ \\hline LLMLingua2 FR\\({}^{\\dagger}\\) & 25.1 & 2131 & 6.8x & 27.4 & 3185 & 4.5x \\\\ LLMLingua2 DCR\\({}^{\\ddagger}\\) & **29.5** & 2125 & 6.8x & **32.2** & 3164 & 4.5x \\\\ \\hline \\hline Original Prompt & 39.7 & 14,511 & 1x & 39.7 & 14,511 & 1x \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 12: LongBench 단일 doc QA 태스크에 대한 LLMLingua-2 샘플 현명한 동적 압축의 평가. FR\\({}^{\\dagger}\\)은 동일한 고정 압축률을 갖는 각각의 예를 할당한다. DCR\\({}^{\\ddagger}\\)은 코퍼스 레벨 제약 조건 내에서 서로 다른 예제에 동적 압축률을 할당한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c c c c|c c} \\hline \\hline Methods & 1st & 5th & 10th & 15th & 20th & Reorder & Tokens & \\(1/\\tau\\) \\\\ \\hline \\hline \\multicolumn{10}{c}{_4x constraint_} \\\\ \\hline \\multicolumn{10}{l}{_Question-Aware Compression_} \\\\ BM25\\({}^{\\dagger}\\) & 40.6 & 38.6 & 38.2 & 37.4 & 36.6 & 36.3 & 798 & 3.7x \\\\ Gzip\\({}^{\\dagger}\\) & 63.1 & 61.0 & 59.8 & 61.1 & 60.1 & 62.3 & 824 & 3.6x \\\\ SBERT\\({}^{\\dagger}\\) & 66.9 & 61.1 & 59.0 & 61.2 & 60.3 & 64.4 & 808 & 3.6x \\\\ OpenAI\\({}^{\\dagger}\\) & 63.8 & 64.6 & 65.4 & 64.1 & 63.7 & 63.7 & 804 & 3.7x \\\\\n' +
+      '**LLMLingua-2\\({}^{\\ddagger}\\)** & 74.0 & 70.4 & 67.0 & 66.9 & 65.3 & 71.9 & 739 & 3.9x\\\\\\\n' +
+      '**LongLLMLingua\\({}^{\\dagger}\\)** & **75.0** & **71.8** & **71.2** & **71.2** & **74.7** & **75.5** & 748 & 3.9x \\\\ \\hline \\multicolumn{10}{l}{_Question-Agnostic Compression_} \\\\ Selective-Context\\({}^{\\dagger}\\) & 31.4 & 19.5 & 24.7 & 24.1 & 43.8 & - & 791 & 3.7x \\\\ LLMLingua\\({}^{\\dagger}\\) & 25.5 & 27.5 & 23.5 & 26.5 & 30.0 & 27.0 & 775 & 3.8x \\\\\n' +
+      '**LLMLingua2** & 48.6 & 44.5 & 43.6 & 40.9 & 39.9 & 46.2 & 748 & 3.9x \\\\ \\hline \\hline Original Prompt & 75.7 & 57.3 & 54.1 & 55.4 & 63.1 & - & 2,946 & - \\\\ \\hline \\multicolumn{10}{l}{Zero-shot} \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 11: NaturalQuestions(20 documents)에 대한 성능 비교(Liu et al., 2023a)_ LLMLingua-2\\({}^{+}\\)_는 _LongLLMLingua_(Jiang et al., 2023b)의 거친 레벨 압축을 갖는 _LLMLingua-2_를 나타낸다. \\ ({}^{\\dagger}\\): Jiang et al. (2023b)에 보고된 번호.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>

@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# FreeSCo: Spatial-Temporal Correspondence for Zero-Shot Video Translation\n' +
+      '\n' +
+      'Shuai Yang\\({}^{1}\\) Yifan Zhou\\({}^{2}\\) Ziwei Liu\\({}^{2}\\) Chen Change Loy\\({}^{2}\\)\\({}^{\\boxtimes}\\)\n' +
+      '\n' +
+      '\\({}^{1}\\)Wangxuan Institute of Computer Technology, Peking University \\({}^{2}\\)S-Lab, Nanyang Technological University\n' +
+      '\n' +
+      'williamyang@pku.edu.cn {yifan006, ziwei.liu, ccloy}@ntu.edu.sg\n' +
+      '\n' +
+      'Work done when Shuai Yang was RAP at S-Lab, NTU.\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      'The remarkable efficacy of text-to-image diffusion models has motivated extensive exploration of their potential application in video domains. Zero-shot methods seek to extend image diffusion models to videos without necessitating model training. Recent methods mainly focus on incorporating inter-frame correspondence into attention mechanisms. However, the soft constraint imposed on determining where to attend to valid features can sometimes be insufficient, resulting in temporal inconsistency. In this paper, we introduce **FRESCO**, intra-frame correspondence alongside inter-frame correspondence to establish a more robust spatial-temporal constraint. This enhancement ensures a more consistent transformation of semantically similar content across frames. Beyond mere attention guidance, our approach involves an explicit update of features to achieve high spatial-temporal consistency with the input video, significantly improving the visual coherence of the resulting translated videos. Extensive experiments demonstrate the effectiveness of our proposed framework in producing high-quality, coherent videos, marking a notable improvement over existing zero-shot methods.\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      'In today\'s digital age, short videos have emerged as a dominant form of entertainment. The editing and artistic rendering of these videos hold considerable practical importance. Recent advancements in diffusion models [33, 34, 36] have revolutionized image editing by enabling users to manipulate images conveniently through natural language prompts. Despite these strides in the image domain, video manipulation continues to pose unique challenges, especially in ensuring natural motion with temporal consistency.\n' +
+      '\n' +
+      'Temporal-coherent motions can be learned by training video models on extensive video datasets [6, 18, 38] or finetuning refactored image models on a single video [25, 37, 44], which is however neither cost-effective nor convenient for ordinary users. Alternatively, zero-shot methods [4, 5, 11, 23, 31, 41, 47] offer an efficient avenue for video manipulation by altering the inference process of image models with extra temporal consistency constraints. Besides efficiency, zero-shot methods possess the advantages of high compatibility with various assistive techniques designed for image models, _e.g._, ControlNet [49] and LoRA [19], enabling more flexible manipulation.\n' +
+      '\n' +
+      'Existing zero-shot methods predominantly concentrateon refining attention mechanisms. These techniques often substitute self-attentions with cross-frame attentions [23, 44], aggregating features across multiple frames. However, this approach ensures only a coarse-level global style consistency. To achieve more refined temporal consistency, approaches like Rerender-A-Video [47] and FLATTEN [5] assume that the generated video maintains the same inter-frame correspondence as the original. They incorporate the optical flow from the original video to guide the feature fusion process. While this strategy shows promise, three issues remain unresolved. **1) Inconsistency.** Changes in optical flow during manipulation may result in inconsistent guidance, leading to issues such as parts of the foreground appearing in stationary background areas without proper foreground movement (Figs. 2(a)(f)). **2) Undercoverage.** In areas where occlusion or rapid motion hinders accurate optical flow estimation, the resulting constraints are insufficient, leading to distortions as illustrated in Figs. 2(c)-(e). **3) Inaccuracy.** The sequential frame-by-frame generation is restricted to local optimization, leading to the accumulation of errors over time (missing fingers in Fig. 2(b) due to no reference fingers in previous frames).\n' +
+      '\n' +
+      'To address the above critical issues, we present FRamE Spatial-temporal COrrespondence (**FRESCO**). While previous methods primarily focus on constraining _inter-frame temporal correspondence_, we believe that preserving _intra-frame spatial correspondence_ is equally crucial. Our approach ensures that semantically similar content is manipulated cohesively, maintaining its similarity post-translation. This strategy effectively addresses the first two challenges: it prevents the foreground from being erroneously translated into the background, and it enhances the consistency of the optical flow. For regions where optical flow is not available, the spatial correspondence within the original frame can serve as a regulatory mechanism, as illustrated in Fig. 2.\n' +
+      '\n' +
+      'In our approach, FreSCo is introduced to two levels: attention and feature. At the attention level, we introduce FreSCo-guided attention. It builds upon the optical flow guidance from [5] and enriches the attention mechanism by integrating the self-similarity of the input frame. It allows for the effective use of both inter-frame and intra-frame cues from the input video, strategically directing the focus to valid features in a more constrained manner. At the feature level, we present FreSCo-aware feature optimization. This goes beyond merely influencing feature attention; it involves an explicit update of the semantically meaningful features in the U-Net decoder layers. This is achieved through gradient descent to align closely with the high spatial-temporal consistency of the input video. The synergy of these two enhancements leads to a notable uplift in performance, as depicted in Fig. 1. To overcome the final challenge, we employ a multi-frame processing strategy. Frames within a batch are processed collectively, allowing them to guide each other, while anchor frames are shared across batches to ensure inter-batch consistency. For long video translation, we use a heuristic approach for keyframe selection and employ interpolation for non-keyframe frames. Our main contributions are:\n' +
+      '\n' +
+      '* A novel zero-shot diffusion framework guided by frame spatial-temporal correspondence for coherent and flexible video translation.\n' +
+      '* Combine FreSCo-guided feature attention and optimization as a robust intra-and inter-frame constraint with better consistency and coverage than optical flow alone.\n' +
+      '* Long video translation by jointly processing batched frames with inter-batch consistency.\n' +
+      '\n' +
+      '## 2 Related Work\n' +
+      '\n' +
+      '**Image diffusion models.** Recent years have witnessed the explosive growth of image diffusion models for text-guided image generation and editing. Diffusion models synthesize images through an iterative denoising process [17]. DALLE-2 [33] leverages CLIP [32] to align text and images for text-to-image generation. Imagen [36] cascades diffusion models for high-resolution generation, where class-free guidance [29] is used to improve text conditioning. Stable Diffusion builds upon latent diffusion model [34] to denoise at a compact latent space to further reduce complexity.\n' +
+      '\n' +
+      'Text-to-image models have spawned a series of image\n' +
+      '\n' +
+      'Figure 2: Real video to CG video translation. Methods [47] relying on optical flow alone suffer (a)(f) inconsistent or (c)(d)(e) missing optical flow guidance and (b) error accumulation. By introducing FreSCo, our method addresses these challenges well.\n' +
+      '\n' +
+      'manipulation models [2, 16]. Prompt2Prompt [16] introduces cross-attention control to keep image layout. To edit real images, DDIM inversion [39] and Null-Text Inversion [28] are proposed to embed real images into the noisy latent feature for editing with attention control [3, 30, 40].\n' +
+      '\n' +
+      'Besides text conditioning, various flexible conditions are introduced. SDEdit [27] introduces image guidance during generation. Object appearances and styles can be customized by finetuning text embeddings [8], model weights [14, 19, 24, 35] or encoders [9, 12, 43, 46, 48]. ControlNet [49] introduces a control path to provide structure or layout information for fine-grained generation. Our zero-shot framework does not alter the pre-trained model and, thus is compatible with these conditions for flexible control and customization as shown in Fig. 1.\n' +
+      '\n' +
+      '**Zero-shot text-guided video editing.** While large video diffusion models trained or fine-tuned on videos have been studied [1, 6, 7, 10, 13, 15, 18, 26, 37, 38, 42, 44, 51], this paper focuses on lightweight and highly compatible zero-shot methods. Zero-shot methods can be divided into inversion-based and inversion-free methods.\n' +
+      '\n' +
+      'Inversion-based methods [22, 31] apply DDIM inversion to the video and record the attention features for attention control during editing. FateZero [31] detects and preserves the unedited region and uses cross-frame attention to enforce global appearance coherence. To explicitly leverage inter-frame correspondence, Pix2Video [4] and TokenFlow [11] match or blend features from the previous edited frames. FLATTEN [5] introduces optical flows to the attention mechanism for fine-grained temporal consistency.\n' +
+      '\n' +
+      'Inversion-free methods mainly use ControlNet for translation. Text2Video-Zero [23] simulates motions by moving noises. ControlVideo [50] extends ControlNet to videos with cross-frame attention and inter-frame smoothing. VideoControlNet [20] and Rerender-A-Video [47] warps and fuses the previous edited frames with optical flow to improve temporal consistency. Compared to inversion-based methods, inversion-free methods allow for more flexible conditioning and higher compatibility with the customized models, enabling users to conveniently control the output appearance. However, without the guidance of DDIM inversion features, the inversion-free framework is prone to flickering. Our framework is also inversion-free, but further incorporates intra-frame correspondence, greatly improving temporal consistency while maintaining high controllability.\n' +
+      '\n' +
+      '## 3 Methodology\n' +
+      '\n' +
+      '### Preliminary\n' +
+      '\n' +
+      'We follow the inversion-free image translation pipeline of Stable Diffusion based on SDEdit [27] and ControlNet [49], and adapt it to video translation. An input frame \\(I\\) is first mapped to a latent feature \\(x_{0}=\\mathcal{E}(I)\\) with an Encoder \\(\\mathcal{E}\\). Then, SDEdit applies DDPM forward process [17] to add Gaussian noise to \\(x_{0}\\)\n' +
+      '\n' +
+      '\\[q(x_{t}|x_{0})=\\mathcal{N}(x_{t};\\sqrt{\\bar{\\alpha}_{t}}x_{0},(1-\\bar{\\alpha }_{t})\\mathbf{I}), \\tag{1}\\]\n' +
+      '\n' +
+      'where \\(\\bar{\\alpha}_{t}\\) is a pre-defined hyperparamter at the DDPM step \\(t\\). Then, in the DDPM backward process [17], the Stable Diffusion U-Net \\(\\epsilon_{\\theta}\\) predicts the noise of the latent feature to iteratively translate \\(x^{\\prime}_{T}=x_{T}\\) to \\(x^{\\prime}_{0}\\) guided by prompt \\(c\\):\n' +
+      '\n' +
+      '\\[x^{\\prime}_{t-1}=\\frac{\\sqrt{\\bar{\\alpha}_{t-1}}\\beta_{t}}{1-\\bar{\\alpha}_{t} }\\hat{x}^{\\prime}_{0}+\\frac{(1-\\bar{\\alpha}_{t-1})(\\sqrt{\\alpha_{t}}x^{\\prime} _{t}+\\beta_{t}z_{t})}{1-\\bar{\\alpha}_{t}}, \\tag{2}\\]\n' +
+      '\n' +
+      'where \\(\\alpha_{t}\\) and \\(\\beta_{t}=1-\\alpha_{t}\\) are pre-defined hyperparamters, \\(z_{t}\\) is a randomly sampled standard Guassian noise, and \\(\\hat{x}^{\\prime}_{0}\\) is the predicted \\(x^{\\prime}_{0}\\) at the denoising step \\(t\\),\n' +
+      '\n' +
+      '\\[\\hat{x}^{\\prime}_{0}=(x^{\\prime}_{t}-\\sqrt{1-\\bar{\\alpha}_{t}}\\epsilon_{\\theta} (x^{\\prime}_{t},t,c,e))/\\sqrt{\\bar{\\alpha}_{t}}, \\tag{3}\\]\n' +
+      '\n' +
+      'and \\(\\epsilon_{\\theta}(x_{t},t^{\\prime},c,e)\\) is the predicted noise of \\(x^{\\prime}_{t}\\) based on the step \\(t\\), the text prompt \\(c\\) and the ControlNet condition \\(e\\). The \\(e\\) can be edges, poses or depth maps extracted from \\(I\\) to provide extra structure or layout information. Finally, the translated frame \\(I^{\\prime}=\\mathcal{D}(x^{\\prime}_{0})\\) is obtained with a Decoder \\(\\mathcal{D}\\). SDEdit allows users to adjust the transformation degree by setting different initial noise level with \\(T\\), _i.e._, large \\(T\\) for greater appearance variation between \\(I^{\\prime}\\) and \\(I\\). For simplicity, we will omit the denoising step \\(t\\) in the following.\n' +
+      '\n' +
+      '### Overall Framework\n' +
+      '\n' +
+      'The proposed zero-shot video translation pipeline is illustrated in Fig. 3. Given a set of video frames \\(\\mathbf{I}=\\{I_{i}\\}_{i=1}^{N}\\), we follow Sec. 3.1 to perform DDPM forward and backward processes to obtain its transformed \\(\\mathbf{I}^{\\prime}=\\{I^{\\prime}_{i}\\}_{i=1}^{N}\\). Our adaptation focuses on incorporating the spatial and temporal correspondences of \\(\\mathbf{I}\\) into the U-Net. More specifically, we define temporal and spatial correspondences of \\(\\mathbf{I}\\) as:\n' +
+      '\n' +
+      '* **Temporal correspondence**. This inter-frame correspondence is measured by optical flows between adjacent frames, a pivotal element in keeping temporal consistency. Denoting the optical flow and occlusion mask from \\(I_{i}\\) to \\(I_{j}\\) as \\(w^{j}_{i}\\) and \\(M^{j}_{i}\\) respectively, our objective is to ensure that \\(I^{\\prime}_{i}\\) and \\(I^{\\prime}_{i+1}\\) share \\(w^{i+1}_{i}\\) in non-occluded regions.\n' +
+      '* **Spatial correspondence**. This intra-frame correspondence is gauged by self-similarity among pixels within a single frame. The aim is for \\(I^{\\prime}_{i}\\) to share self-similarity as \\(I_{i}\\), _i.e._, semantically similar content is transformed into a similar appearance, and vice versa. This preservation of semantics and spatial layout implicitly contributes to improving temporal consistency during translation.\n' +
+      '\n' +
+      'Our adaptation focuses on the _input feature_ and the _attention module_ of the decoder layer within the U-Net, since decoder layers are less noisy than encoder layers, and are more semantically meaningful than the \\(x_{t}\\) latent space:* [leftmargin=*]\n' +
+      '* **Feature adaptation**. We propose a novel FreSCo-aware feature optimization approach as illustrated in Fig. 3. We design a spatial consistency loss \\(\\mathcal{L}_{spat}\\) and a temporal consistency loss \\(\\mathcal{L}_{temp}\\) to directly optimize the decoder-layer features \\(\\mathbf{f}=\\{f_{i}\\}_{i=1}^{N}\\) to strengthen their temporal and spatial coherence with the input frames.\n' +
+      '* **Attention adaptation**. We replace self-attentions with FreSCo-guided attentions, comprising three components, as shown in Fig. 3. Spatial-guided attention first aggregates features based on the self-similarity of the input frame. Then, cross-frame attention is used to aggregate features across all frames. Finally, temporal-guided attention aggregates features along the same optical flow to further reinforce temporal consistency.\n' +
+      '\n' +
+      'The proposed feature adaptation directly optimizes the feature towards high spatial and temporal coherence with \\(\\mathbf{I}\\). Meanwhile, our attention adaptation indirectly improves coherence by imposing soft constraints on how and where to attend to valid features. We find that combining these two forms of adaptation achieves the best performance.\n' +
+      '\n' +
+      '### FreSCo-Aware Feature Optimization\n' +
+      '\n' +
+      'The input feature \\(\\mathbf{f}=\\{f_{i}\\}_{i=1}^{N}\\) of each decoder layer of U-Net is updated by gradient descent through optimizing\n' +
+      '\n' +
+      '\\[\\hat{\\mathbf{f}}=\\arg\\min_{\\hat{\\mathbf{f}}}\\mathcal{L}_{temp}(\\mathbf{f})+ \\mathcal{L}_{spat}(\\mathbf{f}). \\tag{4}\\]\n' +
+      '\n' +
+      'The updated \\(\\hat{\\mathbf{f}}\\) replaces \\(\\mathbf{f}\\) for subsequent processing.\n' +
+      '\n' +
+      'For the temporal consistency loss \\(\\mathcal{L}_{temp}\\), we would like the feature values of the corresponding positions between every two adjacent frames to be consistent,\n' +
+      '\n' +
+      '\\[\\mathcal{L}_{temp}(\\mathbf{f})=\\sum_{i}\\|M_{i}^{i+1}(f_{i+1}-w_{i}^{i+1}(f_{i }))\\|_{1} \\tag{5}\\]\n' +
+      '\n' +
+      'For the spatial consistency loss \\(\\mathcal{L}_{spat}\\), we use the cosine similarity in the feature space to measure the spatial correspondence of \\(I_{i}\\). Specifically, we perform a single-step DDPM forward and backward process over \\(I_{i}\\), and extract the U-Net decoder feature denoted as \\(f_{i}^{\\tau}\\). Since a single-step forward process adds negligible noises, \\(f_{i}^{\\tau}\\) can serve as a semantic meaningful representation of \\(I_{i}\\) to calculate the semantic similarity. Then, the cosine similarity between all pairs of elements can be simply calculated as the gram matrix of the normalized feature. Let \\(\\tilde{f}\\) denote the normalized \\(f\\) so that each element of \\(\\tilde{f}\\) is a unit vector. We would like the gram matrix of \\(\\tilde{f}_{i}\\) to approach the gram matrix of \\(\\tilde{f}_{i}^{\\tau}\\),\n' +
+      '\n' +
+      '\\[\\mathcal{L}_{spat}(\\mathbf{f})=\\lambda_{\\text{spat}}\\sum_{i}\\|\\tilde{f}_{i} \\tilde{f}_{i}^{\\top}-\\tilde{f}_{i}\\tilde{f}_{i}^{\\tau\\top}\\|_{2}^{2}. \\tag{6}\\]\n' +
+      '\n' +
+      '### FreSCo-Guided Attention\n' +
+      '\n' +
+      'A FreSCo-guided attention layer contains three consecutive modules: spatial-guided attention, efficient cross-frame attention and temporal-guided attention, as shown in Fig. 3.\n' +
+      '\n' +
+      '**Spatial-guided attention.** In contrast to self-attention, patches in spatial-guided attention aggregate each other based on the similarity of patches before translation rather than their own similarity. Specifically, consistent with calculating \\(\\mathcal{L}_{spat}\\) in Sec. 3.3, we perform a single-step DDPM forward and backward process over \\(I_{i}\\), and extract its self-attention query vector \\(Q_{i}^{r}\\) and key vector \\(K_{i}^{r}\\). Then, spatial-guided attention aggregate \\(Q_{i}\\) with\n' +
+      '\n' +
+      '\\[Q_{i}^{\\prime}=\\textit{Softmax}(\\frac{Q_{i}^{r}K_{i}^{\\tau\\top}}{\\lambda_{s} \\sqrt{d}})\\cdot Q_{i}, \\tag{7}\\]\n' +
+      '\n' +
+      'where \\(\\lambda_{s}\\) is a scale factor and \\(d\\) is the query vector dimension. As shown in Fig. 4, the foreground patch will mainly\n' +
+      '\n' +
+      'Figure 3: Framework of our zero-shot video translation guided by FRamE Spatial-temporal COrrespondence (FreSCo). A FreSCo-aware optimization is applied to the U-Net features to strengthen their temporal and spatial coherence with the input frames. We integrate FreSCo into self-attention layers, resulting in spatial-guided attention to keep spatial correspondence with the input frames, efficient cross-frame attention and temporal-guided attention to keep rough and fine temporal correspondence with the input frames, respectively.\n' +
+      '\n' +
+      'aggregate features in the C-shaped foreground region, and attend less to the background region. As a result, \\(Q^{\\prime}\\) has better spatial consistency with the input frame than \\(Q\\).\n' +
+      '\n' +
+      '**Efficient cross-frame attention.** We replace self-attention with cross-frame attention to regularize the global style consistency. Rather than using the first frame or the previous frame as reference [4, 23] (V1, Fig. 4), which cannot handle the newly emerged objects (, fingers in Fig. 2(b)), or using all available frames as reference (V2, Fig. 4), which is computationally inefficient, we aim to consider all frames simultaneously but with as little redundancy as possible. Thus, we propose efficient cross-frame attentions: Except for the first frame, we only reference to the areas of each frame that were not seen in its previous frame (, the occlusion region). Thus, we can construct a cross-frame index \\(p_{u}\\) of all patches within the above region. Keys and values of these patches can be sampled as \\(K[p_{u}]\\), \\(V[p_{u}]\\). Then, cross-frame attention is applied\n' +
+      '\n' +
+      '\\[V^{\\prime}_{i}=\\textit{Softmax}(\\frac{Q^{\\prime}_{i}(K[p_{u}])^{\\top}}{\\sqrt{ d}})\\cdot V[p_{u}]. \\tag{8}\\]\n' +
+      '\n' +
+      '**Temporal-guided attention.** Inspired by FLATTEN [5], we use flow-based attention to regularize fine-level cross-frame consistency. We trace the same patches in different frames as in Fig. 4. For each optical flow, we build a cross-frame index \\(p_{f}\\) of all patches on this flow. In FLATTEN, each patch can only attend to patches in other frames, which is unstable when a flow contains few patches. Different from it, the temporal-guided attention has no such limit,\n' +
+      '\n' +
+      '\\[H[p_{f}]=\\textit{Softmax}(\\frac{Q[p_{f}](K[p_{f}])^{\\top}}{\\lambda_{t}\\sqrt{d} })\\cdot V^{\\prime}[p_{f}], \\tag{9}\\]\n' +
+      '\n' +
+      'where \\(\\lambda_{t}\\) is a scale factor. And \\(H\\) is the final output of our FreSCo-guided attention layer.\n' +
+      '\n' +
+      '### Long Video Translation\n' +
+      '\n' +
+      'The number of frames \\(N\\) that can be processed at one time is limited by GPU memory. For long video translation, we follow Rerender-A-Video [47] to perform zero-shot video translation on keyframes only and use Ebsynth [21] to interpolate non-keyframes based on translated keyframes.\n' +
+      '\n' +
+      '**Keyframe selection.** Rerender-A-Video [47] uniformly samples keyframes, which is suboptimal. We propose a heuristic keyframe selection algorithm as summarized in Algorithm 1. We relax the fixed sampling step to an interval \\([s_{\\text{min}},s_{\\text{max}}]\\), and densely sample keyframes when motions are large (measured by \\(L_{2}\\) distance between frames).\n' +
+      '\n' +
+      '**Keyframe translation.** With over \\(N\\) keyframes, we split them into several \\(N\\)-frame batches. Each batch includes the first and last frames in the previous batch to impose inter-batch consistency,, keyframe indexes of the \\(k\\)-th batch are \\(\\{1,(k-1)(N-2)+2,(k-1)(N-2)+3,...,k(N-2)+2\\}\\). Besides, throughout the whole denoising steps, we record the latent features \\(x^{\\prime}_{t}\\) (Eq. (2)) of the first and last frames of each batch, and use them to replace the corresponding latent features in the next batch.\n' +
+      '\n' +
+      '```\n' +
+      '0: Video \\(\\mathbf{I}=\\{I_{i}\\}_{i=1}^{M}\\), sample parameters \\(s_{\\text{min}}\\), \\(s_{\\text{max}}\\)\n' +
+      '0: Keyframe index list \\(\\Omega\\) in ascending order\n' +
+      '1: initialize \\(\\Omega=[1,M]\\) and \\(d_{i}=0,\\forall i\\in[1,M]\\)\n' +
+      '2: set \\(d_{i}=L_{2}(I_{i},I_{i-1}),\\forall i\\in[s_{\\text{min}}+1,N-s_{\\text{min}}]\\)\n' +
+      '3:while exists \\(i\\) such that \\(\\Omega[i+1]-\\Omega[i]>s_{\\text{max}}\\)do\n' +
+      '4:\\(\\Omega.\\texttt{insert}(i).\\texttt{sort}()\\) with \\(i=\\arg\\max_{i}(d_{i})\\)\n' +
+      '5: set \\(d_{j}=0\\), \\(\\forall\\;j\\in(i-s_{\\text{min}},i+s_{\\text{min}})\\)\n' +
+      '```\n' +
+      '\n' +
+      '**Algorithm 1** Keyframe selection\n' +
+      '\n' +
+      '## 4 Experiments\n' +
+      '\n' +
+      '**Implementation details**. The experiment is conducted on one NVIDIA Tesla V100 GPU. By default, we set batch size \\(N\\in[6,8]\\) based on the input video resolution, the loss weight \\(\\lambda_{\\text{spat}}=50\\), the scale factors \\(\\lambda_{s}=\\lambda_{t}=5\\). For feature optimization, we update \\(\\mathbf{f}\\) for \\(K=20\\) iterations with Adam optimizer and learning rate of \\(0.4\\). We find optimization mostly converges when \\(K=20\\) and larger \\(K\\) does not bring obvious gains. GMFlow [45] is used to estimate optical flows and occlusion masks. Background smoothing [23] is applied to improve temporal consistency in the background region.\n' +
+      '\n' +
+      'Figure 4: Illustration of attention mechanism. The patches marked with red crosses attend to the colored patches and aggregate their features. Compared to previous attentions, FreSCo-guided attention further considers intra-frame and inter-frame correspondences of the input. Spatial-guided attention aggregates intra-frame features based on the self-similarity of the input frame (darker indicates higher weights). Efficient cross-frame attention eliminates redundant patches and retains unique patches. Temporal-guided attention aggregates inter-frame features on the same flow.\n' +
+      '\n' +
+      '### Comparison with State-of-the-Art Methods\n' +
+      '\n' +
+      'We compare with three recent inversion-free zero-shot methods: Text2Video-Zero [23], ControlVideo [50], Reender-A-Video [47]. To ensure a fair comparison, all methods employ identical settings of ControlNet, SDEdit, and LoRA. As shown in Fig. 5, all methods successfully translate videos according to the provided text prompts. However, the inversion-free methods, relying on ControlNet conditions, may experience a decline in video editing quality if the conditions are of low quality, due to issues like defocus or motion blur. For instance, ControlVideo fails to generate a plausible appearance of the dog and the boxer. Text2Video-Zero and Reender-A-Video struggle to maintain the cat\'s pose and the structure of the boxer\'s gloves. In contrast, our method can generate consistent videos based on the proposed robust FreSCo guidance.\n' +
+      '\n' +
+      'For quantitative evaluation, adhering to standard practices [4, 31, 47], we employ the evaluation metrics of FrameAcc (CLIP-based frame-wise editing accuracy), Tmp-Con (CLIP-based cosine similarity between consecutive frames) and Pixel-MSE (averaged mean-squared pixel error between aligned consecutive frames). We further report SpatioCon (\\(L_{spat}\\) on VGG features) for spatial coherency. The results averaged across 23 videos are reported in Table 1. Notably, our method attains the best editing accuracy and temporal consistency. We further conduct a user study with 57 participants. Participants are tasked with selecting the most preferable results among the four methods. Table 1 presents the average preference rates across the 11 test videos, revealing that our method emerges as the most favored choice.\n' +
+      '\n' +
+      '### Ablation Study\n' +
+      '\n' +
+      'To validate the contributions of different modules to the overall performance, we systematically deactivate specific modules in our framework. Figure 6 illustrates the effect of incorporating spatial and temporal correspondences. The baseline method solely uses cross-frame attention for temporal consistency. By introducing the temporal-related adaptation, we observe improvements in consistency, such as the alignment of textures and the stabilization of the sun\'s position across two frames. Meanwhile, the spatial-related adaptation aids in preserving the pose during translation.\n' +
+      '\n' +
+      'In Fig. 7, we study the effect of attention adaptation and feature adaption. Clearly, each enhancement individually\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c|c|c|c|c} \\hline \\hline Metric & Frame-Acc \\(\\uparrow\\) & Tem-Con \\(\\uparrow\\) & Pixel-MSE \\(\\downarrow\\) & Sepat-Con \\(\\downarrow\\) & User \\(\\uparrow\\) \\\\ \\hline T2V-Zero & 0.918 & 0.965 & 0.038 & 0.0845 & 9.1\\% \\\\ ControlVideo & 0.932 & 0.951 & 0.066 & 0.0957 & 2.6\\% \\\\ Reender & 0.955 & 0.969 & 0.016 & 0.0836 & 23.3\\% \\\\ Ours & **0.978** & **0.975** & **0.012** & **0.0805** & **65.0\\%** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 1: Quantitative comparison and user preference rates.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l|c c c c c c} \\hline \\hline Metric & baseline & w/ temp & w/ spat & w/ attn & w/ opt & full \\\\ \\hline Frame-Acc \\(\\uparrow\\) & **1.000** & **1.000** & **1.000** & **1.000** & **1.000** & **1.000** \\\\ Tem-Con \\(\\uparrow\\) & 0.974 & 0.979 & 0.976 & 0.976 & 0.977 & **0.980** \\\\ Pixel-MSE \\(\\downarrow\\) & 0.032 & 0.015 & 0.020 & 0.016 & 0.019 & **0.012** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      'Table 2: Quantitative ablation study.\n' +
+      '\n' +
+      'Figure 5: Visual comparison with inversion-free zero-shot video translation methods.\n' +
+      '\n' +
+      'improves temporal consistency to a certain extent, but neither achieves perfection. Only the combination of the two completely eliminates the inconsistency observed in hair strands, which is quantitatively verified by the Pixel-MSE scores of 0.037, 0.021, 0.018, 0.015 for Fig. 7(b)-(e), respectively. Regarding attention adaptation, we further delve into temporal-guided attention and spatial-guided attention. The strength of the constraints they impose is determined by \\(\\lambda_{t}\\) and \\(\\lambda_{s}\\), respectively. As shown in Figs. 8-9, an increase in \\(\\lambda_{t}\\) effectively enhances consistency between two transformed frames in the background region, while an increase in \\(\\lambda_{s}\\) boosts pose consistency between the transformed cat and the original cat. Beyond spatial-guided attention, our spatial consistency loss also plays an important role, as validated in Fig. 10. In this example, rapid motion and blur make optical flow hard to predict, leading to a large occlusion region. Spatial correspondence guidance is particularly crucial to constrain the rendering in this region. Clearly, each adaptation makes a distinct contribution, such as eliminating the unwanted ski pole and inconsistent snow textures. Combining the two yields the most coherent results, as quantitatively verified by the Pixel-MSE scores of 0.031, 0.028, 0.025, 0.024 for Fig. 10(b)-(e), respectively.\n' +
+      '\n' +
+      'Table 2 provides a quantitative evaluation of the impact of each module. In alignment with the visual results, it is evident that each module contributes to the overall enhancement of temporal consistency. Notably, the combination of all adaptations yields the best performance.\n' +
+      '\n' +
+      'Figure 11 ablates the proposed efficient cross-frame attention. As with Rerender-A-Video in Fig. 2(b), sequential frame-by-frame translation is vulnerable to new appearing objects. Our cross-frame attention allows attention to all unique objects within the batched frames, which is not only efficient but also more robust, as demonstrated in Fig. 12.\n' +
+      '\n' +
+      'Figure 8: Effect of \\(\\lambda_{t}\\). Quantitatively, the Pixel-MSE scores are (a) 0.016, (b) 0.014, (c) 0.013, (d) 0.012. The yellow arrows indicate the inconsistency between the two frames.\n' +
+      '\n' +
+      'Figure 10: Effect of incorporating spatial correspondence. (a) Input covered with red occlusion mask. (b)-(d) Our spatial-guided attention and spatial consistency loss help reduce the inconsistency in ski poles (yellow arrows) and snow textures (red arrows), respectively. Prompt: A cartoon Spiderman is skiing.\n' +
+      '\n' +
+      'Figure 6: Effect of incorporating spatial and temporal correspondences. The blue arrows indicate the spatial inconsistency with the input frames. The red arrows indicate the temporal inconsistency between two output frames.\n' +
+      '\n' +
+      'Figure 7: Effect of attention adaptation and feature adaptation. Top row: (a) Input. Other rows: Results obtained with (b) only cross-frame attention, (c) attention adaptation, (d) feature adaptation, (e) both attention and feature adaptations, respectively. The blue region is enlarged with its contrast enhanced on the right for better comparison. Prompt: A beautiful woman in CG style.\n' +
+      '\n' +
+      'Figure 9: Effect of \\(\\lambda_{s}\\). The region in the red box is enlarged and shown in the top right for better comparison. Prompt: A cartoon white cat in pink background.\n' +
+      '\n' +
+      '[MISSING_PAGE_EMPTY:8]\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* [1] Andreas Blattmann, Robin Rombach, Huan Ling, Tim Dockhorn, Seung Wook Kim, Sanja Fidler, and Karsten Kreis. Align your latents: High-resolution video synthesis with latent diffusion models. In _Proc. IEEE Int\'l Conf. Computer Vision and Pattern Recognition_, pages 22563-22575, 2023.\n' +
+      '* [2] Tim Brooks, Aleksander Holynski, and Alexei A Efros. Intructpix2pix: Learning to follow image editing instructions. In _Proc. IEEE Int\'l Conf. Computer Vision and Pattern Recognition_, pages 18392-18402, 2023.\n' +
+      '* [3] Mingdeng Cao, Xintao Wang, Zhongang Qi, Ying Shan, Xiaohu Qie, and Yinqiang Zheng. MasaCtrl: Tuning-free mutual self-attention control for consistent image synthesis and editing. In _Proc. Int\'l Conf. Computer Vision_, 2023.\n' +
+      '* [4] Duygu Ceylan, Chun-Hao P Huang, and Niloy J Mitra. Pix2video: Video editing using image diffusion. In _Proc. Int\'l Conf. Computer Vision_, pages 23206-23217, 2023.\n' +
+      '* [5] Yuren Cong, Mengmeng Xu, Christian Simon, Shoufa Chen, Jiawei Ren, Yanping Xie, Juan-Manuel Perez-Rua, Bodo Rosenhahn, Tao Xiang, and Sen He. FLATTEN: optical flow-guided attention for consistent text-to-video editing. _arXiv preprint arXiv:2310.05922_, 2023.\n' +
+      '* [6] Patrick Esser, Johnathan Chiu, Parmida Atighehchian, Jonathan Grasskog, and Anastasis Germanidis. Structure and content-guided video synthesis with diffusion models. In _Proc. Int\'l Conf. Computer Vision_, pages 7346-7356, 2023.\n' +
+      '* [7] Ruoyu Feng, Wenming Weng, Yanhui Wang, Yuhui Yuan, Jianmin Bao, Chong Luo, Zhibo Chen, and Baining Guo. Cecedit: Creative and controllable video editing via diffusion models. _arXiv preprint arXiv:2309.16496_, 2023.\n' +
+      '* [8] Rinon Gal, Yuval Alaluf, Yuval Atzmon, Or Patashnik, Amit Haim Bermano, Gal Chechik, and Daniel Cohen-or. An image is worth one word: Personalizing text-to-image generation using textual inversion. In _Proc. Int\'l Conf. Learning Representations_, 2022.\n' +
+      '* [9] Rinon Gal, Moab Arar, Yuval Atzmon, Amit H Bermano, Gal Chechik, and Daniel Cohen-Or. Encoder-based domain tuning for fast personalization of text-to-image models. _ACM Transactions on Graphics_, 42(4):1-13, 2023.\n' +
+      '* [10] Songwei Ge, Seungjun Nah, Guilin Liu, Tyler Poon, Andrew Tao, Bryan Catanzaro, David Jacobs, Jia-Bin Huang, Ming-Yu Liu, and Yogesh Balaji. Preserve your own correlation: A noise prior for video diffusion models. In _Proc. Int\'l Conf. Computer Vision_, 2023.\n' +
+      '* [11] Michal Geyer, Omer Bar-Tal, Shai Bagon, and Tali Dekel. Tokenflow: Consistent diffusion features for consistent video editing. In _Proc. Int\'l Conf. Learning Representations_, 2024.\n' +
+      '* [12] Yuan Gong, Youxin Pang, Xiaodong Cun, Menghan Xia, Haoxin Chen, Longyue Wang, Yong Zhang, Xintao Wang, Ying Shan, and Yujiu Yang. TaleCrafter: Interactive story visualization with multiple characters. In _ACM SIGGRAPH Asia Conference Proceedings_, 2023.\n' +
+      '* [13] Yuwei Guo, Ceyuan Yang, Anyi Rao, Yaohui Wang, Yu Qiao, Dahua Lin, and Bo Dai. AnimateDiff: Animate your personalized text-to-image diffusion models without specific tuning. _arXiv preprint arXiv:2307.04725_, 2023.\n' +
+      '* [14] Ligong Han, Yinxiao Li, Han Zhang, Peyman Milanfar, Dimitris Metaxas, and Feng Yang. SVDiff: Compact parameter space for diffusion fine-tuning. In _Proc. IEEE Int\'l Conf. Computer Vision and Pattern Recognition_, 2023.\n' +
+      '* [15] Yingqing He, Tianyu Yang, Yong Zhang, Ying Shan, and Qifeng Chen. Latent video diffusion models for high-fidelity video generation with arbitrary lengths. _arXiv preprint arXiv:2211.13221_, 2022.\n' +
+      '* [16] Amir Hertz, Ron Mokady, Jay Tenenbaum, Kfir Aherman, Yael Pritch, and Daniel Cohen-or. Prompt-to-prompt image editing with cross-attention control. In _Proc. Int\'l Conf. Learning Representations_, 2022.\n' +
+      '* [17] Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising diffusion probabilistic models. In _Advances in Neural Information Processing Systems_, pages 6840-6851, 2020.\n' +
+      '* [18] Jonathan Ho, William Chan, Chitwan Saharia, Jay Whang, Ruiqi Gao, Alexey Gritsenko, Diederik P Kingma, Ben Poole, Mohammad Norouzi, David J Fleet, et al. Imagen video: High definition video generation with diffusion models. _arXiv preprint arXiv:2210.02303_, 2022.\n' +
+      '* [19] Edward J Hu, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, Weizhu Chen, et al. LoRA: Low-rank adaptation of large language models. In _Proc. Int\'l Conf. Learning Representations_, 2021.\n' +
+      '* [20] Zhihao Hu and Dong Xu. VideocontoIntet: A motion-guided video-to-video translation framework by using diffusion model with controlnet. _arXiv preprint arXiv:2307.14073_, 2023.\n' +
+      '* [21] Ondrej Jamriska, Sarka Sochorova, Ondrej Texler, Michal Lukac, Jakub Fiser, Jingwan Lu, Eli Shechtman, and Daniel Sykora. Stylizing video by example. _ACM Transactions on Graphics_, 38(4):1-11, 2019.\n' +
+      '* [22] Hyeonho Jeong and Jong Chul Ye. Ground-a-video: Zero-shot grounded video editing using text-to-image diffusion models. _arXiv preprint arXiv:2310.01107_, 2023.\n' +
+      '* [23] Levon Khachatryan, Andranik Movsisyan, Vahram Tadevosyan, Roberto Henschel, Zhangyang Wang, Shant Navasardyan, and Humphrey Shi. Text2Video-Zero: Text-to-image diffusion models are zero-shot video generators. In _Proc. Int\'l Conf. Computer Vision_, 2023.\n' +
+      '* [24] Nupur Kumar, Bingliang Zhang, Richard Zhang, Eli Shechtman, and Jun-Yan Zhu. Multi-concept customization of text-to-image diffusion. In _Proc. IEEE Int\'l Conf. Computer Vision and Pattern Recognition_, 2023.\n' +
+      '* [25] Shaoteng Liu, Yuechen Zhang, Wenbo Li, Zhe Lin, and Jiaya Jia. Video-P2P: Video editing with cross-attention control. _arXiv preprint arXiv:2303.04761_, 2023.\n' +
+      '* [26] Zhengxiong Luo, Dayou Chen, Yingya Zhang, Yan Huang, Liang Wang, Yujun Shen, Deli Zhao, Jingren Zhou, and Tieniu Tan. VideoFusion: Decomposed diffusion models for high-quality video generation. In _Proc. IEEE Int\'l Conf. Computer Vision and Pattern Recognition_, pages 10209-10218, 2023.\n' +
+      '\n' +
+      '* [27] Chenlin Meng, Yutong He, Yang Song, Jiaming Song, Jiajun Wu, Jun-Yan Zhu, and Stefano Ermon. SDEdit: Guided image synthesis and editing with stochastic differential equations. In _Proc. Int\'l Conf. Learning Representations_, 2021.\n' +
+      '* [28] Ron Mokady, Amir Hertz, Kfir Aberman, Yael Pritch, and Daniel Cohen-Or. Null-text inversion for editing real images using guided diffusion models. In _Proc. IEEE Int\'l Conf. Computer Vision and Pattern Recognition_, pages 6038-6047, 2023.\n' +
+      '* [29] Alexander Quinn Nichol, Prafulla Dhariwal, Aditya Ramesh, Pranav Shyam, Pamela Mishkin, Bob Mcgrew, Ilya Sutskever, and Mark Chen. Glide: Towards photorealistic image generation and editing with text-guided diffusion models. In _Proc. IEEE Int\'l Conf. Machine Learning_, pages 16784-16804, 2022.\n' +
+      '* [30] Gaurav Parmar, Krishna Kumar Singh, Richard Zhang, Yijun Li, Jingwan Lu, and Jun-Yan Zhu. Zero-shot image-to-image translation. In _ACM SIGGRAPH Conference Proceedings_, pages 1-11, 2023.\n' +
+      '* [31] Chenyang Qi, Xiaodong Cun, Yong Zhang, Chenyang Lei, Xintao Wang, Ying Shan, and Qifeng Chen. FateZero: Fusing attentions for zero-shot text-based video editing. In _Proc. Int\'l Conf. Computer Vision_, 2023.\n' +
+      '* [32] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, et al. Learning transferable visual models from natural language supervision. In _Proc. IEEE Int\'l Conf. Machine Learning_, pages 8748-8763. PMLR, 2021.\n' +
+      '* [33] Aditya Ramesh, Prafulla Dhariwal, Alex Nichol, Casey Chu, and Mark Chen. Hierarchical text-conditional image generation with clip latents. _arXiv preprint arXiv:2204.06125_, 2022.\n' +
+      '* [34] Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Bjorn Ommer. High-resolution image synthesis with latent diffusion models. In _Proc. IEEE Int\'l Conf. Computer Vision and Pattern Recognition_, pages 10684-10695, 2022.\n' +
+      '* [35] Nataniel Ruiz, Yuanzhen Li, Varun Jampani, Yael Pritch, Michael Rubinstein, and Kfir Aberman. Dreambooth: Fine tuning text-to-image diffusion models for subject-driven generation. In _Proc. IEEE Int\'l Conf. Computer Vision and Pattern Recognition_, pages 22500-22510, 2023.\n' +
+      '* [36] Chitwan Saharia, William Chan, Saurabh Saxena, Lala Li, Jay Whang, Emily L Denton, Kamyar Ghasemipour, Raphael Gontijo Lopes, Burcu Karagol Ayan, Tim Salimans, et al. Photorealistic text-to-image diffusion models with deep language understanding. In _Advances in Neural Information Processing Systems_, pages 36479-36494, 2022.\n' +
+      '* [37] Chaehun Shin, Heeseung Kim, Che Hyun Lee, Sang-gil Lee, and Sungroh Yoon. Edit-A-Video: Single video editing with object-aware consistency. _arXiv preprint arXiv:2303.07945_, 2023.\n' +
+      '* [38] Uriel Singer, Adam Polyak, Thomas Hayes, Xi Yin, Jie An, Songyang Zhang, Qiyuan Hu, Harry Yang, Oron Ashual, Oran Gafni, et al. Make-A-Video: Text-to-video generation without text-video data. In _Proc. Int\'l Conf. Learning Representations_, 2023.\n' +
+      '* [39] Jiaming Song, Chenlin Meng, and Stefano Ermon. Denoising diffusion implicit models. In _Proc. Int\'l Conf. Learning Representations_, 2021.\n' +
+      '* [40] Narek Tumanyan, Michal Geyer, Shai Bagon, and Tali Dekel. Plug-and-play diffusion features for text-driven image-to-image translation. In _Proc. IEEE Int\'l Conf. Computer Vision and Pattern Recognition_, pages 1921-1930, 2023.\n' +
+      '* [41] Wen Wang, Kangyang Xie, Zide Liu, Hao Chen, Yue Cao, Xinlong Wang, and Chunhua Shen. Zero-shot video editing using off-the-shelf image diffusion models. _arXiv preprint arXiv:2303.17599_, 2023.\n' +
+      '* [42] Yaohui Wang, Xinyuan Chen, Xin Ma, Shangchen Zhou, Ziqi Huang, Yi Wang, Ceyuan Yang, Yinan He, Jiashuo Yu, Peiqing Yang, et al. Lavie: High-quality video generation with cascaded latent diffusion models. _arXiv preprint arXiv:2309.15103_, 2023.\n' +
+      '* [43] Yuxiang Wei, Yabo Zhang, Zhilong Ji, Jinfeng Bai, Lei Zhang, and Wangmeng Zuo. ELITE: Encoding visual concepts into textual embeddings for customized text-to-image generation. In _Proc. Int\'l Conf. Computer Vision_, 2023.\n' +
+      '* [44] Jay Zhangjie Wu, Yixiao Ge, Xintao Wang, Stan Weixian Lei, Yuchao Gu, Yufei Shi, Wynne Hsu, Ying Shan, Xiaohu Qie, and Mike Zheng Shou. Tune-A-Video: One-shot tuning of image diffusion models for text-to-video generation. In _Proc. Int\'l Conf. Computer Vision_, pages 7623-7633, 2023.\n' +
+      '* [45] Haofei Xu, Jing Zhang, Jianfei Cai, Hamid Rezatofighi, and Dacheng Tao. GMFlow: Learning optical flow via global matching. In _Proc. IEEE Int\'l Conf. Computer Vision and Pattern Recognition_, pages 8121-8130, 2022.\n' +
+      '* [46] Xingqian Xu, Jiayi Guo, Zhangyang Wang, Gao Huang, Irfan Essa, and Humphrey Shi. Prompt-free diffusion: Taking "text" out of text-to-image diffusion models. _arXiv preprint arXiv:2305.16223_, 2023.\n' +
+      '* [47] Shuai Yang, Yifan Zhou, Ziwei Liu,, and Chen Change Loy. Rerender a video: Zero-shot text-guided video-to-video translation. In _ACM SIGGRAPH Asia Conference Proceedings_, 2023.\n' +
+      '* [48] Hu Ye, Jun Zhang, Sibo Liu, Xiao Han, and Wei Yang. Ip-adapter: Text compatible image prompt adapter for text-to-image diffusion models. _arXiv preprint arXiv:2308.06721_, 2023.\n' +
+      '* [49] Lvmin Zhang, Anyi Rao, and Maneesh Agrawala. Adding conditional control to text-to-image diffusion models. In _Proc. Int\'l Conf. Computer Vision_, pages 3836-3847, 2023.\n' +
+      '* [50] Yabo Zhang, Yuxiang Wei, Dongsheng Jiang, Xiaopeng Zhang, Wangmeng Zuo, and Qi Tian. ControlVideo: Training-free controllable text-to-video generation. In _Proc. Int\'l Conf. Learning Representations_, 2024.\n' +
+      '* [51] Daquan Zhou, Weimin Wang, Hanshu Yan, Weiwei Lv, Yizhe Zhu, and Jiashi Feng. Magicvideo: Efficient video generation with latent diffusion models. _arXiv preprint arXiv:2211.11018_, 2022.\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
