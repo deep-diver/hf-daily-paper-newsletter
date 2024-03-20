@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en" data-lt-installed="true"><head>
+  <meta charset="UTF-8">
+  <title>Title</title>
+  <script>
+    const text = '' +
+      '# 차트 기반 추론: LLM에서 VLM으로의 전송 능력\n' +
+      '\n' +
+      ' 빅터 카번\n' +
+      '\n' +
+      '**Correspondence to: vcarbune@google.com**\n' +
+      '\n' +
+      '**Hassan Mansoor** **Fangyu Liu** **Rahul Aralikatte**\n' +
+      '\n' +
+      '**질 베츨러** **진동첸** **아반슈 샤르마**\n' +
+      '\n' +
+      'Google Research\n' +
+      '\n' +
+      '에 대한 대응: vcarbune@google.com\n' +
+      '\n' +
+      '###### Abstract\n' +
+      '\n' +
+      '시각 언어 모델(VLM)은 멀티모달 작업에서 점점 더 강력한 성능을 달성하고 있습니다. 그러나, 추론 능력은 특히 더 작은 VLM에 대해 제한되어 있는 반면, 대규모 언어 모델(LLM)의 추론 능력은 수많은 개선을 보였다. 우리는 LLM에서 VLM으로 기능을 전달하는 기술을 제안한다. 최근에 소개된 ChartQA에서, 본 방법은 Chen 등이 PaLI3-5B VLM에 적용할 때 최신 성능을 얻는 반면(2023), PlotQA 및 FigureQA에서도 훨씬 더 나은 성능을 얻을 수 있다.\n' +
+      '\n' +
+      '우리는 먼저 Liu et al.(2023)에 의해 개선된 버전의 차트-테이블 변환 태스크를 사용하여 사전 트레이닝 단계를 계속함으로써 차트 표현을 개선한다. 그런 다음 원래 훈련 세트보다 20배 더 큰 데이터 세트를 구성하는 것을 제안한다. 일반적인 추론 능력을 향상시키고 수치 연산을 개선하기 위해 차트의 표 표현을 사용하여 추론 궤적을 합성한다. 마지막으로, Hsieh et al.(2023)에 의해 소개된 멀티태스크 손실을 이용하여 본 모델을 미세 조정한다.\n' +
+      '\n' +
+      '우리의 변형 ChartPaLI-5B는 PaLI3-5B 기준선과 비교하여 추론 시간을 일정하게 유지하면서 업스트림 OCR 시스템을 사용하지 않고 PaLIX-55B와 같은 10배 더 큰 모델보다 우수하다. 간단한 프로그램-of-thought 프롬프트(Chen et al., 2023)로 근거들을 더 정제할 때, 우리의 모델은 최근에 도입된 Gemini Ultra 및 GPT-4V를 능가한다.\n' +
+      '\n' +
+      '## 1 Introduction\n' +
+      '\n' +
+      '텍스트와 이미지가 함께 작용하여 정보를 전달하는 시각적 언어는 차트, 도표, 다이어그램을 통해 표현될 수 있다. 이 맥락에서 멀티모달 추론은 시각적 속성(색상, 선 스타일 및 위치 지정과 같은)과 텍스트 콘텐츠(전설 및 단위와 같은)를 연결하는 것을 포함하기 때문에 어렵다.\n' +
+      '\n' +
+      '비젼-언어 모델(VLMs)의 많은 최근 발전은 더 나은 표현을 가능하게 하는 기술(Dosovitskiy et al., 2021; Lee et al., 2023)에서 비롯되며, 모델에 기본 추론을 위해 필요한 빌딩 블록인 이미지의 핵심 요소를 이해하는 능력을 부여한다. 그러나, 이미지의 핵심 표현과 질문에 대한 의미적 이해를 결합하여 답변을 제공하는 복잡한 추론 능력은 다소 제한적이었다. 모델은 종종 이미지와 텍스트 표현을 문맥적으로 결합할 수 없습니다. 대형 언어 모델(LLM)에서 추론 능력을 향상시키는 한 가지 기술은 사상 연쇄 프롬프트(Wei et al., 2023), 분해 작업(Zhou et al., 2023) 또는 저장된 사실을 가중치로 구성하기 위한 문맥 내 학습을 포함한다(Press et al., 2023). 근거가 있는 데이터 세트에 대한 미세 조정(Magister et al., 2023; Hsieh et al., 2023)은 더 작은 모델에 효과적인 것으로 나타났다. 본 연구에서는 더 나은 학습된 이미지 표현을 통해 VLM에서 추론 능력을 향상시키고, 더 유능한 LLM에 의해 생성된 추론 트레이스를 사용하여 합성 데이터 세트를 미세 조정한다. 또한 수치 추론 개선을 위한 하이브리드 온라인 설정을 탐구한다.\n' +
+      '\n' +
+      '우리는 이것이 ChartQA(Masry et al., 2022)에 대한 실험을 통해 실제로 성능을 향상시킨다는 것을 경험적으로 보여준다. 차트에 대한 시각적 질문 응답은 제시된 복잡한 정보를 사용하여 VLM이 추론하는 능력을 정량화한다. 종종 질문에 답하려면 암시적 또는 명시적 정보 추출이 필요하며, 그림 1과 같이 추출된 정보를 사용하여 중간 그룹화 또는 계산, 최종 양과의 추론이 필요하다.\n' +
+      '\n' +
+      'PaLI-X 및 PaLI-3과 같은 비젼-언어 모델(VLMs)은 시각 태스크를 해결하기 위해 비전과 언어 백본을 사용하는 하이브리드 모델 아키텍처이다(Chen et al., 2023,). 트레이닝 레시피는 전형적으로 양호한 내부 표현을 학습하는 것에 초점을 맞춘 사전-트레이닝 단계, 이어서 다운스트림 미세-튜닝 단계를 포함한다. Chen et al.(2023c)은 PaLI-3가 그것의 제한된 추론 능력들 때문에 ChartQA 상에서 PaLI-X에 뒤처진다는 것에 주목한다. 이 작업에서 제시된 결과는 Liu et al.(2023b)에서 수행된 것처럼 더 나은 차트 표현을 학습하기 위한 사전 훈련 과제의 부족이 또 다른 이유일 수 있음을 시사한다.\n' +
+      '\n' +
+      'PaLM-2(Anil et al., 2023) 또는 GPT-4(OpenAI, 2023)와 같은 대규모 언어 모델(LLM)의 추론 능력을 향상시키는 것은 매우 활발한 연구 분야이다. 추론은 척도를 가진 새로운 특성으로 간주되지만(Wei et al., 2022), Press et al. (2023)은 단순히 스케일링을 통해 지식을 더 잘 암기할 수 있고 저장된 여러 사실을 대답으로 구성하는 것을 가능하게 하지 않는다고 주장한다. 한편, 다운스트림 태스크들에 대한 복잡한 추론을 제정하는 프롬프트 기법들은 매우 효과적인 것으로 나타났다(Wei et al., 2023)(Zhou et al., 2023).\n' +
+      '\n' +
+      '추론 기능을 큰 모델에서 작은 모델로 이전하면 서비스 비용을 줄이는 동시에 작업 성능을 높일 수 있습니다. Hsieh et al.(2023)은 적은 데이터를 사용하여 작은 모델들이 훨씬 더 큰 대응물들을 능가할 수 있도록 하는 효과적인 멀티-태스크 프레임워크를 도입하였다. 그들은 근거를 먼저 추론하는 더 표준 증류 접근법 대신 근거 생성을 별도의 작업으로 활용하여 그렇게 한다(Magister et al., 2023). 이 프레임워크를 멀티모달 작업에 처음으로 적용합니다.\n' +
+      '\n' +
+      '본 연구의 주요 결과는 다음과 같다. **(i)** 추론 능력 향상을 위한 다중 작업 설정을 사용하여 합성 데이터셋으로 사전 훈련 작업과 미세 조정 작업으로 구성된 효율적인 레시피를 소개하고, **(ii)** 본 레시피로 ChartQA 벤치마크에서 PaLI-3 성능을 크게 개선하고 사전 작업보다 10배 적은 매개변수를 사용하여 SoTA 성능을 얻으며, **(iii)** 본 레시피에 사용된 기술의 영향을 정량화하는 수많은 절제 실험을 수행한다.\n' +
+      '\n' +
+      '본 논문의 나머지 부분은 다음과 같이 구성되어 있다. 2절에서는 관련 작업에 대해 설명하고 3절에서는 훈련 데이터 세트의 구성을 소개한다. 섹션 4는 우리의 새로운 사전 훈련 및 미세 조정 레시피를 설명하고 섹션 5는 실험 설정 및 주요 결과를 설명한다. 마지막으로, 섹션 8은 향후 작업에 대한 결론과 권장 사항을 전달하고, 섹션 9는 현재 작업의 한계를 인정한다.\n' +
+      '\n' +
+      '##2 관련 업무\n' +
+      '\n' +
+      'VLM landscapeVision-language 모델은 일반적으로 비전 백본과 언어 백본을 결합한다. 종종 인코더-디코더(Chen et al., 2023b) 또는 디코더 전용(Alayrac et al., 2022) 아키텍처를 통해 Large Language Model과 결합된 Vision Transformer(ViT)(Dosovitskiy et al., 2021)이다. 보다 최근에, Fuyu-8B(Bavishi et al., 2023)와 같은 모델들은 언어 백본을 통해 이미지를 직접 투영하는 것을 탐색한다. 본 논문에서는 ViT-3B를 비전으로, UL2-2B를 언어 백본으로 사용하는 인코더-디코더 구조인 PaLI-3를 확장한다. 우리는 완전한 개요를 위해 Chen et al.(2023c)에 독자를 참조한다. PaLI-3는 SoTA 모델이므로 본 연구진의 방법으로 결과를 개선하는 데 더 중점을 두기 위해 그 위에 구축하기로 결정했다.\n' +
+      '\n' +
+      '차트 이해를 위한 기존의 접근법들 차트 상의 질문들에 응답하는 태스크는 문서들 및 인포그래픽들과 함께, 일반적으로 _visually-situated 언어 이해_로 지칭되는 더 넓은 세트의 태스크들의 일부이며, 여기서 텍스트 및 이미지는 별도로 취급될 수 없다(Lee et al., 2023). 하류 ChartQA 상의 미세 조정 모델은 PaLI-3(Chen et al., 2023c), MatCha(Liu et al., 2023b) 및 UniChart(Masry et al., 2023)를 포함한다. 이 중 UniChart는 비전 백본으로서 차트 이미지 인코더를 사전 트레이닝하고 언어 백본으로서 BART 디코더(Lewis et al., 2019)를 사전 트레이닝하는 우리와 가장 유사한 접근법을 취한다. 대안적으로, Liu et al.(2023a)은 질문-답변을 분해하여 차트를 먼저 번역하는 접근법을 취했다.\n' +
+      '\n' +
+      '그림 1: ChartQA 유효성 검사 세트의 예제입니다.\n' +
+      '\n' +
+      '테이블에 넣은 다음 플러그 앤 플레이 방식으로 LLM을 쿼리합니다. 여기서 우리의 주요 초점은 미세 조정된 자체 완비 모델에 있지만 훨씬 더 큰 LLM을 사용한 간단한 개선도 계속해서 성능을 향상시킨다는 것을 보여준다.\n' +
+      '\n' +
+      '업스트림 OCR 시스템A 차트의 역할은 일반적으로 데이터의 기본 동등한 표 표현을 가지고 있다. 그러나, 표 표현을 디코딩하는 것은 여전히 어려운 문제로 남아 있다. 대안적으로, 차트는 이미지의 비구조화된 텍스트 표현을 추출하기 위해 OCR 시스템을 통과할 수 있다. Luo et al.(2021)은 차트-특정 추출 로직을 OCR 시스템과 결합하여 차트들로부터 주요 정보를 추출한다. 직관적으로 예상한 바와 같이, 일반적으로 OCR 시스템의 사용은 다운스트림 품질을 향상시킨다. 이 작업에서는 모델이 차트 이미지에만 액세스할 수 있다고 가정합니다.\n' +
+      '\n' +
+      '사전 훈련 혼합물이 차트 작업을 전문으로 하는 합성 데이터로 차트 추론을 개선하는 것은 Liu et al.(2023)이 효과적이다. 우리는 차트를 코드 또는 테이블로 변환하는 _chart deredering_ 태스크를 추가로 확장한다. 우리의 접근법과 유사하게, Methani et al. (2020) 및 Masry et al. (2023)은 복잡한 QA 쌍을 합성하기 위해 프로그램적 템플릿을 사용했다. 그러나, Masry et al.(2023)에서와 같이 차트 요약을 생성하기 위해 LLM을 사용하는 대신에, 여기서는 이론적 근거를 갖는 추가적인 QA 쌍을 생성하기 위해 그것을 사용한다. 합성 프로그램 예와 함께 생성된 예는 모델의 사전 훈련 및 미세 조정 단계에서 핵심이다.\n' +
+      '\n' +
+      '## 3 Dataset\n' +
+      '\n' +
+      '### ChartQA에 대한 간단한 설명\n' +
+      '\n' +
+      'ChartQA는 VLM의 추론 능력을 위해 널리 채택된 시각적 질문 응답 벤치마크 중 하나이다.\n' +
+      '\n' +
+      '표준 ChartQA 벤치마크에는 (a) 인간 집합과 (b) 증강 생성 집합의 두 가지 구성 요소가 있다. 증강 세트는 기계로 생성되었으며 인간 세트보다 자연에서 더 단순하다.\n' +
+      '\n' +
+      '데이터 세트의 차트는 통계, 퓨, 데이터 내 우리 세계 및 OECD의 네 가지 출처에서 나온다. Gold 테이블은 Pew를 제외한 모든 소스에 대해 이용가능하며, 여기서 테이블은 ChartOCR 모델 Luo et al.(2021)로 추론된다. 추론된 표에서 실수를 관찰했지만, 우리의 방법은 그들에게 상당히 탄력적인 것 같다.\n' +
+      '\n' +
+      '### 합성 생성 방법\n' +
+      '\n' +
+      '이 작업에서 LLM을 사용하여 생각 사슬 프롬프트를 사용하여 생성된 근거와 쌍을 이루는 추가 예를 합성한다. 우리는 LLM에 대한 시력 입력의 부족을 중재하기 위한 방법으로 훈련 세트에 존재하는 차트의 표 표현을 사용한다.\n' +
+      '\n' +
+      '우리가 합성하는 데이터는 특히 차트에서 여러 양을 추출하고 이를 사용하여 추론을 수행해야 하는 예제와 함께 원래 훈련 세트의 다양성을 증가시킨다.\n' +
+      '\n' +
+      '우리는 이러한 유형의 예제에 초점을 맞춘 두 가지 접근법을 결합하며, 특히 _rationale 생성_ 및 _extra 질문 답변_ 쌍을 합성하기 위해 LLM을 사용한다. 우리는 또한 _arithmetic_ 질문 답변 쌍을 생성하기 위해 프로그램적 접근법을 사용한다.\n' +
+      '\n' +
+      'Rationale Generation은 해답에 도달하는 이유에 대한 합성 설명으로 원래 훈련 세트를 증강한다. 우리는 그림 4와 같이 4-shot 프롬프트가 있는 (\\(\\mathbf{table}\\), \\(\\mathbf{question}\\), \\(\\mathbf{answer}\\))의 입력 튜플에서 **rationale**를 예측하기 위해 PaLM 2-S를 사용하여 이 세트를 _ChartQA-Rationale-S_라고 한다.\n' +
+      '\n' +
+      '모델에게 일반적으로 정확한 지상 진실 답변에 대한 정당성을 제공하도록 요청함으로써 우리는 환각의 현저한 감소를 목격한다. 주목할 만한 예외는 답 자체가 틀렸을 때이며, 이는 인간 집합보다 ChartQA 증강 집합에 대해 더 자주 발생한다. 그러나 생성된 훈련 세트에서 이러한 측면에 대한 자세한 조사를 수행하지 않았다. 생성된 근거의 사례는 그림 2에서 확인할 수 있다.\n' +
+      '\n' +
+      'ExtraQA Generation 우리는 원래 훈련 세트가 너무 작아서 인간 검증 세트에 존재하는 것과 같은 더 복잡한 QA 질문을 해결할 수 있도록 예제에 충분한 다양성을 포함하지 않는다고 가정한다. 따라서 검증 세트에 대한 모델 성능을 조사하여 식별하는 오류 유형을 포함하는 추가 예를 생성하기 위해 그림 5에 표시된 1-샷 프롬프트를 사용했다. 프롬프트는 Liu 등(2023)에서 사용된 것으로부터 적응된다. 생성된 샘플의 예는 그림 7에서 볼 수 있다. 우리는 PaLM 2-S와 PaLM 2-L을 모두 사용하여 예를 생성하고 각 데이터 세트를 _ChartQA-ExtraQA-S/L_로 참조한다. 우리는 부과된 구조에서 벗어난 생성된 예제를 경량 필터링만 수행한다. 만약 우리가 LLM반응에서 세 요소 모두를 분석할 수 없다면, 우리는 간단히 예시를 취하한다. 그러나 우리는 환각, 유창성 또는 다른 모델 기반 검증에 대해 생성된 예를 검증하지 않는다.\n' +
+      '\n' +
+      'ArithmeticQA Generation 대형 언어 모델은 산술 연산을 정확하게 수행하는 데 어려움이 있다는 것은 잘 알려져 있다. ChartQA의 경우, 이것은 작은 트레이닝 데이터세트가 (테스트 세트로 표현된 바와 같이) 차트에 대해 가질 수 있는 산술 질문의 특정에 적합하다는 사실에 의해 특히 악화된다. 숫자 추론이나 여러 차트 요소의 비교 분석이 필요한 예제를 프로그램적으로 만듭니다. 예제는 그림 8과 그림 9에 설명되어 있으며, 질문을 템플릿으로 추출하고 중앙값, 최대값, 최소값과 같은 고정된 수학적 연산 세트를 사용했다. 각 템플릿에 대해 우리는 모델에 산술 문제를 해결하기 위한 계획을 가르치는 근거를 만들었다. 예를 들어 평균을 계산하려면 먼저 값을 찾은 다음 이를 더한 다음 마지막으로 값을 총계로 나누어야 합니다. 각 유형의 연산에 대해 우리는 질문과 근거 모두에 대해 여러 템플릿을 만들었다. 우리가 사용한 소스 데이터는 사용 가능한 테이블을 사용하는 ChartQA 인간 예제일 뿐이다. 문항의 유형과 문항 수는 <표 1>에서 확인할 수 있다.\n' +
+      '\n' +
+      '### Resulting Dataset\n' +
+      '\n' +
+      '결과 데이터 세트는 대략 20배 더 크고 표 2에 설명되어 있으며 섹션 D에서 데이터 세트의 통계에 대한 추가 세부 정보가 있다. 샘플링은 온도\\(\\tau=0\\)의 그리디 디코딩을 사용하여 수행되었다. 우리는 증강된 세트와 인간 세트를 사용하여 예를 생성했다.\n' +
+      '\n' +
+      'PaLM 2-S vs. 2-L 합성 데이터 세트의 모든 예에 대해 동일한 프롬프트가 사용되었다. 우리는 두 LLM의 샘플을 사용하는 것이 성능을 향상시키지만 절제 연구는 하나가 다른 것보다 낫다는 것을 나타내지 않는다. 우리는 다양성이 모델 크기보다 더 중요하다고 가정하지만 샘플링 전략을 조사하지 않았다.\n' +
+      '\n' +
+      '## 4 Method\n' +
+      '\n' +
+      '우리의 작업은 PaLI-3 아키텍처와 사전 훈련 레시피 위에 구축되며, 비전 트랜스포머 ViT-2B와 텍스트 인코더-디코더 UL2-3B의 두 가지 백본으로 구성된다. 우리의 출발점은 Chen 등이 기술한 레시피이다(2023c). 유니모달 프리 트레이닝 스테이지는 SigLIP 손실을 통해 대비 손실을 사용하여 비전 인코더를 트레이닝하는 반면, 언어 인코더-디코더는 UL2 손실을 사용하여 사전 트레이닝된다. 두 등뼈는 멀티모달 스테이지를 사용하여 공동으로 사전 훈련된다. 마지막으로 해상도 증가 단계는 비전 인코더 백본이 812x812 해상도 이미지로 작업할 수 있게 한다. 이 체크포인트를 사용하여 사전 교육을 계속합니다.\n' +
+      '\n' +
+      '### 사전 훈련: 차트 2 테이블 혼합물\n' +
+      '\n' +
+      'Liu et al.(2023a)에 의해 수행된 작업을 확장하면, 우리는 차트의 내부 표현을 학습하는 것을 용이하게 하는 ViT 백본을 동결되지 않은 상태로 사전 훈련을 계속하기 위해 차트-테이블 데이터세트 혼합물을 사용한다. 우리는 더 하류에서 표 변환을 명시적으로 사용하지 않는다.\n' +
+      '\n' +
+      '이 표현을 학습하기 위해 우리는 몇 가지 차트 대 테이블 감소 작업을 혼합물로 결합한다: (1) Liu 등에 의해 도입된 합성 혼합물과 유사한 합성 차트 대 테이블 데이터.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l r} \\hline \\hline\n' +
+      '**Question Type** & **Count \\#** \\\\ \\hline Mean & 235K \\\\ Subtraction & 90K \\\\ Other & 32K \\\\ \\hline Total & 357K \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 1: 실시예는 대부분 평균 또는 뺄셈이다.\n' +
+      '\n' +
+      '그림 2: _ChartQA-Rationale-S_: 원래 훈련 세트의 각 예에 대해 표, 질문 및 답변을 기반으로 유리수를 합성한다.\n' +
+      '\n' +
+      '(2023a). 우리는 매트플로틀립과 시본에서 플롯팅 옵션의 다양한 조합을 가로질러 위키피디아에서 테이블을 다른 레이아웃의 차트로 무작위로 플롯한다. (2) Masry et al.(2023)에 의해 도입된 차트-투-테이블 혼합물. (3) DVQA의 트레인 세트로부터의 차트-테이블 쌍들(Kafle et al., 2018). (4) TaTA(Gehrmann et al., 2022)의 열차 세트로부터의 차트-테이블 쌍들. (5) Benetech - Making Chart Accessible Kaggle challenge1. 데이터 소스의 완전한 목록, 샘플링 가중치 및 예시의 수는 표 3에 나타나 있다.\n' +
+      '\n' +
+      '각주 1: [https://www.kaggle.com/competitions/benetech-making-graphs-accessible](https://www.kaggle.com/competitions/benetech-making-graphs-accessible)\n' +
+      '\n' +
+      '기존의 테이블 표현은 데이터 세트에서 그대로 사용되거나, 앞서 설명한 바와 같이 작은 분수에 대해 프로그램적으로 테이블이 생성된다. 표도 표준화된 형식으로 정규화되어 있습니다.\n' +
+      '\n' +
+      '### 미세조정 : 멀티태스크 손실\n' +
+      '\n' +
+      'ViT 백본이 차트로 더 잘 작동할 수 있도록 사전 훈련 단계를 거친 후 합성 데이터를 사용하여 다운스트림 작업에 대한 모델을 미세 조정한다. 확장된 데이터 세트에서 사용할 수 있는 근거를 통합하는 두 가지 방법을 조사한다.\n' +
+      '\n' +
+      '첫 번째는 태스크 대상을 _answer_에서 _rationale, answer_로 변경하는 것이다. 이는 (Magister et al., 2023)에서 효과적인 것으로 나타났다. 우리는 이 접근법을 **단일 작업 설정**이라고 한다. 그러나 훈련 시 증가된 시퀀스 길이와 함께 이론적 근거를 예측하여 추론 시간을 증가시켜야 한다. 합동적인 근거와 답을 예측하기 위한 훈련의 의도하지 않은 부작용은 근거 토큰이 답 토큰과 동등하게 중요해진다는 것이다.\n' +
+      '\n' +
+      '두 번째는 Hsieh et al. (2023)에 의해 영감을 받아, 해답과 근거는 독립적인 작업으로 취급되는 ** 다중 작업 설정**을 구성함으로써 두 가지 우려를 모두 해결한다. 이는 _"Rationale:"_ 및 _"Question:"_와 같이 T5(Raffel et al., 2023)와 유사한 상이한 프리픽스를 사용하여 수행될 수 있다. 훈련 손실은 하이퍼-파라미터 \\(\\lambda\\):를 사용하여 두 작업 사이의 강도의 균형을 이룬다.\n' +
+      '\n' +
+      '\\[\\mathbf{Loss}=(\\mathbf{1}-\\lambda)\\mathbf{Loss_{ans}}+\\lambda\\mathbf{Loss_{rat}}\\]\n' +
+      '\n' +
+      '우리의 실험은 멀티모달 작업에 대한 이 설정의 첫 번째 적용이다. 우리는 추론 시간이 일정하게 유지될 뿐만 아니라 품질이 향상된다는 텍스트 도메인으로부터의 관찰을 추가로 확인한다.\n' +
+      '\n' +
+      '## 5 Experiments\n' +
+      '\n' +
+      '사전 훈련 및 미세 조정 단계에 대한 일반적인 학습 하이퍼 매개 변수를 설명하고 결과를 해석한다.\n' +
+      '\n' +
+      '### Setup\n' +
+      '\n' +
+      '사전 훈련 우리는 decay_factor=2e-6 및 dropout_rate=0.1을 사용하여 정규화된 제곱근 감쇠를 갖는 학습_rate=5e-3과 함께 train_steps=6K, batch_size=256에 대해 차트2표 데이터 혼합물에서 ViT를 동결되지 않은 PaLI-3 모델을 사전 훈련한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l r r r r} \\hline \\hline\n' +
+      '**Dataset** & **Hum** \\# & **Aug** \\# & **Question type** \\# & **Total** & **Rate** \\# \\\\ \\hline ChartQA-Rationale-S & 7398 & 20901 & R [13\\%], V [11\\%], C [43\\%], B [33\\%] & 28.3K & 15\\% \\\\ ChartQA-ExtraQAR-S & 23261 & 69433 & R [57\\%], C [43\\%] & 92.7K & 15\\% \\\\ ChartQA-ExtraQAR-L & 16388 & 50468 & R [60\\%], C [40\\%] & 66.9K & 30\\% \\\\ ChartQA-ArithmQAR & 357000 & - & C [100\\%] & 357.0K & 40\\% \\\\ \\hline ChartQA-Synth (Total) & & & & **544.9K** & \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 2: 원본 데이터 세트보다 20배 더 큰 합성 데이터 세트의 개요. 접미사는 사용된 PaLM 2 모델의 크기를 나타낸다. 속도는 최종 혼합물을 나타낸다. 질문 유형들의 카테고리화는 (Masry et al., 2022), 즉, **R**etrieval, **V**isual, **C**ompositional 또는 **B**oth visual and compositional에서 유래한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l r r} \\hline \\hline\n' +
+      '**Component** & **Rate** & **Size** \\\\ \\hline Synthetic & 44.0\\% & 1.2M \\\\ UniChart & 39.5\\% & 612K \\\\ DVQA & 3.2\\% & 200K \\\\ ChartQA & 3.2\\% & 22K \\\\ TaTa & 3.2\\% & 6.7K \\\\ Chart2Text & 3.2\\% & 24K \\\\ Benetech Challenge & 3.2\\% & 21K \\\\ PlotQA & 0.5\\% & 224K \\\\ \\hline Total & & **2.37M** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 3: 학습 차트 표현을 위한 사전 트레이닝 데이터 세트는 테이블 표현과 쌍을 이루는 차트 이미지를 갖는 수많은 태스크로부터의 예를 포함한다.\n' +
+      '\n' +
+      'Fine-tuningWe then the ViT encoder and continue fine-tuning on the synthetic ChartQA dataset for train_steps=5K, batch_size=256 with learning_rate=1e-3 with linear decay using decay_factor=1e-4 using dropout_rate=0.1.\n' +
+      '\n' +
+      'Multitask는 \\(\\lambda=\\mathbf{0.5}\\)을 사용하며 다른 값을 사용할 때 큰 차이를 발견하지 못한다.\n' +
+      '\n' +
+      '### ChartQA 결과\n' +
+      '\n' +
+      '차트QA 테스트 세트에서 다운스트림 작업 성능을 보고함으로써 다양한 기술의 효과를 검증한다. 다음 모든 실험은 PaLI-3에 있다.\n' +
+      '\n' +
+      '사전 훈련 차트2표 혼합물을 사용하여 PaLI-3 모델에 대한 사전 훈련 단계를 계속하면 차트의 더 나은 일반적인 표현을 학습할 수 있다. 우리는 직관적으로 이 더 나은 표현이 모델이 이미지에서 양을 더 정확하게 식별할 수 있게 할 것이라고 기대한다. 실제로, 우리는 표 4에 보고된 결과를 통해 이를 먼저 확인하고, 나중에 데이터 세트의 크기를 스케일링함에 따라 이것이 계속해서 중요한 역할을 한다는 것을 보여준다.\n' +
+      '\n' +
+      '예상대로 사전 훈련 혼합물도 합성적으로 구성된다는 점을 감안할 때 증가는 주로 증강 세트에서 발생한다.\n' +
+      '\n' +
+      '싱글레타스크 대 Multitask 먼저 _ChartQA-Rationale-S_를 사용하여 합리성을 도입하는 효과를 연구한다. 이것은 원래 ChartQA 데이터 세트에 근거만 추가합니다.\n' +
+      '\n' +
+      '싱글레타스크 설정에서 논리를 사용할 때 성능 차이는 사용하지 않는 것에 비해 크지 않다. 그러나 멀티태스크 설정에서 사용할 때 품질 향상, 특히 더 어려운 인간 설정에서 눈에 띈다. 표 5에서 전자를 _Singletask-Rationale_라고 하고 후자를 _Multitask-Rationale_라고 한다.\n' +
+      '\n' +
+      '우리는 그 개선이 최종 답을 생성하기 전에 모델을 내부적으로 추론 형식을 생성하도록 안내하는 근거의 더 나은 사용에서 비롯된다고 가정한다. 이는 근거 토큰을 예측하는 비용을 지불하지 않고 수행된다.\n' +
+      '\n' +
+      '증강 데이터세트로 학습 우리는 PaLM-2에서 PaLI-3으로 추론 능력을 전달할 수 있는 정도를 연구하기 위해 표 2의 ChartQA-Synth 데이터세트를 사용한다.\n' +
+      '\n' +
+      '추가 질문, 근거 및 사전 훈련 단계의 역할을 이해하고 결과를 표 6에 보고하기 위해 절제 실험을 수행한다.\n' +
+      '\n' +
+      '우리는 원래 사전 훈련된 체크포인트를 _Orig PT_로 사용하고 차트 대 테이블 번역을 _C2T_로 사용하는 추가 사전 훈련된 체크포인트에 대한 실험을 나타낸다. 우리는 명확한 개선을 보고하고 내부 대표성이 중요한 역할을 한다는 관찰을 더욱 강화한다.\n' +
+      '\n' +
+      '우리는 이론적 근거 없이 전체 합성적으로 생성된 QA 쌍을 사용하여 실험을 실행했다. 우리는 예제의 증가가 표 4에 보고된 원래 ChartQA 성능에 비해 개선된다는 점에 주목한다. 그러나, 근거의 사용은 싱글레타스크 및 멀티태스크 설정 모두에 대해 계속해서 품질을 개선한다. 우리는 높은 데이터 체제에서 둘 사이에 더 이상 큰 차이가 없다는 것을 관찰한다.\n' +
+      '\n' +
+      '추론 시간에서 다중 작업 설정의 중립적인 영향을 감안할 때 약간 개선된 것과 쌍을 이룬다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c} \\hline \\hline \\multirow{2}{*}{**Fine-tuning Setup**} & \\multicolumn{3}{c}{ChartQA (RA\\%)} \\\\ \\cline{2-4}  & **Avg.** & **Hum.** & **Aug.** \\\\ \\hline Orig PT + Singletask-ExtraQAR & 72.43 & 53.20 & 91.67 \\\\ Orig PT + Multitask-ExtraQAR & 73.15 & 55.20 & 91.10 \\\\ \\hline C2T PT + ExtraQA (w/o Rationale) & 74.67 & 56.39 & 92.96 \\\\ \\hline C2T PT + Singletask-ExtraQAR & 75.16 & 55.84 & **94.48** \\\\ C2T PT + Multitask-ExtraQAR & 75.36 & 56.80 & 93.92 \\\\ \\hline C2T PT + Singletask-ChartQA-Synth & 76.60 & 59.04 & 94.16 \\\\ C2T PT + Multitask-ChartQA-Synth & **77.28** & **60.88** & 93.68 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 6: 절제 결과는 우리 레시피의 각 단계의 중요성을 확인한다. _ ChartQA-Synth_는 표 2에 기재된 혼합물이다\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c} \\hline \\hline \\multirow{2}{*}{**Pre-training Strategy**} & \\multicolumn{3}{c}{ChartQA (RA\\%)} \\\\ \\cline{2-4}  & **Avg.** & **Hum.** & **Aug.** \\\\ \\hline Original PT (Chen et al., 2023c) & 70.00 & - & - \\\\ Chart2Table PT (our run) & **70.84** & 48.96 & 92.72 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 4: ChartQA에 대한 PaLI-3 성능은 차트 대 테이블 사전 훈련 단계에 따라 약간 증가한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c} \\hline \\hline \\multirow{2}{*}{**Fine-tuning setup**} & \\multicolumn{3}{c}{ChartQA (RA\\%)} \\\\ \\cline{2-4}  & **Avg.** & **Hum.** & **Aug.** \\\\ \\hline C2T PT + Singletask-Rationale & 70.80 & 49.36 & 92.24 \\\\ C2T PT + Multitask-Rationale & **71.72** & 50.72 & 92.72 \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 5: 더 어려운 인간 작성 세트에서 싱글레타스크에 비해 멀티태스크 성능이 두드러진다.\n' +
+      '\n' +
+      'ChartQA의 인간 작성 쿼리에 대한 성능, 다중 작업이 실제로 선호되는 옵션이다. 또한, 표 6에서 가장 잘 수행되는 미세 조정 설정을 **ChartPaLI-5B**라고 한다.\n' +
+      '\n' +
+      '### FigureQA 및 PlotQA 결과\n' +
+      '\n' +
+      'ChartQA는 현재 가장 어려운 벤치마크이다. 본 논문에서 제안한 방법이 일반적이라는 것을 증명하기 위해 그림QA(FigureQA)와 PlotQA(PlotQA)와 관련된 도표 이해 태스크에 대한 성능을 조사한다. 우리는 3가지 운영 체제를 연구한다: (i) **zero-shot**: 작업별 사전 훈련 또는 미세 조정 없음, (ii) **빠른 적응**: 1K 미세 조정 단계 및 (iii) **융합**: 5K 미세 조정 단계. 우리는 그림 QA(참조)에 대한 검증 세트에서 10K 예제에 대한 완화된 정확도를 보고한다. 표 8 및 PlotQA로부터의 테스트 세트로부터(참조. 표 9).\n' +
+      '\n' +
+      'PlotQA의 경우 훈련 하위 집합의 이미지가 사전 훈련 혼합물에 존재하는 반면 검증 및 테스트 하위 집합 이미지는 존재하지 않는다. 따라서 우리는 학습 이미지가 부당한 이점을 제공하기 때문에 제로 샷 성능을 연구하지 않는다.\n' +
+      '\n' +
+      'ChartPaLI-5B는 모든 운영 체제에서 PaLI-3보다 우수하다. 일반적으로 우리의 레시피는 몇 가지 빠른 적응 단계만 실행할 때 차트 이해 성능을 크게 높입니다.\n' +
+      '\n' +
+      '특히 우리는 그림QA(약 96%+)에 대한 SoTA 성능 체제와 어려운 PlotQA v2(약 +47.1% 수렴 시간)에 대한 매우 강한 상대 성능을 보고한다.\n' +
+      '\n' +
+      '### 오류와 도전\n' +
+      '\n' +
+      '본 연구의 방법의 효과를 이해하고 개선의 추가 기회를 조사하기 위해 ChartQA 검증 세트에 대한 예측을 수동으로 조사했다. 기준 PaLI-3 모델 출력을 레시피로 미세 조정된 모델과 비교하고 아래 관찰을 공유했다. 우리는 우리의 연구 결과를 아래에 보고한다.\n' +
+      '\n' +
+      '일반 모델은 작업 접두사에 따라 근거 2 또는 답변을 예측합니다. 답은 근거에 따라 정해지지 않기 때문에 다를 수 있다. 우리가 주목하는 하나의 일반적인 개선 영역은 필요한 중간량을 추출하는 능력이다(도 11). 그리고 그들과 함께 동작한다(도 12).\n' +
+      '\n' +
+      '각주 2: 표가 추론 동안 사용되지 않지만, 근거들은 프롬프트들에서 그것의 사용으로 인해 _table_이라는 단어를 포함한다.\n' +
+      '\n' +
+      '수학적 추론은 개선에도 불구하고, 수학적 표현의 계산은 계속해서 매우 어렵다. 그 근거들이 정확하게 추출된다(도 3). 또는 결측일 때 차트 값을 추론한다(도 13). 그러나 계산된 값이 자주 올바르지 않습니다. 이는 최종 답변이 항상 정답이 되는 것을 방지하는 것은 아니다(도 15). 이는 왕 등(2023)의 관찰과 일맥상통하는 것으로 생각 사슬 추론의 부패가 항상 최종 답을 저하시키는 것은 아니라고 결론짓기도 한다. 이 숫자 계산 오차의 빈도로 인해 섹션 5.5에서 간단한 정제 기술을 탐구한다.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c} \\hline \\hline \\multirow{2}{*}{**Model**} & \\multicolumn{3}{c}{FigureQA RA\\% (v1 1 v2)} \\\\ \\cline{2-4}  & **ZShot** & **Quick** & **Conv** \\\\ \\hline PaLI-3 (original) & 41.9 142.4 & 57.2 158.1 & 89.9 1 89.3 \\\\ ChartPaLI-5B & **51.0** & **51.2** & **92.7** & **93.0** & **96.3** & **96.2** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 8: ChartPaLI-3은 그림QA 작업에 대한 강력한 일반화를 나타내며, 사전 훈련 또는 미세 조정에 예가 존재하지 않는다.\n' +
+      '\n' +
+      '그림 3: 정답에 대한 정확한 숫자 근사치입니다.\n' +
+      '\n' +
+      '생성 과정에서 테이블만 사용되었기 때문에 합성 데이터에는 색상 메타데이터가 없다. 따라서 이 모델은 추론 추적이 색으로 작업해야 할 때 계속 어려움을 겪는다(도 10). 따라서 이것은 다음으로 조사할 가치가 있는 영역이며 차트 이해의 세부 사항을 훨씬 뛰어넘는 적용 가능성을 가지고 있다.\n' +
+      '\n' +
+      '여러 값에 대한 복잡한 추론과 산술 연산이 필요한 매칭 조건을 확인하는 것은 나머지 어려운 작업의 또 다른 예이다(도 14, 도 16). VLM이 의미 설명을 통해 차트 요소를 열거하는 것과 쌍을 이루는 숫자 작업을 수행할 수 없기 때문에 발생하는 복잡성의 증가는 외부 도구를 사용하지 않고서는 달성하기가 상당히 어려울 수 있다.\n' +
+      '\n' +
+      '학습 방법론으로 인해 작업 누출은 _Question_ 작업 프리픽스로 조건화될 때 모델은 _Rationale_ 프리픽스가 사용될 때와 유사하게 동작할 수 있음을 관찰한다. 때때로, 모델은 답변을 직접 출력하는 대신에, 근거 또는 근거의 단편과 유사한 더 긴 설명을 생성할 수 있다.\n' +
+      '\n' +
+      '생각 프로그램을 이용한###정련\n' +
+      '\n' +
+      '차트에서 필요한 값을 사용하여 숫자 방정식을 구성할 수 있는 향상된 능력에도 불구하고(도 3). 정확한 숫자 계산이 계속 잘못되고 있습니다. 시각적 백본과 언어 백본 모두 숫자를 토큰으로 취급하기 때문에 이것은 놀라운 일이 아니다. 문제를 악화시키면, 숫자를 형성하는 문자 시퀀스는 임의의 청크들로 분할되어 인코딩될 수 있다. Chen et al.(2023)은 프로그램 해석기에 대한 산술 계산의 위임을 가능하게 하기 위해, CoT(chain-of-thoughts)를 PoT(program-of-thoughts)로 프롬프트하는 것을 대체하는 것을 제안했다. 이것은 이전에 Liu et al.(2023)에 의해 탐색되었지만, 우리가 추가로 설명하는 것보다 훨씬 더 계산적으로 관련된 설정에서 탐색되었다.\n' +
+      '\n' +
+      '미세 조정 방법을 통해 단일 작업 및 다중 작업 설정을 모두 사용할 수 있으며, PoT로 프롬프트된 LLM이 숫자 계산을 수행하기 위한 등가 코드를 작성할 수 있는 CoT 논리를 생성할 수 있다.\n' +
+      '\n' +
+      '우리는 간단한 4-shot prompt를 사용하는 접근법을 취한다(도 6). 근거에 존재하는 숫자 계산을 수행하기 위해 PaLM 2-S를 사용하여 코드를 생성하도록 유효성 검사 세트에 구성된다. 우리는 이론적 근거가 산술 연산자(\'+\', \'-\', \'/\' 또는 \'*\')를 포함하는 경우에만 이 온라인 개선을 실행한다.\n' +
+      '\n' +
+      '자기일관성은 표본화된 근거의 풀(Wang et al., 2023)에서 다수결로 답을 선택함으로써 사고의 연쇄적 근거를 개선하는 효과적인 방법이다. 이 방법은 온도\\(\\tau_{Rat}=0.4\\)으로 샘플링하고 온도\\(\\tau_{Ref}=0.0\\)을 사용하여 PaLM 2-S로 정제한 \\(N=5\\)의 근거를 생성한다.\n' +
+      '\n' +
+      '표 10에 제시된 결과는 특히 자기 일치성에 대해 K=5인 방법의 유용성을 강조한다. 그들은 또한 인간 세트에 비해 증강 세트의 단순성을 강조하며,\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c} \\hline \\hline\n' +
+      '**Fine-tuned VLMs** (up to 55B) & Source & **ChartQA (RA\\%)** \\\\ \\hline Fuyu-8B & our eval, (Bavishi et al., 2023) & 42.1 \\\\ Pix2Struct-1.3B & (Lee et al., 2023) & 58.6 \\\\ MatCha-300M & (Liu et al., 2023) & 64.2 \\\\ UniChart-201M & (Masry et al., 2023) & 66.2 \\\\ ChartLlama-13B & (Han et al., 2023) & 69.6 \\\\ PalL-5B & (Chen et al., 2023) & 70.0 \\\\ PaL1-55B (Soft Mixture of Low-rank Experts) & (Wu et al., 2023) & 73.8 \\\\ ChartPALI-5B & **our work** & **77.3** \\\\ \\hline\n' +
+      '**Hybrid VLMs/LLMs** (undisclosed size) & & & \\\\ \\hline GPT-4V [4-shot with CoT] & (OpenAI, 2023) & 78.5 \\\\ DePlot-300M + FlanPaLM + Codex with PoT SC & (Liu et al., 2023) & 79.3 \\\\ Gemini Ultra [0-shot] & (Gemini Team, Google, 2023) & 80.8 \\\\ ChartPALI-5B + PaLM 2-S PoT SC @ 5 & **our work** & **81.3** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 7: ChartQA 벤치마크에서 미세 조정된 VLM 간의 최첨단 성능.\n' +
+      '\n' +
+      '\\begin{table}\n' +
+      '\\begin{tabular}{l c c c} \\hline \\hline\n' +
+      '**Fine-tuned VLMs** (up to 55B) & Source & **ChartQA (RA\\%)** \\\\ \\hline Fuyu-8B & our eval, (Bavishi et al., 2023) & 42.1 \\\\ Pix2Struct-1.3B & (Lee et al., 2023) & 58.6 \\\\ MatCha-300M & (Liu et al., 2023) & 64.2 \\\\ UniChart-201M & (Masry et al., 2023) & 66.2 \\\\ ChartLlama-13B & (Han et al., 2023) & 69.6 \\\\ PalL-5B & (Chen et al., 2023) & 70.0 \\\\ PaL1-55B (Chen et al., 2023) & 70.9 \\\\ PaL1-55B (Soft Mixture of Low-rank Experts) & (Wu et al., 2023) & 73.8 \\\\ ChartPALI-5B & **our work** & **77.3** \\\\ \\hline\n' +
+      '**Hybrid VLMs/LLMs** (undisclosed size) & & & \\\\ \\hline GPT-4V [4-shot with CoT] & (OpenAI, 2023) & 78.5 \\\\ DePlot-300M + FlanPaLM + Codex with PoT SC & (Liu et al., 2023) & 79.3 \\\\ Gemini Ultra [0-shot] & (Gemini Team, Google, 2023) & 80.8 \\\\ ChartPALI-5B + PaLM 2-S PoT SC @ 5 & **our work** & **81.3** \\\\ \\hline \\hline \\end{tabular}\n' +
+      '\\end{table}\n' +
+      '표 10: PoT 미세화는 증강된 세트에 영향을 미치지 않으면서, 인간 세트에 대한 성능을 개선한다.\n' +
+      '\n' +
+      '정련은 영향을 미치지 않습니다. 증강 집합에 산술 계산이 없거나 미세 조정된 VLM이 이미 올바르게 사용할 수 있을 만큼 간단합니다.\n' +
+      '\n' +
+      '## 6 성능 개요\n' +
+      '\n' +
+      '우리는 표 7의 기존 선행 연구와 비교하여 결과를 위치시키고, Fuyu-8B [1] 모델을 제외하고 참조된 논문에서 결과를 추출했다. 저자가 ChartQA 벤치마크에 대한 결과를 제공하지 않았기 때문에 자체 평가를 수행했다.\n' +
+      '\n' +
+      '우리의 작업은 ChartQA 벤치마크에 특화된 이전 모델을 훨씬 능가합니다. 우리의 작업과 동시에 ChartLlama-13B도 생성된 합성 데이터를 사용하지만 상당히 다른 접근법을 사용한다. 비록 우리의 작업 범위를 벗어나지만 훨씬 더 작은 MatCha 및 UniChart 모델을 훈련하기 위해 취한 접근법이 이 작업에서 제시한 접근법과 결합할 수 있어 훨씬 적은 계산 자원으로 가능한 향상된 성능을 초래할 수 있다.\n' +
+      '\n' +
+      '이 작업에 도입된 방법은 이론적 생성을 통해 훨씬 더 큰 모델과 독특하게 결합될 수 있다. 결과에서 볼 수 있듯이 VLM에 의해 생성된 근거는 더 큰 LLM이 효과적으로 작동하기에 충분하여 질문에 조건화된 차트의 텍스트 표현을 제공할 수 있다. 제안된 방법은 최근에 소개된 Gemini Ultra 모델과 일치하며 기존의 방법보다 우수한 성능을 보인다.\n' +
+      '\n' +
+      '## 7 미래 작업\n' +
+      '\n' +
+      '섹션 5.4에서 접근법의 몇 가지 단점을 강조했습니다. 훈련 혼합물에는 추론 예제를 구성하기 위해 색상이 사용되는 예가 없습니다. 예를 들어 색상 관련 정보를 추출한 다음 이를 결합하는 질문과 함께 더 작은 크기의 모델을 실행하여 이러한 예를 부트스트래핑하면 품질이 향상될 수 있다. 매우 복잡한 추론 예도 제한적이다. 구체적으로, 차트 요소를 의미적으로 식별하고 질문을 해결하기 위해 숫자 계산을 수행하는 것은 품질을 더욱 향상시킬 것이다.\n' +
+      '\n' +
+      '## 8 Conclusion\n' +
+      '\n' +
+      '우리는 VLM의 추론 능력을 크게 향상시키는 새로운 레시피를 도입했다. PaLI-3에 적용된 우리의 방법은 ChartQA 벤치마크에서 10배 더 큰 PaLI-X조차도 훨씬 능가하여 새로운 최첨단 기술을 확립한다. 우리는 사전 훈련 단계가 다운스트림 성능을 향상시키는 방법을 보여준다. 다중 작업 설정과 결합된 합성 데이터 생성 기술은 더 큰 LLM에서 더 작은 VLM으로 추론 기능을 성공적으로 이전한다. 또한, 제안된 방법은 PaLM 2-S와 함께 계획 프로그램을 사용하여 예측된 근거를 정제하는 계산적으로 더 비싼 설정을 가능하게 한다. 복합 솔루션은 ChartQA 벤치마크에서 제미니 울트라 및 GPT-4V를 능가합니다.\n' +
+      '\n' +
+      '## 9 Limitations\n' +
+      '\n' +
+      '우리는 우리의 접근법의 한계를 인정한다.\n' +
+      '\n' +
+      '표 표현은 최종 모델이 픽셀에서만 작동하지만 합성 데이터 생성 방법은 LLM을 활용하여 학습 데이터 세트에 대한 근거, 추가 질문/답변 쌍 등을 구성하기 위한 차트의 테이블 버전에 액세스할 수 있어야 한다. 추론된 표 또는 OCR 모델의 출력이 금 표의 존재를 어느 정도 대체할 가능성이 있지만 최종 모델 품질에 영향을 미칠 가능성이 높다.\n' +
+      '\n' +
+      'PaLI-3 합성 데이터 생성을 위한 사전 훈련 및 미세 조정 레시피와 훈련 방법론은 오픈 소스 모델에서도 광범위하게 적용되어야 한다. 그러나 VLM의 독점적인 향미인 PaLI-3의 선택이 외부에서 사용할 수 있는 오픈 소스 향미만큼 좋은 선택이 아니라는 것을 인정한다.\n' +
+      '\n' +
+      '데이터 세트를 구성하는 방법은 LLM에 의존하기 때문에 합성 데이터 세트와 관련된 위험, 예를 들어 환각의 위험과 같은 특정 고유한 위험이 있다. 우리의 기술은 공개적으로 사용 가능한 ChartQA 데이터 세트를 확장하지만 모델 또는 데이터 세트를 공개적으로 릴리스하기 위해 적용할 때 추가 주의를 기울여야 한다. 메트릭은 최첨단이지만 이러한 방식으로 훈련된 경우 모델 출력이 남용될 수 없음을 보장할 수 없다.\n' +
+      '\n' +
+      '추론적 한계는 모델 오류에 대한 인간 검사를 기반으로 하는 경험적 신속한 생성 과정에서 비롯된 한계를 인정한다. 합성 데이터 생성에 사용되는LLM 기능은 인상적이지만 커뮤니티에서 보고한 바와 같이 계속해서 수많은 한계를 가지고 있다.\n' +
+      '\n' +
+      'Acknowledgements\n' +
+      '\n' +
+      '우리는 스리니바스 선카라와 마리아 왕에게 이러한 실험을 실행할 수 있는 기반 시설에 대한 기여에 감사드린다. 또한, 다중 작업 설정에 대한 자세한 논의에 대해 PaLI-3 세부 사항과 훈련 레시피에 대한 지칠 줄 모르는 지원과 통찰력에 대해 시첸과 후지이 청유 및 야스히사에 감사드린다. 다니엘 키서스와 라두 소리쿠트는 논문을 상당히 개선한 상세한 피드백을 제공했다. 맷 샤리피와 에와 도미노프스카는 이 작업에 대한 고위 리더십 지원을 제공했다.\n' +
+      '\n' +
+      '마지막으로, 익명 검토자 rPKR 및 453J의 피드백은 방법을 보여줌으로써 이 작업의 기여도를 더욱 강화하는 추가 실험을 실행하도록 동기를 부여했다.\n' +
+      '\n' +
+      '## References\n' +
+      '\n' +
+      '* Alayrac et al. (2022) Jean-Baptiste Alayrac, Jeff Donahue, Pauline Luc, Antoine Miech, Iain Barr, Yana Hasson, Karel Lenc, Arthur Mensch, Katie Millican, Malcolm Reynolds, Roman Ring, and Eliza Rutherford et al. 2022. Flamingo: few-shot learning을 위한 시각적 언어 모델.\n' +
+      '* Anil et al. (2023) Rohan Anil, Andrew M. Dai, Orhan Firat, Melvin Johnson, Dmitry Lepikhin, Alexandre Passos, Siamak Shakeri, Emanuel Taropa, Paige Bailey, Zhifeng Chen, Eric Chu, Jonathan H. Clark, and Laurent El Shafey et al. 2023. PaLM 2 Technical Report.\n' +
+      '* Bavishi et al. (2023) Rohan Bavishi, Erich Elsen, Curtis Hawthorne, Maxwell Nye, Augustus Odena, Arushi Somani, and Sagnak Tasrlar. 2023. 멀티모달 모델을 소개합니다.\n' +
+      '* Chen et al. (2023a) Wenhu Chen, Xueguang Ma, Xinyi Wang, and William W. 세스 2023a. 생각 프로그래밍 프롬프트: 수치 추론 작업을 위해 추론에서 계산을 분리합니다.\n' +
+      '* Chen et al. (2023b) Xi Chen, Josip Djolonga, Piotr Padlewski, Basil Mustafa, Soravit Changpinyo, Jialin Wu, Carlos Riquelme Ruiz, Sebastian Goodman, Xiao Wang, Yi Tay, and Siamak Shakeri et al. 2023b. Pali-x: 다국어 시각과 언어 모델을 확장하는 중입니다.\n' +
+      '* Chen et al. (2023c) Xi Chen, Xiao Wang, Lucas Beyer, Alexander Kolesnikov, Jialin Wu, Paul Voigtlaender, Basil Mustafa, Sebastian Goodman, Ibrahim Alabdulmohsin, and Piotr Padlewski et al. 2023c. Pali-3 비전 언어 모델: 더 작고, 더 빠르고, 더 강하다.\n' +
+      '* Dosovitskiy et al. (2021) Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov, Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner, Mostafa Dehghani, Matthias Minderer, Georg Heigold, Sylvain Gelly, Jakob Uszkoreit, and Neil Houlsby. 2021. 이미지는 16x16 단어의 가치가 있다: 스케일에서 이미지 인식을 위한 트랜스포머.\n' +
+      '* Gehrmann et al. (2022) Sebastian Gehrmann, Sebastian Ruder, Vitaly Nikolaev, Jan A. Botha, Michael Chavinda, Ankur Parikh, and Clara Rivera. 2022. Tata: 아프리카 언어에 대한 다국어 표 대 텍스트 데이터세트.\n' +
+      '* Team (2023) Gemini Team, Google. 2023. Gemini: Highly Capable Multimodal Model Family. [https://blog.google/technology/ai/google-gemini-ai/] (https://blog.google/technology/ai/google-gemini-ai/).\n' +
+      '* Han et al. (2023) Yucheng Han, Chi Zhang, Xin Chen, Xu Yang, Zhibin Wang, Gang Yu, Bin Fu, and Hanwang Zhang. 2023. Chartllama: 차트 이해와 생성을 위한 멀티모달 llm.\n' +
+      '* Hsieh et al. (2023) Cheng-Yu Hsieh, Chun-Liang Li, Chih-Kuan Yeh, Hootan Nakhost, Yasuhisa Fujii, Alexander Ratner, Ranjay Krishna, Chen-Yu Lee, and Tomas Pfister. 2023. 단계별로 증류하는 단계! 학습 데이터가 적고 모델 크기가 작을수록 더 큰 언어 모델을 능가합니다.\n' +
+      '\n' +
+      '쿠샬 카플, 브라이언 프라이스, 스콧 코헨, 크리스토퍼 카난 2018. Dvqa: 질문 응답을 통한 데이터 시각화의 이해.\n' +
+      '* Lee et al. (2023) Kenton Lee, Mandar Joshi, Iulia Raluca Turc, Hexiang Hu, Fangyu Liu, Julian Martin Eisenschlos, Vavshi Khandelwal, Peter Shaw, Ming-Wei Chang, and Kristina Toutanova. 2023. Pix2struct: 시각적 언어 이해를 위한 사전 훈련으로서 스크린-샷 파싱. _International Conference on Machine Learning_, pages 18893-18912. PMLR.\n' +
+      '* Lewis et al. (2019) Mike Lewis, Yinhan Liu, Naman Goyal, Marjan Ghazvininejad, Abdelrahman Mohamed, Omer Levy, Ves Stoyanov, and Luke Zettlemoyer. 2019. Bart: 자연어 생성, 번역, 이해를 위한 시퀀스-투-시퀀스 사전 트레이닝을 잡음 제거한다.\n' +
+      '* Liu et al. (2023a) Fangyu Liu, Julian Martin Eisenschlos, Francesco Piccinno, Syrine Krichene, Chenxi Pang, Kenton Lee, Mandar Joshi, Wenhu Chen, Nigel Collier, and Yasemin Altun. 2023a. 플롯: 플롯-테이블 변환에 의한 원샷 시각적 언어 추론.\n' +
+      '* Liu et al.(2023b) Fangyu Liu, Francesco Piccinno, Syrine Krichene, Chenxi Pang, Kenton Lee, Mandar Joshi, Yasemin Altun, Nigel Collier, and Julian Martin Eisenschlos. 2023b. 매차: 수학 추론과 차트 디렌더링으로 시각적 언어 사전 훈련을 강화합니다.\n' +
+      '* Luo et al. (2021) Junyu Luo, Zekun Li, Jinpeng Wang, and Chin-Yew Lin. 2021. 차토크: 딥 하이브리드 프레임워크를 통한 차트 이미지로부터의 데이터 추출. _ 2021 IEEE Winter Conference on Applications of Computer Vision (WACV)_, pages 1916-1924.\n' +
+      '* Magister et al.(2023) Lucie Charlotte Magister, Jonathan Mallinson, Jakub Adamek, Eric Malmi, and Aliaksei Severyn. 2023. 소언어 모델을 이성에 맞게 가르치는 것.\n' +
+      '* Masry et al. (2023) Ahmed Masry, Parsa Kavehzadeh, Xuan Long Do, Enamul Hoque, and Shafiq Joty. 2023. 유니차트: 차트 이해 및 추론을 위한 범용 비전 언어 사전 훈련 모델. _ arXiv preprint arXiv:2305.14761_.\n' +
+      '* Masry et al. (2022) Ahmed Masry, Do Xuan Long, Jia Qing Tan, Shafiq Joty, and Enamul Hoque. 2022. Chartqa: 시각적 및 논리적 추론으로 차트에 대한 질문 응답의 벤치마크.\n' +
+      '* Methani et al. (2020) Nitesh Methani, Pritha Ganguly, Mitesh M. 카프라, 프라츄시 쿠마르 2020. Plotqa: 과학적 플롯에 대한 추론.\n' +
+      '* OpenAI(2023) OpenAI. 2023. GPT-4 기술보고서.\n' +
+      '* Press et al. (2023) Ofir Press, Muru Zhang, Sewon Min, Ludwig Schmidt, Noah A. Smith, and Mike Lewis. 2023. 언어 모델들의 조성 갭을 측정하고 좁히는 단계.\n' +
+      '* Raffel et al. (2023) Colin Raffel, Noam Shazeer, Adam Roberts, Katherine Lee, Sharan Narang, Michael Matena, Yanqi Zhou, Wei Li, and Peter J. Liu. 2023. 전자, 통일된 텍스트-텍스트 변환기로 전이 학습의 한계를 탐색한다.\n' +
+      '* Wang et al. (2023a) Boshi Wang, Sewon Min, Xiang Deng, Jiaming Shen, You Wu, Luke Zettlemoyer, and Huan Sun. 2023a. 사고의 연쇄를 이해하기 위해: 무엇이 중요한지에 대한 실증적 연구. _Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)_, pages 2717-2739, Canada, Toronto. 컴퓨터 언어학과의 연관성\n' +
+      '* Wang et al. (2022b) Xuezhi Wang, Jason Wei, Dale Schuurmans, Quoc Le, Ed Chi, Sharan Narang, Aakanksha Chowdhory, and Denny Zhou. 2023b. 자기일관성은 언어 모델에서 사고 추론의 사슬을 향상시킨다.\n' +
+      '* Wei et al. (2022) Jason Wei, Yi Tay, Rishi Bommasani, Colin Raffel, Barret Zoph, Sebastian Borgeaud, Dani Yogatama, Maarten Bosma, Denny Zhou, Donald Metzler, Ed H. Chi, Tatsunori Hashimoto, Oriol Vinyals, Percy Liang, Jeff Dean, and William Fedus. 2022. 대형 언어 모델의 출현 능력.\n' +
+      '* Wei et al. (2023) Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Brian Ichter, Fei Xia, Ed Chi, Quoc Le, and Denny Zhou. 2023. Chain-of-thought prompting은 큰 언어 모델에서 추론을 이끌어낸다.\n' +
+      '* Wu et al. (2023) Jialin Wu, Xia Hu, Yaqing Wang, Bo Pang, and Radu Soricut. 2023. Omni-smola: Boosting Generalist multimodal models with soft mixture of low-rank experts.\n' +
+      '* Zhou et al. (2023) Denny Zhou, Nathanael Scharli, Le Hou, Jason Wei, Nathan Scales, Xuezhi Wang, Dale Schuurmans, Claire Cui, Olivier Bousquet, Quoc Le, and Ed Chi. 2023. 최소에서 최대 프롬프트는 큰 언어 모델에서 복잡한 추론을 가능하게 한다.\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:12]\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:13]\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:14]\n' +
+      '\n' +
+      '도. 11: 중간값의 추출이 우수하다.\n' +
+      '\n' +
+      '도. 16: 값을 열거하고 보다 복잡한 수치 조건을 확인하는 것에 있어서 해답과 근거 모두 틀릴 수 있다.\n' +
+      '\n' +
+      '도. 12: 추출된 수량들의 정확한 핸들링.\n' +
+      '\n' +
+      '도. 11: 중간값의 추출이 우수하다.\n' +
+      '\n' +
+      '도. 13: 결측값을 추론하는 강한 능력.\n' +
+      '\n' +
+      '도. 14: 다수의 가치들 사이의 평등을 체크하는 것은 훨씬 더 나은 추론 능력들을 요구한다.\n' +
+      '\n' +
+      '도. 15: 잘못된 연산 결과에도 불구하고, 최종 답은 여전히 정확할 수 있음\n' +
+      '\n' +
+      '[MISSING_PAGE_FAIL:16]\n' +
+      '\n';
+  </script>
+  <style>
+    #content {
+      max-width: 800px;
+      margin: auto;
+    }
+  </style>
+  <script>
+    let script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/mathpix-markdown-it@1.0.40/es5/bundle.js";
+    document.head.append(script);
+
+    script.onload = function() {
+      const isLoaded = window.loadMathJax();
+      if (isLoaded) {
+        console.log('Styles loaded!')
+      }
+
+      const el = window.document.getElementById('content-text');
+      if (el) {
+        const options = {
+          htmlTags: true
+        };
+        const html = window.render(text, options);
+        el.outerHTML = html;
+      }
+    };
+  </script>
+</head>
+<body>
+  <div id="content"><div id="content-text"></div></div>
+</body>
+</html>
