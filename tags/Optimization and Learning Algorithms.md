@@ -61,3 +61,5 @@
 - [Recurrent Drafter for Fast Speculative Decoding in Large Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/46/2024-03-18+Recurrent+Drafter+for+Fast+Speculative+Decoding+in+Large+Language+Models.yaml) / 2024-03-18
 - [DiPaCo: Distributed Path Composition](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/47/2024-03-19+DiPaCo%3A+Distributed+Path+Composition.yaml) / 2024-03-19
 - [PERL: Parameter Efficient Reinforcement Learning from Human Feedback](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/47/2024-03-19+PERL%3A+Parameter+Efficient+Reinforcement+Learning+from+Human+Feedback.yaml) / 2024-03-19
+- [Evolutionary Optimization of Model Merging Recipes](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/49/2024-03-21+Evolutionary+Optimization+of+Model+Merging+Recipes.yaml) / 2024-03-21
+- [LlamaFactory: Unified Efficient Fine-Tuning of 100+ Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/49/2024-03-21+LlamaFactory%3A+Unified+Efficient+Fine-Tuning+of+100%2B+Language+Models.yaml) / 2024-03-21

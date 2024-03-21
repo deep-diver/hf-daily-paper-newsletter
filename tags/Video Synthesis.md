@@ -1,1 +1,2 @@
 - [Boximator: Generating Rich and Controllable Motions for Video Synthesis](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/17/2024-02-05+Boximator%3A+Generating+Rich+and+Controllable+Motions+for+Video+Synthesis.yaml) / 2024-02-05
+- [VSTAR: Generative Temporal Nursing for Longer Dynamic Video Synthesis](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/49/2024-03-21+VSTAR%3A+Generative+Temporal+Nursing+for+Longer+Dynamic+Video+Synthesis.yaml) / 2024-03-21
