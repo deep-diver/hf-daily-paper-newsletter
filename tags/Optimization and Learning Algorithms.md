@@ -63,3 +63,4 @@
 - [PERL: Parameter Efficient Reinforcement Learning from Human Feedback](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/47/2024-03-19+PERL%3A+Parameter+Efficient+Reinforcement+Learning+from+Human+Feedback.yaml) / 2024-03-19
 - [Evolutionary Optimization of Model Merging Recipes](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/49/2024-03-21+Evolutionary+Optimization+of+Model+Merging+Recipes.yaml) / 2024-03-21
 - [LlamaFactory: Unified Efficient Fine-Tuning of 100+ Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/49/2024-03-21+LlamaFactory%3A+Unified+Efficient+Fine-Tuning+of+100%2B+Language+Models.yaml) / 2024-03-21
+- [DreamReward: Text-to-3D Generation with Human Preference](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/50/2024-03-22+DreamReward%3A+Text-to-3D+Generation+with+Human+Preference.yaml) / 2024-03-22
