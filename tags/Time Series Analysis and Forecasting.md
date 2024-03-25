@@ -3,3 +3,4 @@
 - [Hierarchical State Space Models for Continuous Sequence-to-Sequence Modeling](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/26/2024-02-16+Hierarchical+State+Space+Models+for+Continuous+Sequence-to-Sequence+Modeling.yaml) / 2024-02-16
 - [Rolling Diffusion Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/26/2024-02-16+Rolling+Diffusion+Models.yaml) / 2024-02-16
 - [Chronos: Learning the Language of Time Series](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/43/2024-03-13+Chronos%3A+Learning+the+Language+of+Time+Series.yaml) / 2024-03-13
+- [SiMBA: Simplified Mamba-Based Architecture for Vision and Multivariate Time series](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/51/2024-03-25+SiMBA%3A+Simplified+Mamba-Based+Architecture+for+Vision+and+Multivariate+Time+series.yaml) / 2024-03-25

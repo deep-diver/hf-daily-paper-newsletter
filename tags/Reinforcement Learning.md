@@ -44,3 +44,4 @@
 - [Vid2Robot: End-to-end Video-conditioned Policy Learning with Cross-Attention Transformers](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/48/2024-03-20+Vid2Robot%3A+End-to-end+Video-conditioned+Policy+Learning+with+Cross-Attention+Transformers.yaml) / 2024-03-20
 - [RewardBench: Evaluating Reward Models for Language Modeling](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/49/2024-03-21+RewardBench%3A+Evaluating+Reward+Models+for+Language+Modeling.yaml) / 2024-03-21
 - [DreamReward: Text-to-3D Generation with Human Preference](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/50/2024-03-22+DreamReward%3A+Text-to-3D+Generation+with+Human+Preference.yaml) / 2024-03-22
+- [Can large language models explore in-context?](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/51/2024-03-25+Can+large+language+models+explore+in-context%3F.yaml) / 2024-03-25

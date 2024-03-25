@@ -1,0 +1,1 @@
+- [Compiler generated feedback for Large Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/51/2024-03-25+Compiler+generated+feedback+for+Large+Language+Models.yaml) / 2024-03-25
