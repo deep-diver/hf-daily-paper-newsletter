@@ -66,3 +66,5 @@
 - [DreamReward: Text-to-3D Generation with Human Preference](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/50/2024-03-22+DreamReward%3A+Text-to-3D+Generation+with+Human+Preference.yaml) / 2024-03-22
 - [Compiler generated feedback for Large Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/51/2024-03-25+Compiler+generated+feedback+for+Large+Language+Models.yaml) / 2024-03-25
 - [LLM2LLM: Boosting LLMs with Novel Iterative Data Enhancement](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/51/2024-03-25+LLM2LLM%3A+Boosting+LLMs+with+Novel+Iterative+Data+Enhancement.yaml) / 2024-03-25
+- [Decoding Compressed Trust: Scrutinizing the Trustworthiness of Efficient LLMs Under Compression](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/52/2024-03-26+Decoding+Compressed+Trust%3A+Scrutinizing+the+Trustworthiness+of+Efficient+LLMs+Under+Compression.yaml) / 2024-03-26
+- [LLM Agent Operating System](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/52/2024-03-26+LLM+Agent+Operating+System.yaml) / 2024-03-26

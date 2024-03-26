@@ -38,3 +38,4 @@
 - [MyVLM: Personalizing VLMs for User-Specific Queries](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/50/2024-03-22+MyVLM%3A+Personalizing+VLMs+for+User-Specific+Queries.yaml) / 2024-03-22
 - [Can large language models explore in-context?](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/51/2024-03-25+Can+large+language+models+explore+in-context%3F.yaml) / 2024-03-25
 - [Compiler generated feedback for Large Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/51/2024-03-25+Compiler+generated+feedback+for+Large+Language+Models.yaml) / 2024-03-25
+- [LLM Agent Operating System](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/52/2024-03-26+LLM+Agent+Operating+System.yaml) / 2024-03-26
