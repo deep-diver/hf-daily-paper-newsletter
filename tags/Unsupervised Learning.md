@@ -34,3 +34,4 @@
 - [VFusion3D: Learning Scalable 3D Generative Models from Video Diffusion Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/47/2024-03-19+VFusion3D%3A+Learning+Scalable+3D+Generative+Models+from+Video+Diffusion+Models.yaml) / 2024-03-19
 - [VideoAgent: A Memory-augmented Multimodal Agent for Video Understanding](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/47/2024-03-19+VideoAgent%3A+A+Memory-augmented+Multimodal+Agent+for+Video+Understanding.yaml) / 2024-03-19
 - [DragAPart: Learning a Part-Level Motion Prior for Articulated Objects](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/51/2024-03-25+DragAPart%3A+Learning+a+Part-Level+Motion+Prior+for+Articulated+Objects.yaml) / 2024-03-25
+- [InternLM2 Technical Report](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/53/2024-03-27+InternLM2+Technical+Report.yaml) / 2024-03-27

@@ -332,3 +332,4 @@
 - [Be Yourself: Bounded Attention for Multi-Subject Text-to-Image Generation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/52/2024-03-26+Be+Yourself%3A+Bounded+Attention+for+Multi-Subject+Text-to-Image+Generation.yaml) / 2024-03-26
 - [Decoding Compressed Trust: Scrutinizing the Trustworthiness of Efficient LLMs Under Compression](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/52/2024-03-26+Decoding+Compressed+Trust%3A+Scrutinizing+the+Trustworthiness+of+Efficient+LLMs+Under+Compression.yaml) / 2024-03-26
 - [RakutenAI-7B: Extending Large Language Models for Japanese](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/52/2024-03-26+RakutenAI-7B%3A+Extending+Large+Language+Models+for+Japanese.yaml) / 2024-03-26
+- [InternLM2 Technical Report](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/53/2024-03-27+InternLM2+Technical+Report.yaml) / 2024-03-27

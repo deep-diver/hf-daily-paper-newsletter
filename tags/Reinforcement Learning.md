@@ -45,3 +45,4 @@
 - [RewardBench: Evaluating Reward Models for Language Modeling](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/49/2024-03-21+RewardBench%3A+Evaluating+Reward+Models+for+Language+Modeling.yaml) / 2024-03-21
 - [DreamReward: Text-to-3D Generation with Human Preference](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/50/2024-03-22+DreamReward%3A+Text-to-3D+Generation+with+Human+Preference.yaml) / 2024-03-22
 - [Can large language models explore in-context?](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/51/2024-03-25+Can+large+language+models+explore+in-context%3F.yaml) / 2024-03-25
+- [InternLM2 Technical Report](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/53/2024-03-27+InternLM2+Technical+Report.yaml) / 2024-03-27

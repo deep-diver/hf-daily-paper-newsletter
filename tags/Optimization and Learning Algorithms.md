@@ -68,3 +68,4 @@
 - [LLM2LLM: Boosting LLMs with Novel Iterative Data Enhancement](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/51/2024-03-25+LLM2LLM%3A+Boosting+LLMs+with+Novel+Iterative+Data+Enhancement.yaml) / 2024-03-25
 - [Decoding Compressed Trust: Scrutinizing the Trustworthiness of Efficient LLMs Under Compression](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/52/2024-03-26+Decoding+Compressed+Trust%3A+Scrutinizing+the+Trustworthiness+of+Efficient+LLMs+Under+Compression.yaml) / 2024-03-26
 - [LLM Agent Operating System](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/52/2024-03-26+LLM+Agent+Operating+System.yaml) / 2024-03-26
+- [Fully-fused Multi-Layer Perceptrons on Intel Data Center GPUs](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/53/2024-03-27+Fully-fused+Multi-Layer+Perceptrons+on+Intel+Data+Center+GPUs.yaml) / 2024-03-27
