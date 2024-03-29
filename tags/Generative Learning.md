@@ -1,0 +1,1 @@
+- [GaussianCube: Structuring Gaussian Splatting using Optimal Transport for 3D Generative Modeling](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/55/2024-03-29+GaussianCube%3A+Structuring+Gaussian+Splatting+using+Optimal+Transport+for+3D+Generative+Modeling.yaml) / 2024-03-29

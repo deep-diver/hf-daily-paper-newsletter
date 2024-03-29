@@ -337,3 +337,5 @@
 - [Long-form factuality in large language models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/54/2024-03-28+Long-form+factuality+in+large+language+models.yaml) / 2024-03-28
 - [Mini-Gemini: Mining the Potential of Multi-modality Vision Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/54/2024-03-28+Mini-Gemini%3A+Mining+the+Potential+of+Multi-modality+Vision+Language+Models.yaml) / 2024-03-28
 - [Towards a World-English Language Model for On-Device Virtual Assistants](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/54/2024-03-28+Towards+a+World-English+Language+Model+for+On-Device+Virtual+Assistants.yaml) / 2024-03-28
+- [LITA: Language Instructed Temporal-Localization Assistant](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/55/2024-03-29+LITA%3A+Language+Instructed+Temporal-Localization+Assistant.yaml) / 2024-03-29
+- [sDPO: Don't Use Your Data All at Once](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/55/2024-03-29+sDPO%3A+Don%27t+Use+Your+Data+All+at+Once.yaml) / 2024-03-29

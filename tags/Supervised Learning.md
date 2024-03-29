@@ -161,3 +161,4 @@
 - [Improving Text-to-Image Consistency via Automatic Prompt Optimization](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/53/2024-03-27+Improving+Text-to-Image+Consistency+via+Automatic+Prompt+Optimization.yaml) / 2024-03-27
 - [InternLM2 Technical Report](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/53/2024-03-27+InternLM2+Technical+Report.yaml) / 2024-03-27
 - [The Unreasonable Ineffectiveness of the Deeper Layers](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/53/2024-03-27+The+Unreasonable+Ineffectiveness+of+the+Deeper+Layers.yaml) / 2024-03-27
+- [sDPO: Don't Use Your Data All at Once](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/55/2024-03-29+sDPO%3A+Don%27t+Use+Your+Data+All+at+Once.yaml) / 2024-03-29
