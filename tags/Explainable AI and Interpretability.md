@@ -40,3 +40,4 @@
 - [Compiler generated feedback for Large Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/51/2024-03-25+Compiler+generated+feedback+for+Large+Language+Models.yaml) / 2024-03-25
 - [LLM Agent Operating System](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/52/2024-03-26+LLM+Agent+Operating+System.yaml) / 2024-03-26
 - [Unsolvable Problem Detection: Evaluating Trustworthiness of Vision Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/56/2024-04-01+Unsolvable+Problem+Detection%3A+Evaluating+Trustworthiness+of+Vision+Language+Models.yaml) / 2024-04-01
+- [Are large language models superhuman chemists?](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/58/2024-04-03+Are+large+language+models+superhuman+chemists%3F.yaml) / 2024-04-03

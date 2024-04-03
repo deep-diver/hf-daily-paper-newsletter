@@ -318,3 +318,5 @@
 - [Measuring Style Similarity in Diffusion Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/57/2024-04-02+Measuring+Style+Similarity+in+Diffusion+Models.yaml) / 2024-04-02
 - [ST-LLM: Large Language Models Are Effective Temporal Learners](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/57/2024-04-02+ST-LLM%3A+Large+Language+Models+Are+Effective+Temporal+Learners.yaml) / 2024-04-02
 - [Streaming Dense Video Captioning](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/57/2024-04-02+Streaming+Dense+Video+Captioning.yaml) / 2024-04-02
+- [3D Congealing: 3D-Aware Image Alignment in the Wild](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/58/2024-04-03+3D+Congealing%3A+3D-Aware+Image+Alignment+in+the+Wild.yaml) / 2024-04-03
+- [CameraCtrl: Enabling Camera Control for Text-to-Video Generation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/58/2024-04-03+CameraCtrl%3A+Enabling+Camera+Control+for+Text-to-Video+Generation.yaml) / 2024-04-03

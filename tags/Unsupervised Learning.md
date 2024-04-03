@@ -37,3 +37,4 @@
 - [InternLM2 Technical Report](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/53/2024-03-27+InternLM2+Technical+Report.yaml) / 2024-03-27
 - [Unsolvable Problem Detection: Evaluating Trustworthiness of Vision Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/56/2024-04-01+Unsolvable+Problem+Detection%3A+Evaluating+Trustworthiness+of+Vision+Language+Models.yaml) / 2024-04-01
 - [FlexiDreamer: Single Image-to-3D Generation with FlexiCubes](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/57/2024-04-02+FlexiDreamer%3A+Single+Image-to-3D+Generation+with+FlexiCubes.yaml) / 2024-04-02
+- [Poro 34B and the Blessing of Multilinguality](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/58/2024-04-03+Poro+34B+and+the+Blessing+of+Multilinguality.yaml) / 2024-04-03
