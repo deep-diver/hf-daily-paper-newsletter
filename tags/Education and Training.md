@@ -1,0 +1,1 @@
+- [Social Skill Training with Large Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/61/2024-04-08+Social+Skill+Training+with+Large+Language+Models.yaml) / 2024-04-08
