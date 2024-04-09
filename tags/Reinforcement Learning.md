@@ -50,3 +50,4 @@
 - [AutoWebGLM: Bootstrap And Reinforce A Large Language Model-based Web Navigating Agent](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/61/2024-04-08+AutoWebGLM%3A+Bootstrap+And+Reinforce+A+Large+Language+Model-based+Web+Navigating+Agent.yaml) / 2024-04-08
 - [RL for Consistency Models: Faster Reward Guided Text-to-Image Generation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/61/2024-04-08+RL+for+Consistency+Models%3A+Faster+Reward+Guided+Text-to-Image+Generation.yaml) / 2024-04-08
 - [Stream of Search (SoS): Learning to Search in Language](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/61/2024-04-08+Stream+of+Search+%28SoS%29%3A+Learning+to+Search+in+Language.yaml) / 2024-04-08
+- [YaART: Yet Another ART Rendering Technology](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/62/2024-04-09+YaART%3A+Yet+Another+ART+Rendering+Technology.yaml) / 2024-04-09

@@ -374,3 +374,4 @@
 - [Direct Nash Optimization: Teaching Language Models to Self-Improve with General Preferences](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/61/2024-04-08+Direct+Nash+Optimization%3A+Teaching+Language+Models+to+Self-Improve+with+General+Preferences.yaml) / 2024-04-08
 - [Social Skill Training with Large Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/61/2024-04-08+Social+Skill+Training+with+Large+Language+Models.yaml) / 2024-04-08
 - [Stream of Search (SoS): Learning to Search in Language](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/61/2024-04-08+Stream+of+Search+%28SoS%29%3A+Learning+to+Search+in+Language.yaml) / 2024-04-08
+- [Ferret-UI: Grounded Mobile UI Understanding with Multimodal LLMs](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/62/2024-04-09+Ferret-UI%3A+Grounded+Mobile+UI+Understanding+with+Multimodal+LLMs.yaml) / 2024-04-09
