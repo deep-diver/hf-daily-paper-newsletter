@@ -181,3 +181,6 @@
 - [Social Skill Training with Large Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/61/2024-04-08+Social+Skill+Training+with+Large+Language+Models.yaml) / 2024-04-08
 - [UniFL: Improve Stable Diffusion via Unified Feedback Learning](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/62/2024-04-09+UniFL%3A+Improve+Stable+Diffusion+via+Unified+Feedback+Learning.yaml) / 2024-04-09
 - [YaART: Yet Another ART Rendering Technology](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/62/2024-04-09+YaART%3A+Yet+Another+ART+Rendering+Technology.yaml) / 2024-04-09
+- [CodecLM: Aligning Language Models with Tailored Synthetic Data](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/63/2024-04-10+CodecLM%3A+Aligning+Language+Models+with+Tailored+Synthetic+Data.yaml) / 2024-04-10
+- [Elephants Never Forget: Memorization and Learning of Tabular Data in Large Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/63/2024-04-10+Elephants+Never+Forget%3A+Memorization+and+Learning+of+Tabular+Data+in+Large+Language+Models.yaml) / 2024-04-10
+- [OmniFusion Technical Report](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/63/2024-04-10+OmniFusion+Technical+Report.yaml) / 2024-04-10
