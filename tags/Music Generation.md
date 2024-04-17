@@ -1,3 +1,4 @@
 - [DITTO: Diffusion Inference-Time T-Optimization for Music Generation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/8/2024-01-23+DITTO%3A+Diffusion+Inference-Time+T-Optimization+for+Music+Generation.yaml) / 2024-01-23
 - [MusicRL: Aligning Music Generation to Human Preferences](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/19/2024-02-07+MusicRL%3A+Aligning+Music+Generation+to+Human+Preferences.yaml) / 2024-02-07
 - [MusicHiFi: Fast High-Fidelity Stereo Vocoding](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/46/2024-03-18+MusicHiFi%3A+Fast+High-Fidelity+Stereo+Vocoding.yaml) / 2024-03-18
+- [Long-form music generation with latent diffusion](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/68/2024-04-17+Long-form+music+generation+with+latent+diffusion.yaml) / 2024-04-17
