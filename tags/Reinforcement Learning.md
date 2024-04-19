@@ -55,3 +55,4 @@
 - [Dataset Reset Policy Optimization for RLHF](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/66/2024-04-15+Dataset+Reset+Policy+Optimization+for+RLHF.yaml) / 2024-04-15
 - [Learn Your Reference Model for Real Good Alignment](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/67/2024-04-16+Learn+Your+Reference+Model+for+Real+Good+Alignment.yaml) / 2024-04-16
 - [Scaling Instructable Agents Across Many Simulated Worlds](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/68/2024-04-17+Scaling+Instructable+Agents+Across+Many+Simulated+Worlds.yaml) / 2024-04-17
+- [Toward Self-Improvement of LLMs via Imagination, Searching, and Criticizing](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/69/2024-04-19+Toward+Self-Improvement+of+LLMs+via+Imagination%2C+Searching%2C+and+Criticizing.yaml) / 2024-04-19
