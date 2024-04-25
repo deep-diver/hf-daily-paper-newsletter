@@ -47,3 +47,4 @@
 - [RecurrentGemma: Moving Past Transformers for Efficient Open Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/65/2024-04-12+RecurrentGemma%3A+Moving+Past+Transformers+for+Efficient+Open+Language+Models.yaml) / 2024-04-12
 - [Long-form music generation with latent diffusion](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/68/2024-04-17+Long-form+music+generation+with+latent+diffusion.yaml) / 2024-04-17
 - [Toward Self-Improvement of LLMs via Imagination, Searching, and Criticizing](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/69/2024-04-19+Toward+Self-Improvement+of+LLMs+via+Imagination%2C+Searching%2C+and+Criticizing.yaml) / 2024-04-19
+- [Editable Image Elements for Controllable Synthesis](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/72/2024-04-25+Editable+Image+Elements+for+Controllable+Synthesis.yaml) / 2024-04-25

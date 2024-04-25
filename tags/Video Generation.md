@@ -1,1 +1,2 @@
 - [Snap Video: Scaled Spatiotemporal Transformers for Text-to-Video Synthesis](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/31/2024-02-23+Snap+Video%3A+Scaled+Spatiotemporal+Transformers+for+Text-to-Video+Synthesis.yaml) / 2024-02-23
+- [MotionMaster: Training-free Camera Motion Transfer For Video Generation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/72/2024-04-25+MotionMaster%3A+Training-free+Camera+Motion+Transfer+For+Video+Generation.yaml) / 2024-04-25
