@@ -214,3 +214,4 @@
 - [Make Your LLM Fully Utilize the Context](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/73/2024-04-26+Make+Your+LLM+Fully+Utilize+the+Context.yaml) / 2024-04-26
 - [Revisiting Text-to-Image Evaluation with Gecko: On Metrics, Prompts, and Human Ratings](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/73/2024-04-26+Revisiting+Text-to-Image+Evaluation+with+Gecko%3A+On+Metrics%2C+Prompts%2C+and+Human+Ratings.yaml) / 2024-04-26
 - [Tele-FLM Technical Report](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/73/2024-04-26+Tele-FLM+Technical+Report.yaml) / 2024-04-26
+- [Stylus: Automatic Adapter Selection for Diffusion Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/75/2024-04-30+Stylus%3A+Automatic+Adapter+Selection+for+Diffusion+Models.yaml) / 2024-04-30
