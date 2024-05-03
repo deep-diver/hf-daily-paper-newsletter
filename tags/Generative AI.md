@@ -1,0 +1,1 @@
+- [StoryDiffusion: Consistent Self-Attention for Long-Range Image and Video Generation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/78/2024-05-03+StoryDiffusion%3A+Consistent+Self-Attention+for+Long-Range+Image+and+Video+Generation.yaml) / 2024-05-03
