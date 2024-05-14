@@ -46,3 +46,4 @@
 - [Ferret-UI: Grounded Mobile UI Understanding with Multimodal LLMs](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/62/2024-04-09+Ferret-UI%3A+Grounded+Mobile+UI+Understanding+with+Multimodal+LLMs.yaml) / 2024-04-09
 - [KAN: Kolmogorov-Arnold Networks](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/76/2024-05-01+KAN%3A+Kolmogorov-Arnold+Networks.yaml) / 2024-05-01
 - [Visual Fact Checker: Enabling High-Fidelity Detailed Caption Generation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/76/2024-05-01+Visual+Fact+Checker%3A+Enabling+High-Fidelity+Detailed+Caption+Generation.yaml) / 2024-05-01
+- [Large Language Models as Planning Domain Generators](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/79/2024-05-14+Large+Language+Models+as+Planning+Domain+Generators.yaml) / 2024-05-14

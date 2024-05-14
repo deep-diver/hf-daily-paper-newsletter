@@ -84,3 +84,4 @@
 - [Align Your Steps: Optimizing Sampling Schedules in Diffusion Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/71/2024-04-24+Align+Your+Steps%3A+Optimizing+Sampling+Schedules+in+Diffusion+Models.yaml) / 2024-04-24
 - [BASS: Batched Attention-optimized Speculative Sampling](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/72/2024-04-25+BASS%3A+Batched+Attention-optimized+Speculative+Sampling.yaml) / 2024-04-25
 - [Extending Llama-3's Context Ten-Fold Overnight](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/76/2024-05-01+Extending+Llama-3%27s+Context+Ten-Fold+Overnight.yaml) / 2024-05-01
+- [SambaNova SN40L: Scaling the AI Memory Wall with Dataflow and Composition of Experts](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/79/2024-05-14+SambaNova+SN40L%3A+Scaling+the+AI+Memory+Wall+with+Dataflow+and+Composition+of+Experts.yaml) / 2024-05-14
