@@ -1,2 +1,3 @@
 - [Proactive Detection of Voice Cloning with Localized Watermarking](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/14/2024-01-31+Proactive+Detection+of+Voice+Cloning+with+Localized+Watermarking.yaml) / 2024-01-31
 - [Weak-to-Strong Jailbreaking on Large Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/14/2024-01-31+Weak-to-Strong+Jailbreaking+on+Large+Language+Models.yaml) / 2024-01-31
+- [SpeechGuard: Exploring the Adversarial Robustness of Multimodal Large Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/80/2024-05-15+SpeechGuard%3A+Exploring+the+Adversarial+Robustness+of+Multimodal+Large+Language+Models.yaml) / 2024-05-15

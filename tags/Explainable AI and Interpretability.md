@@ -47,3 +47,4 @@
 - [KAN: Kolmogorov-Arnold Networks](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/76/2024-05-01+KAN%3A+Kolmogorov-Arnold+Networks.yaml) / 2024-05-01
 - [Visual Fact Checker: Enabling High-Fidelity Detailed Caption Generation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/76/2024-05-01+Visual+Fact+Checker%3A+Enabling+High-Fidelity+Detailed+Caption+Generation.yaml) / 2024-05-01
 - [Large Language Models as Planning Domain Generators](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/79/2024-05-14+Large+Language+Models+as+Planning+Domain+Generators.yaml) / 2024-05-14
+- [Beyond Scaling Laws: Understanding Transformer Performance with Associative Memory](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/80/2024-05-15+Beyond+Scaling+Laws%3A+Understanding+Transformer+Performance+with+Associative+Memory.yaml) / 2024-05-15

@@ -469,3 +469,5 @@
 - [RLHF Workflow: From Reward Modeling to Online RLHF](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/79/2024-05-14+RLHF+Workflow%3A+From+Reward+Modeling+to+Online+RLHF.yaml) / 2024-05-14
 - [SUTRA: Scalable Multilingual Language Model Architecture](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/79/2024-05-14+SUTRA%3A+Scalable+Multilingual+Language+Model+Architecture.yaml) / 2024-05-14
 - [What matters when building vision-language models?](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/79/2024-05-14+What+matters+when+building+vision-language+models%3F.yaml) / 2024-05-14
+- [Compositional Text-to-Image Generation with Dense Blob Representations](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/80/2024-05-15+Compositional+Text-to-Image+Generation+with+Dense+Blob+Representations.yaml) / 2024-05-15
+- [SpeechVerse: A Large-scale Generalizable Audio Language Model](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/80/2024-05-15+SpeechVerse%3A+A+Large-scale+Generalizable+Audio+Language+Model.yaml) / 2024-05-15
