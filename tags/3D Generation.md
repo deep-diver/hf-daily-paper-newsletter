@@ -1,1 +1,2 @@
 - [Compress3D: a Compressed Latent Space for 3D Generation from a Single Image](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/49/2024-03-21+Compress3D%3A+a+Compressed+Latent+Space+for+3D+Generation+from+a+Single+Image.yaml) / 2024-03-21
+- [Dual3D: Efficient and Consistent Text-to-3D Generation with Dual-mode Multi-view Latent Diffusion](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/82/2024-05-17+Dual3D%3A+Efficient+and+Consistent+Text-to-3D+Generation+with+Dual-mode+Multi-view+Latent+Diffusion.yaml) / 2024-05-17
