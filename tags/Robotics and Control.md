@@ -34,3 +34,4 @@
 - [Ag2Manip: Learning Novel Manipulation Skills with Agent-Agnostic Visual and Action Representations](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/75/2024-04-30+Ag2Manip%3A+Learning+Novel+Manipulation+Skills+with+Agent-Agnostic+Visual+and+Action+Representations.yaml) / 2024-04-30
 - [LEGENT: Open Platform for Embodied Agents](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/75/2024-04-30+LEGENT%3A+Open+Platform+for+Embodied+Agents.yaml) / 2024-04-30
 - [TRANSIC: Sim-to-Real Policy Transfer by Learning from Online Correction](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/82/2024-05-17+TRANSIC%3A+Sim-to-Real+Policy+Transfer+by+Learning+from+Online+Correction.yaml) / 2024-05-17
+- [Grounded 3D-LLM with Referent Tokens](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/83/2024-05-20+Grounded+3D-LLM+with+Referent+Tokens.yaml) / 2024-05-20

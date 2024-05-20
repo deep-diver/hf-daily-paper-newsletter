@@ -431,3 +431,4 @@
 - [Dual3D: Efficient and Consistent Text-to-3D Generation with Dual-mode Multi-view Latent Diffusion](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/82/2024-05-17+Dual3D%3A+Efficient+and+Consistent+Text-to-3D+Generation+with+Dual-mode+Multi-view+Latent+Diffusion.yaml) / 2024-05-17
 - [Grounding DINO 1.5: Advance the "Edge" of Open-Set Object Detection](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/82/2024-05-17+Grounding+DINO+1.5%3A+Advance+the+%22Edge%22+of+Open-Set+Object+Detection.yaml) / 2024-05-17
 - [Toon3D: Seeing Cartoons from a New Perspective](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/82/2024-05-17+Toon3D%3A+Seeing+Cartoons+from+a+New+Perspective.yaml) / 2024-05-17
+- [Grounded 3D-LLM with Referent Tokens](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/83/2024-05-20+Grounded+3D-LLM+with+Referent+Tokens.yaml) / 2024-05-20

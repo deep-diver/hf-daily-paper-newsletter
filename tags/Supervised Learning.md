@@ -234,3 +234,5 @@
 - [LoRA Learns Less and Forgets Less](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/82/2024-05-17+LoRA+Learns+Less+and+Forgets+Less.yaml) / 2024-05-17
 - [Many-Shot In-Context Learning in Multimodal Foundation Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/82/2024-05-17+Many-Shot+In-Context+Learning+in+Multimodal+Foundation+Models.yaml) / 2024-05-17
 - [TRANSIC: Sim-to-Real Policy Transfer by Learning from Online Correction](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/82/2024-05-17+TRANSIC%3A+Sim-to-Real+Policy+Transfer+by+Learning+from+Online+Correction.yaml) / 2024-05-17
+- [Grounded 3D-LLM with Referent Tokens](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/83/2024-05-20+Grounded+3D-LLM+with+Referent+Tokens.yaml) / 2024-05-20
+- [Observational Scaling Laws and the Predictability of Language Model Performance](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/83/2024-05-20+Observational+Scaling+Laws+and+the+Predictability+of+Language+Model+Performance.yaml) / 2024-05-20
