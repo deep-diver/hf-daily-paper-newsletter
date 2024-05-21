@@ -236,3 +236,4 @@
 - [TRANSIC: Sim-to-Real Policy Transfer by Learning from Online Correction](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/82/2024-05-17+TRANSIC%3A+Sim-to-Real+Policy+Transfer+by+Learning+from+Online+Correction.yaml) / 2024-05-17
 - [Grounded 3D-LLM with Referent Tokens](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/83/2024-05-20+Grounded+3D-LLM+with+Referent+Tokens.yaml) / 2024-05-20
 - [Observational Scaling Laws and the Predictability of Language Model Performance](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/83/2024-05-20+Observational+Scaling+Laws+and+the+Predictability+of+Language+Model+Performance.yaml) / 2024-05-20
+- [MoRA: High-Rank Updating for Parameter-Efficient Fine-Tuning](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/84/2024-05-21+MoRA%3A+High-Rank+Updating+for+Parameter-Efficient+Fine-Tuning.yaml) / 2024-05-21

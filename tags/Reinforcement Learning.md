@@ -62,3 +62,5 @@
 - [NeMo-Aligner: Scalable Toolkit for Efficient Model Alignment](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/78/2024-05-03+NeMo-Aligner%3A+Scalable+Toolkit+for+Efficient+Model+Alignment.yaml) / 2024-05-03
 - [RLHF Workflow: From Reward Modeling to Online RLHF](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/79/2024-05-14+RLHF+Workflow%3A+From+Reward+Modeling+to+Online+RLHF.yaml) / 2024-05-14
 - [TRANSIC: Sim-to-Real Policy Transfer by Learning from Online Correction](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/82/2024-05-17+TRANSIC%3A+Sim-to-Real+Policy+Transfer+by+Learning+from+Online+Correction.yaml) / 2024-05-17
+- [Octo: An Open-Source Generalist Robot Policy](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/84/2024-05-21+Octo%3A+An+Open-Source+Generalist+Robot+Policy.yaml) / 2024-05-21
+- [OpenRLHF: An Easy-to-use, Scalable and High-performance RLHF Framework](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/84/2024-05-21+OpenRLHF%3A+An+Easy-to-use%2C+Scalable+and+High-performance+RLHF+Framework.yaml) / 2024-05-21

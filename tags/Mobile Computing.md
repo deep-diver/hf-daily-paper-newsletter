@@ -1,0 +1,1 @@
+- [Imp: Highly Capable Large Multimodal Models for Mobile Devices](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/84/2024-05-21+Imp%3A+Highly+Capable+Large+Multimodal+Models+for+Mobile+Devices.yaml) / 2024-05-21
