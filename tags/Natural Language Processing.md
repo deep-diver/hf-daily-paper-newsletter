@@ -485,3 +485,6 @@
 - [MoRA: High-Rank Updating for Parameter-Efficient Fine-Tuning](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/84/2024-05-21+MoRA%3A+High-Rank+Updating+for+Parameter-Efficient+Fine-Tuning.yaml) / 2024-05-21
 - [Octo: An Open-Source Generalist Robot Policy](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/84/2024-05-21+Octo%3A+An+Open-Source+Generalist+Robot+Policy.yaml) / 2024-05-21
 - [Towards Modular LLMs by Building and Reusing a Library of LoRAs](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/84/2024-05-21+Towards+Modular+LLMs+by+Building+and+Reusing+a+Library+of+LoRAs.yaml) / 2024-05-21
+- [Personalized Residuals for Concept-Driven Text-to-Image Generation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/85/2024-05-22+Personalized+Residuals+for+Concept-Driven+Text-to-Image+Generation.yaml) / 2024-05-22
+- [Reducing Transformer Key-Value Cache Size with Cross-Layer Attention](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/85/2024-05-22+Reducing+Transformer+Key-Value+Cache+Size+with+Cross-Layer+Attention.yaml) / 2024-05-22
+- [Your Transformer is Secretly Linear](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/85/2024-05-22+Your+Transformer+is+Secretly+Linear.yaml) / 2024-05-22
