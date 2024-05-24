@@ -93,3 +93,5 @@
 - [Layer-Condensed KV Cache for Efficient Inference of Large Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/83/2024-05-20+Layer-Condensed+KV+Cache+for+Efficient+Inference+of+Large+Language+Models.yaml) / 2024-05-20
 - [OpenRLHF: An Easy-to-use, Scalable and High-performance RLHF Framework](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/84/2024-05-21+OpenRLHF%3A+An+Easy-to-use%2C+Scalable+and+High-performance+RLHF+Framework.yaml) / 2024-05-21
 - [Reducing Transformer Key-Value Cache Size with Cross-Layer Attention](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/85/2024-05-22+Reducing+Transformer+Key-Value+Cache+Size+with+Cross-Layer+Attention.yaml) / 2024-05-22
+- [Dense Connector for MLLMs](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/86/2024-05-24+Dense+Connector+for+MLLMs.yaml) / 2024-05-24
+- [Thermodynamic Natural Gradient Descent](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/86/2024-05-24+Thermodynamic+Natural+Gradient+Descent.yaml) / 2024-05-24

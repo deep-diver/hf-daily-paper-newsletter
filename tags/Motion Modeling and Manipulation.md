@@ -1,0 +1,1 @@
+- [CamViG: Camera Aware Image-to-Video Generation with Multimodal Transformers](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/86/2024-05-24+CamViG%3A+Camera+Aware+Image-to-Video+Generation+with+Multimodal+Transformers.yaml) / 2024-05-24
