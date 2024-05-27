@@ -65,3 +65,4 @@
 - [Octo: An Open-Source Generalist Robot Policy](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/84/2024-05-21+Octo%3A+An+Open-Source+Generalist+Robot+Policy.yaml) / 2024-05-21
 - [OpenRLHF: An Easy-to-use, Scalable and High-performance RLHF Framework](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/84/2024-05-21+OpenRLHF%3A+An+Easy-to-use%2C+Scalable+and+High-performance+RLHF+Framework.yaml) / 2024-05-21
 - [Diffusion for World Modeling: Visual Details Matter in Atari](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/85/2024-05-22+Diffusion+for+World+Modeling%3A+Visual+Details+Matter+in+Atari.yaml) / 2024-05-22
+- [iVideoGPT: Interactive VideoGPTs are Scalable World Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/87/2024-05-27+iVideoGPT%3A+Interactive+VideoGPTs+are+Scalable+World+Models.yaml) / 2024-05-27

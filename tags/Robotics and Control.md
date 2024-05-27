@@ -36,3 +36,4 @@
 - [TRANSIC: Sim-to-Real Policy Transfer by Learning from Online Correction](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/82/2024-05-17+TRANSIC%3A+Sim-to-Real+Policy+Transfer+by+Learning+from+Online+Correction.yaml) / 2024-05-17
 - [Grounded 3D-LLM with Referent Tokens](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/83/2024-05-20+Grounded+3D-LLM+with+Referent+Tokens.yaml) / 2024-05-20
 - [Octo: An Open-Source Generalist Robot Policy](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/84/2024-05-21+Octo%3A+An+Open-Source+Generalist+Robot+Policy.yaml) / 2024-05-21
+- [iVideoGPT: Interactive VideoGPTs are Scalable World Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/87/2024-05-27+iVideoGPT%3A+Interactive+VideoGPTs+are+Scalable+World+Models.yaml) / 2024-05-27
