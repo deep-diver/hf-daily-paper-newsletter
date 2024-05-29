@@ -1,3 +1,4 @@
 - [SiT: Exploring Flow and Diffusion-based Generative Models with Scalable Interpolant Transformers](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/5/2024-01-18+SiT%3A+Exploring+Flow+and+Diffusion-based+Generative+Models+with+Scalable+Interpolant+Transformers.yaml) / 2024-01-18
 - [Make-A-Shape: a Ten-Million-scale 3D Shape Model](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/8/2024-01-23+Make-A-Shape%3A+a+Ten-Million-scale+3D+Shape+Model.yaml) / 2024-01-23
 - [Sketch2NeRF: Multi-view Sketch-guided Text-to-3D Generation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/11/2024-01-26+Sketch2NeRF%3A+Multi-view+Sketch-guided+Text-to-3D+Generation.yaml) / 2024-01-26
+- [Phased Consistency Model](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/89/2024-05-29+Phased+Consistency+Model.yaml) / 2024-05-29

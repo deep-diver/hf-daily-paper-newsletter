@@ -460,3 +460,6 @@
 - [Matryoshka Multimodal Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/88/2024-05-28+Matryoshka+Multimodal+Models.yaml) / 2024-05-28
 - [Part123: Part-aware 3D Reconstruction from a Single-view Image](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/88/2024-05-28+Part123%3A+Part-aware+3D+Reconstruction+from+a+Single-view+Image.yaml) / 2024-05-28
 - [Vidu4D: Single Generated Video to High-Fidelity 4D Reconstruction with Dynamic Gaussian Surfels](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/88/2024-05-28+Vidu4D%3A+Single+Generated+Video+to+High-Fidelity+4D+Reconstruction+with+Dynamic+Gaussian+Surfels.yaml) / 2024-05-28
+- [3DitScene: Editing Any Scene via Language-guided Disentangled Gaussian Splatting](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/89/2024-05-29+3DitScene%3A+Editing+Any+Scene+via+Language-guided+Disentangled+Gaussian+Splatting.yaml) / 2024-05-29
+- [GFlow: Recovering 4D World from Monocular Video](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/89/2024-05-29+GFlow%3A+Recovering+4D+World+from+Monocular+Video.yaml) / 2024-05-29
+- [Phased Consistency Model](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/89/2024-05-29+Phased+Consistency+Model.yaml) / 2024-05-29

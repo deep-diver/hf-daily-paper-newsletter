@@ -2,3 +2,4 @@
 - [MusicRL: Aligning Music Generation to Human Preferences](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/19/2024-02-07+MusicRL%3A+Aligning+Music+Generation+to+Human+Preferences.yaml) / 2024-02-07
 - [MusicHiFi: Fast High-Fidelity Stereo Vocoding](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/46/2024-03-18+MusicHiFi%3A+Fast+High-Fidelity+Stereo+Vocoding.yaml) / 2024-03-18
 - [Long-form music generation with latent diffusion](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/68/2024-04-17+Long-form+music+generation+with+latent+diffusion.yaml) / 2024-04-17
+- [Instruct-MusicGen: Unlocking Text-to-Music Editing for Music Language Models via Instruction Tuning](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/89/2024-05-29+Instruct-MusicGen%3A+Unlocking+Text-to-Music+Editing+for+Music+Language+Models+via+Instruction+Tuning.yaml) / 2024-05-29
