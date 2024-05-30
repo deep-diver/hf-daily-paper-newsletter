@@ -37,3 +37,4 @@
 - [Grounded 3D-LLM with Referent Tokens](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/83/2024-05-20+Grounded+3D-LLM+with+Referent+Tokens.yaml) / 2024-05-20
 - [Octo: An Open-Source Generalist Robot Policy](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/84/2024-05-21+Octo%3A+An+Open-Source+Generalist+Robot+Policy.yaml) / 2024-05-21
 - [iVideoGPT: Interactive VideoGPTs are Scalable World Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/87/2024-05-27+iVideoGPT%3A+Interactive+VideoGPTs+are+Scalable+World+Models.yaml) / 2024-05-27
+- [NPGA: Neural Parametric Gaussian Avatars](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/90/2024-05-30+NPGA%3A+Neural+Parametric+Gaussian+Avatars.yaml) / 2024-05-30
