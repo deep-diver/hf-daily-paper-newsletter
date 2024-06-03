@@ -1,1 +1,2 @@
 - [Video Mamba Suite: State Space Model as a Versatile Alternative for Video Understanding](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/45/2024-03-15+Video+Mamba+Suite%3A+State+Space+Model+as+a+Versatile+Alternative+for+Video+Understanding.yaml) / 2024-03-15
+- [4Diffusion: Multi-view Video Diffusion Model for 4D Generation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/92/2024-06-03+4Diffusion%3A+Multi-view+Video+Diffusion+Model+for+4D+Generation.yaml) / 2024-06-03
