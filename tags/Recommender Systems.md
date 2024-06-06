@@ -4,3 +4,4 @@
 - [Wukong: Towards a Scaling Law for Large-Scale Recommendation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/38/2024-03-06+Wukong%3A+Towards+a+Scaling+Law+for+Large-Scale+Recommendation.yaml) / 2024-03-06
 - [Personalized Audiobook Recommendations at Spotify Through Graph Neural Networks](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/41/2024-03-11+Personalized+Audiobook+Recommendations+at+Spotify+Through+Graph+Neural+Networks.yaml) / 2024-03-11
 - [Evolutionary Optimization of Model Merging Recipes](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/49/2024-03-21+Evolutionary+Optimization+of+Model+Merging+Recipes.yaml) / 2024-03-21
+- [Item-Language Model for Conversational Recommendation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/95/2024-06-06+Item-Language+Model+for+Conversational+Recommendation.yaml) / 2024-06-06

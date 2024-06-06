@@ -1,0 +1,1 @@
+- [Audio Mamba: Bidirectional State Space Model for Audio Representation Learning](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/95/2024-06-06+Audio+Mamba%3A+Bidirectional+State+Space+Model+for+Audio+Representation+Learning.yaml) / 2024-06-06
