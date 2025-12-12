@@ -10,6 +10,8 @@ This guide explains the basic Git commands that are essential for version contro
 - [git commit](#git-commit)
 - [git push](#git-push)
 - [git pull](#git-pull)
+- [Common Workflow Example](#common-workflow-example)
+- [Additional Tips](#additional-tips)
 
 ---
 
@@ -70,11 +72,11 @@ git clone <repository-url> [directory]
 
 1. Clone a repository using HTTPS:
 ```bash
-git clone https://github.com/deep-diver/hf-daily-paper-newsletter.git
+git clone https://github.com/username/repository.git
 ```
 Output:
 ```
-Cloning into 'hf-daily-paper-newsletter'...
+Cloning into 'repository'...
 remote: Enumerating objects: 1234, done.
 remote: Counting objects: 100% (1234/1234), done.
 remote: Compressing objects: 100% (567/567), done.
@@ -280,15 +282,24 @@ git add forgotten-file.js
 git commit --amend -m "Updated commit message"
 ```
 
-6. Commit with a detailed message template:
+6. Commit with a detailed multi-line message using multiple -m flags:
 ```bash
-git commit -m "feat: add user profile page
+git commit -m "feat: add user profile page" -m "- Created user profile component" -m "- Added profile editing functionality" -m "- Implemented avatar upload feature" -m "Resolves: #123"
+```
+
+Or use the editor for complex messages (opens your default editor):
+```bash
+git commit
+```
+Then write in the editor:
+```
+feat: add user profile page
 
 - Created user profile component
 - Added profile editing functionality
 - Implemented avatar upload feature
 
-Resolves: #123"
+Resolves: #123
 ```
 
 **Best practices for commit messages:**
