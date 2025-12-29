@@ -10,3 +10,5 @@
 - [MM1: Methods, Analysis & Insights from Multimodal LLM Pre-training](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/45/2024-03-15+MM1%3A+Methods%2C+Analysis+%26+Insights+from+Multimodal+LLM+Pre-training.yaml) / 2024-03-15
 - [Condition-Aware Neural Network for Controlled Image Generation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/57/2024-04-02+Condition-Aware+Neural+Network+for+Controlled+Image+Generation.yaml) / 2024-04-02
 - [The Road Less Scheduled](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/87/2024-05-27+The+Road+Less+Scheduled.yaml) / 2024-05-27
+- [TimeBill: Time-Budgeted Inference for Large Language Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/500/2025-12-25+TimeBill%3A+Time-Budgeted+Inference+for+Large+Language+Models.yaml) / 2025-12-25
+- [MAI-UI Technical Report: Real-World Centric Foundation GUI Agents](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/503/2025-12-26+MAI-UI+Technical+Report%3A+Real-World+Centric+Foundation+GUI+Agents.yaml) / 2025-12-26

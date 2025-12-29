@@ -89,7 +89,7 @@ func (r *Request) sendMail() bool {
 	body := "To: " + r.to[0] + "\r\nSubject: " + r.subject + "\r\n" + MIME + "\r\n" + r.body
 	SMTP := fmt.Sprintf("%s:%d", "smtp.gmail.com", 587)
 
-	if err := smtp.SendMail(SMTP, smtp.PlainAuth("", r.from, r.password, "smtp.gmail.com"), "deep.diver.csp@gmail.com", r.to, []byte(body)); err != nil {
+	if err := smtp.SendMail(SMTP, smtp.PlainAuth("", r.from, r.password, "smtp.gmail.com"), r.from, r.to, []byte(body)); err != nil {
 		fmt.Println(err)
 		fmt.Println("fail on smtp.SendMail")
 		return false
@@ -108,4 +108,14 @@ func (r *Request) Send(templatePath string, items interface{}) {
 	} else {
 		fmt.Printf("Failed to send the email to %s\n", r.to)
 	}
+}
+
+// GetBody returns the parsed HTML body
+func (r *Request) GetBody() string {
+	return r.body
+}
+
+// ParseOnly parses the template without sending email
+func (r *Request) ParseOnly(templatePath string, items interface{}) error {
+	return r.parseTemplate(templatePath, items)
 }

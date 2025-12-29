@@ -45,7 +45,7 @@ type DailyPaper struct {
 	Paper PaperDetail `json:"paper"`
     PublishedAt string `json:"publishedAt"`
     Title string `json:"title"`
-	MediaUrl string `json:"mediaUrl`
+	Thumbnail string `json:"thumbnail`
     NumComments int `json:"numComments"`
 }
 
@@ -70,7 +70,6 @@ var parseCmd = &cobra.Command{
 		filename, _ := cmd.Flags().GetString("filename")
 		outputdir, _ := cmd.Flags().GetString("outputdir")
 		geminiapikey, _ := cmd.Flags().GetString("geminiapikey")
-		solarapikey, _ := cmd.Flags().GetString("solarapikey")
 
 		file, err := os.Open(filename)
 		if err != nil {
@@ -95,14 +94,14 @@ var parseCmd = &cobra.Command{
 		for _, paper := range daily_papers {
 			title := strings.Replace(paper.Title, "\n", " ", -1)
 			abstract := strings.Replace(paper.Paper.Summary, "\n", " ", -1)
-			summary := internal.SummarizeAbstract(solarapikey, title, abstract)
+			summary := internal.SummarizeAbstractWithGemini(geminiapikey, title, abstract)
 			tags := SuggestCategories(geminiapikey, title, summary)
 
 			paper_post := PaperPost {
 				Date: paper.PublishedAt[:10],
 				Author: paper.Paper.Authors[0].Name,
 				Title: title,
-				Thumbnail: paper.MediaUrl,
+				Thumbnail: paper.Thumbnail,
 				Link: "https://huggingface.co/papers/" + paper.Paper.Id,
 				Summary: summary + "...",
 				Opinion: "placeholder",
@@ -144,7 +143,7 @@ func SuggestCategories(geminiapikey string, title string, abstract string) []str
 	}
 	defer client.Close()
 	
-	model := client.GenerativeModel("gemini-1.0-pro")
+	model := client.GenerativeModel("gemini-2.5-flash")
 
 	resp, err := model.GenerateContent(ctx, genai.Text(prompt))
 	if err != nil {

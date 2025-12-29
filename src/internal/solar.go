@@ -25,7 +25,7 @@ Abstract: "%s"
 	resp, err := client.CreateChatCompletion(
 		context.Background(),
 		openai.ChatCompletionRequest{
-			Model: "upstage/solar-1-mini-chat",
+			Model: "solar-1-mini-chat",
 			Messages: []openai.ChatCompletionMessage{
 				{
 					Role:    openai.ChatMessageRoleUser,
