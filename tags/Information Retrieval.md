@@ -1,2 +1,0 @@
-- [FollowIR: Evaluating and Teaching Information Retrieval Models to Follow Instructions](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/51/2024-03-25+FollowIR%3A+Evaluating+and+Teaching+Information+Retrieval+Models+to+Follow+Instructions.yaml) / 2024-03-25
-- [Jina CLIP: Your CLIP Model Is Also Your Text Retriever](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/91/2024-05-31+Jina+CLIP%3A+Your+CLIP+Model+Is+Also+Your+Text+Retriever.yaml) / 2024-05-31

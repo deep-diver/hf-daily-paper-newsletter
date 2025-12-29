@@ -1,1 +1,0 @@
-- [VideoAgent: Long-form Video Understanding with Large Language Model as Agent](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/46/2024-03-18+VideoAgent%3A+Long-form+Video+Understanding+with+Large+Language+Model+as+Agent.yaml) / 2024-03-18

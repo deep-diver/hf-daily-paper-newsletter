@@ -1,1 +1,0 @@
-- [Compress3D: a Compressed Latent Space for 3D Generation from a Single Image](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/49/2024-03-21+Compress3D%3A+a+Compressed+Latent+Space+for+3D+Generation+from+a+Single+Image.yaml) / 2024-03-21

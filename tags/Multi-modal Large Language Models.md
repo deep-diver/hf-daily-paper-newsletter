@@ -1,1 +1,0 @@
-- [Mobile-Agent-v2: Mobile Device Operation Assistant with Effective Navigation via Multi-Agent Collaboration](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/95/2024-06-06+Mobile-Agent-v2%3A+Mobile+Device+Operation+Assistant+with+Effective+Navigation+via+Multi-Agent+Collaboration.yaml) / 2024-06-06

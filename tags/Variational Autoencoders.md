@@ -1,1 +1,0 @@
-- [LiteVAE: Lightweight and Efficient Variational Autoencoders for Latent Diffusion Models](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/86/2024-05-24+LiteVAE%3A+Lightweight+and+Efficient+Variational+Autoencoders+for+Latent+Diffusion+Models.yaml) / 2024-05-24

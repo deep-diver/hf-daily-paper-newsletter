@@ -1,1 +1,0 @@
-- [Learning Continuous 3D Words for Text-to-Image Generation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/24/2024-02-14+Learning+Continuous+3D+Words+for+Text-to-Image+Generation.yaml) / 2024-02-14

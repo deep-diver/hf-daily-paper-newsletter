@@ -1,1 +1,0 @@
-- [3DGStream: On-the-Fly Training of 3D Gaussians for Efficient Streaming of Photo-Realistic Free-Viewpoint Videos](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/37/2024-03-05+3DGStream%3A+On-the-Fly+Training+of+3D+Gaussians+for+Efficient+Streaming+of+Photo-Realistic+Free-Viewpoint+Videos.yaml) / 2024-03-05

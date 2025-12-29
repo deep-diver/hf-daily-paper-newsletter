@@ -1,2 +1,0 @@
-- [Copilot Evaluation Harness: Evaluating LLM-Guided Software Programming](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/31/2024-02-23+Copilot+Evaluation+Harness%3A+Evaluating+LLM-Guided+Software+Programming.yaml) / 2024-02-23
-- [How Far Can We Go with Practical Function-Level Program Repair?](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/70/2024-04-22+How+Far+Can+We+Go+with+Practical+Function-Level+Program+Repair%3F.yaml) / 2024-04-22

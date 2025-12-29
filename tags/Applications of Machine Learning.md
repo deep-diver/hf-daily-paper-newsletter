@@ -1,1 +1,0 @@
-- [LAVE: LLM-Powered Agent Assistance and Language Augmentation for Video Editing](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/27/2024-02-19+LAVE%3A+LLM-Powered+Agent+Assistance+and+Language+Augmentation+for+Video+Editing.yaml) / 2024-02-19

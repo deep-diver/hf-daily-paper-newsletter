@@ -1,1 +1,0 @@
-- [InstaGen: Enhancing Object Detection by Training on Synthetic Dataset](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/21/2024-02-09+InstaGen%3A+Enhancing+Object+Detection+by+Training+on+Synthetic+Dataset.yaml) / 2024-02-09

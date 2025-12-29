@@ -1,1 +1,0 @@
-- [RadSplat: Radiance Field-Informed Gaussian Splatting for Robust Real-Time Rendering with 900+ FPS](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/49/2024-03-21+RadSplat%3A+Radiance+Field-Informed+Gaussian+Splatting+for+Robust+Real-Time+Rendering+with+900%2B+FPS.yaml) / 2024-03-21

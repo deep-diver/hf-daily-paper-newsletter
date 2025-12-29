@@ -1,1 +1,0 @@
-- [COCONut: Modernizing COCO Segmentation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/66/2024-04-15+COCONut%3A+Modernizing+COCO+Segmentation.yaml) / 2024-04-15

@@ -1,4 +1,0 @@
-- [GALA: Generating Animatable Layered Assets from a Single Scan](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/9/2024-01-24+GALA%3A+Generating+Animatable+Layered+Assets+from+a+Single+Scan.yaml) / 2024-01-24
-- [MagicClay: Sculpting Meshes With Generative Neural Fields](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/38/2024-03-06+MagicClay%3A+Sculpting+Meshes+With+Generative+Neural+Fields.yaml) / 2024-03-06
-- [TexDreamer: Towards Zero-Shot High-Fidelity 3D Human Texture Generation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/48/2024-03-20+TexDreamer%3A+Towards+Zero-Shot+High-Fidelity+3D+Human+Texture+Generation.yaml) / 2024-03-20
-- [SAGS: Structure-Aware 3D Gaussian Splatting](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/76/2024-05-01+SAGS%3A+Structure-Aware+3D+Gaussian+Splatting.yaml) / 2024-05-01

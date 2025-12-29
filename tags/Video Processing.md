@@ -1,2 +1,0 @@
-- [Video Editing via Factorized Diffusion Distillation](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/45/2024-03-15+Video+Editing+via+Factorized+Diffusion+Distillation.yaml) / 2024-03-15
-- [Looking Backward: Streaming Video-to-Video Translation with Feature Banks](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/88/2024-05-28+Looking+Backward%3A+Streaming+Video-to-Video+Translation+with+Feature+Banks.yaml) / 2024-05-28

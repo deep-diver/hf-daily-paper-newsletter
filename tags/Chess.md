@@ -1,1 +1,0 @@
-- [Grandmaster-Level Chess Without Search](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/20/2024-02-08+Grandmaster-Level+Chess+Without+Search.yaml) / 2024-02-08

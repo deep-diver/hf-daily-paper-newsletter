@@ -1,1 +1,0 @@
-- [Introducing v0.5 of the AI Safety Benchmark from MLCommons](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/69/2024-04-19+Introducing+v0.5+of+the+AI+Safety+Benchmark+from+MLCommons.yaml) / 2024-04-19

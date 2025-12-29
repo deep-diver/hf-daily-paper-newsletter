@@ -1,1 +1,0 @@
-- [Capabilities of Gemini Models in Medicine](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/75/2024-04-30+Capabilities+of+Gemini+Models+in+Medicine.yaml) / 2024-04-30

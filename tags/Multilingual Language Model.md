@@ -1,1 +1,0 @@
-- [Aya Model: An Instruction Finetuned Open-Access Multilingual Language Model](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/23/2024-02-13+Aya+Model%3A+An+Instruction+Finetuned+Open-Access+Multilingual+Language+Model.yaml) / 2024-02-13

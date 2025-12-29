@@ -1,1 +1,0 @@
-- [FlexEdit: Flexible and Controllable Diffusion-based Object-centric Image Editing](https://github.com/deep-diver/hf-daily-paper-newsletter/blob/main/archive/54/2024-03-28+FlexEdit%3A+Flexible+and+Controllable+Diffusion-based+Object-centric+Image+Editing.yaml) / 2024-03-28
