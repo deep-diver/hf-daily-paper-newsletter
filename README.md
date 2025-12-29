@@ -1,5 +1,3 @@
-[![collect_papers](https://github.com/deep-diver/hf-daily-paper-newsletter/actions/workflows/collect_papers.yml/badge.svg)](https://github.com/deep-diver/hf-daily-paper-newsletter/actions/workflows/collect_papers.yml) [![mov_to_gif](https://github.com/deep-diver/hf-daily-paper-newsletter/actions/workflows/mov_to_gif.yaml/badge.svg)](https://github.com/deep-diver/hf-daily-paper-newsletter/actions/workflows/mov_to_gif.yaml) [![translation-ko](https://github.com/deep-diver/hf-daily-paper-newsletter/actions/workflows/translation(ko).yaml/badge.svg)](https://github.com/deep-diver/hf-daily-paper-newsletter/actions/workflows/translation(ko).yaml) [![send_newsletter](https://github.com/deep-diver/hf-daily-paper-newsletter/actions/workflows/newsletter.yml/badge.svg)](https://github.com/deep-diver/hf-daily-paper-newsletter/actions/workflows/newsletter.yml)
-
 # Daily Newsletter for 🤗 Daily Papers 
 
 [![Click to - Subscribe Newsletter](https://img.shields.io/badge/Click_to-Subscribe_Newsletter-2ea44f?style=for-the-badge)](https://groups.google.com/g/hf-daily-paper-newsletter)
