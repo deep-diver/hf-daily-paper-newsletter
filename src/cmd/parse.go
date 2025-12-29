@@ -129,7 +129,7 @@ func SuggestCategories(geminiapikey string, title string, abstract string) []str
 
 	Title: "%s"
 	Abstract: "%s"
-	
+
 	Your response should be formatted in a valid JSON as {"categories": list}
 	`
 	prompt = fmt.Sprintf(prompt, title, abstract)
@@ -138,15 +138,16 @@ func SuggestCategories(geminiapikey string, title string, abstract string) []str
 	// Access your API key as an environment variable (see "Set up your API key" above)
 	client, err := genai.NewClient(ctx, option.WithAPIKey(geminiapikey))
 	if err != nil {
-		fmt.Println(err)
+		fmt.Printf("[TAG ERROR] Client creation failed for '%s': %v\n", title[:50], err)
 		return []string{"ML"}
 	}
 	defer client.Close()
-	
+
 	model := client.GenerativeModel("gemini-2.5-flash")
 
 	resp, err := model.GenerateContent(ctx, genai.Text(prompt))
 	if err != nil {
+		fmt.Printf("[TAG ERROR] GenerateContent failed for '%s': %v\n", title[:50], err)
 		return []string{"ML"}
 	}
 
@@ -165,6 +166,7 @@ func parseResponse(str string) Tags {
 
     // Check if both "{" and "}" are found
     if startIndex == -1 || endIndex == -1 {
+        fmt.Printf("[TAG ERROR] No JSON found in response: %s\n", str[:200])
         return Tags {Categories: []string{"ML"}}
     }
 
@@ -178,6 +180,7 @@ func parseResponse(str string) Tags {
     // Unmarshal the JSON into the struct
     err := json.Unmarshal([]byte(trimmedResp), &tags)
     if err != nil {
+        fmt.Printf("[TAG ERROR] JSON parse failed: %v | Response: %s\n", err, trimmedResp[:200])
         return Tags {Categories: []string{"ML"}}
     }
 
