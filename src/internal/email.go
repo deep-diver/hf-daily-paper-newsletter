@@ -33,6 +33,7 @@ type Email struct {
 	FooterTitle   string
 	Header        Head
 	FirstSection  Section
+	Highlights    Highlights // Daily highlights section
 	ArticleTuples []ArticleTuple // has to be
 }
 

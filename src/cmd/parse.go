@@ -25,6 +25,7 @@ var Filename string
 var OutputDir string
 var GeminiAPIKey string
 var SolarAPIKey string
+var WithPosters bool
 
 type Author struct {
 	Id string `json:"_id"`
@@ -58,6 +59,7 @@ type PaperPost struct {
 	Summary string `yaml:"summary"`
 	Opinion string `yaml:"opinion"`
 	Tags []string `yaml:"tags"`
+	PosterPath string `yaml:"poster_path,omitempty"`
 }
 
 // publishCmd represents the publish command
@@ -70,6 +72,7 @@ var parseCmd = &cobra.Command{
 		filename, _ := cmd.Flags().GetString("filename")
 		outputdir, _ := cmd.Flags().GetString("outputdir")
 		geminiapikey, _ := cmd.Flags().GetString("geminiapikey")
+		withPosters, _ := cmd.Flags().GetBool("with-posters")
 
 		file, err := os.Open(filename)
 		if err != nil {
@@ -97,15 +100,25 @@ var parseCmd = &cobra.Command{
 			summary := internal.SummarizeAbstractWithGemini(geminiapikey, title, abstract)
 			tags := SuggestCategories(geminiapikey, title, summary)
 
+			paperLink := "https://huggingface.co/papers/" + paper.Paper.Id
+			posterPath := ""
+
+			// Generate poster if experimental flag is enabled
+			if withPosters {
+				fmt.Printf("[POSTER] Generating poster for %s...\n", paper.Paper.Id)
+				posterPath = internal.GeneratePoster(paperLink, "posters")
+			}
+
 			paper_post := PaperPost {
 				Date: paper.PublishedAt[:10],
 				Author: paper.Paper.Authors[0].Name,
 				Title: title,
 				Thumbnail: paper.Thumbnail,
-				Link: "https://huggingface.co/papers/" + paper.Paper.Id,
+				Link: paperLink,
 				Summary: summary + "...",
 				Opinion: "placeholder",
 				Tags: tags,
+				PosterPath: posterPath,
 			}
 
 			data, err := yaml.Marshal(&paper_post)
@@ -113,7 +126,7 @@ var parseCmd = &cobra.Command{
 				fmt.Printf("Error marshalling to YAML: %v", err)
 				return
 			}
-		
+
 			out_filepath := outputdir + "/" + paper.PublishedAt[:10] + " " + title + ".yaml"
 			err = os.WriteFile(out_filepath, data, 0644)
 			if err != nil {
@@ -125,12 +138,20 @@ var parseCmd = &cobra.Command{
 }
 
 func SuggestCategories(geminiapikey string, title string, abstract string) []string {
-	prompt := `Based on the following information of an academic research paper, suggest the categories of the paper among "Supervised Learning", "Unsupervised Learning", "Reinforcement Learning", "Deep Learning", "Bayesian Learning", "Optimization and Learning Algorithms", "Explainable AI and Interpretability", "Fairness, Bias, and Ethics", "Natural Language Processing", "Computer Vision", "Speech Recognition and Synthesis", "Time Series Analysis and Forecasting", "Recommender Systems", "Network Analysis and Graph Mining", "Bioinformatics and Computational Biology", "Robotics and Control", "Security and Privacy", "Optimization and Decision Making", "Human-Computer Interaction (HCI) and User Interfaces", and "Emerging Applications of Machine Learning".
+	prompt := `Based on the following information of an academic research paper, suggest EXACTLY 2 specific tags that best describe the paper's focus.
 
-	Title: "%s"
-	Abstract: "%s"
+IMPORTANT: Avoid overly generic terms like "Machine Learning", "Deep Learning", "Computer Vision", "Natural Language Processing", "Artificial Intelligence". Instead, use specific sub-fields, techniques, or applications.
 
-	Your response should be formatted in a valid JSON as {"categories": list}
+Examples of GOOD specific tags:
+- Instead of "Computer Vision" → use "Diffusion Models", "Object Detection", "Image Segmentation", "Visual Reasoning", "Video Understanding"
+- Instead of "NLP" → use "Transformers", "Large Language Models", "Question Answering", "Machine Translation", "Retrieval Augmented Generation"
+- Instead of "Deep Learning" → use "Graph Neural Networks", "Federated Learning", "Prompt Engineering", "Model Compression"
+- Instead of generic terms → use "Multimodal Learning", "Reinforcement Learning", "Knowledge Distillation", "Few-shot Learning", "Embodied AI"
+
+Title: "%s"
+Abstract: "%s"
+
+Return EXACTLY 2 specific tags as JSON: {"categories": ["tag1", "tag2"]}
 	`
 	prompt = fmt.Sprintf(prompt, title, abstract)
 
@@ -153,6 +174,10 @@ func SuggestCategories(geminiapikey string, title string, abstract string) []str
 
 	resp_text := fmt.Sprintf("%s", resp.Candidates[0].Content.Parts[0])
 	tags := parseResponse(resp_text)
+	// Limit to 2 tags
+	if len(tags.Categories) > 2 {
+		tags.Categories = tags.Categories[:2]
+	}
 	return tags.Categories
 }
 
@@ -193,4 +218,5 @@ func init() {
 	parseCmd.Flags().StringVarP(&OutputDir, "outputdir", "o", "", "outputdir")
 	parseCmd.Flags().StringVarP(&GeminiAPIKey, "geminiapikey", "g", "", "geminiapikey")
 	parseCmd.Flags().StringVarP(&SolarAPIKey, "solarapikey", "s", "", "solarapikey")
+	parseCmd.Flags().BoolVar(&WithPosters, "with-posters", false, "experimental: generate poster images using arxiv2poster")
 }

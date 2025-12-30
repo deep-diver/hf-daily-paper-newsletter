@@ -15,6 +15,7 @@ import (
 
 var SubTitle string
 var DryRun bool
+var currentGeminiAPIKey string
 
 // currentCmd represents the current command
 var currentCmd = &cobra.Command{
@@ -30,6 +31,7 @@ to quickly create a Cobra application.`,
 		// - how to get argument
 		subtitle, _ := cmd.Flags().GetString("subtitle")
 		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		geminiKey, _ := cmd.Flags().GetString("gemini-api-key")
 
 		config := internal.GetConfigs("../configs.yaml")
 		email_config := config.Email
@@ -45,6 +47,15 @@ to quickly create a Cobra application.`,
 		}
 		articleTuples := internal.ZipArticleTuples(articles, email_config.ContentLinkBtnTitle, email_config.BgColor)
 		fmt.Println(articleTuples)
+
+		// 2.5. Generate highlights
+		highlights := internal.ComputeHighlights(articles)
+		// Generate daily insight using Gemini if API key is provided
+		if geminiKey != "" {
+			fmt.Println("Generating daily insight with Gemini...")
+			highlights.DailyInsight = internal.GenerateDailyInsight(geminiKey, articles)
+			fmt.Printf("Daily insight: %s\n", highlights.DailyInsight)
+		}
 
 		seqNum := 1 // Fixed sequence number since archiving is disabled
 		// 3. fill out template
@@ -62,6 +73,7 @@ to quickly create a Cobra application.`,
 			FirstSection: internal.Section{
 				Title: email_config.SectionTitle,
 			},
+			Highlights:    highlights,
 			ArticleTuples: articleTuples,
 		}
 		fmt.Println(email)
@@ -97,4 +109,5 @@ func init() {
 	publishCmd.AddCommand(currentCmd)
 	currentCmd.Flags().StringVarP(&SubTitle, "subtitle", "s", "", "subtitle to be concatenated to the main title defined in configs.yaml")
 	currentCmd.Flags().BoolVarP(&DryRun, "dry-run", "d", false, "skip email sending (for testing)")
+	currentCmd.Flags().StringVar(&currentGeminiAPIKey, "gemini-api-key", "", "Gemini API key for generating daily insight")
 }

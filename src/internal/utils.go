@@ -4,7 +4,48 @@ import (
 	"fmt"
 	"io/ioutil"
 	"path/filepath"
+	"sort"
 )
+
+// ComputeHighlights generates highlights from a list of articles
+func ComputeHighlights(articles []Article) Highlights {
+	highlights := Highlights{
+		PaperCount: len(articles),
+		AllTitles:  make([]string, 0, len(articles)),
+	}
+
+	// Collect all titles
+	for _, article := range articles {
+		highlights.AllTitles = append(highlights.AllTitles, article.Title)
+	}
+
+	// Count tag frequencies
+	tagCounts := make(map[string]int)
+	for _, article := range articles {
+		for _, tag := range article.Tags {
+			tagCounts[tag]++
+		}
+	}
+
+	// Convert to slice and sort by count (descending)
+	tagCountSlice := make([]TagCount, 0, len(tagCounts))
+	for tag, count := range tagCounts {
+		tagCountSlice = append(tagCountSlice, TagCount{Tag: tag, Count: count})
+	}
+
+	sort.Slice(tagCountSlice, func(i, j int) bool {
+		return tagCountSlice[i].Count > tagCountSlice[j].Count
+	})
+
+	// Take top 5 tags
+	if len(tagCountSlice) > 5 {
+		highlights.TopTags = tagCountSlice[:5]
+	} else {
+		highlights.TopTags = tagCountSlice
+	}
+
+	return highlights
+}
 
 func GetListOfFilesAt(in string, extension string) []string {
 	in, _ = filepath.Abs(in)
