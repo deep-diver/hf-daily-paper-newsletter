@@ -106,7 +106,7 @@ var parseCmd = &cobra.Command{
 			// Generate poster if experimental flag is enabled
 			if withPosters {
 				fmt.Printf("[POSTER] Generating poster for %s...\n", paper.Paper.Id)
-				posterPath = internal.GeneratePoster(paperLink, "posters")
+				posterPath = internal.GeneratePoster(paperLink, "../posters")
 			}
 
 			paper_post := PaperPost {
